@@ -26140,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.20";
+const APP_VERSION = "v20.21";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32265,21 +32265,92 @@ function localDateStr(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
+// Paycor stores every shift's startDateTime/endDateTime as a UTC ISO string,
+// but every PCG store operates in Eastern time and every manager thinks in
+// Eastern time — these two functions bridge that gap. Neither hardcodes a
+// fixed UTC offset (which would be wrong roughly half the year, since
+// Eastern alternates EDT/UTC-4 and EST/UTC-5) — both use Intl's real IANA
+// timezone database via 'America/New_York', the same approach already used
+// elsewhere in this file (e.g. app.jsx:10338-10339), so DST transitions are
+// handled correctly automatically. Bug found + fixed 2026-08-28: a real
+// employee's real 6:00 AM-12:00 PM Eastern shift was displaying (and would
+// have been WRITTEN) as raw UTC 10:00-16:00, a genuine 4-hour error.
+
+// A UTC ISO string -> Eastern wall-clock date + time.
+function scheduleUtcToEastern(utcIso) {
+  const d = new Date(utcIso);
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+  const get = (t) => parts.find(p => p.type === t).value;
+  return { dateStr: `${get('year')}-${get('month')}-${get('day')}`, hh: Number(get('hour')) % 24, mm: Number(get('minute')) };
+}
+
+// The reverse: an Eastern wall-clock date + time -> the equivalent UTC ISO
+// string. Works by guessing (treating the wall-clock values as if they were
+// already UTC), checking what Eastern time that guess actually represents,
+// then correcting by the difference — this naturally picks up whichever
+// offset (EDT/EST) applies on that specific date without hardcoding either.
+// Every correction is VERIFIED by converting back, because a single
+// correction is not always enough: it corrects by the offset in force at the
+// guess instant, and on the two DST-transition Sundays each year the guess
+// can sit on the far side of the transition from the answer, landing exactly
+// one hour off. Confirmed concretely 2026-08-28: a single pass turned a
+// real-shaped 4:30 AM opening shift on 2026-11-01 (fall-back Sunday) into
+// 3:30 AM — a wrong payroll write. The verified second pass fixes it.
+function scheduleEasternToUtc(dateStr, hh, mm) {
+  const wantedMin = hh * 60 + mm;
+  const dayStartMs = (ds) => new Date(ds + 'T00:00:00Z').getTime();
+  // Minutes by which a candidate instant's true Eastern wall-clock time
+  // differs from the wall-clock time we're aiming for (day rollover included).
+  const errorMin = (candidate) => {
+    const back = scheduleUtcToEastern(candidate.toISOString());
+    const gotMin = back.hh * 60 + back.mm + Math.round((dayStartMs(back.dateStr) - dayStartMs(dateStr)) / 60000);
+    return wantedMin - gotMin;
+  };
+  const guess = new Date(`${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  const pass1 = new Date(guess.getTime() + errorMin(guess) * 60000);
+  const err1 = errorMin(pass1);
+  if (err1 === 0) return pass1.toISOString();
+  const pass2 = new Date(pass1.getTime() + err1 * 60000);
+  if (errorMin(pass2) === 0) return pass2.toISOString();
+  // Neither is exact only when the requested wall-clock time doesn't exist at
+  // all — the 2 AM hour skipped on spring-forward Sunday. Return pass 1,
+  // which maps it forward into the new offset (2:00 AM -> 3:00 AM), the
+  // standard convention for a nonexistent local time.
+  return pass1.toISOString();
+}
+
+// 12-hour, AM/PM display format for a "HH:MM" (24-hour, Eastern) string —
+// per explicit user request (2026-08-28): 24-hour times ("13:00"-"24:00")
+// read as confusing to managers, always show 12-hour with AM/PM instead.
+// Display-only — the underlying stored/edited value stays 24-hour "HH:MM".
+function scheduleFormat12h(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 // Groups a schedulingShifts API read (flat array of shift records) by
 // employeeId, converting each shift's absolute startDateTime/endDateTime
 // into a { dayOffset (0=Sunday of the given week), startTime, endTime }
 // shape relative to weekStartISO — used to pre-fill each employee's card
 // with last week's actual shifts. See docs/superpowers/specs/2026-08-25-labor-schedule-builder-design.md.
+// startTime/endTime are Eastern wall-clock times (NOT raw UTC — see the
+// 2026-08-28 fix above), and dayOffset is computed from the Eastern
+// calendar date the shift starts on, so a late-night Eastern shift whose
+// UTC start falls on the next UTC calendar day (e.g. 11 PM-2 AM Eastern)
+// still lands on the correct day of the grid.
 function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
   const weekStart = new Date(weekStartISO + 'T00:00:00Z');
   const byEmployee = {};
   (shiftRecords || []).forEach(s => {
-    const start = new Date(s.startDateTime);
-    const end = new Date(s.endDateTime);
-    const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 86400000);
-    const fmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    const startET = scheduleUtcToEastern(s.startDateTime);
+    const endET = scheduleUtcToEastern(s.endDateTime);
+    const startDateUTC = new Date(startET.dateStr + 'T00:00:00Z');
+    const dayOffset = Math.round((startDateUTC - weekStart) / 86400000);
+    const fmt = (et) => `${String(et.hh).padStart(2, '0')}:${String(et.mm).padStart(2, '0')}`;
     if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
-    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+    byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
   });
   return byEmployee;
 }
@@ -32354,7 +32425,7 @@ function scheduleBuildShareText(weekStartISO, approvedCards) {
   };
   const lines = [`Schedule — week of ${dateFor(0)}`, ''];
   (approvedCards || []).filter(c => (c.shifts || []).length > 0).forEach(c => {
-    const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map(s => `${SCHEDULE_DOW[s.dayOffset]} ${s.startTime}-${s.endTime}`);
+    const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map(s => `${SCHEDULE_DOW[s.dayOffset]} ${scheduleFormat12h(s.startTime)}-${scheduleFormat12h(s.endTime)}`);
     lines.push(`${c.employeeName}: ${shiftParts.join(', ')}`);
   });
   return lines.join('\n');
@@ -32409,7 +32480,7 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th }) {
                     <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
                       {shift && (
                         <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text }}>
-                          {shift.startTime}–{shift.endTime}
+                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
                         </div>
                       )}
                     </td>
@@ -32477,9 +32548,22 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
           {(cardData.shifts || []).length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.8rem' }}>No shifts proposed (new employee, or none last week)</div>}
           {(cardData.shifts || []).map((s, i) => (
             <div key={i} style={{ fontSize: '0.8rem', color: th.text, marginBottom: '0.3rem' }}>
-              {SCHEDULE_DOW[s.dayOffset]}: {s.startTime}–{s.endTime}
+              {SCHEDULE_DOW[s.dayOffset]}: {scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
             </div>
           ))}
+          {(cardData.shifts || []).length > 0 && (() => {
+            // Running weekly total on the employee's own card (user request
+            // 2026-08-28) — same overnight-safe duration math as
+            // scheduleComputeWeeklyTotal / WeeklyScheduleGrid.
+            const totalHours = cardData.shifts.reduce((sum, s) => {
+              const [sh1, sm1] = s.startTime.split(':').map(Number);
+              const [sh2, sm2] = s.endTime.split(':').map(Number);
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return <div style={{ fontSize: '0.78rem', color: th.muted, fontWeight: 600, marginTop: '0.4rem', marginBottom: '0.4rem' }}>{Math.round(totalHours * 10) / 10}h this week</div>;
+          })()}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.9rem' }}>
             <button onClick={onApprove} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Approve</button>
             <button onClick={() => { setDraftShifts(cardData.shifts || []); setEditing(true); }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Edit</button>
@@ -32645,13 +32729,24 @@ function ScheduleBuilder({ store, th, mode }) {
         const dayDate = new Date(weekStart + 'T00:00:00Z');
         dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
         const dateStr = dayDate.toISOString().slice(0, 10);
+        const [startH, startM] = s.startTime.split(':').map(Number);
+        const [endH, endM] = s.endTime.split(':').map(Number);
+        // s.startTime/s.endTime are Eastern wall-clock times (the manager's own
+        // input) — convert to real UTC before sending to Paycor. An overnight
+        // shift's end time is on the FOLLOWING calendar day even though its
+        // dayOffset/dateStr describe the shift's start — advance the date by one
+        // day for the end conversion when endTime is numerically before startTime
+        // (same overnight convention already used by scheduleComputeWeeklyTotal).
+        const endDateStr = (endH * 60 + endM) < (startH * 60 + startM)
+          ? new Date(new Date(dateStr + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0, 10)
+          : dateStr;
         shifts.push({
           employeeId: c.employeeId,
           scheduleGroupId: c.scheduleGroupId,
           schedulingJobId: c.schedulingJobId,
           departmentId: c.departmentId,
-          startDateTime: `${dateStr}T${s.startTime}:00Z`,
-          endDateTime: `${dateStr}T${s.endTime}:00Z`,
+          startDateTime: scheduleEasternToUtc(dateStr, startH, startM),
+          endDateTime: scheduleEasternToUtc(endDateStr, endH, endM),
           isPublished: true,
           // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
           // caller-generated GUID, not a lookup value — one per shift, unique

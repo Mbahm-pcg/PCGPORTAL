@@ -21238,7 +21238,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.20";
+  var APP_VERSION = "v20.21";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25394,16 +25394,45 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function localDateStr(d) {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   }
+  function scheduleUtcToEastern(utcIso) {
+    const d = new Date(utcIso);
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d);
+    const get = (t) => parts.find((p) => p.type === t).value;
+    return { dateStr: `${get("year")}-${get("month")}-${get("day")}`, hh: Number(get("hour")) % 24, mm: Number(get("minute")) };
+  }
+  function scheduleEasternToUtc(dateStr, hh, mm) {
+    const wantedMin = hh * 60 + mm;
+    const dayStartMs = (ds) => (/* @__PURE__ */ new Date(ds + "T00:00:00Z")).getTime();
+    const errorMin = (candidate) => {
+      const back = scheduleUtcToEastern(candidate.toISOString());
+      const gotMin = back.hh * 60 + back.mm + Math.round((dayStartMs(back.dateStr) - dayStartMs(dateStr)) / 6e4);
+      return wantedMin - gotMin;
+    };
+    const guess = /* @__PURE__ */ new Date(`${dateStr}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00Z`);
+    const pass1 = new Date(guess.getTime() + errorMin(guess) * 6e4);
+    const err1 = errorMin(pass1);
+    if (err1 === 0) return pass1.toISOString();
+    const pass2 = new Date(pass1.getTime() + err1 * 6e4);
+    if (errorMin(pass2) === 0) return pass2.toISOString();
+    return pass1.toISOString();
+  }
+  function scheduleFormat12h(hhmm) {
+    const [h, m] = hhmm.split(":").map(Number);
+    const period = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+  }
   function scheduleGroupShiftsByEmployee(shiftRecords, weekStartISO) {
     const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
     const byEmployee = {};
     (shiftRecords || []).forEach((s) => {
-      const start = new Date(s.startDateTime);
-      const end = new Date(s.endDateTime);
-      const dayOffset = Math.round((Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) - Date.UTC(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())) / 864e5);
-      const fmt = (d) => `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+      const startET = scheduleUtcToEastern(s.startDateTime);
+      const endET = scheduleUtcToEastern(s.endDateTime);
+      const startDateUTC = /* @__PURE__ */ new Date(startET.dateStr + "T00:00:00Z");
+      const dayOffset = Math.round((startDateUTC - weekStart) / 864e5);
+      const fmt = (et) => `${String(et.hh).padStart(2, "0")}:${String(et.mm).padStart(2, "0")}`;
       if (!byEmployee[s.employeeId]) byEmployee[s.employeeId] = [];
-      byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(start), endTime: fmt(end), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
+      byEmployee[s.employeeId].push({ dayOffset, startTime: fmt(startET), endTime: fmt(endET), schedulingJobId: s.schedulingJobId, scheduleGroupId: s.scheduleGroupId, departmentId: s.departmentId });
     });
     return byEmployee;
   }
@@ -25453,7 +25482,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const lines = [`Schedule \u2014 week of ${dateFor(0)}`, ""];
     (approvedCards || []).filter((c) => (c.shifts || []).length > 0).forEach((c) => {
-      const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map((s) => `${SCHEDULE_DOW[s.dayOffset]} ${s.startTime}-${s.endTime}`);
+      const shiftParts = [...c.shifts].sort((a, b) => a.dayOffset - b.dayOffset).map((s) => `${SCHEDULE_DOW[s.dayOffset]} ${scheduleFormat12h(s.startTime)}-${scheduleFormat12h(s.endTime)}`);
       lines.push(`${c.employeeName}: ${shiftParts.join(", ")}`);
     });
     return lines.join("\n");
@@ -25476,7 +25505,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }, 0);
       return /* @__PURE__ */ React.createElement("tr", { key: card2.employeeId, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.text, fontWeight: 600, position: "sticky", left: 0, background: th.bg } }, card2.employeeName, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400 } }, Math.round(totalHours * 10) / 10, "h")), dayDates.map((_, dayOffset) => {
         const shift = (card2.shifts || []).find((sh) => sh.dayOffset === dayOffset);
-        return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text } }, shift.startTime, "\u2013", shift.endTime));
+        return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
       }));
     }))));
   }
@@ -25494,7 +25523,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const removeShift = (idx) => setDraftShifts((prev) => prev.filter((_, i) => i !== idx));
     const addShift = () => setDraftShifts((prev) => [...prev, { dayOffset: 0, startTime: "09:00", endTime: "17:00" }]);
-    return /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "1.1rem", maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1rem", color: th.text, marginBottom: "0.2rem" } }, cardData.employeeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.9rem" } }, cardData.jobTitle || "Crew Member"), !editing && /* @__PURE__ */ React.createElement(React.Fragment, null, (cardData.shifts || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.8rem" } }, "No shifts proposed (new employee, or none last week)"), (cardData.shifts || []).map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.text, marginBottom: "0.3rem" } }, SCHEDULE_DOW[s.dayOffset], ": ", s.startTime, "\u2013", s.endTime)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onApprove, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Approve"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    return /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "1.1rem", maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1rem", color: th.text, marginBottom: "0.2rem" } }, cardData.employeeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.9rem" } }, cardData.jobTitle || "Crew Member"), !editing && /* @__PURE__ */ React.createElement(React.Fragment, null, (cardData.shifts || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.8rem" } }, "No shifts proposed (new employee, or none last week)"), (cardData.shifts || []).map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.text, marginBottom: "0.3rem" } }, SCHEDULE_DOW[s.dayOffset], ": ", scheduleFormat12h(s.startTime), "\u2013", scheduleFormat12h(s.endTime))), (cardData.shifts || []).length > 0 && (() => {
+      const totalHours = cardData.shifts.reduce((sum, s) => {
+        const [sh1, sm1] = s.startTime.split(":").map(Number);
+        const [sh2, sm2] = s.endTime.split(":").map(Number);
+        let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 1440;
+        return sum + mins / 60;
+      }, 0);
+      return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600, marginTop: "0.4rem", marginBottom: "0.4rem" } }, Math.round(totalHours * 10) / 10, "h this week");
+    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: onApprove, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Approve"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setDraftShifts(cardData.shifts || []);
       setEditing(true);
     }, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Edit"))), editing && /* @__PURE__ */ React.createElement(React.Fragment, null, draftShifts.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("select", { value: s.dayOffset, onChange: (e) => updateShift(i, "dayOffset", Number(e.target.value)), style: { ...inp(th), fontSize: "0.75rem", padding: "0.25rem" } }, SCHEDULE_DOW.map((d, di) => /* @__PURE__ */ React.createElement("option", { key: di, value: di }, d))), /* @__PURE__ */ React.createElement("input", { type: "time", value: s.startTime, onChange: (e) => updateShift(i, "startTime", e.target.value), style: { ...inp(th), fontSize: "0.75rem", padding: "0.25rem" } }), /* @__PURE__ */ React.createElement("input", { type: "time", value: s.endTime, onChange: (e) => updateShift(i, "endTime", e.target.value), style: { ...inp(th), fontSize: "0.75rem", padding: "0.25rem" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => removeShift(i), style: { ...btn(th, { background: "#ef444422", color: "#ef4444" }), padding: "0.25rem 0.5rem" } }, "\u2715"))), /* @__PURE__ */ React.createElement("button", { onClick: addShift, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.75rem", marginBottom: "0.8rem" } }, "+ Add shift"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
@@ -25605,13 +25643,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           const dayDate = /* @__PURE__ */ new Date(weekStart + "T00:00:00Z");
           dayDate.setUTCDate(dayDate.getUTCDate() + s.dayOffset);
           const dateStr = dayDate.toISOString().slice(0, 10);
+          const [startH, startM] = s.startTime.split(":").map(Number);
+          const [endH, endM] = s.endTime.split(":").map(Number);
+          const endDateStr = endH * 60 + endM < startH * 60 + startM ? new Date((/* @__PURE__ */ new Date(dateStr + "T00:00:00Z")).getTime() + 864e5).toISOString().slice(0, 10) : dateStr;
           shifts.push({
             employeeId: c.employeeId,
             scheduleGroupId: c.scheduleGroupId,
             schedulingJobId: c.schedulingJobId,
             departmentId: c.departmentId,
-            startDateTime: `${dateStr}T${s.startTime}:00Z`,
-            endDateTime: `${dateStr}T${s.endTime}:00Z`,
+            startDateTime: scheduleEasternToUtc(dateStr, startH, startM),
+            endDateTime: scheduleEasternToUtc(endDateStr, endH, endM),
             isPublished: true,
             // Per Paycor's own docs (confirmed 2026-08-25): shiftModelId is a
             // caller-generated GUID, not a lookup value — one per shift, unique
