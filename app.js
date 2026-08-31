@@ -21246,7 +21246,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.32";
+  var APP_VERSION = "v20.33";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25595,6 +25595,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
       }
     };
+    const handleAddShift = (employeeId, dayOffset) => {
+      onCardsChange(addShiftToEmployee(cards, employeeId, { dayOffset, startTime: "09:00", endTime: "17:00" }));
+    };
     const [editingShift, setEditingShift] = useState(null);
     const [editDraft, setEditDraft] = useState({ startTime: "", endTime: "", reassignTo: "" });
     const openEdit = (employeeId, shift) => {
@@ -25637,7 +25640,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             onMouseLeave: () => setHoveredCell(null)
           },
           shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text, position: "relative" } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime), isHovered && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", justifyContent: "center", marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => openEdit(card2.employeeId, shift), title: "Edit", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Edit"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCopy(card2.employeeId, shift), title: "Copy", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCut(card2.employeeId, shift), title: "Cut", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Cut"))),
-          !shift && isHovered && clipboard && /* @__PURE__ */ React.createElement("button", { onClick: () => handlePaste(card2.employeeId, dayOffset), style: { ...btn(th, { background: "#1B8F5C" }), fontSize: "0.68rem", padding: "0.2rem 0.5rem" } }, "Paste")
+          !shift && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => handleAddShift(card2.employeeId, dayOffset),
+              title: "Add shift",
+              style: { background: "none", border: `1px dashed ${th.cardBorder}`, borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: th.muted, opacity: isHovered ? 1 : 0.55 }
+            },
+            ICONS.plus(th.muted)
+          ), isHovered && clipboard && /* @__PURE__ */ React.createElement("button", { onClick: () => handlePaste(card2.employeeId, dayOffset), style: { ...btn(th, { background: "#1B8F5C" }), fontSize: "0.65rem", padding: "0.15rem 0.4rem" } }, "Paste"))
         );
       }));
     }), (openShiftGroups || []).map((og) => {

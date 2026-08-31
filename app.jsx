@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.32";
+const APP_VERSION = "v20.33";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32627,6 +32627,14 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
     }
   };
 
+  // Empty-cell "+" — the only way to give a zero-hour employee (a new hire,
+  // or anyone with no shifts pre-filled from last week) any hours at all,
+  // since Paste requires something already copied/cut first. Default 9-5,
+  // same as the mobile card's own "+ Add" for an empty day.
+  const handleAddShift = (employeeId, dayOffset) => {
+    onCardsChange(addShiftToEmployee(cards, employeeId, { dayOffset, startTime: '09:00', endTime: '17:00' }));
+  };
+
   const [editingShift, setEditingShift] = useState(null); // { employeeId, shift } | null
   const [editDraft, setEditDraft] = useState({ startTime: '', endTime: '', reassignTo: '' });
 
@@ -32705,8 +32713,21 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
                           )}
                         </div>
                       )}
-                      {!shift && isHovered && clipboard && (
-                        <button onClick={() => handlePaste(card.employeeId, dayOffset)} style={{ ...btn(th, { background: '#1B8F5C' }), fontSize: '0.68rem', padding: '0.2rem 0.5rem' }}>Paste</button>
+                      {!shift && (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                          {/* Always visible, not just on hover — an empty cell with no
+                              way to add hours at all was the reported problem (a
+                              zero-hour employee had no path to get any shift without
+                              first copying someone else's). Paste stays hover-only
+                              since it only ever applies mid-copy/cut. */}
+                          <button onClick={() => handleAddShift(card.employeeId, dayOffset)} title="Add shift"
+                            style={{ background: 'none', border: `1px dashed ${th.cardBorder}`, borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: th.muted, opacity: isHovered ? 1 : 0.55 }}>
+                            {ICONS.plus(th.muted)}
+                          </button>
+                          {isHovered && clipboard && (
+                            <button onClick={() => handlePaste(card.employeeId, dayOffset)} style={{ ...btn(th, { background: '#1B8F5C' }), fontSize: '0.65rem', padding: '0.15rem 0.4rem' }}>Paste</button>
+                          )}
+                        </div>
                       )}
                     </td>
                   );
