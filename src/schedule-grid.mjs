@@ -10,12 +10,12 @@
 
 export function removeShiftFromEmployee(list, employeeId, shift) {
   return list.map(c => c.employeeId === employeeId
-    ? { ...c, shifts: c.shifts.filter(s => s !== shift) }
+    ? { ...c, shifts: (c.shifts || []).filter(s => s !== shift) }
     : c);
 }
 
 export function addShiftToEmployee(list, employeeId, shift) {
   return list.map(c => c.employeeId === employeeId
-    ? { ...c, shifts: [...c.shifts, shift] }
+    ? { ...c, shifts: [...(c.shifts || []), shift] }
     : c);
 }

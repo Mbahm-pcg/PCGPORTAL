@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.30";
+const APP_VERSION = "v20.31";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32642,10 +32642,18 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
     let next = removeShiftFromEmployee(cards, employeeId, shift);
     next = addShiftToEmployee(next, targetEmployeeId, updatedShift);
     onCardsChange(next);
+    // The clipboard can hold a reference to this exact shift (a Cut awaiting
+    // paste, or a still-pasteable Copy) — this replaces it with a new object,
+    // so a stale clipboard could later paste invalidated pre-edit data.
+    // Clear it so a subsequent Paste can't fire against it.
+    if (clipboard?.shift === shift) setClipboard(null);
     closeEdit();
   };
   const deleteEdit = () => {
     onCardsChange(removeShiftFromEmployee(cards, editingShift.employeeId, editingShift.shift));
+    // Same staleness guard as saveEdit — deleting the shift the clipboard
+    // points at must invalidate the clipboard so Paste can't resurrect it.
+    if (clipboard?.shift === editingShift.shift) setClipboard(null);
     closeEdit();
   };
 
@@ -32706,25 +32714,39 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
               </tr>
             );
           })}
-          {(openShiftGroups || []).map(og => (
-            <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
-              <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>
-                Open — {og.jobTitle}
-              </td>
-              {dayDates.map((_, dayOffset) => {
-                const shift = (og.shifts || []).find(sh => sh.dayOffset === dayOffset);
-                return (
-                  <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
-                    {shift && (
-                      <div style={{ background: '#94a3b81a', border: '1px dashed #94a3b8aa', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.muted }}>
-                        {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
-                      </div>
-                    )}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {(openShiftGroups || []).map(og => {
+            // Same unfilled-hours sub-label as WeeklyScheduleGrid's Open-Shift
+            // rows (parity fix, final review pass 2026-08-28) — was missing
+            // here, so the desktop grid showed the "Open — {jobTitle}" row
+            // with no hours indicator at all.
+            const totalHours = (og.shifts || []).reduce((sum, sh) => {
+              const [sh1, sm1] = sh.startTime.split(':').map(Number);
+              const [sh2, sm2] = sh.endTime.split(':').map(Number);
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return (
+              <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>
+                  Open — {og.jobTitle}
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400, fontStyle: 'normal' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
+                </td>
+                {dayDates.map((_, dayOffset) => {
+                  const shift = (og.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  return (
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+                      {shift && (
+                        <div style={{ background: '#94a3b81a', border: '1px dashed #94a3b8aa', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.muted }}>
+                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -32858,7 +32880,18 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmpl
                 {validTargets.length > 0 && onReassign && (
                   <select defaultValue="" onChange={e => {
                     if (!e.target.value) return;
-                    onReassign(s, e.target.value);
+                    // Pass the authoritative post-removal shift list for THIS
+                    // employee (draftShifts with this row already filtered
+                    // out — the exact list removeShift(i) below also applies
+                    // locally) so the parent can overwrite the source
+                    // employee's shifts directly instead of trying to
+                    // remove-by-reference: if this shift was already edited
+                    // via updateShift earlier in this same edit session, `s`
+                    // is a new object that no longer matches the reference
+                    // still sitting in cards/approvedCards, and a
+                    // reference-match removal would silently no-op — leaving
+                    // the stale original behind to be duplicated later.
+                    onReassign(s, e.target.value, draftShifts.filter((_, di) => di !== i));
                     removeShift(i);
                     e.target.value = '';
                   }} style={{ ...inp(th), fontSize: '0.7rem', padding: '0.2rem' }}>
@@ -33006,6 +33039,11 @@ function ScheduleBuilder({ store, th, mode }) {
   };
   const handleSave = (updatedShifts) => {
     setApprovedCards(prev => [...prev, { ...currentCard, shifts: updatedShifts }]);
+    // Keep `cards` (the desktop grid's canonical source) in sync with what
+    // mobile just saved — otherwise a viewport crossing 1024px after this
+    // point (e.g. a tablet rotation) shows/submits stale pre-edit shifts on
+    // desktop instead of what the manager actually approved on mobile.
+    setCards(prev => prev.map(c => c.employeeId === currentCard.employeeId ? { ...c, shifts: updatedShifts } : c));
     setCardIndex(i => i + 1);
   };
   // Mobile card flow's "reassign to a different employee" action — targets
@@ -33013,7 +33051,19 @@ function ScheduleBuilder({ store, th, mode }) {
   // no-op on the list that doesn't, per schedule-grid.mjs's contract), so
   // it's correct whether the target has already been approved or hasn't
   // been reached yet in the walk.
-  const handleReassign = (fromEmployeeId, shift, toEmployeeId) => {
+  const handleReassign = (fromEmployeeId, shift, toEmployeeId, sourceShiftsAfterRemoval) => {
+    if (sourceShiftsAfterRemoval) {
+      // Authoritative path (edit-then-reassign-then-Cancel fix, final review
+      // pass 2026-08-28): the picker already computed the source employee's
+      // correct remaining shift list locally (same list its own removeShift
+      // call uses) — overwrite the source's shifts with that directly rather
+      // than trying to remove-by-reference, which can silently no-op if
+      // `shift` was replaced by an in-progress edit and no longer matches the
+      // reference sitting in cards/approvedCards.
+      setCards(prev => addShiftToEmployee(prev.map(c => c.employeeId === fromEmployeeId ? { ...c, shifts: sourceShiftsAfterRemoval } : c), toEmployeeId, shift));
+      setApprovedCards(prev => addShiftToEmployee(prev.map(c => c.employeeId === fromEmployeeId ? { ...c, shifts: sourceShiftsAfterRemoval } : c), toEmployeeId, shift));
+      return;
+    }
     setCards(prev => addShiftToEmployee(removeShiftFromEmployee(prev, fromEmployeeId, shift), toEmployeeId, shift));
     setApprovedCards(prev => addShiftToEmployee(removeShiftFromEmployee(prev, fromEmployeeId, shift), toEmployeeId, shift));
   };
@@ -33024,6 +33074,9 @@ function ScheduleBuilder({ store, th, mode }) {
   const reopenCard = reopenEmployeeId ? approvedCards.find(c => c.employeeId === reopenEmployeeId) : null;
   const handleReopenSave = (updatedShifts) => {
     setApprovedCards(prev => prev.map(c => c.employeeId === reopenEmployeeId ? { ...c, shifts: updatedShifts } : c));
+    // Same cross-breakpoint sync as handleSave above — a reopen-at-Final-
+    // Review edit must also land in `cards` so desktop can't submit stale data.
+    setCards(prev => prev.map(c => c.employeeId === reopenEmployeeId ? { ...c, shifts: updatedShifts } : c));
     setReopenEmployeeId(null);
   };
 
@@ -33128,6 +33181,14 @@ function ScheduleBuilder({ store, th, mode }) {
     }
   };
 
+  // Hook must run unconditionally on every render regardless of `mode` —
+  // moved above the `mode === 'view'` early return (Rules of Hooks fix,
+  // final review pass 2026-08-28). It previously sat below that return and
+  // only worked by accident because of an unrelated `key={mode}` remount
+  // elsewhere; left as-is it's a latent "Rendered more hooks than during
+  // the previous render" crash risk if that remount ever goes away.
+  const isDesktop = useIsDesktopViewport();
+
   if (mode === 'view') {
     return (
       <div>
@@ -33140,8 +33201,6 @@ function ScheduleBuilder({ store, th, mode }) {
       </div>
     );
   }
-
-  const isDesktop = useIsDesktopViewport();
 
   return (
     <div>
@@ -33213,7 +33272,7 @@ function ScheduleBuilder({ store, th, mode }) {
               const approved = approvedCards.find(a => a.employeeId === c.employeeId);
               return { employeeId: c.employeeId, employeeName: c.employeeName, shifts: (approved || c).shifts || [] };
             })}
-            onReassign={(shift, toEmployeeId) => handleReassign(currentCard.employeeId, shift, toEmployeeId)}
+            onReassign={(shift, toEmployeeId, sourceShiftsAfterRemoval) => handleReassign(currentCard.employeeId, shift, toEmployeeId, sourceShiftsAfterRemoval)}
           />
         </>
       )}
@@ -33228,7 +33287,7 @@ function ScheduleBuilder({ store, th, mode }) {
               onApprove={() => setReopenEmployeeId(null)}
               onSave={handleReopenSave}
               otherEmployees={approvedCards.filter(c => c.employeeId !== reopenCard.employeeId).map(c => ({ employeeId: c.employeeId, employeeName: c.employeeName, shifts: c.shifts || [] }))}
-              onReassign={(shift, toEmployeeId) => handleReassign(reopenCard.employeeId, shift, toEmployeeId)}
+              onReassign={(shift, toEmployeeId, sourceShiftsAfterRemoval) => handleReassign(reopenCard.employeeId, shift, toEmployeeId, sourceShiftsAfterRemoval)}
             />
           ) : (
             <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} onEmployeeClick={setReopenEmployeeId} />
