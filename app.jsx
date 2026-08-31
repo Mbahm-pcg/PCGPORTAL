@@ -26140,7 +26140,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.24";
+const APP_VERSION = "v20.25";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32597,7 +32597,7 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
     setDraftShifts(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
   };
   const removeShift = (idx) => setDraftShifts(prev => prev.filter((_, i) => i !== idx));
-  const addShift = () => setDraftShifts(prev => [...prev, { dayOffset: 0, startTime: '09:00', endTime: '17:00' }]);
+  const addShift = (dayOffset = 0) => setDraftShifts(prev => [...prev, { dayOffset, startTime: '09:00', endTime: '17:00' }]);
 
   return (
     <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '1.1rem', maxWidth: 480 }}>
@@ -32634,18 +32634,39 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
 
       {editing && (
         <>
-          {draftShifts.map((s, i) => (
-            <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.4rem' }}>
-              <select value={s.dayOffset} onChange={e => updateShift(i, 'dayOffset', Number(e.target.value))} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }}>
-                {SCHEDULE_DOW.map((d, di) => <option key={di} value={di}>{d}</option>)}
-              </select>
-              <input type="time" value={s.startTime} onChange={e => updateShift(i, 'startTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
-              <input type="time" value={s.endTime} onChange={e => updateShift(i, 'endTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
-              <button onClick={() => removeShift(i)} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }), padding: '0.25rem 0.5rem' }}>✕</button>
-            </div>
-          ))}
-          <button onClick={addShift} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem', marginBottom: '0.8rem' }}>+ Add shift</button>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {/* Fixed Sun-Sat rows shown up front (user request 2026-08-06) so a
+              full week is visible/fillable at once instead of clicking a
+              single global "+ Add shift" once per day. Days with no shift
+              read as "Off" with an inline add; a day already holding a shift
+              gets its own "+ split shift" for the rare second-shift case,
+              rather than a day-picker on every row (you can't reassign a
+              shift to a different day anymore — remove it and add it under
+              the new day instead). */}
+          {SCHEDULE_DOW.map((dayLabel, dayIdx) => {
+            const dayShifts = draftShifts.map((s, i) => ({ s, i })).filter(({ s }) => s.dayOffset === dayIdx);
+            return (
+              <div key={dayIdx} style={{ marginBottom: '0.55rem' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: '0.02em', marginBottom: '0.25rem' }}>{dayLabel}</div>
+                {dayShifts.length === 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.78rem', color: th.muted, fontStyle: 'italic' }}>Off</span>
+                    <button onClick={() => addShift(dayIdx)} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.7rem', padding: '0.2rem 0.5rem' }}>+ Add</button>
+                  </div>
+                )}
+                {dayShifts.map(({ s, i }) => (
+                  <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.3rem' }}>
+                    <input type="time" value={s.startTime} onChange={e => updateShift(i, 'startTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+                    <input type="time" value={s.endTime} onChange={e => updateShift(i, 'endTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+                    <button onClick={() => removeShift(i)} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }), padding: '0.25rem 0.5rem' }}>✕</button>
+                  </div>
+                ))}
+                {dayShifts.length > 0 && (
+                  <button onClick={() => addShift(dayIdx)} style={{ ...btn(th, { background: 'transparent', color: th.muted }), fontSize: '0.68rem', padding: '0.1rem 0' }}>+ split shift</button>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
             <button onClick={() => { onSave(draftShifts); setEditing(false); }} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Save & Continue</button>
             <button onClick={() => setEditing(false)} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Cancel</button>
           </div>
