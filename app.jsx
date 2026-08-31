@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.33";
+const APP_VERSION = "v20.35";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32701,18 +32701,34 @@ function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShif
                     <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center', position: 'relative' }}
                         onMouseEnter={() => setHoveredCell({ employeeId: card.employeeId, dayOffset })}
                         onMouseLeave={() => setHoveredCell(null)}>
-                      {shift && (
-                        <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text, position: 'relative' }}>
-                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
-                          {isHovered && (
-                            <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'center', marginTop: '0.25rem' }}>
-                              <button onClick={() => openEdit(card.employeeId, shift)} title="Edit" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Edit</button>
-                              <button onClick={() => handleCopy(card.employeeId, shift)} title="Copy" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Copy</button>
-                              <button onClick={() => handleCut(card.employeeId, shift)} title="Cut" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Cut</button>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      {shift && (() => {
+                        // Cut is deliberately "staged" — it doesn't remove the shift
+                        // until a paste actually succeeds (an accidental Escape or a
+                        // second Cut before pasting must never silently drop real
+                        // hours). Without any visual cue that registered at all,
+                        // that read as "Cut is broken" — dim the block and swap its
+                        // toolbar for a plain status line so it's obvious the shift
+                        // is staged to move, not stuck.
+                        const isCutPending = clipboard?.mode === 'cut' && clipboard.shift === shift;
+                        return (
+                          <div style={{ background: isCutPending ? `${th.cardBorder}55` : '#FF671F18', border: `1px ${isCutPending ? 'dashed' : 'solid'} ${isCutPending ? th.cardBorder : '#FF671F55'}`, borderRadius: 6, padding: '0.3rem 0.4rem', color: isCutPending ? th.muted : th.text, position: 'relative', opacity: isCutPending ? 0.6 : 1 }}>
+                            {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                            {isCutPending && (
+                              <div style={{ fontSize: '0.65rem', fontStyle: 'italic', marginTop: '0.15rem' }}>Cut — click Paste on a cell</div>
+                            )}
+                            {isHovered && !isCutPending && (
+                              <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'center', marginTop: '0.25rem' }}>
+                                <button onClick={() => openEdit(card.employeeId, shift)} title="Edit" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Edit</button>
+                                <button onClick={() => handleCopy(card.employeeId, shift)} title="Copy" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Copy</button>
+                                <button onClick={() => handleCut(card.employeeId, shift)} title="Cut" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Cut</button>
+                              </div>
+                            )}
+                            {isCutPending && (
+                              <button onClick={() => setClipboard(null)} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.62rem', padding: '0.1rem 0.3rem', marginTop: '0.15rem' }}>Cancel cut</button>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {!shift && (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
                           {/* Always visible, not just on hover — an empty cell with no
@@ -32981,9 +32997,22 @@ function ScheduleBuilder({ store, th, mode }) {
       // 'build' mode. schedulingShifts treats `endDate` as EXCLUSIVE
       // (confirmed live in Task 1, 2026-08-25), so either window's end is
       // passed as one day past the last desired day to avoid dropping it.
-      const fetchRangeStart = mode === 'view' ? weekStart : lastWeekStart;
+      const rawFetchRangeStart = mode === 'view' ? weekStart : lastWeekStart;
       const fetchRangeEnd = mode === 'view' ? nextWeekStart : weekStart; // exclusive boundary
       const groupingAnchor = mode === 'view' ? weekStart : lastWeekStart;
+      // Paycor's schedulingShifts GET rejects the whole request with "Start
+      // date must not be in the future" whenever startDate itself is later
+      // than Paycor's own current date — confirmed live 2026-08-31, even
+      // though the shifts being asked for were already successfully posted
+      // (createSchedulingShifts had no such restriction). endDate can still
+      // be arbitrarily future once startDate isn't — confirmed the same
+      // query returns every record through endDate once startDate <= today.
+      // Clamping down to today is always safe: any extra earlier days that
+      // come back land on a negative dayOffset once grouped against
+      // groupingAnchor (the actual target week), and every downstream
+      // consumer already filters shifts to dayOffset 0-6 (see the "Paycor's
+      // schedulingShifts read also pulls in one extra day" comment below).
+      const fetchRangeStart = rawFetchRangeStart < todayStr ? rawFetchRangeStart : todayStr;
 
       const [empRes, shiftRes] = await Promise.all([
         fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor }) }),

@@ -21246,7 +21246,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.33";
+  var APP_VERSION = "v20.35";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25639,7 +25639,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             onMouseEnter: () => setHoveredCell({ employeeId: card2.employeeId, dayOffset }),
             onMouseLeave: () => setHoveredCell(null)
           },
-          shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text, position: "relative" } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime), isHovered && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", justifyContent: "center", marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => openEdit(card2.employeeId, shift), title: "Edit", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Edit"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCopy(card2.employeeId, shift), title: "Copy", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCut(card2.employeeId, shift), title: "Cut", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Cut"))),
+          shift && (() => {
+            const isCutPending = clipboard?.mode === "cut" && clipboard.shift === shift;
+            return /* @__PURE__ */ React.createElement("div", { style: { background: isCutPending ? `${th.cardBorder}55` : "#FF671F18", border: `1px ${isCutPending ? "dashed" : "solid"} ${isCutPending ? th.cardBorder : "#FF671F55"}`, borderRadius: 6, padding: "0.3rem 0.4rem", color: isCutPending ? th.muted : th.text, position: "relative", opacity: isCutPending ? 0.6 : 1 } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime), isCutPending && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontStyle: "italic", marginTop: "0.15rem" } }, "Cut \u2014 click Paste on a cell"), isHovered && !isCutPending && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.2rem", justifyContent: "center", marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => openEdit(card2.employeeId, shift), title: "Edit", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Edit"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCopy(card2.employeeId, shift), title: "Copy", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Copy"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCut(card2.employeeId, shift), title: "Cut", style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.65rem", padding: "0.1rem 0.35rem" } }, "Cut")), isCutPending && /* @__PURE__ */ React.createElement("button", { onClick: () => setClipboard(null), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.62rem", padding: "0.1rem 0.3rem", marginTop: "0.15rem" } }, "Cancel cut"));
+          })(),
           !shift && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement(
             "button",
             {
@@ -25728,9 +25731,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       try {
         const lastWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), -7));
         const nextWeekStart = tipsFormatISODate(tipsAddDays(tipsParseISODate(weekStart), 7));
-        const fetchRangeStart = mode === "view" ? weekStart : lastWeekStart;
+        const rawFetchRangeStart = mode === "view" ? weekStart : lastWeekStart;
         const fetchRangeEnd = mode === "view" ? nextWeekStart : weekStart;
         const groupingAnchor = mode === "view" ? weekStart : lastWeekStart;
+        const fetchRangeStart = rawFetchRangeStart < todayStr ? rawFetchRangeStart : todayStr;
         const [empRes, shiftRes] = await Promise.all([
           fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "employees", legalEntityId: store.paycor }) }),
           fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "schedulingShifts", legalEntityId: store.paycor, startDate: fetchRangeStart, endDate: fetchRangeEnd }) })
