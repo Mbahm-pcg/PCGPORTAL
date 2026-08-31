@@ -8,6 +8,7 @@ import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, po
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
+import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -26140,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.25";
+const APP_VERSION = "v20.32";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32463,13 +32464,35 @@ function scheduleBuildShareText(weekStartISO, approvedCards) {
   return lines.join('\n');
 }
 
+const SCHEDULE_DESKTOP_BREAKPOINT = 1024;
+
+// Picks the Schedule Builder's editing surface by viewport width, live —
+// the same manager sees the grid on a store Chromebook and the card stack
+// on their phone, with no separate setting to maintain.
+function useIsDesktopViewport() {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT : true
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mql = window.matchMedia(`(min-width: ${SCHEDULE_DESKTOP_BREAKPOINT}px)`);
+    const onChange = (e) => setIsDesktop(e.matches);
+    setIsDesktop(mql.matches);
+    if (mql.addEventListener) mql.addEventListener('change', onChange); else mql.addListener(onChange);
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener('change', onChange); else mql.removeListener(onChange);
+    };
+  }, []);
+  return isDesktop;
+}
+
 const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Employee-rows x day-columns weekly grid, matching the visual shape of
 // Paycor's own native Schedules view (confirmed via screenshot during
 // design) but styled with this app's own theme instead of Paycor's colors.
 // Pure rendering only — no edit state lives here even in 'build' mode.
-function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
+function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups, onEmployeeClick }) {
   const weekStart = new Date(weekStartISO + 'T00:00:00Z');
   const dayDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -32503,7 +32526,11 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
             return (
               <tr key={card.employeeId} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
                 <td style={{ padding: '0.5rem', color: th.text, fontWeight: 600, position: 'sticky', left: 0, background: th.bg }}>
-                  {card.employeeName}
+                  {onEmployeeClick ? (
+                    <button onClick={() => onEmployeeClick(card.employeeId)} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: th.text, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}>
+                      {card.employeeName}
+                    </button>
+                  ) : card.employeeName}
                   <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400 }}>{Math.round(totalHours * 10) / 10}h</div>
                 </td>
                 {dayDates.map((_, dayOffset) => {
@@ -32556,6 +32583,199 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups }) {
   );
 }
 
+// Directly-editable version of WeeklyScheduleGrid's visual shape, used only
+// at desktop/Chromebook widths (see useIsDesktopViewport). Unlike
+// WeeklyScheduleGrid (pure rendering, no edit state), this component owns
+// hover-driven Edit/Copy/Cut/Paste (Tasks 3-4) and reports every change back
+// to the parent via onCardsChange — ScheduleBuilder still owns `cards`.
+// Shows every employee, including ones with zero shifts (an empty row to
+// build into), unlike the read-only grid which filters those out.
+function EditableScheduleGrid({ weekStartISO, cards, onCardsChange, th, openShiftGroups }) {
+  const weekStart = new Date(weekStartISO + 'T00:00:00Z');
+  const dayDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d;
+  });
+
+  const [hoveredCell, setHoveredCell] = useState(null); // { employeeId, dayOffset } | null
+  const [clipboard, setClipboard] = useState(null); // { shift, sourceEmployeeId, mode: 'copy' | 'cut' } | null
+
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === 'Escape') setClipboard(null); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const handleCopy = (employeeId, shift) => setClipboard({ shift, sourceEmployeeId: employeeId, mode: 'copy' });
+  const handleCut = (employeeId, shift) => {
+    // Deferred removal: don't touch `cards` yet. The shift stays visible in
+    // its original cell until a paste actually succeeds elsewhere — Escape,
+    // starting a new Copy/Cut, or unmounting (breakpoint change) before that
+    // point must be lossless no-ops, so removal only happens in handlePaste.
+    setClipboard({ shift, sourceEmployeeId: employeeId, mode: 'cut' });
+  };
+  const handlePaste = (targetEmployeeId, targetDayOffset) => {
+    if (!clipboard) return;
+    const pasted = { ...clipboard.shift, dayOffset: targetDayOffset };
+    if (clipboard.mode === 'cut') {
+      onCardsChange(addShiftToEmployee(removeShiftFromEmployee(cards, clipboard.sourceEmployeeId, clipboard.shift), targetEmployeeId, pasted));
+      setClipboard(null); // move semantics: one-shot
+    } else {
+      onCardsChange(addShiftToEmployee(cards, targetEmployeeId, pasted));
+      // copy semantics: clipboard stays, pasteable again elsewhere
+    }
+  };
+
+  const [editingShift, setEditingShift] = useState(null); // { employeeId, shift } | null
+  const [editDraft, setEditDraft] = useState({ startTime: '', endTime: '', reassignTo: '' });
+
+  const openEdit = (employeeId, shift) => {
+    setEditingShift({ employeeId, shift });
+    setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: '' });
+  };
+  const closeEdit = () => setEditingShift(null);
+  const saveEdit = () => {
+    const { employeeId, shift } = editingShift;
+    const targetEmployeeId = editDraft.reassignTo || employeeId;
+    const updatedShift = { ...shift, startTime: editDraft.startTime, endTime: editDraft.endTime };
+    let next = removeShiftFromEmployee(cards, employeeId, shift);
+    next = addShiftToEmployee(next, targetEmployeeId, updatedShift);
+    onCardsChange(next);
+    // The clipboard can hold a reference to this exact shift (a Cut awaiting
+    // paste, or a still-pasteable Copy) — this replaces it with a new object,
+    // so a stale clipboard could later paste invalidated pre-edit data.
+    // Clear it so a subsequent Paste can't fire against it.
+    if (clipboard?.shift === shift) setClipboard(null);
+    closeEdit();
+  };
+  const deleteEdit = () => {
+    onCardsChange(removeShiftFromEmployee(cards, editingShift.employeeId, editingShift.shift));
+    // Same staleness guard as saveEdit — deleting the shift the clipboard
+    // points at must invalidate the clipboard so Paste can't resurrect it.
+    if (clipboard?.shift === editingShift.shift) setClipboard(null);
+    closeEdit();
+  };
+
+  return (
+    <>
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '0.5rem', borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: 'sticky', left: 0, background: th.bg }}>Employee</th>
+            {dayDates.map((d, i) => (
+              <th key={i} style={{ textAlign: 'center', padding: '0.5rem', borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 150 }}>
+                {SCHEDULE_DOW[i]}, {d.getUTCMonth() + 1}/{d.getUTCDate()}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {cards.map(card => {
+            const totalHours = (card.shifts || []).reduce((sum, sh) => {
+              const [sh1, sm1] = sh.startTime.split(':').map(Number);
+              const [sh2, sm2] = sh.endTime.split(':').map(Number);
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return (
+              <tr key={card.employeeId} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <td style={{ padding: '0.5rem', color: th.text, fontWeight: 600, position: 'sticky', left: 0, background: th.bg }}>
+                  {card.employeeName}
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400 }}>{Math.round(totalHours * 10) / 10}h</div>
+                </td>
+                {dayDates.map((_, dayOffset) => {
+                  const shift = (card.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  const isHovered = hoveredCell && hoveredCell.employeeId === card.employeeId && hoveredCell.dayOffset === dayOffset;
+                  return (
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center', position: 'relative' }}
+                        onMouseEnter={() => setHoveredCell({ employeeId: card.employeeId, dayOffset })}
+                        onMouseLeave={() => setHoveredCell(null)}>
+                      {shift && (
+                        <div style={{ background: '#FF671F18', border: '1px solid #FF671F55', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.text, position: 'relative' }}>
+                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                          {isHovered && (
+                            <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'center', marginTop: '0.25rem' }}>
+                              <button onClick={() => openEdit(card.employeeId, shift)} title="Edit" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Edit</button>
+                              <button onClick={() => handleCopy(card.employeeId, shift)} title="Copy" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Copy</button>
+                              <button onClick={() => handleCut(card.employeeId, shift)} title="Cut" style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>Cut</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {!shift && isHovered && clipboard && (
+                        <button onClick={() => handlePaste(card.employeeId, dayOffset)} style={{ ...btn(th, { background: '#1B8F5C' }), fontSize: '0.68rem', padding: '0.2rem 0.5rem' }}>Paste</button>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+          {(openShiftGroups || []).map(og => {
+            // Same unfilled-hours sub-label as WeeklyScheduleGrid's Open-Shift
+            // rows (parity fix, final review pass 2026-08-28) — was missing
+            // here, so the desktop grid showed the "Open — {jobTitle}" row
+            // with no hours indicator at all.
+            const totalHours = (og.shifts || []).reduce((sum, sh) => {
+              const [sh1, sm1] = sh.startTime.split(':').map(Number);
+              const [sh2, sm2] = sh.endTime.split(':').map(Number);
+              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+              if (mins < 0) mins += 1440;
+              return sum + mins / 60;
+            }, 0);
+            return (
+              <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>
+                  Open — {og.jobTitle}
+                  <div style={{ fontSize: '0.68rem', color: th.muted, fontWeight: 400, fontStyle: 'normal' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
+                </td>
+                {dayDates.map((_, dayOffset) => {
+                  const shift = (og.shifts || []).find(sh => sh.dayOffset === dayOffset);
+                  return (
+                    <td key={dayOffset} style={{ padding: '0.35rem', textAlign: 'center' }}>
+                      {shift && (
+                        <div style={{ background: '#94a3b81a', border: '1px dashed #94a3b8aa', borderRadius: 6, padding: '0.3rem 0.4rem', color: th.muted }}>
+                          {scheduleFormat12h(shift.startTime)}–{scheduleFormat12h(shift.endTime)}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+      {editingShift && (
+        <div style={{ position: 'fixed', inset: 0, background: '#00000055', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={closeEdit}>
+          <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '1.1rem', minWidth: 280 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, marginBottom: '0.8rem' }}>Edit shift</div>
+            <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.6rem' }}>
+              <input type="time" value={editDraft.startTime} onChange={e => setEditDraft(d => ({ ...d, startTime: e.target.value }))} style={{ ...inp(th), fontSize: '0.8rem' }} />
+              <input type="time" value={editDraft.endTime} onChange={e => setEditDraft(d => ({ ...d, endTime: e.target.value }))} style={{ ...inp(th), fontSize: '0.8rem' }} />
+            </div>
+            <select value={editDraft.reassignTo} onChange={e => setEditDraft(d => ({ ...d, reassignTo: e.target.value }))} style={{ ...inp(th), fontSize: '0.8rem', width: '100%', marginBottom: '0.8rem' }}>
+              <option value="">Keep on {cards.find(c => c.employeeId === editingShift.employeeId)?.employeeName}</option>
+              {cards.filter(c => c.employeeId !== editingShift.employeeId && !(c.shifts || []).some(s => s.dayOffset === editingShift.shift.dayOffset)).map(c => (
+                <option key={c.employeeId} value={c.employeeId}>Re-assign to {c.employeeName}</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={saveEdit} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Save</button>
+              <button onClick={deleteEdit} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }) }}>Delete</button>
+              <button onClick={closeEdit} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // Sticky header showing the store's running projected weekly labor $ and %,
 // color-coded against the canonical thresholds (LABOR_GREEN=22.9,
 // LABOR_YELLOW=25.9, red >=26 — app.jsx:33267-33269). Also flags (does not
@@ -32589,8 +32809,12 @@ function RunningLaborHeader({ weeklyTotal, projectedSales, th }) {
 // final batched submission — see Task 9). Prop is named cardData (not
 // card) since `card` is already the src/theme.js style helper used
 // elsewhere in this file.
-function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
-  const [editing, setEditing] = useState(false);
+function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmployees = [], onReassign, startInEdit = false }) {
+  // startInEdit: unused by this task — added now so Task 7 (reopening a
+  // specific employee's card from Final Review) can drop straight into the
+  // edit view without a behavior change here (default false preserves the
+  // existing "starts on the read-only summary" behavior).
+  const [editing, setEditing] = useState(startInEdit);
   const [draftShifts, setDraftShifts] = useState(cardData.shifts || []);
 
   const updateShift = (idx, field, value) => {
@@ -32644,6 +32868,14 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
               the new day instead). */}
           {SCHEDULE_DOW.map((dayLabel, dayIdx) => {
             const dayShifts = draftShifts.map((s, i) => ({ s, i })).filter(({ s }) => s.dayOffset === dayIdx);
+            // Same-day-conflict guard (mirrors the desktop grid's Re-assign
+            // dropdown, Task 4): only offer employees who do NOT already
+            // have a shift on THIS day — the per-day cell lookup elsewhere
+            // in the app shows only the first matching shift for a given
+            // employee/day, so reassigning onto someone already scheduled
+            // that day would silently hide the moved shift while still
+            // inflating their total-hours calculation.
+            const validTargets = otherEmployees.filter(o => !(o.shifts || []).some(os => os.dayOffset === dayIdx));
             return (
               <div key={dayIdx} style={{ marginBottom: '0.55rem' }}>
                 <div style={{ fontSize: '0.72rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: '0.02em', marginBottom: '0.25rem' }}>{dayLabel}</div>
@@ -32654,9 +32886,31 @@ function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave }) {
                   </div>
                 )}
                 {dayShifts.map(({ s, i }) => (
-                  <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.3rem' }}>
+                  <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.3rem', flexWrap: 'wrap' }}>
                     <input type="time" value={s.startTime} onChange={e => updateShift(i, 'startTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
                     <input type="time" value={s.endTime} onChange={e => updateShift(i, 'endTime', e.target.value)} style={{ ...inp(th), fontSize: '0.75rem', padding: '0.25rem' }} />
+                    {validTargets.length > 0 && onReassign && (
+                      <select defaultValue="" onChange={e => {
+                        if (!e.target.value) return;
+                        // Pass the authoritative post-removal shift list for THIS
+                        // employee (draftShifts with this row already filtered
+                        // out — the exact list removeShift(i) below also applies
+                        // locally) so the parent can overwrite the source
+                        // employee's shifts directly instead of trying to
+                        // remove-by-reference: if this shift was already edited
+                        // via updateShift earlier in this same edit session, `s`
+                        // is a new object that no longer matches the reference
+                        // still sitting in cards/approvedCards, and a
+                        // reference-match removal would silently no-op — leaving
+                        // the stale original behind to be duplicated later.
+                        onReassign(s, e.target.value, draftShifts.filter((_, di) => di !== i));
+                        removeShift(i);
+                        e.target.value = '';
+                      }} style={{ ...inp(th), fontSize: '0.7rem', padding: '0.2rem' }}>
+                        <option value="" disabled>⇄ Move to...</option>
+                        {validTargets.map(o => <option key={o.employeeId} value={o.employeeId}>{o.employeeName}</option>)}
+                      </select>
+                    )}
                     <button onClick={() => removeShift(i)} style={{ ...btn(th, { background: '#ef444422', color: '#ef4444' }), padding: '0.25rem 0.5rem' }}>✕</button>
                   </div>
                 ))}
@@ -32692,6 +32946,8 @@ function ScheduleBuilder({ store, th, mode }) {
   const [payRates, setPayRates] = useState({});
   const [openShiftGroups, setOpenShiftGroups] = useState([]);
   const [submitResult, setSubmitResult] = useState(null); // null | { running, results: [{employeeId, employeeName, status, detail}] }
+  const [showBuildPreview, setShowBuildPreview] = useState(false);
+  const [reopenEmployeeId, setReopenEmployeeId] = useState(null);
 
   const load = async () => {
     if (!weekStart) return;
@@ -32799,11 +33055,59 @@ function ScheduleBuilder({ store, th, mode }) {
   };
   const handleSave = (updatedShifts) => {
     setApprovedCards(prev => [...prev, { ...currentCard, shifts: updatedShifts }]);
+    // Keep `cards` (the desktop grid's canonical source) in sync with what
+    // mobile just saved — otherwise a viewport crossing 1024px after this
+    // point (e.g. a tablet rotation) shows/submits stale pre-edit shifts on
+    // desktop instead of what the manager actually approved on mobile.
+    setCards(prev => prev.map(c => c.employeeId === currentCard.employeeId ? { ...c, shifts: updatedShifts } : c));
     setCardIndex(i => i + 1);
   };
+  // Mobile card flow's "reassign to a different employee" action — targets
+  // whichever of cards/approvedCards currently holds the target employee (a
+  // no-op on the list that doesn't, per schedule-grid.mjs's contract), so
+  // it's correct whether the target has already been approved or hasn't
+  // been reached yet in the walk.
+  const handleReassign = (fromEmployeeId, shift, toEmployeeId, sourceShiftsAfterRemoval) => {
+    if (sourceShiftsAfterRemoval) {
+      // Authoritative path (edit-then-reassign-then-Cancel fix, final review
+      // pass 2026-08-28): the picker already computed the source employee's
+      // correct remaining shift list locally (same list its own removeShift
+      // call uses) — overwrite the source's shifts with that directly rather
+      // than trying to remove-by-reference, which can silently no-op if
+      // `shift` was replaced by an in-progress edit and no longer matches the
+      // reference sitting in cards/approvedCards.
+      setCards(prev => addShiftToEmployee(prev.map(c => c.employeeId === fromEmployeeId ? { ...c, shifts: sourceShiftsAfterRemoval } : c), toEmployeeId, shift));
+      setApprovedCards(prev => addShiftToEmployee(prev.map(c => c.employeeId === fromEmployeeId ? { ...c, shifts: sourceShiftsAfterRemoval } : c), toEmployeeId, shift));
+      return;
+    }
+    setCards(prev => addShiftToEmployee(removeShiftFromEmployee(prev, fromEmployeeId, shift), toEmployeeId, shift));
+    setApprovedCards(prev => addShiftToEmployee(removeShiftFromEmployee(prev, fromEmployeeId, shift), toEmployeeId, shift));
+  };
 
-  const handleSendToPaycor = async () => {
-    const cardsToSend = approvedCards.filter(c => (c.shifts || []).length > 0);
+  // Task 7: tap-name-to-edit at mobile Final Review. Looked up by
+  // employeeId (not array index) since approvedCards can be reordered by
+  // handleReassign above.
+  const reopenCard = reopenEmployeeId ? approvedCards.find(c => c.employeeId === reopenEmployeeId) : null;
+  const handleReopenSave = (updatedShifts) => {
+    setApprovedCards(prev => prev.map(c => c.employeeId === reopenEmployeeId ? { ...c, shifts: updatedShifts } : c));
+    // Same cross-breakpoint sync as handleSave above — a reopen-at-Final-
+    // Review edit must also land in `cards` so desktop can't submit stale data.
+    setCards(prev => prev.map(c => c.employeeId === reopenEmployeeId ? { ...c, shifts: updatedShifts } : c));
+    setReopenEmployeeId(null);
+  };
+
+  // cardsOverride lets the desktop "Send to Paycor" button pass the
+  // just-computed list directly, instead of round-tripping through
+  // approvedCards state: setApprovedCards(...) followed synchronously by
+  // handleSendToPaycor() would read the PRE-update `approvedCards` closure
+  // (React doesn't apply the state update before the rest of the handler
+  // runs), which on desktop starts empty and is never populated any other
+  // way — every first click silently no-op'd (cardsToSend.length === 0,
+  // early return, no visible error). Mobile call sites omit the argument
+  // and keep using approvedCards, which IS populated by that point (the
+  // card-stack walk sets it before reaching the "Final review" screen).
+  const handleSendToPaycor = async (cardsOverride) => {
+    const cardsToSend = (cardsOverride || approvedCards).filter(c => (c.shifts || []).length > 0);
     if (cardsToSend.length === 0) { setSubmitResult({ running: false, results: [] }); return; }
     setSubmitResult({ running: true, results: [] });
 
@@ -32893,6 +33197,14 @@ function ScheduleBuilder({ store, th, mode }) {
     }
   };
 
+  // Hook must run unconditionally on every render regardless of `mode` —
+  // moved above the `mode === 'view'` early return (Rules of Hooks fix,
+  // final review pass 2026-08-28). It previously sat below that return and
+  // only worked by accident because of an unrelated `key={mode}` remount
+  // elsewhere; left as-is it's a latent "Rendered more hooks than during
+  // the previous render" crash risk if that remount ever goes away.
+  const isDesktop = useIsDesktopViewport();
+
   if (mode === 'view') {
     return (
       <div>
@@ -32917,19 +33229,85 @@ function ScheduleBuilder({ store, th, mode }) {
       )}
       {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
 
-      {cards && !allCardsDone && (
+      {cards && isDesktop && (() => {
+        const desktopTotal = scheduleComputeWeeklyTotal(cards, payRates);
+        const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every(r => r.status === 'ok');
+        return (
+          <>
+            <RunningLaborHeader weeklyTotal={desktopTotal} projectedSales={0} th={th} />
+            <EditableScheduleGrid weekStartISO={weekStart} cards={cards} onCardsChange={setCards} th={th} openShiftGroups={openShiftGroups} />
+            <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
+              <button onClick={async () => {
+                const text = scheduleBuildShareText(weekStart, cards);
+                if (navigator.share) { try { await navigator.share({ text }); } catch (e) { /* user cancelled — not an error */ } }
+                else { await navigator.clipboard.writeText(text); alert('Copied to clipboard'); }
+              }} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>
+                {typeof navigator !== 'undefined' && navigator.share ? 'Share' : 'Copy'}
+              </button>
+              <button onClick={() => handleSendToPaycor(cards)} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
+                {submitResult?.running ? 'Sending…' : allSent ? 'Sent' : 'Send to Paycor'}
+              </button>
+            </div>
+            {submitResult && !submitResult.running && (
+              <div style={{ marginTop: '1rem' }}>
+                {submitResult.results.map((r, i) => (
+                  <div key={i} style={{ fontSize: '0.78rem', color: r.status === 'ok' ? '#16a34a' : '#ef4444', marginBottom: '0.3rem' }}>
+                    <strong>{r.employeeName}:</strong> {r.detail}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      {cards && !isDesktop && !allCardsDone && (
         <>
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>Employee {cardIndex + 1} of {cards.length}</div>
-          <EmployeeScheduleCard card={currentCard} th={th} onApprove={handleApprove} onSave={handleSave} />
+          <button onClick={() => setShowBuildPreview(v => !v)} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem', marginBottom: '0.8rem' }}>
+            {showBuildPreview ? 'Hide preview' : 'Preview schedule so far'}
+          </button>
+          {showBuildPreview && (
+            <div style={{ marginBottom: '1rem' }}>
+              {approvedCards.filter(c => (c.shifts || []).length > 0).length === 0
+                ? <div style={{ fontSize: '0.78rem', color: th.muted, fontStyle: 'italic' }}>No employees approved yet — the preview fills in as you go.</div>
+                : <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={[]} />
+              }
+            </div>
+          )}
+          <EmployeeScheduleCard
+            card={currentCard} th={th} onApprove={handleApprove} onSave={handleSave}
+            otherEmployees={cards.filter(c => c.employeeId !== currentCard.employeeId).map(c => {
+              // Prefer the approved (finalized, possibly-edited) shift list
+              // for an employee already walked past in the card stack; fall
+              // back to the original pre-fill list for one not yet reached —
+              // this is what the per-shift same-day-conflict check below
+              // filters against, so it needs each candidate's CURRENT
+              // shifts, not just their id/name.
+              const approved = approvedCards.find(a => a.employeeId === c.employeeId);
+              return { employeeId: c.employeeId, employeeName: c.employeeName, shifts: (approved || c).shifts || [] };
+            })}
+            onReassign={(shift, toEmployeeId, sourceShiftsAfterRemoval) => handleReassign(currentCard.employeeId, shift, toEmployeeId, sourceShiftsAfterRemoval)}
+          />
         </>
       )}
 
-      {cards && allCardsDone && (
+      {cards && !isDesktop && allCardsDone && (
         <>
           <RunningLaborHeader weeklyTotal={weeklyTotal} projectedSales={0} th={th} />
           <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, margin: '1rem 0 0.6rem' }}>Final review</div>
-          <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} />
+          {reopenCard ? (
+            <EmployeeScheduleCard
+              card={reopenCard} th={th} startInEdit
+              onApprove={() => setReopenEmployeeId(null)}
+              onSave={handleReopenSave}
+              otherEmployees={approvedCards.filter(c => c.employeeId !== reopenCard.employeeId).map(c => ({ employeeId: c.employeeId, employeeName: c.employeeName, shifts: c.shifts || [] }))}
+              onReassign={(shift, toEmployeeId, sourceShiftsAfterRemoval) => handleReassign(reopenCard.employeeId, shift, toEmployeeId, sourceShiftsAfterRemoval)}
+            />
+          ) : (
+            <WeeklyScheduleGrid weekStartISO={weekStart} cards={approvedCards.filter(c => (c.shifts || []).length > 0)} th={th} openShiftGroups={openShiftGroups} onEmployeeClick={setReopenEmployeeId} />
+          )}
           <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
             <button onClick={async () => {
               const text = scheduleBuildShareText(weekStart, approvedCards);
@@ -32952,7 +33330,7 @@ function ScheduleBuilder({ store, th, mode }) {
             {(() => {
               const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every(r => r.status === 'ok');
               return (
-                <button onClick={handleSendToPaycor} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
+                <button onClick={() => handleSendToPaycor()} disabled={submitResult?.running || allSent} style={{ ...btn(th, { background: '#FF671F' }), opacity: (submitResult?.running || allSent) ? 0.6 : 1 }}>
                   {submitResult?.running ? 'Sending…' : allSent ? 'Sent' : 'Send to Paycor'}
                 </button>
               );
