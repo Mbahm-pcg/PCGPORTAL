@@ -56,6 +56,7 @@ const ICONS = {
   audits: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 2h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>,
   schedule: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"4",width:"18",height:"18",rx:"2"})}{React.createElement("line",{x1:"16",y1:"2",x2:"16",y2:"6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"6"})}{React.createElement("line",{x1:"3",y1:"10",x2:"21",y2:"10"})}{React.createElement("polyline",{points:"8 14 10 17 14 13"})}</>} />,
   staffSchedule: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"4",width:"18",height:"18",rx:"2"})}{React.createElement("line",{x1:"16",y1:"2",x2:"16",y2:"6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"6"})}{React.createElement("line",{x1:"3",y1:"10",x2:"21",y2:"10"})}{React.createElement("circle",{cx:"12",cy:"16",r:"2.3"})}{React.createElement("line",{x1:"12",y1:"16",x2:"12",y2:"14.3"})}{React.createElement("line",{x1:"12",y1:"16",x2:"13.2",y2:"16.8"})}</>} />,
+  clock: (c) => <Icon color={c} d={<>{React.createElement("circle",{cx:"12",cy:"12",r:"9"})}{React.createElement("polyline",{points:"12 7 12 12 15.5 14"})}</>} />,
 
 };
 

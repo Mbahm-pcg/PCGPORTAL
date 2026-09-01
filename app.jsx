@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.38";
+const APP_VERSION = "v20.40";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32492,6 +32492,28 @@ const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // Paycor's own native Schedules view (confirmed via screenshot during
 // design) but styled with this app's own theme instead of Paycor's colors.
 // Pure rendering only — no edit state lives here even in 'build' mode.
+// Same role classification already used for tips department codes
+// (paycorDeptCodeForJobTitle) — reused here so a job title always maps to
+// the same bucket everywhere in the app. Colors chosen for 4.5:1+ contrast
+// as white-on-color text/pill fills in both themes; role is also shown as
+// plain text under the name so color is never the only signal (WCAG).
+function scheduleRoleAccentColor(jobTitle) {
+  const t = String(jobTitle || '');
+  if (/store\s*manager|general\s*manager/i.test(t)) return '#DC2626'; // red — Store/General Manager
+  if (/asst\.?\s*manager|assist(ant)?\s*manager/i.test(t)) return '#2563EB'; // blue — Asst Manager
+  if (/shift\s*leader/i.test(t)) return '#0EA5E9'; // sky blue — Shift Leader
+  return O; // brand orange — Crew Member / default
+}
+
+// White text fails 4.5:1 contrast on the two lighter accent colors (sky
+// blue ~2.8:1, brand orange ~2.9:1) at the day-pill's small bold size —
+// confirmed via WCAG relative-luminance contrast math. Dark text on those
+// two clears 6:1+; white stays correct for the two darker accents (red
+// ~4.8:1, blue ~5.2:1).
+function scheduleRoleTextColor(accentColor) {
+  return (accentColor === '#0EA5E9' || accentColor === O) ? '#141414' : '#fff';
+}
+
 function scheduleWeeklyGridHours(shifts) {
   return (shifts || []).reduce((sum, sh) => {
     const [sh1, sm1] = sh.startTime.split(':').map(Number);
@@ -32519,20 +32541,39 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups, onEmploy
   // completely unchanged.
   if (!isDesktop) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
         {(cards || []).map(card => {
           const totalHours = scheduleWeeklyGridHours(card.shifts);
           const sortedShifts = [...(card.shifts || [])].sort((a, b) => a.dayOffset - b.dayOffset);
+          const accent = scheduleRoleAccentColor(card.jobTitle);
           const Tag = onEmployeeClick ? 'button' : 'div';
           return (
             <Tag key={card.employeeId}
               {...(onEmployeeClick ? { onClick: () => onEmployeeClick(card.employeeId) } : {})}
-              style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.7rem 0.85rem', textAlign: 'left', width: '100%', display: 'block', cursor: onEmployeeClick ? 'pointer' : 'default' }}>
-              <div style={{ fontWeight: 700, color: th.text, textDecoration: onEmployeeClick ? 'underline' : 'none' }}>{card.employeeName}</div>
-              <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.4rem' }}>{Math.round(totalHours * 10) / 10}h</div>
+              style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderTop: `4px solid ${accent}`, borderRadius: 12, padding: '0.9rem 1rem', textAlign: 'left', width: '100%', display: 'block', cursor: onEmployeeClick ? 'pointer' : 'default' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: `${accent}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {ICONS.profile(accent)}
+                </div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: th.text }}>{card.employeeName}</div>
+              </div>
+              {/* Role shown as text, not just the top accent color — color is
+                  never the only signal for which role this is (WCAG). */}
+              <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: '0.15rem', marginLeft: '2.6rem' }}>{card.jobTitle || 'Crew Member'}</div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: `${accent}18`, color: accent, borderRadius: 999, padding: '0.2rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, margin: '0.5rem 0 0.7rem 2.6rem' }}>
+                {ICONS.clock(accent)}
+                {Math.round(totalHours * 10) / 10}h
+              </div>
+              <div style={{ borderTop: `1px solid ${th.cardBorder}` }} />
               {sortedShifts.map((s, i) => (
-                <div key={i} style={{ fontSize: '0.8rem', color: th.text }}>
-                  {SCHEDULE_DOW[s.dayOffset]}&nbsp;&nbsp;{scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderBottom: i < sortedShifts.length - 1 ? `1px solid ${th.cardBorder}` : 'none' }}>
+                  <span style={{ background: accent, color: scheduleRoleTextColor(accent), borderRadius: 6, padding: '0.25rem 0.5rem', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.03em', minWidth: 38, textAlign: 'center' }}>
+                    {SCHEDULE_DOW[s.dayOffset].toUpperCase()}
+                  </span>
+                  {ICONS.clock(th.muted)}
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: th.text }}>
+                    {scheduleFormat12h(s.startTime)} – {scheduleFormat12h(s.endTime)}
+                  </span>
                 </div>
               ))}
             </Tag>
@@ -32542,12 +32583,18 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups, onEmploy
           const totalHours = scheduleWeeklyGridHours(og.shifts);
           const sortedShifts = [...(og.shifts || [])].sort((a, b) => a.dayOffset - b.dayOffset);
           return (
-            <div key={'open-' + og.jobTitle} style={{ background: th.card, border: `1px dashed ${th.cardBorder}`, borderRadius: 8, padding: '0.7rem 0.85rem' }}>
+            <div key={'open-' + og.jobTitle} style={{ background: th.card, border: `1px dashed ${th.cardBorder}`, borderRadius: 12, padding: '0.9rem 1rem' }}>
               <div style={{ fontWeight: 700, fontStyle: 'italic', color: th.muted }}>Open — {og.jobTitle}</div>
-              <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.4rem' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
+              <div style={{ fontSize: '0.72rem', color: th.muted, margin: '0.15rem 0 0.6rem' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
               {sortedShifts.map((s, i) => (
-                <div key={i} style={{ fontSize: '0.8rem', color: th.muted }}>
-                  {SCHEDULE_DOW[s.dayOffset]}&nbsp;&nbsp;{scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0', borderBottom: i < sortedShifts.length - 1 ? `1px solid ${th.cardBorder}` : 'none' }}>
+                  <span style={{ background: th.card3, color: th.muted, borderRadius: 6, padding: '0.25rem 0.5rem', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.03em', minWidth: 38, textAlign: 'center' }}>
+                    {SCHEDULE_DOW[s.dayOffset].toUpperCase()}
+                  </span>
+                  {ICONS.clock(th.muted)}
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: th.muted }}>
+                    {scheduleFormat12h(s.startTime)} – {scheduleFormat12h(s.endTime)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -33310,7 +33357,17 @@ function ScheduleBuilder({ store, th, mode }) {
     return (
       <div>
         <div style={{ marginBottom: '1rem' }}>
-          <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)} style={{ ...inp(th), width: 200 }} />
+          {/* View mode has no future-only restriction (a past/current posted
+              week is a legitimate thing to look up) — only the day-of-week
+              constraint applies, since every downstream grouping assumes a
+              Sunday-starting week. */}
+          <input type="date" value={weekStart} step={7} onChange={e => {
+            const val = e.target.value;
+            if (!val) { setWeekStart(''); setError(null); return; }
+            if (tipsParseISODate(val).getUTCDay() !== 0) { setError('Week start must be a Sunday.'); return; }
+            setError(null);
+            setWeekStart(val);
+          }} style={{ ...inp(th), width: 200 }} />
           <button onClick={load} disabled={!weekStart || loading} style={{ ...btn(th), marginLeft: '0.6rem', opacity: (!weekStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Load week'}</button>
         </div>
         {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
@@ -33321,13 +33378,33 @@ function ScheduleBuilder({ store, th, mode }) {
 
   return (
     <div>
-      {!cards && (
-        <div style={{ marginBottom: '1rem' }}>
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Week start (Sunday)</div>
-          <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)} style={{ ...inp(th), width: 200 }} />
-          <button onClick={load} disabled={!weekStart || loading} style={{ ...btn(th), marginLeft: '0.6rem', opacity: (!weekStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Start building'}</button>
-        </div>
-      )}
+      {!cards && (() => {
+        // Building a schedule for a week that's already started (or the
+        // current/in-progress week) doesn't make sense — a manager should
+        // only ever pick a genuinely upcoming Sunday. `step={7}` constrains
+        // the native picker's day-increment to multiples of 7 from `min`
+        // (so every reachable date lands on a Sunday, in browsers that
+        // enforce it) — the onChange check below is the real guard, since
+        // step support in the visual calendar picker varies by browser.
+        const today = tipsParseISODate(todayStr);
+        const thisWeekSunday = tipsAddDays(today, -today.getUTCDay());
+        const minWeekStart = tipsFormatISODate(tipsAddDays(thisWeekSunday, 7));
+        return (
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Week start (Sunday)</div>
+            <input type="date" value={weekStart} min={minWeekStart} step={7} onChange={e => {
+              const val = e.target.value;
+              if (!val) { setWeekStart(''); setError(null); return; }
+              const d = tipsParseISODate(val);
+              if (d.getUTCDay() !== 0) { setError('Week start must be a Sunday.'); return; }
+              if (val < minWeekStart) { setError("Pick a week that hasn't started yet — the current week is locked."); return; }
+              setError(null);
+              setWeekStart(val);
+            }} style={{ ...inp(th), width: 200 }} />
+            <button onClick={load} disabled={!weekStart || loading} style={{ ...btn(th), marginLeft: '0.6rem', opacity: (!weekStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Start building'}</button>
+          </div>
+        );
+      })()}
       {error && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
 
       {cards && isDesktop && (() => {

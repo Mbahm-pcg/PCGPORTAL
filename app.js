@@ -51,7 +51,8 @@
     reports: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }), /* @__PURE__ */ React.createElement("polyline", { points: "14 2 14 8 20 8" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "13", x2: "8", y2: "13" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "17", x2: "8", y2: "17" }), /* @__PURE__ */ React.createElement("polyline", { points: "10 9 9 9 8 9" })),
     audits: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" }), /* @__PURE__ */ React.createElement("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }), /* @__PURE__ */ React.createElement("path", { d: "m9 14 2 2 4-4" })),
     schedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("polyline", { points: "8 14 10 17 14 13" })) }),
-    staffSchedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("circle", { cx: "12", cy: "16", r: "2.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "14.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "13.2", y2: "16.8" })) })
+    staffSchedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("circle", { cx: "12", cy: "16", r: "2.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "14.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "13.2", y2: "16.8" })) }),
+    clock: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("circle", { cx: "12", cy: "12", r: "9" }), React.createElement("polyline", { points: "12 7 12 12 15.5 14" })) })
   };
   var BTN = {
     edit: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M12 20h9" }), React.createElement("path", { d: "M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" })),
@@ -21246,7 +21247,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.38";
+  var APP_VERSION = "v20.40";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25532,6 +25533,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return isDesktop;
   }
   var SCHEDULE_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function scheduleRoleAccentColor(jobTitle) {
+    const t = String(jobTitle || "");
+    if (/store\s*manager|general\s*manager/i.test(t)) return "#DC2626";
+    if (/asst\.?\s*manager|assist(ant)?\s*manager/i.test(t)) return "#2563EB";
+    if (/shift\s*leader/i.test(t)) return "#0EA5E9";
+    return O;
+  }
+  function scheduleRoleTextColor(accentColor) {
+    return accentColor === "#0EA5E9" || accentColor === O ? "#141414" : "#fff";
+  }
   function scheduleWeeklyGridHours(shifts) {
     return (shifts || []).reduce((sum, sh) => {
       const [sh1, sm1] = sh.startTime.split(":").map(Number);
@@ -25550,25 +25561,28 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return d;
     });
     if (!isDesktop) {
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, (cards || []).map((card2) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, (cards || []).map((card2) => {
         const totalHours = scheduleWeeklyGridHours(card2.shifts);
         const sortedShifts = [...card2.shifts || []].sort((a, b) => a.dayOffset - b.dayOffset);
+        const accent = scheduleRoleAccentColor(card2.jobTitle);
         const Tag = onEmployeeClick ? "button" : "div";
         return /* @__PURE__ */ React.createElement(
           Tag,
           {
             key: card2.employeeId,
             ...onEmployeeClick ? { onClick: () => onEmployeeClick(card2.employeeId) } : {},
-            style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.7rem 0.85rem", textAlign: "left", width: "100%", display: "block", cursor: onEmployeeClick ? "pointer" : "default" }
+            style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderTop: `4px solid ${accent}`, borderRadius: 12, padding: "0.9rem 1rem", textAlign: "left", width: "100%", display: "block", cursor: onEmployeeClick ? "pointer" : "default" }
           },
-          /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, textDecoration: onEmployeeClick ? "underline" : "none" } }, card2.employeeName),
-          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.4rem" } }, Math.round(totalHours * 10) / 10, "h"),
-          sortedShifts.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.text } }, SCHEDULE_DOW[s.dayOffset], "\xA0\xA0", scheduleFormat12h(s.startTime), "\u2013", scheduleFormat12h(s.endTime)))
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 34, height: 34, borderRadius: "50%", background: `${accent}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ICONS.profile(accent)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.15rem", fontWeight: 800, color: th.text } }, card2.employeeName)),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.15rem", marginLeft: "2.6rem" } }, card2.jobTitle || "Crew Member"),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.3rem", background: `${accent}18`, color: accent, borderRadius: 999, padding: "0.2rem 0.6rem", fontSize: "0.75rem", fontWeight: 700, margin: "0.5rem 0 0.7rem 2.6rem" } }, ICONS.clock(accent), Math.round(totalHours * 10) / 10, "h"),
+          /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}` } }),
+          sortedShifts.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0", borderBottom: i < sortedShifts.length - 1 ? `1px solid ${th.cardBorder}` : "none" } }, /* @__PURE__ */ React.createElement("span", { style: { background: accent, color: scheduleRoleTextColor(accent), borderRadius: 6, padding: "0.25rem 0.5rem", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.03em", minWidth: 38, textAlign: "center" } }, SCHEDULE_DOW[s.dayOffset].toUpperCase()), ICONS.clock(th.muted), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.95rem", fontWeight: 700, color: th.text } }, scheduleFormat12h(s.startTime), " \u2013 ", scheduleFormat12h(s.endTime))))
         );
       }), (openShiftGroups || []).map((og) => {
         const totalHours = scheduleWeeklyGridHours(og.shifts);
         const sortedShifts = [...og.shifts || []].sort((a, b) => a.dayOffset - b.dayOffset);
-        return /* @__PURE__ */ React.createElement("div", { key: "open-" + og.jobTitle, style: { background: th.card, border: `1px dashed ${th.cardBorder}`, borderRadius: 8, padding: "0.7rem 0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontStyle: "italic", color: th.muted } }, "Open \u2014 ", og.jobTitle), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.4rem" } }, Math.round(totalHours * 10) / 10, "h unfilled"), sortedShifts.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted } }, SCHEDULE_DOW[s.dayOffset], "\xA0\xA0", scheduleFormat12h(s.startTime), "\u2013", scheduleFormat12h(s.endTime))));
+        return /* @__PURE__ */ React.createElement("div", { key: "open-" + og.jobTitle, style: { background: th.card, border: `1px dashed ${th.cardBorder}`, borderRadius: 12, padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontStyle: "italic", color: th.muted } }, "Open \u2014 ", og.jobTitle), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, margin: "0.15rem 0 0.6rem" } }, Math.round(totalHours * 10) / 10, "h unfilled"), sortedShifts.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.4rem 0", borderBottom: i < sortedShifts.length - 1 ? `1px solid ${th.cardBorder}` : "none" } }, /* @__PURE__ */ React.createElement("span", { style: { background: th.card3, color: th.muted, borderRadius: 6, padding: "0.25rem 0.5rem", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.03em", minWidth: 38, textAlign: "center" } }, SCHEDULE_DOW[s.dayOffset].toUpperCase()), ICONS.clock(th.muted), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.95rem", fontWeight: 700, color: th.muted } }, scheduleFormat12h(s.startTime), " \u2013 ", scheduleFormat12h(s.endTime)))));
       }));
     }
     return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: "sticky", left: 0, background: th.bg } }, "Employee"), dayDates.map((d, i) => /* @__PURE__ */ React.createElement("th", { key: i, style: { textAlign: "center", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 130 } }, SCHEDULE_DOW[i], ", ", d.getUTCMonth() + 1, "/", d.getUTCDate())))), /* @__PURE__ */ React.createElement("tbody", null, (cards || []).map((card2) => {
@@ -25903,9 +25917,45 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const isDesktop = useIsDesktopViewport();
     if (mode === "view") {
-      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load week")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: cards.filter((c) => (c.shifts || []).length > 0), th, openShiftGroups }));
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, step: 7, onChange: (e) => {
+        const val = e.target.value;
+        if (!val) {
+          setWeekStart("");
+          setError(null);
+          return;
+        }
+        if (tipsParseISODate(val).getUTCDay() !== 0) {
+          setError("Week start must be a Sunday.");
+          return;
+        }
+        setError(null);
+        setWeekStart(val);
+      }, style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load week")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && /* @__PURE__ */ React.createElement(WeeklyScheduleGrid, { weekStartISO: weekStart, cards: cards.filter((c) => (c.shifts || []).length > 0), th, openShiftGroups }));
     }
-    return /* @__PURE__ */ React.createElement("div", null, !cards && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.35rem" } }, "Week start (Sunday)"), /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, onChange: (e) => setWeekStart(e.target.value), style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Start building")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && isDesktop && (() => {
+    return /* @__PURE__ */ React.createElement("div", null, !cards && (() => {
+      const today = tipsParseISODate(todayStr);
+      const thisWeekSunday = tipsAddDays(today, -today.getUTCDay());
+      const minWeekStart = tipsFormatISODate(tipsAddDays(thisWeekSunday, 7));
+      return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.35rem" } }, "Week start (Sunday)"), /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, min: minWeekStart, step: 7, onChange: (e) => {
+        const val = e.target.value;
+        if (!val) {
+          setWeekStart("");
+          setError(null);
+          return;
+        }
+        const d = tipsParseISODate(val);
+        if (d.getUTCDay() !== 0) {
+          setError("Week start must be a Sunday.");
+          return;
+        }
+        if (val < minWeekStart) {
+          setError("Pick a week that hasn't started yet \u2014 the current week is locked.");
+          return;
+        }
+        setError(null);
+        setWeekStart(val);
+      }, style: { ...inp(th), width: 200 } }), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !weekStart || loading, style: { ...btn(th), marginLeft: "0.6rem", opacity: !weekStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Start building"));
+    })(), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem", marginBottom: "1rem" } }, error), cards && isDesktop && (() => {
       const desktopTotal = scheduleComputeWeeklyTotal(cards, payRates);
       const allSent = submitResult && !submitResult.running && submitResult.results.length > 0 && submitResult.results.every((r) => r.status === "ok");
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RunningLaborHeader, { weeklyTotal: desktopTotal, projectedSales: 0, th }), /* @__PURE__ */ React.createElement(EditableScheduleGrid, { weekStartISO: weekStart, cards, onCardsChange: setCards, th, openShiftGroups }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: async () => {
