@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.40";
+const APP_VERSION = "v20.41";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33361,7 +33361,14 @@ function ScheduleBuilder({ store, th, mode }) {
               week is a legitimate thing to look up) — only the day-of-week
               constraint applies, since every downstream grouping assumes a
               Sunday-starting week. */}
-          <input type="date" value={weekStart} step={7} onChange={e => {
+          {/* min must be an actual Sunday — step alone anchors to the HTML
+              date-input default of 1970-01-01, which was a THURSDAY, so
+              every "steppable" date landed on Thursdays instead of Sundays
+              (confirmed live 2026-09-01). This min is just a step anchor,
+              not a real lower bound — 2020-01-05 has no meaning otherwise,
+              it's simply a Sunday far enough back to never actually limit
+              a real lookup. */}
+          <input type="date" value={weekStart} min="2020-01-05" step={7} onChange={e => {
             const val = e.target.value;
             if (!val) { setWeekStart(''); setError(null); return; }
             if (tipsParseISODate(val).getUTCDay() !== 0) { setError('Week start must be a Sunday.'); return; }

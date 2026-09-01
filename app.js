@@ -21247,7 +21247,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.40";
+  var APP_VERSION = "v20.41";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25917,7 +25917,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const isDesktop = useIsDesktopViewport();
     if (mode === "view") {
-      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, step: 7, onChange: (e) => {
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: weekStart, min: "2020-01-05", step: 7, onChange: (e) => {
         const val = e.target.value;
         if (!val) {
           setWeekStart("");
