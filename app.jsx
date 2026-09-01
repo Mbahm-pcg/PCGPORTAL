@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.35";
+const APP_VERSION = "v20.36";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -39433,6 +39433,11 @@ function TipsReportBuilder({ th, stores, user }) {
       // not found live (e.g. since departed) falls back to 101, same as
       // Paycor's own behavior for a missing job title.
       const titleByPayrollId = {};
+      // v2's schema keys each import row by employeeId (Paycor's internal
+      // GUID), not employeeNumber — the tips pipeline only ever tracked
+      // payrollId (employeeNumber), so the GUID has to come from this same
+      // live roster fetch, same as the job-title lookup right below.
+      const idByPayrollId = {};
       let rosterFetchFailed = false;
       try {
         let employees = [], continuationToken;
@@ -39450,7 +39455,10 @@ function TipsReportBuilder({ th, stores, user }) {
         } while (continuationToken);
         employees.forEach(e => {
           const num = e?.employeeNumber || e?.alternateEmployeeNumber;
-          if (num) titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
+          if (num) {
+            titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
+            if (e?.id) idByPayrollId[String(num)] = e.id;
+          }
         });
       } catch (e) {
         rosterFetchFailed = true;
@@ -39482,15 +39490,22 @@ function TipsReportBuilder({ th, stores, user }) {
       const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
 
       let defaultedCount = 0;
-      const importEmployees = toSend.map(r => {
+      // employeeId (the GUID) is required by v2's schema — unlike a missing
+      // job title (safe to default to Cust Svc), there's no sensible
+      // fallback for "which employee is this," so anyone not found in the
+      // live roster is skipped from this store's submission entirely rather
+      // than sent with an undefined/garbage employeeId.
+      const noLiveIdCount = toSend.filter(r => !idByPayrollId[String(r.payrollId)]).length;
+      const importEmployees = toSend.filter(r => idByPayrollId[String(r.payrollId)]).map(r => {
         const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
         if (!hasLiveMatch) defaultedCount++;
         const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
         return {
-          employeeNumber: Number(r.payrollId),
+          employeeId: idByPayrollId[String(r.payrollId)],
           importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }],
         };
       });
+      if (importEmployees.length === 0) { record('skipped', `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ''}`); continue; }
 
       try {
         const processId = crypto.randomUUID();
@@ -39502,6 +39517,7 @@ function TipsReportBuilder({ th, stores, user }) {
         if (res.ok) {
           const notes = [];
           if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
+          if (noLiveIdCount) notes.push(`skipped ${noLiveIdCount} not found on current roster (no Paycor ID to send)`);
           if (rosterFetchFailed) notes.push(`couldn't fetch current roster — all defaulted to Cust Svc (101)`);
           else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
           record('ok', `Staged ${importEmployees.length} employee(s)${notes.length ? ', ' + notes.join(', ') : ''} — still needs human review/submit in Paycor`);

@@ -21246,7 +21246,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.35";
+  var APP_VERSION = "v20.36";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29963,6 +29963,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           continue;
         }
         const titleByPayrollId = {};
+        const idByPayrollId = {};
         let rosterFetchFailed = false;
         try {
           let employees = [], continuationToken;
@@ -29981,7 +29982,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           } while (continuationToken);
           employees.forEach((e) => {
             const num = e?.employeeNumber || e?.alternateEmployeeNumber;
-            if (num) titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
+            if (num) {
+              titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
+              if (e?.id) idByPayrollId[String(num)] = e.id;
+            }
           });
         } catch (e) {
           rosterFetchFailed = true;
@@ -30005,15 +30009,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const businessStartDate = `${tipsFormatISODate(start)}T00:00:00Z`;
         const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
         let defaultedCount = 0;
-        const importEmployees = toSend.map((r) => {
+        const noLiveIdCount = toSend.filter((r) => !idByPayrollId[String(r.payrollId)]).length;
+        const importEmployees = toSend.filter((r) => idByPayrollId[String(r.payrollId)]).map((r) => {
           const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
           if (!hasLiveMatch) defaultedCount++;
           const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
           return {
-            employeeNumber: Number(r.payrollId),
+            employeeId: idByPayrollId[String(r.payrollId)],
             importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }]
           };
         });
+        if (importEmployees.length === 0) {
+          record("skipped", `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ""}`);
+          continue;
+        }
         try {
           const processId = crypto.randomUUID();
           const res = await fetch("/.netlify/functions/paycor", {
@@ -30025,6 +30034,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           if (res.ok) {
             const notes = [];
             if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
+            if (noLiveIdCount) notes.push(`skipped ${noLiveIdCount} not found on current roster (no Paycor ID to send)`);
             if (rosterFetchFailed) notes.push(`couldn't fetch current roster \u2014 all defaulted to Cust Svc (101)`);
             else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
             record("ok", `Staged ${importEmployees.length} employee(s)${notes.length ? ", " + notes.join(", ") : ""} \u2014 still needs human review/submit in Paycor`);

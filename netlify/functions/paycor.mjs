@@ -315,11 +315,11 @@ async function doRefresh(clientId, clientSecret, subscriptionKey, refreshTokenTo
 
 // ── Paycor API Call ──────────────────────────────────────────────────────────
 
-async function callPaycor(path, method = 'GET', body = null) {
+async function callPaycor(path, method = 'GET', body = null, version = 'v1') {
   const token = await getAccessToken();
   const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
 
-  const res = await httpsRequest(PAYCOR_API_HOST, `/v1${path}`, method, {
+  const res = await httpsRequest(PAYCOR_API_HOST, `/${version}${path}`, method, {
     Authorization: `Bearer ${token}`,
     'Ocp-Apim-Subscription-Key': subscriptionKey,
   }, body);
@@ -332,7 +332,7 @@ async function callPaycor(path, method = 'GET', body = null) {
     tokenCache.accessToken = null;
     tokenCache.expiresAt = 0;
     const newToken = await getAccessToken(true, token);
-    return await httpsRequest(PAYCOR_API_HOST, `/v1${path}`, method, {
+    return await httpsRequest(PAYCOR_API_HOST, `/${version}${path}`, method, {
       Authorization: `Bearer ${newToken}`,
       'Ocp-Apim-Subscription-Key': subscriptionKey,
     }, body);
@@ -489,7 +489,12 @@ export default async (request, context) => {
       if (replaceData != null) params.push(`replaceData=${!!replaceData}`);
       if (appendData != null) params.push(`appendData=${!!appendData}`);
       if (params.length) path += '?' + params.join('&');
-      const res = await callPaycor(path, 'POST', { integrationVendor, processId, importEmployees });
+      // v2, not v1 — Paycor's own current API reference documents this
+      // endpoint under /v2/legalentities/{id}/payrollhours (confirmed live
+      // 2026-09-01), with a different request schema than v1 (employeeId
+      // GUID, not employeeNumber int — see the importEmployees mapping at
+      // the call site in app.jsx).
+      const res = await callPaycor(path, 'POST', { integrationVendor, processId, importEmployees }, 'v2');
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
