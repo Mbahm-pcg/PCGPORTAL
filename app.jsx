@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.37";
+const APP_VERSION = "v20.38";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33084,7 +33084,14 @@ function ScheduleBuilder({ store, th, mode }) {
       setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
 
       const rates = {};
-      await Promise.all(employees.map(async (e) => {
+      // Sequential, not Promise.all — concurrent calls to our own Paycor
+      // proxy race on its shared in-memory OAuth token cache across
+      // separate cold Lambda instances (confirmed live elsewhere this
+      // session: the tips-report cron and live-fetch tool both hit this
+      // as real, reproducible slowness/failures with 40+ concurrent
+      // employees). One store's roster at a time is what actually loads
+      // quickly and reliably here.
+      for (const e of employees) {
         try {
           const r = await fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'payRates', employeeId: e.id }) });
           const rd = await r.json();
@@ -33099,7 +33106,7 @@ function ScheduleBuilder({ store, th, mode }) {
           // salary-to-hourly conversion.
           if (rate != null && rec?.type !== 'Salary') rates[e.id] = Number(rate);
         } catch (err) { /* leave unset — flagged as rate-unavailable downstream */ }
-      }));
+      }
       setPayRates(rates);
 
       const builtCards = employees.map(e => {

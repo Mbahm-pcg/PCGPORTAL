@@ -21246,7 +21246,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.37";
+  var APP_VERSION = "v20.38";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25771,7 +25771,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);
         setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
         const rates = {};
-        await Promise.all(employees.map(async (e) => {
+        for (const e of employees) {
           try {
             const r = await fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "payRates", employeeId: e.id }) });
             const rd = await r.json();
@@ -25780,7 +25780,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             if (rate != null && rec?.type !== "Salary") rates[e.id] = Number(rate);
           } catch (err) {
           }
-        }));
+        }
         setPayRates(rates);
         const builtCards = employees.map((e) => {
           const name = `${e.firstName || ""} ${e.lastName || ""}`.trim();
