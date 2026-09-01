@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.36";
+const APP_VERSION = "v20.37";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32492,13 +32492,70 @@ const SCHEDULE_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // Paycor's own native Schedules view (confirmed via screenshot during
 // design) but styled with this app's own theme instead of Paycor's colors.
 // Pure rendering only — no edit state lives here even in 'build' mode.
+function scheduleWeeklyGridHours(shifts) {
+  return (shifts || []).reduce((sum, sh) => {
+    const [sh1, sm1] = sh.startTime.split(':').map(Number);
+    const [sh2, sm2] = sh.endTime.split(':').map(Number);
+    // Overnight wraparound — see matching fix + comment in scheduleComputeWeeklyTotal.
+    let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+    if (mins < 0) mins += 1440;
+    return sum + mins / 60;
+  }, 0);
+}
+
 function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups, onEmployeeClick }) {
+  const isDesktop = useIsDesktopViewport();
   const weekStart = new Date(weekStartISO + 'T00:00:00Z');
   const dayDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
     d.setUTCDate(d.getUTCDate() + i);
     return d;
   });
+
+  // Phone-width layout — a wide employee-rows x day-columns table forces
+  // horizontal scroll on a phone (reported live 2026-09-01). Stacked cards
+  // instead: one per employee, name + total hours, then each shift as a
+  // plain "Day time–time" line. Desktop/Chromebook keeps the table below
+  // completely unchanged.
+  if (!isDesktop) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+        {(cards || []).map(card => {
+          const totalHours = scheduleWeeklyGridHours(card.shifts);
+          const sortedShifts = [...(card.shifts || [])].sort((a, b) => a.dayOffset - b.dayOffset);
+          const Tag = onEmployeeClick ? 'button' : 'div';
+          return (
+            <Tag key={card.employeeId}
+              {...(onEmployeeClick ? { onClick: () => onEmployeeClick(card.employeeId) } : {})}
+              style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.7rem 0.85rem', textAlign: 'left', width: '100%', display: 'block', cursor: onEmployeeClick ? 'pointer' : 'default' }}>
+              <div style={{ fontWeight: 700, color: th.text, textDecoration: onEmployeeClick ? 'underline' : 'none' }}>{card.employeeName}</div>
+              <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.4rem' }}>{Math.round(totalHours * 10) / 10}h</div>
+              {sortedShifts.map((s, i) => (
+                <div key={i} style={{ fontSize: '0.8rem', color: th.text }}>
+                  {SCHEDULE_DOW[s.dayOffset]}&nbsp;&nbsp;{scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+                </div>
+              ))}
+            </Tag>
+          );
+        })}
+        {(openShiftGroups || []).map(og => {
+          const totalHours = scheduleWeeklyGridHours(og.shifts);
+          const sortedShifts = [...(og.shifts || [])].sort((a, b) => a.dayOffset - b.dayOffset);
+          return (
+            <div key={'open-' + og.jobTitle} style={{ background: th.card, border: `1px dashed ${th.cardBorder}`, borderRadius: 8, padding: '0.7rem 0.85rem' }}>
+              <div style={{ fontWeight: 700, fontStyle: 'italic', color: th.muted }}>Open — {og.jobTitle}</div>
+              <div style={{ fontSize: '0.7rem', color: th.muted, marginBottom: '0.4rem' }}>{Math.round(totalHours * 10) / 10}h unfilled</div>
+              {sortedShifts.map((s, i) => (
+                <div key={i} style={{ fontSize: '0.8rem', color: th.muted }}>
+                  {SCHEDULE_DOW[s.dayOffset]}&nbsp;&nbsp;{scheduleFormat12h(s.startTime)}–{scheduleFormat12h(s.endTime)}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -32515,14 +32572,7 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups, onEmploy
         </thead>
         <tbody>
           {(cards || []).map(card => {
-            const totalHours = (card.shifts || []).reduce((sum, sh) => {
-              const [sh1, sm1] = sh.startTime.split(':').map(Number);
-              const [sh2, sm2] = sh.endTime.split(':').map(Number);
-              // Overnight wraparound — see matching fix + comment in scheduleComputeWeeklyTotal.
-              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
-              if (mins < 0) mins += 1440;
-              return sum + mins / 60;
-            }, 0);
+            const totalHours = scheduleWeeklyGridHours(card.shifts);
             return (
               <tr key={card.employeeId} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
                 <td style={{ padding: '0.5rem', color: th.text, fontWeight: 600, position: 'sticky', left: 0, background: th.bg }}>
@@ -32549,13 +32599,7 @@ function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups, onEmploy
             );
           })}
           {(openShiftGroups || []).map(og => {
-            const totalHours = (og.shifts || []).reduce((sum, sh) => {
-              const [sh1, sm1] = sh.startTime.split(':').map(Number);
-              const [sh2, sm2] = sh.endTime.split(':').map(Number);
-              let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
-              if (mins < 0) mins += 1440;
-              return sum + mins / 60;
-            }, 0);
+            const totalHours = scheduleWeeklyGridHours(og.shifts);
             return (
               <tr key={'open-' + og.jobTitle} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
                 <td style={{ padding: '0.5rem', color: th.muted, fontWeight: 600, fontStyle: 'italic', position: 'sticky', left: 0, background: th.bg }}>

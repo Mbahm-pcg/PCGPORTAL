@@ -21246,7 +21246,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.36";
+  var APP_VERSION = "v20.37";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25532,33 +25532,53 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return isDesktop;
   }
   var SCHEDULE_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function scheduleWeeklyGridHours(shifts) {
+    return (shifts || []).reduce((sum, sh) => {
+      const [sh1, sm1] = sh.startTime.split(":").map(Number);
+      const [sh2, sm2] = sh.endTime.split(":").map(Number);
+      let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
+      if (mins < 0) mins += 1440;
+      return sum + mins / 60;
+    }, 0);
+  }
   function WeeklyScheduleGrid({ weekStartISO, cards, th, openShiftGroups, onEmployeeClick }) {
+    const isDesktop = useIsDesktopViewport();
     const weekStart = /* @__PURE__ */ new Date(weekStartISO + "T00:00:00Z");
     const dayDates = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(weekStart);
       d.setUTCDate(d.getUTCDate() + i);
       return d;
     });
+    if (!isDesktop) {
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, (cards || []).map((card2) => {
+        const totalHours = scheduleWeeklyGridHours(card2.shifts);
+        const sortedShifts = [...card2.shifts || []].sort((a, b) => a.dayOffset - b.dayOffset);
+        const Tag = onEmployeeClick ? "button" : "div";
+        return /* @__PURE__ */ React.createElement(
+          Tag,
+          {
+            key: card2.employeeId,
+            ...onEmployeeClick ? { onClick: () => onEmployeeClick(card2.employeeId) } : {},
+            style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.7rem 0.85rem", textAlign: "left", width: "100%", display: "block", cursor: onEmployeeClick ? "pointer" : "default" }
+          },
+          /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, textDecoration: onEmployeeClick ? "underline" : "none" } }, card2.employeeName),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.4rem" } }, Math.round(totalHours * 10) / 10, "h"),
+          sortedShifts.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.text } }, SCHEDULE_DOW[s.dayOffset], "\xA0\xA0", scheduleFormat12h(s.startTime), "\u2013", scheduleFormat12h(s.endTime)))
+        );
+      }), (openShiftGroups || []).map((og) => {
+        const totalHours = scheduleWeeklyGridHours(og.shifts);
+        const sortedShifts = [...og.shifts || []].sort((a, b) => a.dayOffset - b.dayOffset);
+        return /* @__PURE__ */ React.createElement("div", { key: "open-" + og.jobTitle, style: { background: th.card, border: `1px dashed ${th.cardBorder}`, borderRadius: 8, padding: "0.7rem 0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontStyle: "italic", color: th.muted } }, "Open \u2014 ", og.jobTitle), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.4rem" } }, Math.round(totalHours * 10) / 10, "h unfilled"), sortedShifts.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted } }, SCHEDULE_DOW[s.dayOffset], "\xA0\xA0", scheduleFormat12h(s.startTime), "\u2013", scheduleFormat12h(s.endTime))));
+      }));
+    }
     return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, position: "sticky", left: 0, background: th.bg } }, "Employee"), dayDates.map((d, i) => /* @__PURE__ */ React.createElement("th", { key: i, style: { textAlign: "center", padding: "0.5rem", borderBottom: `2px solid ${th.cardBorder}`, color: th.muted, minWidth: 130 } }, SCHEDULE_DOW[i], ", ", d.getUTCMonth() + 1, "/", d.getUTCDate())))), /* @__PURE__ */ React.createElement("tbody", null, (cards || []).map((card2) => {
-      const totalHours = (card2.shifts || []).reduce((sum, sh) => {
-        const [sh1, sm1] = sh.startTime.split(":").map(Number);
-        const [sh2, sm2] = sh.endTime.split(":").map(Number);
-        let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
-        if (mins < 0) mins += 1440;
-        return sum + mins / 60;
-      }, 0);
+      const totalHours = scheduleWeeklyGridHours(card2.shifts);
       return /* @__PURE__ */ React.createElement("tr", { key: card2.employeeId, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.text, fontWeight: 600, position: "sticky", left: 0, background: th.bg } }, onEmployeeClick ? /* @__PURE__ */ React.createElement("button", { onClick: () => onEmployeeClick(card2.employeeId), style: { background: "none", border: "none", padding: 0, font: "inherit", color: th.text, fontWeight: 600, cursor: "pointer", textDecoration: "underline" } }, card2.employeeName) : card2.employeeName, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400 } }, Math.round(totalHours * 10) / 10, "h")), dayDates.map((_, dayOffset) => {
         const shift = (card2.shifts || []).find((sh) => sh.dayOffset === dayOffset);
         return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F18", border: "1px solid #FF671F55", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.text } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
       }));
     }), (openShiftGroups || []).map((og) => {
-      const totalHours = (og.shifts || []).reduce((sum, sh) => {
-        const [sh1, sm1] = sh.startTime.split(":").map(Number);
-        const [sh2, sm2] = sh.endTime.split(":").map(Number);
-        let mins = sh2 * 60 + sm2 - (sh1 * 60 + sm1);
-        if (mins < 0) mins += 1440;
-        return sum + mins / 60;
-      }, 0);
+      const totalHours = scheduleWeeklyGridHours(og.shifts);
       return /* @__PURE__ */ React.createElement("tr", { key: "open-" + og.jobTitle, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem", color: th.muted, fontWeight: 600, fontStyle: "italic", position: "sticky", left: 0, background: th.bg } }, "Open \u2014 ", og.jobTitle, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, fontWeight: 400, fontStyle: "normal" } }, Math.round(totalHours * 10) / 10, "h unfilled")), dayDates.map((_, dayOffset) => {
         const shift = (og.shifts || []).find((sh) => sh.dayOffset === dayOffset);
         return /* @__PURE__ */ React.createElement("td", { key: dayOffset, style: { padding: "0.35rem", textAlign: "center" } }, shift && /* @__PURE__ */ React.createElement("div", { style: { background: "#94a3b81a", border: "1px dashed #94a3b8aa", borderRadius: 6, padding: "0.3rem 0.4rem", color: th.muted } }, scheduleFormat12h(shift.startTime), "\u2013", scheduleFormat12h(shift.endTime)));
