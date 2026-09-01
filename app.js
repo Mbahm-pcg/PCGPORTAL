@@ -21247,7 +21247,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.41";
+  var APP_VERSION = "v20.42";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25785,7 +25785,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const shiftsByEmployee = scheduleGroupShiftsByEmployee(shiftData.records || [], groupingAnchor);
         setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
         const rates = {};
-        for (const e of employees) {
+        const employeesWithShifts = employees.filter((e) => (shiftsByEmployee[e.id] || []).some((s) => s.dayOffset >= 0 && s.dayOffset <= 6));
+        for (const e of employeesWithShifts) {
           try {
             const r = await fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "payRates", employeeId: e.id }) });
             const rd = await r.json();

@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.41";
+const APP_VERSION = "v20.42";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33131,6 +33131,14 @@ function ScheduleBuilder({ store, th, mode }) {
       setOpenShiftGroups(scheduleGroupOpenShiftsByJob(shiftData.records || [], groupingAnchor));
 
       const rates = {};
+      // Only fetch a rate for someone who actually has a shift this week —
+      // anyone with zero shifts contributes 0 hours (and, in view mode,
+      // never even renders — WeeklyScheduleGrid's caller already filters
+      // to cards with shifts), so their rate is pure waste. Confirmed live
+      // 2026-09-01: fetching the FULL 40+ roster made this feel endless
+      // even after fixing the Promise.all race below — most stores only
+      // have a fraction of their roster actually scheduled a given week.
+      const employeesWithShifts = employees.filter(e => (shiftsByEmployee[e.id] || []).some(s => s.dayOffset >= 0 && s.dayOffset <= 6));
       // Sequential, not Promise.all — concurrent calls to our own Paycor
       // proxy race on its shared in-memory OAuth token cache across
       // separate cold Lambda instances (confirmed live elsewhere this
@@ -33138,7 +33146,7 @@ function ScheduleBuilder({ store, th, mode }) {
       // as real, reproducible slowness/failures with 40+ concurrent
       // employees). One store's roster at a time is what actually loads
       // quickly and reliably here.
-      for (const e of employees) {
+      for (const e of employeesWithShifts) {
         try {
           const r = await fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'payRates', employeeId: e.id }) });
           const rd = await r.json();
