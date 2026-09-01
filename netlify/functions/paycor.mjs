@@ -351,7 +351,15 @@ export default async (request, context) => {
     'Content-Type': 'application/json',
   };
 
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+  // No Access-Control-Max-Age means browsers default to caching a preflight
+  // for only 5 seconds (WHATWG Fetch spec) -- a sequential loop of N calls
+  // to this same endpoint (payRates per employee, etc.) re-does a full
+  // OPTIONS round-trip every time that 5s window lapses, on top of every
+  // real request. Confirmed live 2026-09-01: schedule loading felt far
+  // slower for real users than a direct server-to-server timing test ever
+  // showed, since curl never triggers browser-only CORS preflight at all.
+  // 24h cache means one preflight per browser session in practice.
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...headers, 'Access-Control-Max-Age': '86400' } });
   if (request.method !== 'POST') return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers });
 
   let payload;
