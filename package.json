@@ -11,7 +11,7 @@
     "minimalistic-assert": "^1.0.1",
     "nodemailer": "^9.0.1",
     "pdf-parse": "^1.1.4",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.0",
     "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },
