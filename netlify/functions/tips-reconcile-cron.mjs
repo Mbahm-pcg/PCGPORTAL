@@ -48,12 +48,25 @@ const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;
 // tips-report-cron-background.mjs (which needs the exact dates of a
 // closed pay period, not "N days back from today" — those aren't the
 // same thing once the settle runs days after the period actually ended).
-export async function runReconcileForDates(dates, onlyPc = null) {
+//
+// opts (all optional; omitting the whole object preserves the exact
+// pre-existing behavior for the daily cron and the manual refresh):
+//   budgetMs  — override the internal time budget. The 12-minute default
+//               assumes this function owns nearly a whole 15-minute
+//               background invocation; the biweekly settle pass does NOT
+//               (it runs after the payroll report is already built and
+//               sent), so it passes a much smaller budget.
+//   sendEmail — set false to suppress this function's own correction
+//               email. The biweekly settle path sends its own period-
+//               finalize email instead, and two reconcile-flavored emails
+//               with different framing on the same night is worse than one.
+export async function runReconcileForDates(dates, onlyPc = null, opts = {}) {
   const targetStores = onlyPc ? STORES.filter(s => String(s.pc) === String(onlyPc)) : STORES;
+  const emailEnabled = opts.sendEmail !== false;
 
   const corrections = [];
   const invocationStart = Date.now();
-  const BUDGET_MS = 12 * 60 * 1000;
+  const BUDGET_MS = opts.budgetMs ?? 12 * 60 * 1000;
   let skippedForBudget = false;
 
   outer:
@@ -186,7 +199,7 @@ export async function runReconcileForDates(dates, onlyPc = null) {
     }
   }
 
-  if (corrections.length > 0) {
+  if (corrections.length > 0 && emailEnabled) {
     // Not every row here was actually applied — a row can be "NOT APPLIED"
     // or "POSSIBLE DROP" (withheld because a different employee looked
     // dropped in the same fetch, see the per-store/day skip logic above).

@@ -1181,41 +1181,14 @@ export default async (request) => {
     const [periodStart] = periodDates;
     const label = `Pay Period ${periodStart} – ${weekEnd}`;
 
-    // Full-period finalize-gate settle — runs BEFORE the biweekly rollup is
-    // built, so the rollup itself benefits from anything healed here. See
-    // docs/superpowers/specs/2026-09-02-tips-biweekly-finalize-gate-design.md.
-    try {
-      await retryErrorDays(periodDates); // heal any day still stuck in crewStatus:'error' before diffing
-      const reconcileResult = await runReconcileForDates(periodDates);
-      const withheldSet = deriveWithheldSet(reconcileResult.details);
-
-      const snapshotsByDate = new Map();
-      for (const d of periodDates) {
-        const arr = await loadDaySnapshot(d);
-        if (Array.isArray(arr)) snapshotsByDate.set(d, arr);
-      }
-
-      const lastCheckedAt = new Date().toISOString();
-      const rawStatuses = computeFinalizeStatuses(STORES, periodDates, snapshotsByDate, withheldSet);
-      const statusRecord = {};
-      for (const pc of Object.keys(rawStatuses)) statusRecord[pc] = { ...rawStatuses[pc], lastCheckedAt };
-      await getBlobStore().setJSON(`pcg_tips_period_status_${periodStart}`, { savedAt: lastCheckedAt, data: statusRecord });
-
-      const notFinalized = Object.entries(statusRecord).filter(([, v]) => !v.finalized);
-      if (notFinalized.length > 0) {
-        const rows = notFinalized.map(([pc, v]) => {
-          const store = STORES.find(s => String(s.pc) === pc);
-          const reasons = v.unresolvedDays.map(d => `${d.busDt}: ${d.reason}`).join('; ');
-          return `<tr><td style="padding:4px 10px;border-bottom:1px solid #eee;">${store ? store.name : pc}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;">${reasons}</td></tr>`;
-        }).join('');
-        const html = `<p>Pay Period ${periodStart} – ${weekEnd}: ${notFinalized.length} store(s) still NOT finalized after the automatic settle pass — review before entering payroll manually.</p><table style="border-collapse:collapse;width:100%;margin-top:10px;font-size:13px;"><tr style="background:#f5f5f5;"><th style="padding:4px 10px;text-align:left;">Store</th><th style="padding:4px 10px;text-align:left;">Unresolved</th></tr>${rows}</table>`;
-        await sendAlertEmail(recipient, `⚠ Pay Period ${periodStart} – ${weekEnd} — ${notFinalized.length} store(s) NOT finalized`, html).catch(() => {});
-      }
-    } catch (err) {
-      console.error('[tips-report-cron] Biweekly finalize settle FAILED:', err.message);
-      await sendAlertEmail(recipient, `⚠ Pay Period ${periodStart} – ${weekEnd} — finalize settle FAILED`, `<p>The biweekly finalize settle pass threw before building the payroll report: ${err.message}</p>`).catch(() => {});
-    }
-
+    // The biweekly (payroll) rollup is the one thing this night MUST
+    // produce — payroll locks tonight. It is therefore built and sent
+    // FIRST, before the finalize-gate settle pass below, so that a slow
+    // or truncated settle can never put it at risk. The settle pass does
+    // live Paycor work store-by-store across 14 days; even with the tight
+    // budgets it's given below, a try/catch around it cannot protect this
+    // report from the platform hard-killing the whole 15-minute
+    // invocation. Ordering can, and does.
     try {
       const { storeResults: biweekResults, missingDates, zeroEligibleDays, pulseGapDays, crewErrorDays } = await buildPeriodStoreResults(weekEnd, 14);
       biweeklyResult = await buildAndSend(label, `PayPeriod-${periodStart}-to-${weekEnd}`, biweekResults, 'PCG Tips Report — Biweekly (Payroll)', missingDates, undefined, false, zeroEligibleDays, pulseGapDays, crewErrorDays);
@@ -1223,6 +1196,81 @@ export default async (request) => {
       console.error('[tips-report-cron] Biweekly report build FAILED:', err.message);
       await sendAlertEmail(recipient, `⚠ PCG Tips Report — Biweekly — ${label} — FAILED TO BUILD`, `<p>The biweekly (payroll) tips report for <b>${label}</b> could not be built and was not sent: ${err.message}</p>`).catch(() => {});
       biweeklyResult = { error: err.message };
+    }
+
+    // Full-period finalize-gate settle — runs AFTER the payroll report is
+    // already built and sent (see above). See
+    // docs/superpowers/specs/2026-09-02-tips-biweekly-finalize-gate-design.md.
+    //
+    // Both halves get an explicit, deliberately small budget rather than
+    // their generous defaults (retryErrorDays: 11min, runReconcileForDates:
+    // 12min) — those defaults assume the callee owns most of a whole
+    // invocation, which is false here: this runs late in an invocation that
+    // has already done phase 2 (11min budget) and the rollup builds. Since
+    // an incomplete settle is now SAFE (below, it can never write a false
+    // finalized:true), under-running is strictly better than risking a
+    // platform timeout. In the realistic case only a handful of the 46
+    // stores need a live re-check, and 90s each is generous for that.
+    const SETTLE_BUDGET_MS = 90 * 1000;
+    try {
+      // heal any day still stuck in crewStatus:'error' before diffing
+      const retryResult = await retryErrorDays(periodDates, { budgetMs: SETTLE_BUDGET_MS });
+      // sendEmail:false — this branch sends its own period-finalize email
+      // below, which is the single source of truth for tonight's summary;
+      // runReconcileForDates' own email says "Daily ... across the last N
+      // days", which is wrong framing for a 14-day period settle.
+      const reconcileResult = await runReconcileForDates(periodDates, null, { budgetMs: SETTLE_BUDGET_MS, sendEmail: false });
+
+      // If EITHER half ran out of time, some store/days were never actually
+      // re-checked this run. Computing per-store statuses now would write
+      // finalized:true for every store that merely wasn't reached — silently
+      // certifying unverified data, which is the exact failure this whole
+      // feature exists to prevent. So record an explicit incomplete marker
+      // instead, and say so plainly in the email. The normal "N stores not
+      // finalized" email is deliberately NOT sent in this case: it would
+      // imply every other store WAS confirmed.
+      const incompleteReasons = [];
+      if (retryResult?.skippedForBudget) incompleteReasons.push('the error-day retry pass');
+      if (reconcileResult?.skippedForBudget) incompleteReasons.push('the full-period reconcile diff');
+
+      if (incompleteReasons.length > 0) {
+        const checkedAt = new Date().toISOString();
+        await getBlobStore().setJSON(`pcg_tips_period_status_${periodStart}`, {
+          savedAt: checkedAt,
+          data: { incomplete: true, periodStart, weekEnd, reason: 'settle-pass-out-of-time', incompletePhases: incompleteReasons, lastAttemptedAt: checkedAt },
+        });
+        console.warn(`[tips-report-cron] Biweekly finalize settle INCOMPLETE (${incompleteReasons.join(' + ')}) — no per-store finalize status written`);
+        const html = `<p>Pay Period ${periodStart} – ${weekEnd}: the automatic finalize settle pass <b>ran out of time before finishing</b> (${incompleteReasons.join(' and ')} did not complete), so this period's finalize status is <b>NOT confirmed for any store</b> — no store should be read as verified from this run.</p><p>The biweekly (payroll) tips report for this period was still built and sent separately, ahead of this pass. Re-verify the period manually, or re-run the settle, before entering payroll.</p>`;
+        await sendAlertEmail(recipient, `⚠ Pay Period ${periodStart} – ${weekEnd} — finalize settle INCOMPLETE (not confirmed for any store)`, html).catch(() => {});
+      } else {
+        const withheldSet = deriveWithheldSet(reconcileResult.details);
+
+        const snapshotsByDate = new Map();
+        for (const d of periodDates) {
+          const arr = await loadDaySnapshot(d);
+          if (Array.isArray(arr)) snapshotsByDate.set(d, arr);
+        }
+
+        const lastCheckedAt = new Date().toISOString();
+        const rawStatuses = computeFinalizeStatuses(STORES, periodDates, snapshotsByDate, withheldSet);
+        const statusRecord = {};
+        for (const pc of Object.keys(rawStatuses)) statusRecord[pc] = { ...rawStatuses[pc], lastCheckedAt };
+        await getBlobStore().setJSON(`pcg_tips_period_status_${periodStart}`, { savedAt: lastCheckedAt, data: statusRecord });
+
+        const notFinalized = Object.entries(statusRecord).filter(([, v]) => !v.finalized);
+        if (notFinalized.length > 0) {
+          const rows = notFinalized.map(([pc, v]) => {
+            const store = STORES.find(s => String(s.pc) === pc);
+            const reasons = v.unresolvedDays.map(d => `${d.busDt}: ${d.reason}`).join('; ');
+            return `<tr><td style="padding:4px 10px;border-bottom:1px solid #eee;">${store ? store.name : pc}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;">${reasons}</td></tr>`;
+          }).join('');
+          const html = `<p>Pay Period ${periodStart} – ${weekEnd}: ${notFinalized.length} store(s) still NOT finalized after the automatic settle pass — review before entering payroll manually.</p><table style="border-collapse:collapse;width:100%;margin-top:10px;font-size:13px;"><tr style="background:#f5f5f5;"><th style="padding:4px 10px;text-align:left;">Store</th><th style="padding:4px 10px;text-align:left;">Unresolved</th></tr>${rows}</table>`;
+          await sendAlertEmail(recipient, `⚠ Pay Period ${periodStart} – ${weekEnd} — ${notFinalized.length} store(s) NOT finalized`, html).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error('[tips-report-cron] Biweekly finalize settle FAILED:', err.message);
+      await sendAlertEmail(recipient, `⚠ Pay Period ${periodStart} – ${weekEnd} — finalize settle FAILED`, `<p>The biweekly finalize settle pass threw: ${err.message}. The biweekly (payroll) report itself was built and sent separately, ahead of this pass.</p>`).catch(() => {});
     }
   }
 
