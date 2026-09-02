@@ -29,42 +29,42 @@ const clearedCookie = () => `pcg_session=; Max-Age=0; Path=/; HttpOnly; Secure; 
 
 const GSI_CLIENT_ID = '450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com';
 
-// Idempotent column add — matches the codebase's self-managing-schema pattern (see
+// Idempotent schema setup — matches the codebase's self-managing-schema pattern (see
 // users.mjs ensureAuditsColumn / audits.mjs ensureTables). Module-level once-flag so a
-// warm lambda only issues the ALTER once. Belt-and-suspenders with those two: a fresh
-// deploy could hit portal-auth first, and the user SELECTs below select audits_access.
-// An ALTER failure must not break login — swallow it and let the SELECT surface the
-// real problem (e.g. an unrelated DB outage) instead of masking it as a schema error.
-let _auditsColumnEnsured = false;
-async function ensureAuditsColumn(db) {
-  if (_auditsColumnEnsured) return;
+// warm lambda only issues this once. Belt-and-suspenders: a fresh deploy could hit
+// portal-auth before db-migrate runs, and both the audits_access column and the
+// webauthn tables are read/written below. Failures are swallowed — the real queries
+// below will surface any genuine DB problem instead of masking it as a schema error.
+//
+// Batched into ONE Postgres transaction — Neon's HTTP driver has no persistent pooled
+// connection, so every separate query used to be its own network round trip. This was
+// 3 sequential round trips (1 ALTER + 2 CREATE) on every cold Lambda instance (the
+// once-flag is in-memory, so it resets on every cold start — on a login screen that's
+// close to every real request). Confirmed as the actual cause of a 5-9s delay before
+// the native Face ID/Touch ID prompt: it can't appear until webauthn-login-options's
+// whole response comes back, and this was 3 of the round trips blocking that response.
+let _schemaEnsured = false;
+async function ensureSchema(db) {
+  if (_schemaEnsured) return;
   try {
-    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`;
-    _auditsColumnEnsured = true;
-  } catch { /* best-effort — SELECT below will surface any real DB problem */ }
-}
-
-// Idempotent table creation, same self-managing-schema pattern as tickets.mjs /
-// audits.mjs. Module-level once-flag so a warm lambda only issues this once.
-let _webauthnTablesEnsured = false;
-async function ensureWebauthnTables(db) {
-  if (_webauthnTablesEnsured) return;
-  try {
-    await db`CREATE TABLE IF NOT EXISTS webauthn_credentials (
-      credential_id text PRIMARY KEY,
-      user_id integer NOT NULL,
-      public_key text NOT NULL,
-      counter bigint NOT NULL DEFAULT 0,
-      device_label text,
-      created_at timestamp DEFAULT now(),
-      last_used_at timestamp
-    )`;
-    await db`CREATE TABLE IF NOT EXISTS webauthn_challenges (
-      key text PRIMARY KEY,
-      challenge text NOT NULL,
-      created_at timestamp DEFAULT now()
-    )`;
-    _webauthnTablesEnsured = true;
+    await db.transaction([
+      db`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`,
+      db`CREATE TABLE IF NOT EXISTS webauthn_credentials (
+        credential_id text PRIMARY KEY,
+        user_id integer NOT NULL,
+        public_key text NOT NULL,
+        counter bigint NOT NULL DEFAULT 0,
+        device_label text,
+        created_at timestamp DEFAULT now(),
+        last_used_at timestamp
+      )`,
+      db`CREATE TABLE IF NOT EXISTS webauthn_challenges (
+        key text PRIMARY KEY,
+        challenge text NOT NULL,
+        created_at timestamp DEFAULT now()
+      )`,
+    ]);
+    _schemaEnsured = true;
   } catch { /* best-effort — the queries below will surface any real DB problem */ }
 }
 
@@ -178,12 +178,16 @@ export default async (request, context) => {
   try { body = await request.json().catch(() => ({})); } catch { return reply(400, { error: 'bad json' }); }
   const action = body.action || 'login';
   const db = sql();
-  await ensureAuditsColumn(db);
 
   const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
 
   try {
+    // 'ping' exists specifically so the client can pre-warm this function cheaply
+    // (see app.jsx's Login mount effect) — it must stay free of any DB work, so it
+    // returns before ensureSchema, not after.
     if (action === 'ping') return reply(200, { ok: true });
+
+    await ensureSchema(db);
 
     if (action === 'me') {
       // Active-session check: rejects tokens revoked by sign-out-everywhere → the client
@@ -399,7 +403,6 @@ export default async (request, context) => {
     if (action === 'webauthn-register-options') {
       const claims = await requireActiveUser(eventShim, db);
       if (!claims) return reply(401, { error: 'unauthorized' });
-      await ensureWebauthnTables(db);
       const { rpID } = deriveRpIdAndOrigin(request);
       const existing = await db`SELECT credential_id FROM webauthn_credentials WHERE user_id = ${claims.sub}`;
       const options = await generateRegistrationOptions({
@@ -426,7 +429,6 @@ export default async (request, context) => {
     if (action === 'webauthn-register-verify') {
       const claims = await requireActiveUser(eventShim, db);
       if (!claims) return reply(401, { error: 'unauthorized' });
-      await ensureWebauthnTables(db);
       const { rpID, origin } = deriveRpIdAndOrigin(request);
       const [ch] = await db`SELECT challenge FROM webauthn_challenges WHERE key = ${String(claims.sub)}`;
       if (!ch) return reply(400, { error: 'no pending registration — request new options first' });
@@ -457,7 +459,6 @@ export default async (request, context) => {
     if (action === 'webauthn-list') {
       const claims = await requireActiveUser(eventShim, db);
       if (!claims) return reply(401, { error: 'unauthorized' });
-      await ensureWebauthnTables(db);
       const rows = await db`
         SELECT credential_id, device_label, created_at, last_used_at
         FROM webauthn_credentials WHERE user_id = ${claims.sub} ORDER BY created_at DESC
@@ -468,7 +469,6 @@ export default async (request, context) => {
     if (action === 'webauthn-delete') {
       const claims = await requireActiveUser(eventShim, db);
       if (!claims) return reply(401, { error: 'unauthorized' });
-      await ensureWebauthnTables(db);
       const credentialId = body.credentialId;
       if (!credentialId) return reply(400, { error: 'credentialId required' });
       await db`DELETE FROM webauthn_credentials WHERE credential_id = ${credentialId} AND user_id = ${claims.sub}`;
@@ -476,7 +476,6 @@ export default async (request, context) => {
     }
 
     if (action === 'webauthn-login-options') {
-      await ensureWebauthnTables(db);
       const username = lc(body.username);
       // Two modes: a username narrows to that account's specific credentials
       // (allowCredentials); with none, this is a "discoverable" request — any
@@ -506,7 +505,6 @@ export default async (request, context) => {
     }
 
     if (action === 'webauthn-login-verify') {
-      await ensureWebauthnTables(db);
       if (!body.requestId || !body.credential) return reply(400, { error: 'requestId and credential required' });
 
       // Discoverable logins carry no username — the authenticator's response
