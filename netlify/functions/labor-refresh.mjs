@@ -40,16 +40,28 @@ export default async (request, context) => {
       return new Response(JSON.stringify({ ok: true, store: scopedPC, busDt, skipped: true, reason: 'zero data from Paycor' }), { status: 200, headers });
     }
 
-    // True "currently clocked in right now" count — distinct from employeesOnClock
+    // True "currently clocked in right now" status — distinct from employeesOnClock
     // (which means "worked at all today", even if already punched out). Only
     // employees processStore found hours for today can possibly still be open,
     // so this stays a small batch of live Paycor lookups — safe for the 26s cap
     // since this scoped path only ever covers one store's roster.
+    //
+    // Per-employee results are kept (clockInStatus), not just counted — the
+    // client (LaborDrillDown, app.jsx) used to re-fetch this same live status
+    // itself via its own separate per-employee employeePunches loop, right
+    // after calling this endpoint, because this response used to discard
+    // exactly the data it needed down to a bare count. Returning the map lets
+    // the client skip re-checking anyone already resolved here.
     const activeEmpIds = (result.employeeDetails || []).filter(e => e.hoursToday > 0).map(e => e.employeeId);
     let currentlyClockedIn = 0;
+    const clockInStatus = {};
     for (let i = 0; i < activeEmpIds.length; i += 5) {
       const batch = activeEmpIds.slice(i, i + 5);
       const checks = await Promise.all(batch.map(id => fetchLiveClockIn(id, busDt)));
+      batch.forEach((id, idx) => {
+        const lastPunchTime = checks[idx];
+        clockInStatus[id] = { isClockedIn: !!lastPunchTime, lastPunchTime: lastPunchTime || null };
+      });
       currentlyClockedIn += checks.filter(Boolean).length;
     }
 
@@ -69,7 +81,7 @@ export default async (request, context) => {
     // The full cron will pick up this store's fresh data on its next scheduled run.
 
     console.log('[labor-refresh] scoped refresh complete for', scopedPC, '— labor', result.today.laborPct?.toFixed(1), '% sales $', Math.round(result.today.sales));
-    return new Response(JSON.stringify({ ok: true, store: scopedPC, busDt, laborPct: result.today.laborPct, laborDollars: result.today.laborDollars, sales: result.today.sales, currentlyClockedIn }), { status: 200, headers });
+    return new Response(JSON.stringify({ ok: true, store: scopedPC, busDt, laborPct: result.today.laborPct, laborDollars: result.today.laborDollars, sales: result.today.sales, currentlyClockedIn, clockInStatus }), { status: 200, headers });
   } catch (e) {
     console.error('[labor-refresh] scoped refresh error:', e.message);
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });

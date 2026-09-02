@@ -26141,7 +26141,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.42";
+const APP_VERSION = "v20.44";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33590,7 +33590,7 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
       const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
       const tmrwStr = localDateStr(tmrw);
 
-      const [punchRes, empRes, histData, salesRes, schedRes] = await Promise.allSettled([
+      const [punchRes, empRes, histData, salesRes, schedRes, laborRefreshRes] = await Promise.allSettled([
         // 1. Completed punches (week range)
         fetch('/.netlify/functions/paycor', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -33620,6 +33620,18 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'schedulingShifts', legalEntityId, startDate: todayStr, endDate: tmrwStr }),
         }).then(r => r.ok ? r.json() : null),
+
+        // 6. Scoped live labor-refresh run — real per-employee pay rates + true
+        // "currently punched in" status, computed fresh right now for just this
+        // store (labor-cron itself can't be called directly from the client —
+        // see labor-refresh.mjs for why). Fired in parallel with 1-5 above
+        // (it doesn't depend on any of their results) rather than after them,
+        // and its per-employee clockInStatus lets the live-status loop below
+        // skip re-checking anyone this call already resolved.
+        fetch('/.netlify/functions/labor-refresh', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storePC: store.pc }),
+        }).then(r => r.ok ? r.json().catch(() => null) : null),
       ]);
 
       if (punchRes.status === 'fulfilled' && punchRes.value) {
@@ -33656,10 +33668,28 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
         setScheduleShifts(shifts);
       }
 
-      // Fetch live employeePunches for each employee who has a shift today
-      const shiftEmpIds = [...new Set(shifts.map(s => s.employeeId))];
+      // This is the number ManagerEmbeddableView's Home dashboard tile also
+      // reads, so the headline KPIs above agree everywhere. clockInStatus is
+      // a { employeeId: { isClockedIn, lastPunchTime } } map for anyone this
+      // call already checked live — pre-seed livePunches from it (as a
+      // single-record array so the existing odd/even-parity check in
+      // getLiveStatus resolves it as clocked-in with no logic changes there)
+      // so the loop below only has to fetch for employees NOT already
+      // resolved, instead of re-checking everyone from scratch.
+      const preSeededPunches = {};
+      if (laborRefreshRes.status === 'fulfilled' && laborRefreshRes.value?.ok && !laborRefreshRes.value?.skipped) {
+        const json = laborRefreshRes.value;
+        setLiveSummary({ laborDollars: json.laborDollars, laborPct: json.laborPct, sales: json.sales, currentlyClockedIn: json.currentlyClockedIn || 0 });
+        Object.entries(json.clockInStatus || {}).forEach(([empId, status]) => {
+          if (status?.isClockedIn) preSeededPunches[empId] = [{ punchDateTime: status.lastPunchTime }];
+        });
+      }
+
+      // Fetch live employeePunches only for employees with a shift today that
+      // labor-refresh didn't already resolve above.
+      const shiftEmpIds = [...new Set(shifts.map(s => s.employeeId))].filter(id => !preSeededPunches[id]);
+      const punchMap = { ...preSeededPunches };
       if (shiftEmpIds.length > 0) {
-        const punchMap = {};
         // Batch in groups of 5 to avoid rate limits
         for (let i = 0; i < shiftEmpIds.length; i += 5) {
           const batch = shiftEmpIds.slice(i, i + 5);
@@ -33678,25 +33708,8 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
             }
           });
         }
-        setLivePunches(punchMap);
       }
-
-      // Scoped live labor-refresh run — real per-employee pay rates + true
-      // "currently punched in" count, computed fresh right now for just this
-      // store (labor-cron itself can't be called directly from the client —
-      // see labor-refresh.mjs for why). This is the number
-      // ManagerEmbeddableView's Home dashboard tile also reads, so the
-      // headline KPIs above agree everywhere.
-      try {
-        const res = await fetch('/.netlify/functions/labor-refresh', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storePC: store.pc }),
-        });
-        const json = res.ok ? await res.json().catch(() => null) : null;
-        if (json?.ok && !json?.skipped) {
-          setLiveSummary({ laborDollars: json.laborDollars, laborPct: json.laborPct, sales: json.sales, currentlyClockedIn: json.currentlyClockedIn || 0 });
-        }
-      } catch {}
+      setLivePunches(punchMap);
 
       const hasEmpData = empList.length > 0;
       if (!hasEmpData && !histData) setFetchError(true);
@@ -39248,6 +39261,36 @@ function tipsRecordsForStore(s) {
   return s.crew.map(c => ({ district: s.district, store: storeLabel, pc: s.pc, employee: c.name, guid: c.guid, payrollId: c.payrollId, tips: tipsRound2(hourlyRate * c.hours) }));
 }
 
+// Mirrors the same three anomaly classes tips-report-cron-background.mjs
+// already flags in the email warnings (zero-eligible-crew-with-tips,
+// Pulse-fetch-gap, crew-fetch-error) — confirmed real, repeatedly, at BJ's,
+// Grant, and Red Lion (see that file's own comments). A warning in an email
+// is not a safeguard: if nobody happens to read it before clicking "Send to
+// Paycor," a real employee's tips silently never make it into their pay.
+// sendToPaycor uses this to refuse to send a store with any unresolved day
+// in the period, rather than trusting a human to have already caught it.
+function tipsFindFlaggedStorePcs(snapshots, dates) {
+  const flagged = {}; // pc -> [{ date, detail }]
+  (snapshots || []).forEach((dayResults, i) => {
+    if (!dayResults) return;
+    const date = dates?.[i];
+    dayResults.forEach(s => {
+      const pool = Number((s.tipPool || 0).toFixed(2));
+      const hasHours = (s.crew || []).some(c => c.hours > 0);
+      let detail = null;
+      if (s.crewStatus === 'ok' && (s.crew || []).length === 0 && pool > 0) {
+        detail = `$${pool.toFixed(2)} collected on ${date}, no eligible crew hours recorded`;
+      } else if (s.crewStatus === 'ok' && hasHours && pool === 0) {
+        detail = `Real crew hours worked on ${date} but the tip pool fetch failed that day (treated as $0)`;
+      } else if (s.crewStatus === 'error' && pool > 0) {
+        detail = `$${pool.toFixed(2)} collected on ${date} but the crew fetch failed entirely that day`;
+      }
+      if (detail) (flagged[s.pc] = flagged[s.pc] || []).push({ date, detail });
+    });
+  });
+  return flagged;
+}
+
 // Builds one day's sheet rows: title, header, employee rows grouped by store
 // with a per-store subtotal row, then a grand total row.
 function tipsBuildDaySheetAOA(dt, dayStoreResults) {
@@ -39553,6 +39596,8 @@ function TipsReportBuilder({ th, stores, user }) {
   const sendToPaycor = async () => {
     if (!snapshots || !start) return;
     const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+    const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+    const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates);
     const results = [];
     setPaycorPush({ running: true, results });
     for (const store of storeOrder) {
@@ -39562,6 +39607,15 @@ function TipsReportBuilder({ th, stores, user }) {
       const cfg = paycorCfg[storePc];
       const record = (status, detail) => { results.push({ pc: storePc, store, status, detail }); setPaycorPush({ running: true, results: [...results] }); };
 
+      // Hard block, not a warning someone can miss — a store with an
+      // unresolved anomaly day never gets sent, full stop, until it's fixed
+      // (re-fetch the flagged day). The alternative is real risk: an
+      // employee's tips silently never reach Paycor because nobody happened
+      // to read the email warning before clicking Send.
+      if (flaggedByPc[storePc]?.length) {
+        record('blocked', `Unresolved data gap — re-fetch before sending: ${flaggedByPc[storePc].map(f => f.detail).join('; ')}`);
+        continue;
+      }
       if (!storeMeta?.paycor) { record('error', 'No Paycor legal entity ID configured for this store'); continue; }
       if (!cfg?.earningCode) { record('skipped', 'Earning code not set below for this store — fill in and save first'); continue; }
 
@@ -39793,6 +39847,24 @@ function TipsReportBuilder({ th, stores, user }) {
           {missingDates.length > 0 && (
             <div style={{ fontSize: '0.76rem', color: '#f59e0b' }}>No saved data for: {missingDates.join(', ')} — either before the nightly report existed, or that night's run didn't complete.</div>
           )}
+          {(() => {
+            const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+            const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates);
+            const flaggedPcs = Object.keys(flaggedByPc);
+            if (flaggedPcs.length === 0) return null;
+            const storeName = (pc) => (stores || []).find(s => String(s.pc) === String(pc))?.name || pc;
+            return (
+              <div style={{ fontSize: '0.78rem', color: '#dc2626', background: '#dc262614', border: '1px solid #dc262655', borderRadius: 8, padding: '0.7rem 0.85rem', marginTop: '0.6rem' }}>
+                <strong>⚠ {flaggedPcs.length} store(s) have an unresolved data gap this period — these will be skipped if you send to Paycor now, not silently included wrong:</strong>
+                <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem' }}>
+                  {flaggedPcs.map(pc => (
+                    <li key={pc}>{storeName(pc)}: {flaggedByPc[pc].map(f => f.detail).join('; ')}</li>
+                  ))}
+                </ul>
+                Re-fetch the flagged day(s) for these stores above, then send once they're clear.
+              </div>
+            );
+          })()}
           <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginTop: '1rem' }}>
             <button onClick={download} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Download workbook</button>
             <button onClick={checkMissingEmployees} disabled={missingCheck?.loading} style={{ ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 }}>
@@ -39846,8 +39918,8 @@ function TipsReportBuilder({ th, stores, user }) {
           <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.6rem' }}>Paycor send results</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
             {paycorPush.results.map((r, i) => (
-              <div key={i} style={{ fontSize: '0.78rem', color: r.status === 'ok' ? '#16a34a' : r.status === 'error' ? '#ef4444' : th.muted }}>
-                <strong style={{ color: th.text }}>{r.store}:</strong> {r.detail}
+              <div key={i} style={{ fontSize: '0.78rem', color: r.status === 'ok' ? '#16a34a' : r.status === 'error' ? '#ef4444' : r.status === 'blocked' ? '#dc2626' : th.muted, fontWeight: r.status === 'blocked' ? 600 : 400 }}>
+                <strong style={{ color: th.text }}>{r.store}:</strong> {r.status === 'blocked' ? '⚠ BLOCKED — ' : ''}{r.detail}
               </div>
             ))}
             {paycorPush.running && <div style={{ fontSize: '0.78rem', color: th.muted }}>Sending…</div>}

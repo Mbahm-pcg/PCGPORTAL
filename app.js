@@ -21247,7 +21247,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.42";
+  var APP_VERSION = "v20.44";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -26044,7 +26044,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const tmrw = /* @__PURE__ */ new Date();
         tmrw.setDate(tmrw.getDate() + 1);
         const tmrwStr = localDateStr(tmrw);
-        const [punchRes, empRes, histData, salesRes, schedRes] = await Promise.allSettled([
+        const [punchRes, empRes, histData, salesRes, schedRes, laborRefreshRes] = await Promise.allSettled([
           // 1. Completed punches (week range)
           fetch("/.netlify/functions/paycor", {
             method: "POST",
@@ -26076,7 +26076,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "schedulingShifts", legalEntityId, startDate: todayStr, endDate: tmrwStr })
-          }).then((r) => r.ok ? r.json() : null)
+          }).then((r) => r.ok ? r.json() : null),
+          // 6. Scoped live labor-refresh run — real per-employee pay rates + true
+          // "currently punched in" status, computed fresh right now for just this
+          // store (labor-cron itself can't be called directly from the client —
+          // see labor-refresh.mjs for why). Fired in parallel with 1-5 above
+          // (it doesn't depend on any of their results) rather than after them,
+          // and its per-employee clockInStatus lets the live-status loop below
+          // skip re-checking anyone this call already resolved.
+          fetch("/.netlify/functions/labor-refresh", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ storePC: store.pc })
+          }).then((r) => r.ok ? r.json().catch(() => null) : null)
         ]);
         if (punchRes.status === "fulfilled" && punchRes.value) {
           const raw = punchRes.value.records || punchRes.value.punches || punchRes.value || [];
@@ -26110,9 +26122,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           shifts = (Array.isArray(raw) ? raw : []).filter((s) => (s.startDateTime || "").slice(0, 10) === todayStr);
           setScheduleShifts(shifts);
         }
-        const shiftEmpIds = [...new Set(shifts.map((s) => s.employeeId))];
+        const preSeededPunches = {};
+        if (laborRefreshRes.status === "fulfilled" && laborRefreshRes.value?.ok && !laborRefreshRes.value?.skipped) {
+          const json = laborRefreshRes.value;
+          setLiveSummary({ laborDollars: json.laborDollars, laborPct: json.laborPct, sales: json.sales, currentlyClockedIn: json.currentlyClockedIn || 0 });
+          Object.entries(json.clockInStatus || {}).forEach(([empId, status]) => {
+            if (status?.isClockedIn) preSeededPunches[empId] = [{ punchDateTime: status.lastPunchTime }];
+          });
+        }
+        const shiftEmpIds = [...new Set(shifts.map((s) => s.employeeId))].filter((id) => !preSeededPunches[id]);
+        const punchMap = { ...preSeededPunches };
         if (shiftEmpIds.length > 0) {
-          const punchMap = {};
           for (let i = 0; i < shiftEmpIds.length; i += 5) {
             const batch = shiftEmpIds.slice(i, i + 5);
             const results = await Promise.allSettled(
@@ -26131,20 +26151,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
               }
             });
           }
-          setLivePunches(punchMap);
         }
-        try {
-          const res = await fetch("/.netlify/functions/labor-refresh", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ storePC: store.pc })
-          });
-          const json = res.ok ? await res.json().catch(() => null) : null;
-          if (json?.ok && !json?.skipped) {
-            setLiveSummary({ laborDollars: json.laborDollars, laborPct: json.laborPct, sales: json.sales, currentlyClockedIn: json.currentlyClockedIn || 0 });
-          }
-        } catch {
-        }
+        setLivePunches(punchMap);
         const hasEmpData = empList.length > 0;
         if (!hasEmpData && !histData) setFetchError(true);
         setLoading(false);
@@ -29779,6 +29787,27 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
     return s.crew.map((c) => ({ district: s.district, store: storeLabel, pc: s.pc, employee: c.name, guid: c.guid, payrollId: c.payrollId, tips: tipsRound2(hourlyRate * c.hours) }));
   }
+  function tipsFindFlaggedStorePcs(snapshots, dates) {
+    const flagged = {};
+    (snapshots || []).forEach((dayResults, i) => {
+      if (!dayResults) return;
+      const date = dates?.[i];
+      dayResults.forEach((s) => {
+        const pool = Number((s.tipPool || 0).toFixed(2));
+        const hasHours = (s.crew || []).some((c) => c.hours > 0);
+        let detail = null;
+        if (s.crewStatus === "ok" && (s.crew || []).length === 0 && pool > 0) {
+          detail = `$${pool.toFixed(2)} collected on ${date}, no eligible crew hours recorded`;
+        } else if (s.crewStatus === "ok" && hasHours && pool === 0) {
+          detail = `Real crew hours worked on ${date} but the tip pool fetch failed that day (treated as $0)`;
+        } else if (s.crewStatus === "error" && pool > 0) {
+          detail = `$${pool.toFixed(2)} collected on ${date} but the crew fetch failed entirely that day`;
+        }
+        if (detail) (flagged[s.pc] = flagged[s.pc] || []).push({ date, detail });
+      });
+    });
+    return flagged;
+  }
   function tipsBuildDaySheetAOA(dt, dayStoreResults) {
     const title = `Daily Tips by Employee \u2014 ${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${dt.getUTCFullYear()}`;
     const rows = [[title], [], ["District", "Store", "Employee", "Tips"]];
@@ -30008,6 +30037,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const sendToPaycor = async () => {
       if (!snapshots || !start) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+      const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates);
       const results = [];
       setPaycorPush({ running: true, results });
       for (const store of storeOrder) {
@@ -30019,6 +30050,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           results.push({ pc: storePc, store, status, detail });
           setPaycorPush({ running: true, results: [...results] });
         };
+        if (flaggedByPc[storePc]?.length) {
+          record("blocked", `Unresolved data gap \u2014 re-fetch before sending: ${flaggedByPc[storePc].map((f) => f.detail).join("; ")}`);
+          continue;
+        }
         if (!storeMeta?.paycor) {
           record("error", "No Paycor legal entity ID configured for this store");
           continue;
@@ -30192,7 +30227,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: d.filled ? "#16a34a" : th.muted, textTransform: "uppercase" } }, TIPS_DOW[dt.getUTCDay()]),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginTop: 2 } }, dt.getUTCMonth() + 1, "/", dt.getUTCDate())
       );
-    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), canPushToPaycor && dayInfo && (() => {
+    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), (() => {
+      const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates);
+      const flaggedPcs = Object.keys(flaggedByPc);
+      if (flaggedPcs.length === 0) return null;
+      const storeName = (pc) => (stores || []).find((s) => String(s.pc) === String(pc))?.name || pc;
+      return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", background: "#dc262614", border: "1px solid #dc262655", borderRadius: 8, padding: "0.7rem 0.85rem", marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement("strong", null, "\u26A0 ", flaggedPcs.length, " store(s) have an unresolved data gap this period \u2014 these will be skipped if you send to Paycor now, not silently included wrong:"), /* @__PURE__ */ React.createElement("ul", { style: { margin: "0.4rem 0 0", paddingLeft: "1.1rem" } }, flaggedPcs.map((pc) => /* @__PURE__ */ React.createElement("li", { key: pc }, storeName(pc), ": ", flaggedByPc[pc].map((f) => f.detail).join("; ")))), "Re-fetch the flagged day(s) for these stores above, then send once they're clear.");
+    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), canPushToPaycor && dayInfo && (() => {
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots || []);
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Paycor import settings"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, `Department code is looked up automatically per employee from their current Paycor job title (Cust Svc / Shift Leader / Asst Manager) at send-time \u2014 no setup needed. Earning code isn't exposed by Paycor's API at all, so it still needs to be filled in below per store. "Send to Paycor" only STAGES data into a store's paygrid for review; it does not submit payroll.`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Earning code per store (each store is skipped until its code is set)"), /* @__PURE__ */ React.createElement("button", { onClick: () => fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc)), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.72rem", padding: "0.3rem 0.6rem" } }, 'Fill all with "Tips"')), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.6rem" } }, `"Tips" is confirmed real at Bustleton, but not yet confirmed at every store \u2014 the rollout is still in progress. Filling it in everywhere is a shortcut, not a guarantee; a store where it isn't set up yet will just get a clean rejection when sent, not bad data.`), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.6rem" } }, storeOrder.map((store) => {
         const pc = byStore[store][0]?.pc;
@@ -30207,7 +30249,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           }
         ));
       })));
-    })(), paycorPush && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.6rem" } }, "Paycor send results"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, paycorPush.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : r.status === "error" ? "#ef4444" : th.muted } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, r.store, ":"), " ", r.detail)), paycorPush.running && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Sending\u2026"))), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
+    })(), paycorPush && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.6rem" } }, "Paycor send results"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, paycorPush.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : r.status === "error" ? "#ef4444" : r.status === "blocked" ? "#dc2626" : th.muted, fontWeight: r.status === "blocked" ? 600 : 400 } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, r.store, ":"), " ", r.status === "blocked" ? "\u26A0 BLOCKED \u2014 " : "", r.detail)), paycorPush.running && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Sending\u2026"))), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
   }
   function renderAnalystMarkdown(text, th) {
     if (!text) return null;
