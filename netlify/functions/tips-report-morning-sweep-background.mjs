@@ -13,9 +13,18 @@
 // still failing after this (e.g. a genuine Paycor permissions gap, not
 // flakiness — confirmed on Hatboro, 2026-08-12) needs a human to look at it;
 // this can't fix problems retrying doesn't fix.
+//
+// retryErrorDays (below) generalizes this to an arbitrary list of dates —
+// added 2026-09-02 so the biweekly finalize-gate settle pass
+// (tips-report-cron-background.mjs, isBiweekBoundary branch) can retry
+// every crewStatus:'error' day across a whole closed pay period in one
+// call, sharing a single time budget across all of them, instead of one
+// date at a time. The scheduled export below is unchanged in behavior —
+// it just calls retryErrorDays with a single-element date array.
 export const config = { schedule: '0 11 * * *' }; // 7am ET
 
 import { STORES, fetchStoreCrew, saveDaySnapshot, getBlobStore, etDate } from './tips-report-cron-background.mjs';
+import { pickErrorEntries } from './tips-lib/period-settle.mjs';
 
 // Deliberately NOT tips-report-cron-background.mjs's loadDaySnapshot — it
 // memoizes per busDt in a module-level Map that survives across invocations
@@ -29,54 +38,55 @@ async function loadDaySnapshotUncached(busDt) {
   } catch { return null; }
 }
 
-export default async (request) => {
+// Retries every crewStatus:'error' entry across `dates`, sharing one time
+// budget and up to `maxPasses` bounded passes across the whole set (not
+// per-date) — a store healed in pass 1 isn't retried again in pass 2.
+// Persists each touched date once, after all passes finish.
+export async function retryErrorDays(dates, opts = {}) {
+  const budgetMs = opts.budgetMs ?? 11 * 60 * 1000;
+  const maxPasses = opts.maxPasses ?? 6;
   const invocationStart = Date.now();
+
+  const snapshotByDate = new Map();
+  for (const busDt of dates) {
+    const arr = await loadDaySnapshotUncached(busDt);
+    if (Array.isArray(arr)) snapshotByDate.set(busDt, arr);
+  }
+
+  let remaining = pickErrorEntries(dates, snapshotByDate);
+  let healedCount = 0;
+  let skippedForBudget = false;
+
+  for (let pass = 1; pass <= maxPasses && remaining.length > 0; pass++) {
+    if (Date.now() - invocationStart > budgetMs) { skippedForBudget = true; break; }
+    for (const { pc, busDt } of remaining) {
+      if (Date.now() - invocationStart > budgetMs) { skippedForBudget = true; break; }
+      const store = STORES.find(s => String(s.pc) === pc);
+      if (!store) continue;
+      const { crew, crewStatus } = await fetchStoreCrew(store, busDt);
+      const arr = snapshotByDate.get(busDt);
+      const idx = arr ? arr.findIndex(r => String(r.pc) === pc) : -1;
+      if (idx >= 0) arr[idx] = { ...arr[idx], crew, crewStatus };
+      if (crewStatus === 'ok') healedCount++;
+    }
+    remaining = pickErrorEntries(dates, snapshotByDate);
+  }
+
+  for (const busDt of dates) {
+    const arr = snapshotByDate.get(busDt);
+    if (arr) await saveDaySnapshot(busDt, arr);
+  }
+
+  return { healedCount, stillFailing: pickErrorEntries(dates, snapshotByDate), skippedForBudget };
+}
+
+export default async (request) => {
   const busDt = etDate(1); // same day the 3am report just covered
 
   try {
-    const existing = await loadDaySnapshotUncached(busDt);
-    if (!Array.isArray(existing)) {
-      console.log(`[tips-morning-sweep] No snapshot found for ${busDt} — nothing to sweep`);
-      return new Response(JSON.stringify({ ok: true, busDt, message: 'no snapshot found' }), { status: 200 });
-    }
-
-    const failedPcs = new Set(existing.filter(r => r.crewStatus === 'error').map(r => String(r.pc)));
-    if (failedPcs.size === 0) {
-      console.log(`[tips-morning-sweep] ${busDt}: everything already ok, nothing to retry`);
-      return new Response(JSON.stringify({ ok: true, busDt, retried: 0 }), { status: 200 });
-    }
-
-    console.log(`[tips-morning-sweep] ${busDt}: retrying ${failedPcs.size} failed store(s): ${[...failedPcs].join(', ')}`);
-
-    // Same multi-pass approach as the nightly cron's own retry logic, just
-    // scoped to only the stores that were still bad from last night.
-    const BUDGET_MS = 11 * 60 * 1000;
-    const MAX_PASSES = 6;
-    const byPc = new Map(existing.map(r => [String(r.pc), r]));
-    let fixedCount = 0;
-
-    for (let pass = 1; pass <= MAX_PASSES; pass++) {
-      const remaining = [...failedPcs].filter(pc => byPc.get(pc)?.crewStatus === 'error');
-      if (remaining.length === 0) break;
-      if (Date.now() - invocationStart > BUDGET_MS) {
-        console.warn(`[tips-morning-sweep] Pass ${pass}: time budget hit — ${remaining.length} store(s) still failing`);
-        break;
-      }
-      for (const pc of remaining) {
-        if (Date.now() - invocationStart > BUDGET_MS) break;
-        const store = STORES.find(s => String(s.pc) === pc);
-        if (!store) continue;
-        const { crew, crewStatus } = await fetchStoreCrew(store, busDt);
-        if (crewStatus === 'ok') fixedCount++;
-        byPc.set(pc, { ...byPc.get(pc), crew, crewStatus });
-      }
-    }
-
-    const finalResults = existing.map(r => byPc.get(String(r.pc)) || r);
-    await saveDaySnapshot(busDt, finalResults);
-
-    const stillBad = finalResults.filter(r => r.crewStatus === 'error').map(r => r.name);
-    const summary = { ok: true, busDt, retried: failedPcs.size, fixed: fixedCount, stillFailing: stillBad };
+    const { healedCount, stillFailing, skippedForBudget } = await retryErrorDays([busDt]);
+    const stillBad = stillFailing.map(({ pc }) => STORES.find(s => String(s.pc) === pc)?.name || pc);
+    const summary = { ok: true, busDt, retried: healedCount + stillFailing.length, fixed: healedCount, stillFailing: stillBad, skippedForBudget };
     console.log('[tips-morning-sweep] done:', JSON.stringify(summary));
     return new Response(JSON.stringify(summary), { status: 200 });
   } catch (err) {
