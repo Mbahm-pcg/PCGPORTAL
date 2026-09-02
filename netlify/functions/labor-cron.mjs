@@ -531,50 +531,91 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
   const { pc, paycor: legalEntityId, name, district } = store;
   const weekDates = weekDatesThrough(busDt);
   const weekOfStr  = weekStart(busDt);
+  const weekStart_ = weekDates[0];
+  const priorDates_ = weekDates.filter(d => d < busDt);
+  const payRateCacheKey = `pcg_payrates_${legalEntityId}`;
+  const sevenDays = new Date(new Date(busDt + 'T12:00:00').getTime() + 7 * 86400000);
+  const endStr = `${sevenDays.getFullYear()}-${String(sevenDays.getMonth()+1).padStart(2,'0')}-${String(sevenDays.getDate()).padStart(2,'0')}`;
 
-  // 1. Fetch POS sales for today from live API
-  const sales = await fetchPOSSales(pc, busDt);
+  // Sales, the two cache-blob reads, employees, shifts, and punches used to
+  // run one at a time (await, then await, then await...) even though none of
+  // them needs another's result — the pay-rate cache's *validity* check is
+  // the only thing here that actually depends on employees, and that's a
+  // synchronous check done below, after this resolves, not another fetch.
+  // Firing them together cuts this function's wall-clock time to roughly its
+  // slowest single call instead of the sum of all of them. Each piece keeps
+  // its exact original error handling: fetchPOSSales still throws on failure
+  // (so this function still throws too, unchanged — nothing here catches
+  // it), and everything else already had its own try/catch returning a safe
+  // default, so combining them in one Promise.all doesn't change what
+  // happens when any one of them fails.
+  const [sales, existingBlob, employees, todayShifts, payRateCacheRaw, allPunches] = await Promise.all([
+    // 1. POS sales for today from live API
+    fetchPOSSales(pc, busDt),
 
-  // For WTD sales: use stored daily history from blob (avoids extra POS calls per store)
-  // Skip on manual triggers (26s timeout) — scheduled cron (15min) handles full WTD
-  const priorDaySales = {}; // date -> netSales
-  if (!skipSchedules) {
-    let existingBlob = null;
-    try {
-      const blobStore = getLaborStore();
-      const raw = await blobStore.get(`pcg_labor_store_${pc}`, { type: 'json' });
-      existingBlob = raw?.data || raw;
-    } catch {}
-    const priorDates_ = weekDates.filter(d => d < busDt);
-    if (existingBlob?.daily) {
-      for (const d of priorDates_) {
-        const dayEntry = existingBlob.daily.find(e => e.date === d);
-        priorDaySales[d] = dayEntry?.sales || 0;
+    // For WTD sales: stored daily history from blob (avoids extra POS calls
+    // per store). Skip on manual triggers (26s timeout) — scheduled cron
+    // (15min) handles full WTD.
+    (async () => {
+      if (skipSchedules) return null;
+      try {
+        const blobStore = getLaborStore();
+        const raw = await blobStore.get(`pcg_labor_store_${pc}`, { type: 'json' });
+        return raw?.data || raw;
+      } catch { return null; }
+    })(),
+
+    // 2. Employees
+    (async () => {
+      try {
+        const raw = await fetchEmployees(legalEntityId);
+        return raw.filter(e => {
+          const status = e.statusData?.status || e.employeeStatus || e.status || '';
+          return status === 'Active';
+        });
+      } catch (e) {
+        console.warn(`[labor-cron] ${name}: fetchEmployees failed:`, e.message);
+        return [];
       }
-    }
-  }
+    })(),
 
-  // 2. Fetch employees
-  let employees = [];
-  try {
-    employees = await fetchEmployees(legalEntityId);
-    employees = employees.filter(e => {
-      const status = e.statusData?.status || e.employeeStatus || e.status || '';
-      return status === 'Active';
-    });
-  } catch (e) {
-    console.warn(`[labor-cron] ${name}: fetchEmployees failed:`, e.message);
-  }
+    // 2b. 7-day scheduling shifts (skip on manual triggers to stay under timeout)
+    (async () => {
+      if (skipSchedules) return [];
+      try {
+        return await fetchSchedulingShifts(legalEntityId, busDt, endStr);
+      } catch (e) {
+        console.warn(`[labor-cron] ${name}: fetchSchedulingShifts failed:`, e.message);
+        return [];
+      }
+    })(),
 
-  // 2b. Fetch 7-day scheduling shifts (skip on manual triggers to stay under timeout)
-  let todayShifts = [];
-  if (!skipSchedules) {
-    try {
-      const sevenDays = new Date(new Date(busDt + 'T12:00:00').getTime() + 7 * 86400000);
-      const endStr = `${sevenDays.getFullYear()}-${String(sevenDays.getMonth()+1).padStart(2,'0')}-${String(sevenDays.getDate()).padStart(2,'0')}`;
-      todayShifts = await fetchSchedulingShifts(legalEntityId, busDt, endStr);
-    } catch (e) {
-      console.warn(`[labor-cron] ${name}: fetchSchedulingShifts failed:`, e.message);
+    // 3a. Pay-rate cache blob (raw read only — validity depends on employees,
+    // checked synchronously below once both are in hand).
+    (async () => {
+      try {
+        const blobStore = getLaborStore();
+        const raw = await blobStore.get(payRateCacheKey, { type: 'json' });
+        return raw?.data || raw;
+      } catch { return null; }
+    })(),
+
+    // 4. Punches for the full week
+    (async () => {
+      try {
+        return await fetchPunches(legalEntityId, weekStart_, busDt);
+      } catch (e) {
+        console.warn(`[labor-cron] ${name}: fetchPunches failed:`, e.message);
+        return [];
+      }
+    })(),
+  ]);
+
+  const priorDaySales = {}; // date -> netSales
+  if (existingBlob?.daily) {
+    for (const d of priorDates_) {
+      const dayEntry = existingBlob.daily.find(e => e.date === d);
+      priorDaySales[d] = dayEntry?.sales || 0;
     }
   }
 
@@ -595,27 +636,21 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
     }
   }
 
-  // 3. Fetch pay rates — use daily cache to avoid hundreds of API calls
+  // 3b. Pay rates — use daily cache to avoid hundreds of API calls
   const payRateMap = {}; // employeeId -> { payType, payRate, annualPay }
-  const payRateCacheKey = `pcg_payrates_${legalEntityId}`;
   let cachedRates = null;
-  try {
-    const blobStore = getLaborStore();
-    const raw = await blobStore.get(payRateCacheKey, { type: 'json' });
-    const cached = raw?.data || raw;
-    // Use cache if it's from today AND actually covers every current employee —
-    // a partial/empty cache (e.g. from a transient Paycor payrates failure on an
-    // earlier run today) must NOT be trusted, or it silently zeroes labor cost
-    // for the rest of the day (payRate 0 → computeDailyCost returns 0 even when
-    // hoursToday is correctly nonzero).
-    const cachedCoversAll = cached?.rates && employees.every(emp => {
-      const id = emp.id || emp.employeeId;
-      return !id || cached.rates[id] != null;
-    });
-    if (cached?.date === busDt && cachedCoversAll) {
-      cachedRates = cached.rates;
-    }
-  } catch {}
+  // Use cache if it's from today AND actually covers every current employee —
+  // a partial/empty cache (e.g. from a transient Paycor payrates failure on an
+  // earlier run today) must NOT be trusted, or it silently zeroes labor cost
+  // for the rest of the day (payRate 0 → computeDailyCost returns 0 even when
+  // hoursToday is correctly nonzero).
+  const cachedCoversAll = payRateCacheRaw?.rates && employees.every(emp => {
+    const id = emp.id || emp.employeeId;
+    return !id || payRateCacheRaw.rates[id] != null;
+  });
+  if (payRateCacheRaw?.date === busDt && cachedCoversAll) {
+    cachedRates = payRateCacheRaw.rates;
+  }
 
   if (cachedRates) {
     // Reuse cached rates
@@ -654,17 +689,8 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
     }
   }
 
-  // 4. Fetch punches for the full week
-  const punchMap = {}; // date -> { empId -> hoursWorked }
-  const weekStart_ = weekDates[0];
-  let allPunches = [];
-  try {
-    allPunches = await fetchPunches(legalEntityId, weekStart_, busDt);
-  } catch (e) {
-    console.warn(`[labor-cron] ${name}: fetchPunches failed:`, e.message);
-  }
-
   // Group punches by date
+  const punchMap = {}; // date -> { empId -> hoursWorked }
   const punchesByDate = {};
   for (const p of allPunches) {
     const pDate = (p.punchIn || p.clockIn || p.timeIn || '').slice(0, 10);

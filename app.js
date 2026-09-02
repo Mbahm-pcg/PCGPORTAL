@@ -8749,7 +8749,7 @@ ${pendingEmail.emails.join("\n")}`,
     const [txnModal, setTxnModal] = React.useState(null);
     const [txnModalLoading, setTxnModalLoading] = React.useState(false);
     const [txnOTMap, setTxnOTMap] = React.useState({});
-    const [txnFilters, setTxnFilters] = React.useState({ otCat: "all", voids: false, refunds: false, discounts: false, timeStart: "", timeEnd: "" });
+    const [txnFilters, setTxnFilters] = React.useState({ otCat: "all", voids: false, refunds: false, discounts: false, timeStart: "", timeEnd: "", search: "" });
     const [txnDate, setTxnDate] = React.useState(localDate);
     const [txnMenuMap, setTxnMenuMap] = React.useState(null);
     const [dtSchedule, setDtSchedule] = React.useState(null);
@@ -8764,6 +8764,18 @@ ${pendingEmail.emails.join("\n")}`,
     React.useEffect(() => () => {
       if (negScanPollRef.current) clearInterval(negScanPollRef.current);
     }, []);
+    const tabRailRef = React.useRef(null);
+    const [tabRailHasMore, setTabRailHasMore] = React.useState(false);
+    const checkTabRailOverflow = React.useCallback(() => {
+      const el = tabRailRef.current;
+      if (!el) return;
+      setTabRailHasMore(el.scrollWidth - el.scrollLeft - el.clientWidth > 4);
+    }, []);
+    React.useEffect(() => {
+      checkTabRailOverflow();
+      window.addEventListener("resize", checkTabRailOverflow);
+      return () => window.removeEventListener("resize", checkTabRailOverflow);
+    }, [checkTabRailOverflow]);
     const [pendingChkNum, setPendingChkNum] = React.useState(null);
     React.useEffect(() => {
       const dl = txnDeepLinkRef && txnDeepLinkRef.current;
@@ -9143,7 +9155,7 @@ ${pendingEmail.emails.join("\n")}`,
       setTxnListLoading(true);
       setTxnList(null);
       try {
-        const [checksRes, otRes] = await Promise.all([
+        const [checksRes, otRes, menuRes] = await Promise.all([
           fetch("/.netlify/functions/pulse", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -9160,7 +9172,13 @@ ${pendingEmail.emails.join("\n")}`,
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ api: pulseApi, endpoint: "getOrderTypeDimensions", locRef: String(pc), include: "orderTypes.num,orderTypes.name" })
-          })
+          }),
+          // Item-name search needs miNum -> name up front, not lazily on modal-open
+          // like openTxnDetail does — the broad `include: 'guestChecks'` above
+          // already returns each check's detailLines (confirmed live: 826 checks,
+          // each with a detailLines array of {menuItem, dspQty, dspTtl, ...}), so
+          // no extra Pulse call is needed for the item data itself, just the names.
+          txnMenuMap ? Promise.resolve(null) : fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_menu_v1" }) })
         ]);
         const checksData = await checksRes.json();
         if (otRes) {
@@ -9170,6 +9188,10 @@ ${pendingEmail.emails.join("\n")}`,
             otMap[ot.num] = ot.name || "";
           });
           setTxnOTMap(otMap);
+        }
+        if (menuRes) {
+          const md = await menuRes.json();
+          setTxnMenuMap(md.data || {});
         }
         const list = (checksData.guestChecks || []).sort((a, b) => (b.chkNum || 0) - (a.chkNum || 0));
         setTxnList(list);
@@ -9310,7 +9332,7 @@ ${pendingEmail.emails.join("\n")}`,
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: isNarrow ? "column" : "row", gap: isNarrow ? "0.6rem" : "1rem" } }, !(storeTab === "labor" && !isNarrow) && /* @__PURE__ */ React.createElement("div", { style: isNarrow ? { display: "flex", flexDirection: "row", gap: "0.4rem", overflowX: "auto", flexShrink: 0, paddingBottom: "0.25rem", WebkitOverflowScrolling: "touch" } : { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, overflowY: "auto" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "labor", label: "\u{1F477} Labor" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }, { id: "complaints", label: "\u{1F4E3} Complaints" }].map((t) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: isNarrow ? "column" : "row", gap: isNarrow ? "0.6rem" : "1rem" } }, !(storeTab === "labor" && !isNarrow) && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flexShrink: 0, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { ref: tabRailRef, onScroll: isNarrow ? checkTabRailOverflow : void 0, style: isNarrow ? { display: "flex", flexDirection: "row", gap: "0.4rem", overflowX: "auto", flexShrink: 0, paddingBottom: "0.25rem", WebkitOverflowScrolling: "touch" } : { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, overflowY: "auto" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "labor", label: "\u{1F477} Labor" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }, { id: "complaints", label: "\u{1F4E3} Complaints" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -9337,7 +9359,7 @@ ${pendingEmail.emails.join("\n")}`,
         style: { display: "flex", alignItems: "center", textAlign: "left", padding: "0.6rem 0.75rem", border: `1px solid ${storeTab === t.id ? O : th.cardBorder}`, borderRadius: "0.6rem", background: storeTab === t.id ? O : th.card, color: storeTab === t.id ? "#fff" : th.muted, fontWeight: 600, fontSize: "0.78rem", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer", transition: "background .15s, color .15s, border-color .15s", boxSizing: "border-box", fontFamily: "'Raleway',sans-serif", flexShrink: 0 }
       },
       t.label
-    ))), /* @__PURE__ */ React.createElement("div", { ref: contentRef, style: { flex: 1, minWidth: 0, overflowY: isNarrow ? "visible" : "auto", paddingRight: isNarrow ? 0 : 4 } }, storeTab === "labor" && /* @__PURE__ */ React.createElement(LaborDrillDown, { store: s, stores, th, user, users, laborData, onBack: () => setStoreTab("sales") }), storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
+    ))), isNarrow && tabRailHasMore && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, bottom: "0.25rem", right: 0, width: "1.75rem", pointerEvents: "none", background: `linear-gradient(to right, transparent, ${th.bg})` } })), /* @__PURE__ */ React.createElement("div", { ref: contentRef, style: { flex: 1, minWidth: 0, overflowY: isNarrow ? "visible" : "auto", paddingRight: isNarrow ? 0 : 4 } }, storeTab === "labor" && /* @__PURE__ */ React.createElement(LaborDrillDown, { store: s, stores, th, user, users, laborData, onBack: () => setStoreTab("sales") }), storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
       const isWeek = viewMode === "week";
       const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
       const atPct = d.netSales / forecast * 100;
@@ -9815,6 +9837,16 @@ ${pendingEmail.emails.join("\n")}`,
         if (n.includes("mobile") || n.includes("app")) return "mobile";
         return "other";
       };
+      const searchQ = txnFilters.search.trim().toLowerCase();
+      const matchesSearch = (chk) => {
+        if (!searchQ) return true;
+        if (String(chk.chkNum || "").includes(searchQ)) return true;
+        if (!txnMenuMap) return false;
+        return (chk.detailLines || []).some((l) => {
+          const nm = txnMenuMap[l.menuItem?.miNum]?.name;
+          return nm && nm.toLowerCase().includes(searchQ);
+        });
+      };
       const filtered = (txnList || []).filter((chk) => {
         const f = txnFilters;
         if (f.otCat !== "all" && otCat(chk.otNum) !== f.otCat) return false;
@@ -9830,11 +9862,12 @@ ${pendingEmail.emails.join("\n")}`,
           const chkT = toETHHMM(chk.opnUTC || "");
           if (chkT && chkT > f.timeEnd) return false;
         }
+        if (!matchesSearch(chk)) return false;
         return true;
       });
       const chipStyle = (active) => ({ fontSize: "0.65rem", padding: "0.2rem 0.55rem", borderRadius: 999, border: `1px solid ${active ? O : th.cardBorder}`, background: active ? O + "22" : th.card2, color: active ? O : th.muted, cursor: "pointer", fontWeight: active ? 700 : 400, whiteSpace: "nowrap" });
       const toggleChip = (key) => setTxnFilters((f) => ({ ...f, [key]: !f[key] }));
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "\u{1F9FE} Transactions"), txnList && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "(", filtered.length, filtered.length !== txnList.length ? `/${txnList.length}` : "", ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center" } }, txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", rowGap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "\u{1F9FE} Transactions"), txnList && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "(", filtered.length, filtered.length !== txnList.length ? `/${txnList.length}` : "", ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap", rowGap: "0.4rem" } }, txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         "input",
         {
           type: "date",
@@ -9900,7 +9933,23 @@ ${pendingEmail.emails.join("\n")}`,
         },
         /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, "#", f.chkNum, " \xB7 ", f.date),
         /* @__PURE__ */ React.createElement("span", { style: { color: "#ef4444", fontWeight: 700 } }, "$", (f.chkTtl || 0).toFixed(2))
-      ))))), txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.75rem", marginBottom: "0.5rem" } }, [["all", "All"], ["eat_in", "Eat In"], ["drive_thru", "Drive Thru"], ["mobile", "Mobile"], ["uber", "Uber Eats"], ["doordash", "DoorDash"], ["delivery", "Delivery"], ["other", "Other"]].map(([val, label]) => /* @__PURE__ */ React.createElement("span", { key: val, onClick: () => setTxnFilters((f) => ({ ...f, otCat: val })), style: chipStyle(txnFilters.otCat === val) }, label))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("discounts"), style: chipStyle(txnFilters.discounts) }, "\u{1F3F7} Discounts"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("voids"), style: chipStyle(txnFilters.voids) }, "\u{1F6AB} Voids"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("refunds"), style: chipStyle(txnFilters.refunds) }, "\u21A9 Refunds"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("tips"), style: chipStyle(txnFilters.tips) }, "\u{1F4B0} Tips"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center", marginLeft: "auto" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "\u23F1"), /* @__PURE__ */ React.createElement(
+      ))))), txnExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.75rem", position: "relative" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.6rem", fontSize: "0.75rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "text",
+          value: txnFilters.search,
+          placeholder: "Search receipt # or item\u2026",
+          onChange: (e) => setTxnFilters((f) => ({ ...f, search: e.target.value })),
+          style: { flex: 1, fontSize: "0.75rem", padding: "0.45rem 0.6rem 0.45rem 1.7rem", borderRadius: 6, border: `1px solid ${txnFilters.search ? O : th.cardBorder}`, background: th.card2, color: th.text }
+        }
+      ), txnFilters.search && /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          onClick: () => setTxnFilters((f) => ({ ...f, search: "" })),
+          style: { fontSize: "0.7rem", color: "#ef4444", cursor: "pointer", fontWeight: 700, padding: "0 0.3rem" }
+        },
+        "\u2715"
+      ), txnFilters.search && !txnMenuMap && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted, whiteSpace: "nowrap" } }, "loading item names\u2026")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.75rem", marginBottom: "0.5rem" } }, [["all", "All"], ["eat_in", "Eat In"], ["drive_thru", "Drive Thru"], ["mobile", "Mobile"], ["uber", "Uber Eats"], ["doordash", "DoorDash"], ["delivery", "Delivery"], ["other", "Other"]].map(([val, label]) => /* @__PURE__ */ React.createElement("span", { key: val, onClick: () => setTxnFilters((f) => ({ ...f, otCat: val })), style: chipStyle(txnFilters.otCat === val) }, label))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("discounts"), style: chipStyle(txnFilters.discounts) }, "\u{1F3F7} Discounts"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("voids"), style: chipStyle(txnFilters.voids) }, "\u{1F6AB} Voids"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("refunds"), style: chipStyle(txnFilters.refunds) }, "\u21A9 Refunds"), /* @__PURE__ */ React.createElement("span", { onClick: () => toggleChip("tips"), style: chipStyle(txnFilters.tips) }, "\u{1F4B0} Tips"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center", marginLeft: "auto" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "\u23F1"), /* @__PURE__ */ React.createElement(
         "input",
         {
           type: "time",
@@ -10052,6 +10101,46 @@ ${pendingEmail.emails.join("\n")}`,
       }
       return { sun: toStr(sun), sat: toStr(sat), dates, sunDate: sun, satDate: sat };
     }, [localDate]);
+    const [laborDailyByStore, setLaborDailyByStore] = React.useState({});
+    React.useEffect(() => {
+      let alive = true;
+      Promise.all(distStores.map(
+        (s) => cloudLoad("pcg_labor_store_" + s.pc).then((d2) => [s.pc, Array.isArray(d2 && d2.daily) ? d2.daily : []]).catch(() => [s.pc, []])
+      )).then((pairs) => {
+        if (!alive) return;
+        const map = {};
+        pairs.forEach((pair) => {
+          map[pair[0]] = pair[1];
+        });
+        setLaborDailyByStore(map);
+      });
+      return () => {
+        alive = false;
+      };
+    }, [distNum, stores]);
+    const laborForDate = React.useCallback(function(pc) {
+      const daily = laborDailyByStore[pc];
+      if (viewMode === "week") {
+        if (!daily) return null;
+        const matches = weekRange.dates.map(function(d2) {
+          return daily.find(function(e) {
+            return e.date === d2;
+          });
+        }).filter(Boolean);
+        if (!matches.length) return null;
+        const sales = matches.reduce(function(a, e) {
+          return a + (e.sales || 0);
+        }, 0);
+        const laborDollars = matches.reduce(function(a, e) {
+          return a + (e.laborDollars || 0);
+        }, 0);
+        return { sales, laborDollars, laborPct: sales > 0 ? laborDollars / sales * 100 : null };
+      }
+      if (localDate === todayStr && laborData && laborData.stores && laborData.stores[pc] && laborData.stores[pc].today) return laborData.stores[pc].today;
+      return daily ? daily.find(function(e) {
+        return e.date === localDate;
+      }) || null : null;
+    }, [laborDailyByStore, viewMode, weekRange, localDate, todayStr, laborData]);
     const weekLabel = React.useMemo(() => {
       const opts = { month: "short", day: "numeric" };
       const s = weekRange.sunDate.toLocaleDateString("en-US", opts);
@@ -10582,8 +10671,8 @@ ${pendingEmail.emails.join("\n")}`,
         width: Math.min(atPct, 120) + "%",
         background: atPct >= 100 ? "linear-gradient(90deg, #69db7c, #20c997)" : atPct >= 90 ? "linear-gradient(90deg, #ffd43b, #ff922b)" : "linear-gradient(90deg, #ff6b6b, #f06595)"
       } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, bottom: 0, left: "83.33%", width: 2, background: th.text + "44" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.25rem", fontSize: "0.6rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Actual: " + fmtUSD(d.netSales)), /* @__PURE__ */ React.createElement("span", null, "Forecast: " + fmtUSD(weekTotals.dayForecast))));
-    })(), laborData?.stores && (() => {
-      const rows = distStores.map((s) => ({ s, ld: laborData.stores[s.pc]?.today })).filter((r) => r.ld);
+    })(), (() => {
+      const rows = distStores.map((s) => ({ s, ld: laborForDate(s.pc) })).filter((r) => r.ld);
       if (rows.length === 0) return null;
       const totalLaborDollars = rows.reduce((a, r) => a + (r.ld.laborDollars || 0), 0);
       const totalSales = rows.reduce((a, r) => a + (r.ld.sales || 0), 0);
@@ -11078,6 +11167,35 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [busDt]);
+    const [dateLaborData, setDateLaborData] = useState({});
+    useEffect(() => {
+      let alive = true;
+      if (busDt === todayStr) {
+        setDateLaborData({});
+        return;
+      }
+      setDateLaborData({});
+      Promise.all((stores || []).map(
+        (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => {
+          const entry = (d?.daily || []).find((e) => e.date === busDt);
+          return [s.pc, entry || null];
+        }).catch(() => [s.pc, null])
+      )).then((pairs) => {
+        if (!alive) return;
+        const map = {};
+        pairs.forEach(([pc, entry]) => {
+          map[pc] = entry;
+        });
+        setDateLaborData(map);
+      });
+      return () => {
+        alive = false;
+      };
+    }, [busDt, stores, todayStr]);
+    const laborForDate = useCallback((pc) => {
+      if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
+      return dateLaborData[pc] || null;
+    }, [busDt, todayStr, laborData, dateLaborData]);
     const [pulseView, setPulseView] = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState(null);
     const [networkReviews, setNetworkReviews] = useState(null);
@@ -11721,7 +11839,7 @@ ${t2.slice(0, 300)}`);
       )), !isCollapsed && distRows.map((s) => {
         const live = s.live;
         const isOk = live?.status === "ok";
-        const lPct = laborData?.stores?.[s.pc]?.today?.laborPct;
+        const lPct = laborForDate(s.pc)?.laborPct;
         return /* @__PURE__ */ React.createElement(
           "div",
           {
@@ -11744,7 +11862,7 @@ ${t2.slice(0, 300)}`);
       }), { netSales: 0, guests: 0, forecast: 0 });
       distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
       const distTips = tipsSnapshot ? distRows.reduce((sum, s) => sum + (tipsSnapshot[s.pc] || 0), 0) : null;
-      const distLaborRows = distRows.map((s) => laborData?.stores?.[s.pc]?.today).filter(Boolean);
+      const distLaborRows = distRows.map((s) => laborForDate(s.pc)).filter(Boolean);
       const distLaborSales = distLaborRows.reduce((sum, t) => sum + (t.sales || 0), 0);
       const distLaborDollars = distLaborRows.reduce((sum, t) => sum + (t.laborDollars || 0), 0);
       const distLaborPct = distLaborSales > 0 ? distLaborDollars / distLaborSales * 100 : null;
@@ -11826,7 +11944,7 @@ ${t2.slice(0, 300)}`);
           /* @__PURE__ */ React.createElement("td", { style: { ...tdS } }, !live && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\u2014"), isErr && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#ff6b6b" }, title: live.error }, "\u26A0\uFE0F Error"), isOk && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: G, fontWeight: 600 } }, "\u25CF Live"), loading && !live && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: `${G}66` } }, "\u23F3")),
           /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 700, color: isOk ? th.text : th.muted } }, isOk ? fmtUSD(live.data.netSales) : "\u2014"),
           /* @__PURE__ */ React.createElement("td", { style: { ...tdS, textAlign: "right", fontWeight: 700 } }, (() => {
-            const lPct = laborData?.stores?.[s.pc]?.today?.laborPct;
+            const lPct = laborForDate(s.pc)?.laborPct;
             if (lPct == null) return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2014");
             const lColor = laborColor(lPct);
             return /* @__PURE__ */ React.createElement("span", { style: { color: lColor } }, fmtPct(lPct));
@@ -20641,6 +20759,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       );
     })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 4 } }, days.map((d) => /* @__PURE__ */ React.createElement("div", { key: d.date, style: { flex: 1, textAlign: "center", fontSize: "0.56rem", color: d.date === todayISO ? O : d.holidayName ? O : th.subtle, fontWeight: d.date === todayISO || d.holidayName ? 800 : 700 } }, dowShort[d.dowLabel] || "", d.date === todayISO ? " \u2022" : "")))));
   }
+  var laborRefreshCache = /* @__PURE__ */ new Map();
+  var LABOR_REFRESH_TTL_MS = 45 * 1e3;
+  function fetchLaborRefreshShared(pc) {
+    const cached = laborRefreshCache.get(pc);
+    if (cached && Date.now() - cached.fetchedAt < LABOR_REFRESH_TTL_MS) return cached.promise;
+    const promise = fetch("/.netlify/functions/labor-refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storePC: pc })
+    }).then((res) => res.ok ? res.json() : null).catch(() => null);
+    laborRefreshCache.set(pc, { promise, fetchedAt: Date.now() });
+    return promise;
+  }
   function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout }) {
     const store = getManagerStore(stores, user) || {};
     const pc = store.pc;
@@ -20769,11 +20900,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const myFetchToken = ++fetchTokenRef.current;
       setRefreshing(true);
       try {
-        const liveLaborPromise = fetch("/.netlify/functions/labor-refresh", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ storePC: pc })
-        }).then((res) => res.ok ? res.json() : null).catch(() => null);
+        const liveLaborPromise = fetchLaborRefreshShared(pc);
         const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -21247,7 +21374,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.44";
+  var APP_VERSION = "v20.47";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -26083,12 +26210,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           // see labor-refresh.mjs for why). Fired in parallel with 1-5 above
           // (it doesn't depend on any of their results) rather than after them,
           // and its per-employee clockInStatus lets the live-status loop below
-          // skip re-checking anyone this call already resolved.
-          fetch("/.netlify/functions/labor-refresh", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ storePC: store.pc })
-          }).then((r) => r.ok ? r.json().catch(() => null) : null)
+          // skip re-checking anyone this call already resolved. Goes through the
+          // shared fetchLaborRefreshShared cache (see above ManagerEmbeddableView)
+          // so a manager who just saw this same store's Home tile doesn't trigger
+          // a second identical scrape moments later when they tap into Labor.
+          fetchLaborRefreshShared(store.pc)
         ]);
         if (punchRes.status === "fulfilled" && punchRes.value) {
           const raw = punchRes.value.records || punchRes.value.punches || punchRes.value || [];

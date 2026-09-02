@@ -8825,7 +8825,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const [txnModal, setTxnModal] = React.useState(null);
   const [txnModalLoading, setTxnModalLoading] = React.useState(false);
   const [txnOTMap, setTxnOTMap] = React.useState({});
-  const [txnFilters, setTxnFilters] = React.useState({ otCat: 'all', voids: false, refunds: false, discounts: false, timeStart: '', timeEnd: '' });
+  const [txnFilters, setTxnFilters] = React.useState({ otCat: 'all', voids: false, refunds: false, discounts: false, timeStart: '', timeEnd: '', search: '' });
   const [txnDate, setTxnDate] = React.useState(localDate);
   const [txnMenuMap, setTxnMenuMap] = React.useState(null);
   const [dtSchedule, setDtSchedule] = React.useState(null);
@@ -8839,6 +8839,24 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const negScanPollRef = React.useRef(null);
   // Stop polling if the user navigates away mid-scan (unmount, or switches store).
   React.useEffect(() => () => { if (negScanPollRef.current) clearInterval(negScanPollRef.current); }, []);
+
+  // Mobile tab strip is horizontally scrollable (overflowX:'auto') but had no
+  // visual hint that it was — the last tab (Complaints) reads as cut off/broken
+  // at the right edge instead of "swipe to see more". This tracks whether
+  // there's unscrolled content to the right so a fade hint can show only when
+  // it's actually true, and hide once fully scrolled.
+  const tabRailRef = React.useRef(null);
+  const [tabRailHasMore, setTabRailHasMore] = React.useState(false);
+  const checkTabRailOverflow = React.useCallback(() => {
+    const el = tabRailRef.current;
+    if (!el) return;
+    setTabRailHasMore(el.scrollWidth - el.scrollLeft - el.clientWidth > 4);
+  }, []);
+  React.useEffect(() => {
+    checkTabRailOverflow();
+    window.addEventListener('resize', checkTabRailOverflow);
+    return () => window.removeEventListener('resize', checkTabRailOverflow);
+  }, [checkTabRailOverflow]);
 
   // Notification-bell deep link (pos_negative_total click) — jump to the flagged
   // date and, if the notification named exactly one check, auto-open it once the
@@ -9280,7 +9298,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
     setTxnListLoading(true);
     setTxnList(null);
     try {
-      const [checksRes, otRes] = await Promise.all([
+      const [checksRes, otRes, menuRes] = await Promise.all([
         fetch('/.netlify/functions/pulse', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -9293,7 +9311,13 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         Object.keys(txnOTMap).length ? Promise.resolve(null) : fetch('/.netlify/functions/pulse', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ api: pulseApi, endpoint: 'getOrderTypeDimensions', locRef: String(pc), include: 'orderTypes.num,orderTypes.name' })
-        })
+        }),
+        // Item-name search needs miNum -> name up front, not lazily on modal-open
+        // like openTxnDetail does — the broad `include: 'guestChecks'` above
+        // already returns each check's detailLines (confirmed live: 826 checks,
+        // each with a detailLines array of {menuItem, dspQty, dspTtl, ...}), so
+        // no extra Pulse call is needed for the item data itself, just the names.
+        txnMenuMap ? Promise.resolve(null) : fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_menu_v1' }) })
       ]);
       const checksData = await checksRes.json();
       if (otRes) {
@@ -9302,6 +9326,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         (otData.orderTypes || []).forEach(ot => { otMap[ot.num] = ot.name || ''; });
         setTxnOTMap(otMap);
       }
+      if (menuRes) { const md = await menuRes.json(); setTxnMenuMap(md.data || {}); }
       const list = (checksData.guestChecks || []).sort((a, b) => (b.chkNum || 0) - (a.chkNum || 0));
       setTxnList(list);
     } catch(e) { setTxnList([]); }
@@ -9490,7 +9515,8 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
             full-page layout; squeezed beside the rail they wrapped to extra rows for no
             reason. Every other tab keeps the rail since they don't have that problem. */}
         {!(storeTab === 'labor' && !isNarrow) && (
-        <div style={isNarrow
+        <div style={{ position: 'relative', flexShrink: 0, minWidth: 0 }}>
+        <div ref={tabRailRef} onScroll={isNarrow ? checkTabRailOverflow : undefined} style={isNarrow
           ? { display:'flex', flexDirection:'row', gap:'0.4rem', overflowX:'auto', flexShrink:0, paddingBottom:'0.25rem', WebkitOverflowScrolling:'touch' }
           : { display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
           {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'},{id:'complaints',label:'📣 Complaints'}].map((t) => (
@@ -9503,6 +9529,13 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
               }}
               style={{ display:'flex', alignItems:'center', textAlign:'left', padding:'0.6rem 0.75rem', border:`1px solid ${storeTab===t.id?O:th.cardBorder}`, borderRadius:'0.6rem', background:storeTab===t.id?O:th.card, color:storeTab===t.id?'#fff':th.muted, fontWeight:600, fontSize:'0.78rem', lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', cursor:'pointer', transition:'background .15s, color .15s, border-color .15s', boxSizing:'border-box', fontFamily:"'Raleway',sans-serif", flexShrink:0 }}>{t.label}</button>
           ))}
+        </div>
+        {/* Fade hint — only shown on the mobile horizontal strip, and only while
+            there's actually more to scroll to (checkTabRailOverflow), so it never
+            lingers once the user's scrolled all the way to Complaints. */}
+        {isNarrow && tabRailHasMore && (
+          <div style={{ position: 'absolute', top: 0, bottom: '0.25rem', right: 0, width: '1.75rem', pointerEvents: 'none', background: `linear-gradient(to right, transparent, ${th.bg})` }} />
+        )}
         </div>
         )}
         <div ref={contentRef} style={{ flex:1, minWidth:0, overflowY: isNarrow ? 'visible' : 'auto', paddingRight: isNarrow ? 0 : 4 }}>
@@ -10351,6 +10384,23 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           return 'other';
         };
 
+        // Matches by receipt/check number (exact or partial, e.g. "147" finds
+        // #1470-#1479) or by item name across that check's detailLines, via the
+        // miNum -> name map loaded alongside the list. A check whose items
+        // haven't resolved a name yet (menu map still loading) simply won't
+        // match on item text until it's ready — never throws, never blocks the
+        // number-search half of this same query.
+        const searchQ = txnFilters.search.trim().toLowerCase();
+        const matchesSearch = (chk) => {
+          if (!searchQ) return true;
+          if (String(chk.chkNum || '').includes(searchQ)) return true;
+          if (!txnMenuMap) return false;
+          return (chk.detailLines || []).some(l => {
+            const nm = txnMenuMap[l.menuItem?.miNum]?.name;
+            return nm && nm.toLowerCase().includes(searchQ);
+          });
+        };
+
         const filtered = (txnList || []).filter(chk => {
           const f = txnFilters;
           if (f.otCat !== 'all' && otCat(chk.otNum) !== f.otCat) return false;
@@ -10369,6 +10419,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
             const chkT = toETHHMM(chk.opnUTC || '');
             if (chkT && chkT > f.timeEnd) return false;
           }
+          if (!matchesSearch(chk)) return false;
           return true;
         });
 
@@ -10378,12 +10429,16 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         return (
           <div style={{ ...card(th), padding: '1rem', marginTop: '1rem' }}>
             {/* Header row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', rowGap: '0.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>🧾 Transactions</span>
                 {txnList && <span style={{ fontSize: '0.65rem', color: th.muted }}>({filtered.length}{filtered.length !== txnList.length ? `/${txnList.length}` : ''})</span>}
               </div>
-              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              {/* flexWrap so Date/Refresh/7-days/Check-Negatives wrap onto a second
+                  line on narrow viewports instead of overflowing past the card edge
+                  and getting clipped mid-button (confirmed: "Check Negatives" was
+                  showing cut off at "Neg…" on mobile). */}
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap', rowGap: '0.4rem' }}>
                 {txnExpanded && (
                   <>
                     {/* Date picker */}
@@ -10446,6 +10501,21 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
 
             {txnExpanded && (
               <>
+                {/* Search — receipt # or item name */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.75rem', position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: '0.6rem', fontSize: '0.75rem', color: th.muted, pointerEvents: 'none' }}>🔍</span>
+                  <input type="text" value={txnFilters.search} placeholder="Search receipt # or item…"
+                    onChange={e => setTxnFilters(f => ({ ...f, search: e.target.value }))}
+                    style={{ flex: 1, fontSize: '0.75rem', padding: '0.45rem 0.6rem 0.45rem 1.7rem', borderRadius: 6, border: `1px solid ${txnFilters.search ? O : th.cardBorder}`, background: th.card2, color: th.text }} />
+                  {txnFilters.search && (
+                    <span onClick={() => setTxnFilters(f => ({ ...f, search: '' }))}
+                      style={{ fontSize: '0.7rem', color: '#ef4444', cursor: 'pointer', fontWeight: 700, padding: '0 0.3rem' }}>✕</span>
+                  )}
+                  {txnFilters.search && !txnMenuMap && (
+                    <span style={{ fontSize: '0.65rem', color: th.muted, whiteSpace: 'nowrap' }}>loading item names…</span>
+                  )}
+                </div>
+
                 {/* Order Type Filter */}
                 <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginTop: '0.75rem', marginBottom: '0.5rem' }}>
                   {[['all','All'],['eat_in','Eat In'],['drive_thru','Drive Thru'],['mobile','Mobile'],['uber','Uber Eats'],['doordash','DoorDash'],['delivery','Delivery'],['other','Other']].map(([val, label]) => (
@@ -10768,6 +10838,41 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
     for (let i = 0; i < 7; i++) { const dd = new Date(sun); dd.setDate(sun.getDate() + i); dates.push(toStr(dd)); }
     return { sun: toStr(sun), sat: toStr(sat), dates, sunDate: sun, satDate: sat };
   }, [localDate]);
+
+  // Labor pct for any date/week OTHER than today. See AdminPulse's laborForDate
+  // for the full root-cause: laborData (pcg_labor_v1) only ever holds an
+  // always-"today" snapshot, with no awareness of localDate/viewMode at all,
+  // unlike Sales which already flows through weekRange.dates. Each store's own
+  // pcg_labor_store_PC blob keeps a 30-day daily history (same cron, just
+  // never read here) -- fetched once per district (cheap blob reads), then
+  // localDate/viewMode below just pick the right day(s) out of that same
+  // cached array without re-fetching.
+  const [laborDailyByStore, setLaborDailyByStore] = React.useState({});
+  React.useEffect(() => {
+    let alive = true;
+    Promise.all(distStores.map(s =>
+      cloudLoad('pcg_labor_store_' + s.pc).then(d => [s.pc, Array.isArray(d && d.daily) ? d.daily : []]).catch(() => [s.pc, []])
+    )).then(pairs => {
+      if (!alive) return;
+      const map = {};
+      pairs.forEach(pair => { map[pair[0]] = pair[1]; });
+      setLaborDailyByStore(map);
+    });
+    return () => { alive = false; };
+  }, [distNum, stores]);
+  const laborForDate = React.useCallback(function (pc) {
+    const daily = laborDailyByStore[pc];
+    if (viewMode === 'week') {
+      if (!daily) return null;
+      const matches = weekRange.dates.map(function (d) { return daily.find(function (e) { return e.date === d; }); }).filter(Boolean);
+      if (!matches.length) return null;
+      const sales = matches.reduce(function (a, e) { return a + (e.sales || 0); }, 0);
+      const laborDollars = matches.reduce(function (a, e) { return a + (e.laborDollars || 0); }, 0);
+      return { sales: sales, laborDollars: laborDollars, laborPct: sales > 0 ? (laborDollars / sales) * 100 : null };
+    }
+    if (localDate === todayStr && laborData && laborData.stores && laborData.stores[pc] && laborData.stores[pc].today) return laborData.stores[pc].today;
+    return daily ? (daily.find(function (e) { return e.date === localDate; }) || null) : null;
+  }, [laborDailyByStore, viewMode, weekRange, localDate, todayStr, laborData]);
   const weekLabel = React.useMemo(() => {
     const opts = { month: 'short', day: 'numeric' };
     const s = weekRange.sunDate.toLocaleDateString('en-US', opts);
@@ -11332,12 +11437,16 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
       })()}
 
       {/* Labor */}
-      {laborData?.stores && (() => {
-        const rows = distStores.map(s => ({ s, ld: laborData.stores[s.pc]?.today })).filter(r => r.ld);
+      {(() => {
+        const rows = distStores.map(s => ({ s, ld: laborForDate(s.pc) })).filter(r => r.ld);
         if (rows.length === 0) return null;
         const totalLaborDollars = rows.reduce((a, r) => a + (r.ld.laborDollars || 0), 0);
         const totalSales = rows.reduce((a, r) => a + (r.ld.sales || 0), 0);
         const distLaborPct = totalSales > 0 ? (totalLaborDollars / totalSales) * 100 : null;
+        // employeesOnClock/overtimeCount only exist in laborData's live "today"
+        // snapshot — the per-store history blob's daily[] entries (used for any
+        // other date) don't carry them, since "currently on clock" isn't a
+        // meaningful concept for a past day; both correctly read 0 there.
         const onClock = rows.reduce((a, r) => a + (r.ld.employeesOnClock || 0), 0);
         const overtime = rows.reduce((a, r) => a + (r.ld.overtimeCount || 0), 0);
         const partialCoverage = rows.length < distStores.length;
@@ -12140,6 +12249,41 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
     }).catch(() => { if (alive) setTipsSnapshot({}); });
     return () => { alive = false; };
   }, [busDt]);
+  // Labor % for any date OTHER than today. laborData (pcg_labor_v1, above) only
+  // ever holds a single always-"today" snapshot per store, refreshed on an hourly
+  // timer with no awareness of busDt at all — so picking a past date in the date
+  // picker previously kept showing today's Labor % unchanged, even though Net
+  // Sales/Guests correctly updated (those go through fetchDate(busDt) below).
+  // pcg_labor_store_{pc} already keeps a 30-day `daily` history per store (written
+  // by the same cron, just never read here) — this pulls the entry matching
+  // whichever date is actually selected, one blob read per visible store (cheap;
+  // not a live Paycor call), skipped entirely when busDt is really today since
+  // laborData's own snapshot is already the freshest answer for that case.
+  const [dateLaborData, setDateLaborData] = useState({}); // pc -> {laborDollars, sales, laborPct, hoursWorked} | null
+  useEffect(() => {
+    let alive = true;
+    if (busDt === todayStr) { setDateLaborData({}); return; }
+    setDateLaborData({});
+    Promise.all((stores || []).map(s =>
+      cloudLoad(`pcg_labor_store_${s.pc}`).then(d => {
+        const entry = (d?.daily || []).find(e => e.date === busDt);
+        return [s.pc, entry || null];
+      }).catch(() => [s.pc, null])
+    )).then(pairs => {
+      if (!alive) return;
+      const map = {};
+      pairs.forEach(([pc, entry]) => { map[pc] = entry; });
+      setDateLaborData(map);
+    });
+    return () => { alive = false; };
+  }, [busDt, stores, todayStr]);
+  // Single lookup every render site below can share — returns the same shape
+  // laborData.stores[pc].today already has (laborDollars/sales/laborPct/hoursWorked),
+  // sourced from whichever of the two is actually correct for the selected date.
+  const laborForDate = useCallback((pc) => {
+    if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
+    return dateLaborData[pc] || null;
+  }, [busDt, todayStr, laborData, dateLaborData]);
   const [pulseView,   setPulseView]  = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
   const [networkReviews, setNetworkReviews] = useState(null);
@@ -12932,7 +13076,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                     {!isCollapsed && distRows.map(s => {
                       const live = s.live;
                       const isOk = live?.status === 'ok';
-                      const lPct = laborData?.stores?.[s.pc]?.today?.laborPct;
+                      const lPct = laborForDate(s.pc)?.laborPct;
                       return (
                         <div key={s.pc} onClick={() => isOk && setPulseView({ level:'store', pc:s.pc })}
                           style={{ padding:'0.7rem 0.8rem', borderBottom:`1px solid ${th.cardBorder}`, cursor: isOk ? 'pointer' : 'default' }}>
@@ -12982,7 +13126,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                   }), { netSales:0, guests:0, forecast:0 });
                   distTotals.avgCheck = distTotals.guests > 0 ? distTotals.netSales / distTotals.guests : 0;
                   const distTips = tipsSnapshot ? distRows.reduce((sum, s) => sum + (tipsSnapshot[s.pc] || 0), 0) : null;
-                  const distLaborRows = distRows.map(s => laborData?.stores?.[s.pc]?.today).filter(Boolean);
+                  const distLaborRows = distRows.map(s => laborForDate(s.pc)).filter(Boolean);
                   const distLaborSales = distLaborRows.reduce((sum, t) => sum + (t.sales || 0), 0);
                   const distLaborDollars = distLaborRows.reduce((sum, t) => sum + (t.laborDollars || 0), 0);
                   const distLaborPct = distLaborSales > 0 ? (distLaborDollars / distLaborSales) * 100 : null;
@@ -13062,7 +13206,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                             </td>
                             <td style={{ ...tdS, textAlign:'right', fontWeight:700 }}>
                               {(() => {
-                                const lPct = laborData?.stores?.[s.pc]?.today?.laborPct;
+                                const lPct = laborForDate(s.pc)?.laborPct;
                                 if (lPct == null) return <span style={{ color:th.muted }}>—</span>;
                                 const lColor = laborColor(lPct);
                                 return <span style={{ color:lColor }}>{fmtPct(lPct)}</span>;
@@ -25344,6 +25488,29 @@ function ForecastWeekView({ week, th }) {
   );
 }
 
+// Module-level (not React state) — shared by ManagerEmbeddableView's Home
+// dashboard tile and LaborDrillDown, the two places that independently call
+// /labor-refresh for the same store within seconds of each other (Home fires
+// it on mount/every 10 min; LaborDrillDown fires it again the moment a
+// manager taps into Labor). Caching the in-flight PROMISE, not just its
+// resolved value, means a caller that lands while the other's request is
+// still in flight awaits that same request instead of starting a second one
+// — this is what actually collapses the two calls into one, not just a
+// short-TTL cache of a settled result (which would still race if both call
+// within a few ms of each other, before either has resolved).
+const laborRefreshCache = new Map(); // pc -> { promise, fetchedAt }
+const LABOR_REFRESH_TTL_MS = 45 * 1000;
+function fetchLaborRefreshShared(pc) {
+  const cached = laborRefreshCache.get(pc);
+  if (cached && Date.now() - cached.fetchedAt < LABOR_REFRESH_TTL_MS) return cached.promise;
+  const promise = fetch('/.netlify/functions/labor-refresh', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ storePC: pc }),
+  }).then(res => res.ok ? res.json() : null).catch(() => null);
+  laborRefreshCache.set(pc, { promise, fetchedAt: Date.now() });
+  return promise;
+}
+
 function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout }) {
   const store = getManagerStore(stores, user) || {};
   const pc = store.pc;
@@ -25464,10 +25631,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       // read the cron-maintained pcg_labor_v1 blob, which is now this screen's
       // first-paint source too. This promise just upgrades `labor` (and the
       // per-employee hours list) in place once it lands, below.
-      const liveLaborPromise = fetch('/.netlify/functions/labor-refresh', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storePC: pc }),
-      }).then(res => res.ok ? res.json() : null).catch(() => null);
+      const liveLaborPromise = fetchLaborRefreshShared(pc);
       const pulsePost = (endpoint, extra = {}) => fetch(PULSE_ENDPOINT, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api: apiRoute(pc), endpoint, locRef: pc, busDt: todayStr, ...extra }),
@@ -26141,7 +26305,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.44";
+const APP_VERSION = "v20.47";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33627,11 +33791,11 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
         // see labor-refresh.mjs for why). Fired in parallel with 1-5 above
         // (it doesn't depend on any of their results) rather than after them,
         // and its per-employee clockInStatus lets the live-status loop below
-        // skip re-checking anyone this call already resolved.
-        fetch('/.netlify/functions/labor-refresh', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storePC: store.pc }),
-        }).then(r => r.ok ? r.json().catch(() => null) : null),
+        // skip re-checking anyone this call already resolved. Goes through the
+        // shared fetchLaborRefreshShared cache (see above ManagerEmbeddableView)
+        // so a manager who just saw this same store's Home tile doesn't trigger
+        // a second identical scrape moments later when they tap into Labor.
+        fetchLaborRefreshShared(store.pc),
       ]);
 
       if (punchRes.status === 'fulfilled' && punchRes.value) {
