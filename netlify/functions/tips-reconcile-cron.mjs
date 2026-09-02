@@ -43,13 +43,12 @@ function sendEmail(to, subject, html) {
 
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
-// Shared by the daily cron (short lookback) and the manual refresh sibling
-// (longer on-demand trace-back). `daysBack` = how many already-closed days
-// to re-check, counting back from yesterday-ET. `onlyPc` optionally scopes
-// to a single store (used by the manual tool).
-export async function runReconcile(daysBack = 3, onlyPc = null) {
-  const dates = [];
-  for (let i = 1; i <= daysBack; i++) dates.push(etDate(i));
+// Shared by the daily cron (short lookback), the manual refresh sibling
+// (longer on-demand trace-back), and the biweekly-boundary settle pass in
+// tips-report-cron-background.mjs (which needs the exact dates of a
+// closed pay period, not "N days back from today" — those aren't the
+// same thing once the settle runs days after the period actually ended).
+export async function runReconcileForDates(dates, onlyPc = null) {
   const targetStores = onlyPc ? STORES.filter(s => String(s.pc) === String(onlyPc)) : STORES;
 
   const corrections = [];
@@ -198,8 +197,8 @@ export async function runReconcile(daysBack = 3, onlyPc = null) {
     const appliedCount = corrections.length - withheldCount;
     const rows = corrections.map(c => `<tr><td style="padding:4px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.busDt)}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.store)}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.employee)}</td><td style="padding:4px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.change)}</td></tr>`).join('');
     const summaryLine = withheldCount > 0
-      ? `Daily tips reconciliation found ${corrections.length} item${corrections.length !== 1 ? 's' : ''} across the last ${daysBack} day${daysBack !== 1 ? 's' : ''}: ${appliedCount} correction${appliedCount !== 1 ? 's' : ''} auto-applied, and ${withheldCount} flagged but NOT applied (marked "NOT APPLIED"/"POSSIBLE DROP" below) because a possible employee drop was detected in the same fetch — those need a manual look before anything changes.`
-      : `Daily tips reconciliation found ${corrections.length} correction${corrections.length !== 1 ? 's' : ''} across the last ${daysBack} day${daysBack !== 1 ? 's' : ''} — employees whose Paycor punches were entered/corrected after their day's report already ran. All were auto-corrected in the Portal; no action needed unless something here looks wrong.`;
+      ? `Daily tips reconciliation found ${corrections.length} item${corrections.length !== 1 ? 's' : ''} across the last ${dates.length} day${dates.length !== 1 ? 's' : ''}: ${appliedCount} correction${appliedCount !== 1 ? 's' : ''} auto-applied, and ${withheldCount} flagged but NOT applied (marked "NOT APPLIED"/"POSSIBLE DROP" below) because a possible employee drop was detected in the same fetch — those need a manual look before anything changes.`
+      : `Daily tips reconciliation found ${corrections.length} correction${corrections.length !== 1 ? 's' : ''} across the last ${dates.length} day${dates.length !== 1 ? 's' : ''} — employees whose Paycor punches were entered/corrected after their day's report already ran. All were auto-corrected in the Portal; no action needed unless something here looks wrong.`;
     const html = `
       <p>${summaryLine}</p>
       <table style="border-collapse:collapse;width:100%;margin-top:10px;font-size:13px;">
@@ -215,6 +214,12 @@ export async function runReconcile(daysBack = 3, onlyPc = null) {
   const summary = { ok: true, daysChecked: dates.length, storesChecked: targetStores.length, corrections: corrections.length, details: corrections, skippedForBudget };
   console.log('[tips-reconcile] done:', JSON.stringify({ ...summary, details: undefined }));
   return summary;
+}
+
+export async function runReconcile(daysBack = 3, onlyPc = null) {
+  const dates = [];
+  for (let i = 1; i <= daysBack; i++) dates.push(etDate(i));
+  return runReconcileForDates(dates, onlyPc);
 }
 
 export default async (request) => {
