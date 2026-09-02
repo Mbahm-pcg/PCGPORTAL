@@ -54,6 +54,7 @@ export async function retryErrorDays(dates, opts = {}) {
   }
 
   let remaining = pickErrorEntries(dates, snapshotByDate);
+  const datesWithErrors = new Set(remaining.map(e => e.busDt));
   let healedCount = 0;
   let skippedForBudget = false;
 
@@ -73,6 +74,7 @@ export async function retryErrorDays(dates, opts = {}) {
   }
 
   for (const busDt of dates) {
+    if (!datesWithErrors.has(busDt)) continue;
     const arr = snapshotByDate.get(busDt);
     if (arr) await saveDaySnapshot(busDt, arr);
   }
