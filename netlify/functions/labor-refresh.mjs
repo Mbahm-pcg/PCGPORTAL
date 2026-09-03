@@ -52,11 +52,32 @@ export default async (request, context) => {
     // after calling this endpoint, because this response used to discard
     // exactly the data it needed down to a bare count. Returning the map lets
     // the client skip re-checking anyone already resolved here.
+    //
+    // processStore's own liveClockInStatus (labor-cron.mjs) already answered
+    // this exact question, moments earlier, for anyone whose hoursToday came
+    // from its needsLiveCheck estimate — every one of those employees now has
+    // hoursToday > 0 (that's what the estimate is for), so without reusing
+    // that result here, this loop was calling fetchLiveClockIn a SECOND time
+    // for the same employee, same day, same purpose. Confirmed live in
+    // production (2026-09-02) as the dominant remaining cost after the
+    // Promise.all parallelization further down this file's history — still
+    // 11-21s per store with the duplicate check, vs. 2-4s without it.
     const activeEmpIds = (result.employeeDetails || []).filter(e => e.hoursToday > 0).map(e => e.employeeId);
+    const alreadyChecked = result.liveClockInStatus || {};
     let currentlyClockedIn = 0;
     const clockInStatus = {};
-    for (let i = 0; i < activeEmpIds.length; i += 5) {
-      const batch = activeEmpIds.slice(i, i + 5);
+    const stillNeedsCheck = [];
+    for (const id of activeEmpIds) {
+      if (Object.prototype.hasOwnProperty.call(alreadyChecked, id)) {
+        const lastPunchTime = alreadyChecked[id];
+        clockInStatus[id] = { isClockedIn: !!lastPunchTime, lastPunchTime: lastPunchTime || null };
+        if (lastPunchTime) currentlyClockedIn++;
+      } else {
+        stillNeedsCheck.push(id);
+      }
+    }
+    for (let i = 0; i < stillNeedsCheck.length; i += 5) {
+      const batch = stillNeedsCheck.slice(i, i + 5);
       const checks = await Promise.all(batch.map(id => fetchLiveClockIn(id, busDt)));
       batch.forEach((id, idx) => {
         const lastPunchTime = checks[idx];

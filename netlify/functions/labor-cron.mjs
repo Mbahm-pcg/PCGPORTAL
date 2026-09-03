@@ -708,6 +708,20 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
   // The /punches endpoint only returns COMPLETED shifts (punched out).
   // For employees mid-shift, fetch their actual clock-in time via
   // employeePunches and calculate real hours worked so far.
+  //
+  // liveClockInStatus captures each fetchLiveClockIn result here (previously
+  // discarded once folded into the hours estimate below) so the caller
+  // (labor-refresh.mjs) can reuse it instead of re-fetching the exact same
+  // employee's live clock-in status a second time moments later — confirmed
+  // live in production (2026-09-02): every one of these employees also shows
+  // up in labor-refresh.mjs's own separate activeEmpIds check (since this
+  // loop just gave them a nonzero hoursToday estimate), so without this,
+  // fetchLiveClockIn is called twice per currently-clocked-in employee on
+  // every single /labor-refresh request — confirmed as the dominant
+  // remaining cost after the earlier Promise.all parallelization (still
+  // 11-21s in production with this duplication, vs. the same store loading
+  // in 2-4s when this was first tested without it).
+  const liveClockInStatus = {}; // employeeId -> clockIn timestamp string | null
   if (!skipSchedules && todayShifts.length > 0) {
     const todayMap = punchMap[busDt] || {};
     const needsLiveCheck = [];
@@ -729,6 +743,7 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
         const batch = needsLiveCheck.slice(i, i + 5);
         await Promise.all(batch.map(async ({ empId, shiftStart, shiftEnd }) => {
           const clockIn = await fetchLiveClockIn(empId, busDt);
+          liveClockInStatus[empId] = clockIn || null;
           let hrs = 0;
           if (clockIn) {
             const actualStart = new Date(clockIn);
@@ -853,6 +868,7 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
       laborPct:     Math.round(wtdLaborPct * 10) / 10,
     },
     employeeDetails,
+    liveClockInStatus,
     scheduleShifts: todayShifts.map(s => ({
       employeeId:    s.employeeId   || s.EmployeeId   || null,
       employeeName:  s.employeeName || (s.firstName && s.lastName ? `${s.firstName} ${s.lastName}` : null) || s.EmployeeName || null,

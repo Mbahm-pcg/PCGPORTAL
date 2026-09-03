@@ -10122,7 +10122,9 @@ ${pendingEmail.emails.join("\n")}`,
       const daily = laborDailyByStore[pc];
       if (viewMode === "week") {
         if (!daily) return null;
+        const liveToday = laborData && laborData.stores && laborData.stores[pc] && laborData.stores[pc].today;
         const matches = weekRange.dates.map(function(d2) {
+          if (d2 === todayStr && liveToday) return liveToday;
           return daily.find(function(e) {
             return e.date === d2;
           });
@@ -11167,35 +11169,40 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [busDt]);
-    const [dateLaborData, setDateLaborData] = useState({});
+    const [laborDailyByStore, setLaborDailyByStore] = useState({});
     useEffect(() => {
       let alive = true;
-      if (busDt === todayStr) {
-        setDateLaborData({});
-        return;
-      }
-      setDateLaborData({});
       Promise.all((stores || []).map(
-        (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => {
-          const entry = (d?.daily || []).find((e) => e.date === busDt);
-          return [s.pc, entry || null];
-        }).catch(() => [s.pc, null])
+        (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => [s.pc, Array.isArray(d?.daily) ? d.daily : []]).catch(() => [s.pc, []])
       )).then((pairs) => {
         if (!alive) return;
         const map = {};
-        pairs.forEach(([pc, entry]) => {
-          map[pc] = entry;
+        pairs.forEach(([pc, daily]) => {
+          map[pc] = daily;
         });
-        setDateLaborData(map);
+        setLaborDailyByStore(map);
       });
       return () => {
         alive = false;
       };
-    }, [busDt, stores, todayStr]);
+    }, [stores]);
     const laborForDate = useCallback((pc) => {
+      const daily = laborDailyByStore[pc];
+      if (viewMode === "week") {
+        if (!daily) return null;
+        const liveToday = laborData?.stores?.[pc]?.today;
+        const matches = getWeekDates(busDt).map((d) => {
+          if (d === todayStr && liveToday) return liveToday;
+          return daily.find((e) => e.date === d);
+        }).filter(Boolean);
+        if (!matches.length) return null;
+        const sales = matches.reduce((a, e) => a + (e.sales || 0), 0);
+        const laborDollars = matches.reduce((a, e) => a + (e.laborDollars || 0), 0);
+        return { sales, laborDollars, laborPct: sales > 0 ? laborDollars / sales * 100 : null };
+      }
       if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
-      return dateLaborData[pc] || null;
-    }, [busDt, todayStr, laborData, dateLaborData]);
+      return daily ? daily.find((e) => e.date === busDt) || null : null;
+    }, [laborDailyByStore, viewMode, busDt, todayStr, laborData]);
     const [pulseView, setPulseView] = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState(null);
     const [networkReviews, setNetworkReviews] = useState(null);
@@ -21374,7 +21381,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.47";
+  var APP_VERSION = "v20.48";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

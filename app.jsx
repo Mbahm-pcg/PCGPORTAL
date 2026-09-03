@@ -10864,7 +10864,18 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
     const daily = laborDailyByStore[pc];
     if (viewMode === 'week') {
       if (!daily) return null;
-      const matches = weekRange.dates.map(function (d) { return daily.find(function (e) { return e.date === d; }); }).filter(Boolean);
+      // Today's own daily[] entry can be stale/incomplete while the day is
+      // still in progress (confirmed live: a store's today record showed
+      // laborDollars=0 hours before the real live number was available) — the
+      // day-mode branch below already substitutes laborData's live snapshot
+      // for today; a week range that happens to include today needs that same
+      // substitution for that one day, or the week sum silently undercounts
+      // today's real labor cost and skews the whole week's % low.
+      const liveToday = laborData && laborData.stores && laborData.stores[pc] && laborData.stores[pc].today;
+      const matches = weekRange.dates.map(function (d) {
+        if (d === todayStr && liveToday) return liveToday;
+        return daily.find(function (e) { return e.date === d; });
+      }).filter(Boolean);
       if (!matches.length) return null;
       const sales = matches.reduce(function (a, e) { return a + (e.sales || 0); }, 0);
       const laborDollars = matches.reduce(function (a, e) { return a + (e.laborDollars || 0); }, 0);
@@ -12259,31 +12270,52 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   // whichever date is actually selected, one blob read per visible store (cheap;
   // not a live Paycor call), skipped entirely when busDt is really today since
   // laborData's own snapshot is already the freshest answer for that case.
-  const [dateLaborData, setDateLaborData] = useState({}); // pc -> {laborDollars, sales, laborPct, hoursWorked} | null
+  // Caches each store's FULL daily[] history (not just one date) so Week mode
+  // can sum the matching days on demand below, same as Sales does via its own
+  // getWeekDates(busDt) — a single-date-only lookup here would have silently
+  // kept showing one day's number while Week was selected, since viewMode was
+  // never actually consulted (confirmed live: Store Breakdown's Week view
+  // still showed a frozen-looking Labor % because of exactly this gap).
+  const [laborDailyByStore, setLaborDailyByStore] = useState({}); // pc -> daily[] | null
   useEffect(() => {
     let alive = true;
-    if (busDt === todayStr) { setDateLaborData({}); return; }
-    setDateLaborData({});
     Promise.all((stores || []).map(s =>
-      cloudLoad(`pcg_labor_store_${s.pc}`).then(d => {
-        const entry = (d?.daily || []).find(e => e.date === busDt);
-        return [s.pc, entry || null];
-      }).catch(() => [s.pc, null])
+      cloudLoad(`pcg_labor_store_${s.pc}`).then(d => [s.pc, Array.isArray(d?.daily) ? d.daily : []]).catch(() => [s.pc, []])
     )).then(pairs => {
       if (!alive) return;
       const map = {};
-      pairs.forEach(([pc, entry]) => { map[pc] = entry; });
-      setDateLaborData(map);
+      pairs.forEach(([pc, daily]) => { map[pc] = daily; });
+      setLaborDailyByStore(map);
     });
     return () => { alive = false; };
-  }, [busDt, stores, todayStr]);
-  // Single lookup every render site below can share — returns the same shape
-  // laborData.stores[pc].today already has (laborDollars/sales/laborPct/hoursWorked),
-  // sourced from whichever of the two is actually correct for the selected date.
+  }, [stores]);
+  // Single lookup every render site below can share — day mode returns the
+  // same shape laborData.stores[pc].today already has (laborDollars/sales/
+  // laborPct/hoursWorked); week mode sums matching days into that same shape.
   const laborForDate = useCallback((pc) => {
+    const daily = laborDailyByStore[pc];
+    if (viewMode === 'week') {
+      if (!daily) return null;
+      // Today's own daily[] entry can be stale/incomplete while the day is
+      // still in progress (confirmed live: Bustleton's today record showed
+      // laborDollars=0 hours before the real live number was available) — the
+      // day-mode branch below already substitutes laborData's live snapshot
+      // for today; a week range that happens to include today needs that same
+      // substitution for that one day, or the week sum silently undercounts
+      // today's real labor cost and skews the whole week's % low.
+      const liveToday = laborData?.stores?.[pc]?.today;
+      const matches = getWeekDates(busDt).map(d => {
+        if (d === todayStr && liveToday) return liveToday;
+        return daily.find(e => e.date === d);
+      }).filter(Boolean);
+      if (!matches.length) return null;
+      const sales = matches.reduce((a, e) => a + (e.sales || 0), 0);
+      const laborDollars = matches.reduce((a, e) => a + (e.laborDollars || 0), 0);
+      return { sales, laborDollars, laborPct: sales > 0 ? (laborDollars / sales) * 100 : null };
+    }
     if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
-    return dateLaborData[pc] || null;
-  }, [busDt, todayStr, laborData, dateLaborData]);
+    return daily ? (daily.find(e => e.date === busDt) || null) : null;
+  }, [laborDailyByStore, viewMode, busDt, todayStr, laborData]);
   const [pulseView,   setPulseView]  = useState(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network"); // "network" | { level:"district", num:N } | { level:"store", pc:"XXX" }
   const [weatherForecast, setWeatherForecast] = useState(null);
   const [networkReviews, setNetworkReviews] = useState(null);
@@ -26305,7 +26337,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.47";
+const APP_VERSION = "v20.48";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
