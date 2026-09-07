@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { classifyFeed, rollup, classifyPerStore, diffForAlerts } from './system-health.mjs';
+import { classifyFeed, rollup, classifyPerStore, diffForAlerts, FEEDS, buildSnapshot } from './system-health.mjs';
 
 const MIN = 60000;
 const NOW = 1_000_000_000_000;
@@ -93,5 +93,60 @@ describe('diffForAlerts', () => {
   test('new feed absent in prev treated as from OK', () => {
     const nx = { feeds: [{ key: 'newfeed', status: 'DOWN', critical: true }] };
     assert.deepStrictEqual(diffForAlerts(null, nx), [{ key: 'newfeed', from: 'OK', to: 'DOWN', critical: true }]);
+  });
+});
+
+describe('FEEDS registry sanity', () => {
+  test('every entry has the required fields', () => {
+    for (const f of FEEDS) {
+      assert.ok(f.key && typeof f.key === 'string', `key on ${JSON.stringify(f)}`);
+      assert.ok(f.label && typeof f.label === 'string', `label on ${f.key}`);
+      assert.ok(f.blobKey && typeof f.blobKey === 'string', `blobKey on ${f.key}`);
+      assert.ok(Number.isFinite(f.expectedMaxAgeMin) && f.expectedMaxAgeMin > 0, `expectedMaxAgeMin on ${f.key}`);
+      assert.strictEqual(typeof f.perStore, 'boolean', `perStore on ${f.key}`);
+      assert.strictEqual(typeof f.critical, 'boolean', `critical on ${f.key}`);
+      assert.ok(f.category && typeof f.category === 'string', `category on ${f.key}`);
+    }
+  });
+  test('feed keys are unique', () => {
+    const keys = FEEDS.map(f => f.key);
+    assert.strictEqual(new Set(keys).size, keys.length);
+  });
+});
+
+describe('buildSnapshot', () => {
+  const NOW2 = 2_000_000_000_000;
+  const pcs = ['100', '200'];
+  test('all feeds fresh → GREEN', async () => {
+    const readSavedAt = async () => NOW2; // every blob fresh
+    const snap = await buildSnapshot({ readSavedAt, activePcs: pcs, nowMs: NOW2, beats: {} });
+    assert.strictEqual(snap.overall, 'GREEN');
+    assert.strictEqual(snap.asOf, NOW2);
+    assert.strictEqual(snap.feeds.length, FEEDS.length);
+  });
+  test('a critical blob missing (null) → that feed DOWN → RED', async () => {
+    const laborSpec = FEEDS.find(f => f.critical && !f.perStore);
+    const readSavedAt = async (key) => (key === laborSpec.blobKey ? null : NOW2);
+    const snap = await buildSnapshot({ readSavedAt, activePcs: pcs, nowMs: NOW2, beats: {} });
+    const feed = snap.feeds.find(f => f.key === laborSpec.key);
+    assert.strictEqual(feed.status, 'DOWN');
+    assert.strictEqual(snap.overall, 'RED');
+  });
+  test('a throwing blob read is isolated → that feed DOWN with error, others fine', async () => {
+    const target = FEEDS[0];
+    const readSavedAt = async (key) => { if (key.startsWith(target.blobKey)) throw new Error('boom'); return NOW2; };
+    const snap = await buildSnapshot({ readSavedAt, activePcs: pcs, nowMs: NOW2, beats: {} });
+    const feed = snap.feeds.find(f => f.key === target.key);
+    assert.strictEqual(feed.status, 'DOWN');
+    assert.match(feed.error, /boom/);
+  });
+  test('a heartbeat with ok:false downgrades an otherwise-OK feed to STALE', async () => {
+    const target = FEEDS[0];
+    const readSavedAt = async () => NOW2;
+    const beats = { [target.key]: { ok: false, error: 'token expired', durationMs: 12, at: 'x' } };
+    const snap = await buildSnapshot({ readSavedAt, activePcs: pcs, nowMs: NOW2, beats });
+    const feed = snap.feeds.find(f => f.key === target.key);
+    assert.strictEqual(feed.status, 'STALE');
+    assert.strictEqual(feed.error, 'token expired');
   });
 });
