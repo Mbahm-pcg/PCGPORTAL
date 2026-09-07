@@ -133,6 +133,27 @@ export const maintTicketExpenses = pgTable("maint_ticket_expenses", {
   meta: jsonb("meta").notNull().default({}),
 });
 
+// ── Business Expense Receipts (LIVE) ──────────────────────────────────────────
+// Backs the top-level "Expenses" tab (netlify/functions/expenses.mjs). A flat,
+// unapproved personal-receipt log (gas/food/tools/etc.) open to every role —
+// distinct from maintTicketExpenses above, which is a per-ticket, VP-approved
+// job-cost log. expenses.mjs self-creates this table via CREATE TABLE IF NOT
+// EXISTS; this block documents the schema for drizzle/tooling only.
+export const businessExpenses = pgTable("business_expenses", {
+  id: text("id").primaryKey(),
+  submittedByUserId: integer("submitted_by_user_id").notNull(),
+  submittedByName: text("submitted_by_name").notNull(),
+  userType: text("user_type").notNull(),
+  storePC: text("store_pc"),
+  storeName: text("store_name"),
+  district: integer("district"),
+  category: text("category").notNull(),
+  amount: numeric("amount").notNull(),
+  note: text("note"),
+  receiptKey: text("receipt_key"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // ── Field Operations Audits (LIVE) ────────────────────────────────────────────
 // Backs the Audit module UI (see netlify/functions/audits.mjs). audits.mjs
 // self-creates these three tables via CREATE TABLE IF NOT EXISTS; this block
