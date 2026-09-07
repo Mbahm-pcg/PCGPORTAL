@@ -26427,7 +26427,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.51";
+const APP_VERSION = "v20.54";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -39555,11 +39555,43 @@ function tipsRecordsForStore(s) {
 // Paycor," a real employee's tips silently never make it into their pay.
 // sendToPaycor uses this to refuse to send a store with any unresolved day
 // in the period, rather than trusting a human to have already caught it.
-function tipsFindFlaggedStorePcs(snapshots, dates) {
+// Shared by load() and refreshOneDay() below so a manual re-fetch of one day
+// recomputes its dayInfo entry (filled/employees/stores/total) exactly the
+// same way the initial period load does, instead of a second hand-rolled copy
+// silently drifting from it.
+function tipsComputeDayInfo(date, data) {
+  if (!data) return { date, filled: false };
+  let employees = 0, storeSet = new Set(), total = 0;
+  for (const s of data) {
+    for (const r of tipsRecordsForStore(s)) {
+      if (r.employee != null) { employees++; total = tipsRound2(total + r.tips); storeSet.add(r.store); }
+    }
+  }
+  return { date, filled: true, employees, stores: storeSet.size, total };
+}
+
+function tipsFindFlaggedStorePcs(snapshots, dates, stores, todayStr) {
   const flagged = {}; // pc -> [{ date, detail }]
   (snapshots || []).forEach((dayResults, i) => {
-    if (!dayResults) return;
     const date = dates?.[i];
+    if (!dayResults) {
+      // A date that's in the future, OR is today, isn't a real gap — today's
+      // own data doesn't exist yet either, since the nightly report only runs
+      // after the business day closes. Only flag a day STRICTLY BEFORE today
+      // with NOTHING saved at all, meaning the nightly report never ran or
+      // never finished for a day that's already closed. Every store's period
+      // total is unverifiable until this day is filled in, so flag all of
+      // them rather than silently treating it as "not this store's problem"
+      // the way this function used to (a completely missing day previously
+      // produced no flag for anyone, so it never blocked Send to Paycor the
+      // way an existing-but-degraded day already did).
+      if (date && todayStr && date < todayStr) {
+        (stores || []).forEach(s => {
+          (flagged[s.pc] = flagged[s.pc] || []).push({ date, detail: `No snapshot saved for ${date} — nightly report never completed` });
+        });
+      }
+      return;
+    }
     dayResults.forEach(s => {
       const pool = Number((s.tipPool || 0).toFixed(2));
       const hasHours = (s.crew || []).some(c => c.hours > 0);
@@ -39567,7 +39599,19 @@ function tipsFindFlaggedStorePcs(snapshots, dates) {
       if (s.crewStatus === 'ok' && (s.crew || []).length === 0 && pool > 0) {
         detail = `$${pool.toFixed(2)} collected on ${date}, no eligible crew hours recorded`;
       } else if (s.crewStatus === 'ok' && hasHours && pool === 0) {
-        detail = `Real crew hours worked on ${date} but the tip pool fetch failed that day (treated as $0)`;
+        // pool===0 alone isn't proof the fetch failed — confirmed real
+        // (2026-09-04): Little Welsh's 8/31 flagged this way turned out to be
+        // a genuine zero-tip day (522 real checks, $3,536 in real sales,
+        // nobody tipped), not a dropped fetch. checkCount (added 2026-09-04,
+        // absent on snapshots saved before that) is what actually tells them
+        // apart: a real fetch that found real checks has checkCount > 0 even
+        // on a day nobody tipped, while a silently-swallowed failure has
+        // checkCount === 0 (Pulse returned no guestChecks at all). A snapshot
+        // saved before checkCount existed has no way to know which case it
+        // was, so it stays flagged (the safer default) until it's re-fetched.
+        if (s.checkCount == null || s.checkCount === 0) {
+          detail = `Real crew hours worked on ${date} but the tip pool fetch failed that day (treated as $0)`;
+        }
       } else if (s.crewStatus === 'error' && pool > 0) {
         detail = `$${pool.toFixed(2)} collected on ${date} but the crew fetch failed entirely that day`;
       }
@@ -39787,19 +39831,13 @@ function TipsReportBuilder({ th, stores, user }) {
   const [paycorCfg, setPaycorCfg] = useState({}); // { [pc]: { earningCode } }
   const [paycorCfgLoaded, setPaycorCfgLoaded] = useState(false);
   const [paycorPush, setPaycorPush] = useState(null); // null | { running, results: [{pc, store, status, detail}] }
+  const [refreshingDates, setRefreshingDates] = useState(() => new Set()); // whole-day refreshes in flight
+  const [refreshingStores, setRefreshingStores] = useState(() => new Set()); // `${pc}|${date}` single-store refreshes in flight
 
   useEffect(() => {
     if (!canPushToPaycor || paycorCfgLoaded) return;
     cloudLoad('pcg_paycor_tips_config').then(cfg => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {}).finally(() => setPaycorCfgLoaded(true));
   }, [canPushToPaycor, paycorCfgLoaded]);
-
-  const savePaycorEarningCode = (pc, value) => {
-    setPaycorCfg(prev => {
-      const next = { ...prev, [pc]: { earningCode: value } };
-      cloudSave('pcg_paycor_tips_config', { earningCodes: next }).catch(() => {});
-      return next;
-    });
-  };
 
   // "Tips " (confirmed 2026-08-24, including Paycor's own trailing-space
   // typo) is the real earning code — but only confirmed present on Bustleton
@@ -39816,6 +39854,16 @@ function TipsReportBuilder({ th, stores, user }) {
       return next;
     });
   };
+  // Auto-fills as soon as a period loads, instead of requiring the "Fill all
+  // with Tips" button click every time — still just calls the same function
+  // above, so the "never overwrites an already-set/corrected code" safety is
+  // unchanged; this only changes WHEN it runs, not what it's allowed to do.
+  useEffect(() => {
+    if (!canPushToPaycor || !paycorCfgLoaded || !snapshots) return;
+    const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+    fillAllEarningCodeWithTips(storeOrder.map(store => byStore[store][0]?.pc));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
   // On-demand only (button click, not automatic on load) — this is the one live
   // Paycor call this page makes, deliberately opt-in. The saved snapshots only
   // ever record people who DID have punches; there's no saved record of who's
@@ -39834,17 +39882,7 @@ function TipsReportBuilder({ th, stores, user }) {
     try {
       const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
       const loaded = await Promise.all(dates.map(d => cloudLoad('pcg_tips_snapshot_' + d).catch(() => null)));
-      const info = dates.map((d, i) => {
-        const data = loaded[i];
-        if (!data) return { date: d, filled: false };
-        let employees = 0, storeSet = new Set(), total = 0;
-        for (const s of data) {
-          for (const r of tipsRecordsForStore(s)) {
-            if (r.employee != null) { employees++; total = tipsRound2(total + r.tips); storeSet.add(r.store); }
-          }
-        }
-        return { date: d, filled: true, employees, stores: storeSet.size, total };
-      });
+      const info = dates.map((d, i) => tipsComputeDayInfo(d, loaded[i]));
       setSnapshots(loaded);
       setDayInfo(info);
       setGrandTotal(tipsRound2(info.reduce((sum, d) => sum + (d.total || 0), 0)));
@@ -39852,6 +39890,72 @@ function TipsReportBuilder({ th, stores, user }) {
       setError(e.message || 'Failed to load tips data.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Manual re-fetch for one day (whole-day rebuild) or one store within one
+  // day (targeted merge, leaves the other 45 stores' saved data untouched) —
+  // both call the SAME already-existing tips-report-refresh-background.mjs
+  // that previously had no UI path to it at all (only reachable via a direct
+  // HTTP POST). It's a background function, so the initial POST only ever
+  // returns Netlify's immediate 202 with no useful body — the actual result
+  // only ever shows up in the saved pcg_tips_snapshot_{date} blob itself,
+  // which is why this polls that blob afterward instead of reading the
+  // fetch's own response.
+  const refreshOneDay = async (date, storePc = null) => {
+    if (!start) return;
+    const dayKey = date, storeKey = storePc ? `${storePc}|${date}` : null;
+    setRefreshingDates(prev => storePc ? prev : new Set(prev).add(dayKey));
+    setRefreshingStores(prev => storePc ? new Set(prev).add(storeKey) : prev);
+    // A day being re-fetched usually already HAS some saved data (that's the
+    // whole reason to retry it) — cloudLoad has no timestamp to check, so
+    // just polling for "does something exist" would immediately "succeed"
+    // against the SAME stale data that prompted the retry, before the real
+    // background rebuild has had any chance to actually finish. Capture a
+    // fingerprint of the current state up front and wait for it to actually
+    // change, not merely exist.
+    const before = await cloudLoad('pcg_tips_snapshot_' + date).catch(() => null);
+    const fingerprintOf = (data) => storePc
+      ? JSON.stringify((data || []).find(s => String(s.pc) === String(storePc)) || null)
+      : JSON.stringify(data);
+    const beforeFingerprint = fingerprintOf(before);
+
+    try {
+      await fetch('/.netlify/functions/tips-report-refresh-background', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(storePc ? { busDt: date, storePc } : { busDt: date }),
+      }).catch(() => {});
+
+      // A full 46-store rebuild is a real multi-minute Paycor scrape (a single-
+      // store targeted merge is much faster, but polls the same way for
+      // simplicity) — wait a bit before the first check, then keep polling
+      // for up to ~4 minutes total.
+      await new Promise(r => setTimeout(r, storePc ? 3000 : 15000));
+      let fresh = null;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const candidate = await cloudLoad('pcg_tips_snapshot_' + date).catch(() => null);
+        if (candidate && fingerprintOf(candidate) !== beforeFingerprint) { fresh = candidate; break; }
+        await new Promise(r => setTimeout(r, 8000));
+      }
+      if (!fresh) { setError(`Refresh for ${date} didn't finish in time (or came back with the exact same data) — check back in a minute and reload the period.`); return; }
+
+      const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const dateIdx = dates.indexOf(date);
+      if (dateIdx < 0) return; // date isn't part of the currently-loaded period
+      setSnapshots(prev => {
+        const next = [...(prev || [])];
+        next[dateIdx] = fresh;
+        return next;
+      });
+      setDayInfo(prev => {
+        const next = [...(prev || [])];
+        next[dateIdx] = tipsComputeDayInfo(date, fresh);
+        setGrandTotal(tipsRound2(next.reduce((sum, d) => sum + (d.total || 0), 0)));
+        return next;
+      });
+    } finally {
+      setRefreshingDates(prev => { const next = new Set(prev); next.delete(dayKey); return next; });
+      if (storeKey) setRefreshingStores(prev => { const next = new Set(prev); next.delete(storeKey); return next; });
     }
   };
 
@@ -39883,15 +39987,23 @@ function TipsReportBuilder({ th, stores, user }) {
     if (!snapshots || !start) return;
     const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
     const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-    const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates);
-    const results = [];
+    const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
+    // Every store is shown up front as 'pending' the instant Send is clicked
+    // — not appended one at a time as each finishes — so the live checklist
+    // below can show the whole list with a spinner on what hasn't run yet,
+    // instead of only ever showing stores that already completed.
+    const results = storeOrder.map(store => ({ pc: byStore[store][0]?.pc, store, status: 'pending', detail: null }));
     setPaycorPush({ running: true, results });
     for (const store of storeOrder) {
       const recs = byStore[store];
       const storePc = recs[0]?.pc;
       const storeMeta = (stores || []).find(s => s.pc === storePc);
       const cfg = paycorCfg[storePc];
-      const record = (status, detail) => { results.push({ pc: storePc, store, status, detail }); setPaycorPush({ running: true, results: [...results] }); };
+      const record = (status, detail) => {
+        const idx = results.findIndex(r => r.pc === storePc);
+        if (idx >= 0) results[idx] = { pc: storePc, store, status, detail };
+        setPaycorPush({ running: true, results: [...results] });
+      };
 
       // Hard block, not a warning someone can miss — a store with an
       // unresolved anomaly day never gets sent, full stop, until it's fixed
@@ -39903,7 +40015,7 @@ function TipsReportBuilder({ th, stores, user }) {
         continue;
       }
       if (!storeMeta?.paycor) { record('error', 'No Paycor legal entity ID configured for this store'); continue; }
-      if (!cfg?.earningCode) { record('skipped', 'Earning code not set below for this store — fill in and save first'); continue; }
+      if (!cfg?.earningCode) { record('skipped', 'Earning code not auto-filled yet for this store — try Send again in a moment'); continue; }
 
       const toSend = recs.filter(r => r.payrollId && r.tips > 0);
       const missingPayrollId = recs.filter(r => !r.payrollId && r.tips > 0).length;
@@ -40015,7 +40127,13 @@ function TipsReportBuilder({ th, stores, user }) {
   };
 
   const filledCount = dayInfo ? dayInfo.filter(d => d.filled).length : 0;
-  const missingDates = dayInfo ? dayInfo.filter(d => !d.filled).map(d => d.date) : [];
+  // Split "not filled" into two different situations: a day strictly before
+  // today with nothing saved is a real gap (the nightly report should have
+  // run and didn't); today or later simply hasn't been processed yet, since
+  // the nightly report only runs after a business day closes — not a problem,
+  // just not-yet-collected, and shouldn't read like one.
+  const missingDates = dayInfo ? dayInfo.filter(d => !d.filled && d.date < todayStr).map(d => d.date) : [];
+  const notYetCollectedDates = dayInfo ? dayInfo.filter(d => !d.filled && d.date >= todayStr).map(d => d.date) : [];
 
   // Same GM/Store Manager exclusion the tip pool itself uses (tipsRecordsForStore's
   // caller / tips-report-cron-background.mjs) — flagging an intentionally-excluded
@@ -40121,11 +40239,22 @@ function TipsReportBuilder({ th, stores, user }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.4rem', marginBottom: missingDates.length ? '0.9rem' : 0 }}>
             {dayInfo.map(d => {
               const dt = tipsParseISODate(d.date);
+              // Today's own data doesn't exist yet either — the nightly report
+              // only runs after the business day closes — so there's nothing
+              // to refresh for today any more than there is for a future date.
+              const isFuture = d.date >= todayStr;
+              const isRefreshing = refreshingDates.has(d.date);
               return (
                 <div key={d.date} title={d.filled ? `${d.employees} employees, ${d.stores} stores, $${(d.total || 0).toFixed(2)}` : 'No data saved for this day'}
-                  style={{ borderRadius: 8, border: `1px solid ${d.filled ? '#22c55e55' : th.cardBorder}`, background: d.filled ? '#22c55e14' : th.card2, padding: '0.5rem 0.3rem', textAlign: 'center' }}>
+                  style={{ position: 'relative', borderRadius: 8, border: `1px solid ${d.filled ? '#22c55e55' : th.cardBorder}`, background: d.filled ? '#22c55e14' : th.card2, padding: '0.5rem 0.3rem', textAlign: 'center' }}>
                   <div style={{ fontSize: '0.62rem', fontWeight: 700, color: d.filled ? '#16a34a' : th.muted, textTransform: 'uppercase' }}>{TIPS_DOW[dt.getUTCDay()]}</div>
                   <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.text, marginTop: 2 }}>{dt.getUTCMonth() + 1}/{dt.getUTCDate()}</div>
+                  {!isFuture && (
+                    <span onClick={() => !isRefreshing && refreshOneDay(d.date)} title={isRefreshing ? 'Refreshing…' : `Re-fetch ${d.date} from Pulse/Paycor`}
+                      style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.62rem', color: isRefreshing ? th.muted : th.subtle, cursor: isRefreshing ? 'default' : 'pointer', opacity: isRefreshing ? 1 : 0.6 }}>
+                      {isRefreshing ? '…' : '↻'}
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -40133,9 +40262,12 @@ function TipsReportBuilder({ th, stores, user }) {
           {missingDates.length > 0 && (
             <div style={{ fontSize: '0.76rem', color: '#f59e0b' }}>No saved data for: {missingDates.join(', ')} — either before the nightly report existed, or that night's run didn't complete.</div>
           )}
+          {notYetCollectedDates.length > 0 && (
+            <div style={{ fontSize: '0.76rem', color: th.muted, marginTop: missingDates.length ? '0.3rem' : 0 }}>{notYetCollectedDates.join(', ')} {notYetCollectedDates.length === 1 ? "hasn't" : "haven't"} happened yet or {notYetCollectedDates.length === 1 ? "isn't" : "aren't"} closed out for the night — nothing to collect yet.</div>
+          )}
           {(() => {
             const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-            const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates);
+            const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
             const flaggedPcs = Object.keys(flaggedByPc);
             if (flaggedPcs.length === 0) return null;
             const storeName = (pc) => (stores || []).find(s => String(s.pc) === String(pc))?.name || pc;
@@ -40143,11 +40275,25 @@ function TipsReportBuilder({ th, stores, user }) {
               <div style={{ fontSize: '0.78rem', color: '#dc2626', background: '#dc262614', border: '1px solid #dc262655', borderRadius: 8, padding: '0.7rem 0.85rem', marginTop: '0.6rem' }}>
                 <strong>⚠ {flaggedPcs.length} store(s) have an unresolved data gap this period — these will be skipped if you send to Paycor now, not silently included wrong:</strong>
                 <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem' }}>
-                  {flaggedPcs.map(pc => (
-                    <li key={pc}>{storeName(pc)}: {flaggedByPc[pc].map(f => f.detail).join('; ')}</li>
-                  ))}
+                  {flaggedPcs.map(pc => {
+                    const uniqueDates = [...new Set(flaggedByPc[pc].map(f => f.date))];
+                    return (
+                      <li key={pc} style={{ marginBottom: '0.2rem' }}>
+                        {storeName(pc)}: {flaggedByPc[pc].map(f => f.detail).join('; ')}
+                        {uniqueDates.map(d => {
+                          const rKey = `${pc}|${d}`;
+                          const isRefreshing = refreshingStores.has(rKey);
+                          return (
+                            <span key={d} onClick={() => !isRefreshing && refreshOneDay(d, pc)}
+                              style={{ marginLeft: '0.5rem', fontSize: '0.72rem', color: isRefreshing ? th.muted : '#dc2626', textDecoration: isRefreshing ? 'none' : 'underline', cursor: isRefreshing ? 'default' : 'pointer', fontWeight: 700 }}>
+                              {isRefreshing ? `↻ refreshing ${d}…` : `↻ Retry ${d}`}
+                            </span>
+                          );
+                        })}
+                      </li>
+                    );
+                  })}
                 </ul>
-                Re-fetch the flagged day(s) for these stores above, then send once they're clear.
               </div>
             );
           })()}
@@ -40165,53 +40311,41 @@ function TipsReportBuilder({ th, stores, user }) {
         </div>
       )}
 
-      {canPushToPaycor && dayInfo && (() => {
-        const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots || []);
+      {paycorPush && (() => {
+        const doneCount = paycorPush.results.filter(r => r.status !== 'pending').length;
+        const icons = {
+          pending: { glyph: '○', color: th.muted, spin: true },
+          ok: { glyph: '✓', color: '#16a34a', spin: false },
+          error: { glyph: '✗', color: '#ef4444', spin: false },
+          blocked: { glyph: '⚠', color: '#dc2626', spin: false },
+          skipped: { glyph: '–', color: th.muted, spin: false },
+        };
         return (
           <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
-            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.4rem' }}>Paycor import settings</div>
-            <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.9rem', lineHeight: 1.5 }}>
-              Department code is looked up automatically per employee from their current Paycor job title (Cust Svc / Shift Leader / Asst Manager) at send-time — no setup needed. Earning code isn't exposed by Paycor's API at all, so it still needs to be filled in below per store. "Send to Paycor" only STAGES data into a store's paygrid for review; it does not submit payroll.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.8rem' }}>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>Paycor send progress</div>
+              <div style={{ fontSize: '0.8rem', color: th.muted }}>{doneCount} / {paycorPush.results.length} stores{paycorPush.running ? '…' : ' done'}</div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Earning code per store (each store is skipped until its code is set)</div>
-              <button onClick={() => fillAllEarningCodeWithTips(storeOrder.map(store => byStore[store][0]?.pc))} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.72rem', padding: '0.3rem 0.6rem' }}>
-                Fill all with "Tips"
-              </button>
-            </div>
-            <div style={{ fontSize: '0.72rem', color: th.muted, marginBottom: '0.6rem' }}>
-              "Tips" is confirmed real at Bustleton, but not yet confirmed at every store — the rollout is still in progress. Filling it in everywhere is a shortcut, not a guarantee; a store where it isn't set up yet will just get a clean rejection when sent, not bad data.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.6rem' }}>
-              {storeOrder.map(store => {
-                const pc = byStore[store][0]?.pc;
-                const cfg = paycorCfg[pc] || {};
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.4rem 0.8rem' }}>
+              {paycorPush.results.map((r) => {
+                const ic = icons[r.status] || icons.skipped;
                 return (
-                  <div key={store} style={{ border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.6rem' }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.text, marginBottom: '0.4rem' }}>{store}</div>
-                    <input placeholder="Earning code" value={cfg.earningCode || ''} onChange={e => savePaycorEarningCode(pc, e.target.value)}
-                      style={{ ...inp(th), fontSize: '0.76rem', padding: '0.35rem 0.5rem', width: '100%' }} />
+                  <div key={r.pc} title={r.detail || ''} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.78rem' }}>
+                    <span style={{ color: ic.color, fontWeight: 700, flexShrink: 0, width: '1.1rem', textAlign: 'center', animation: ic.spin ? 'tipsSendPulse 1.1s ease-in-out infinite' : 'none' }}>{ic.glyph}</span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ color: th.text, fontWeight: 600 }}>{r.store}</span>
+                      {r.detail && r.status !== 'pending' && (
+                        <span style={{ display: 'block', color: ic.color, fontSize: '0.7rem', lineHeight: 1.3 }}>{r.status === 'blocked' ? 'BLOCKED — ' : ''}{r.detail}</span>
+                      )}
+                    </span>
                   </div>
                 );
               })}
             </div>
+            <style>{'@keyframes tipsSendPulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }'}</style>
           </div>
         );
       })()}
-
-      {paycorPush && (
-        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.6rem' }}>Paycor send results</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            {paycorPush.results.map((r, i) => (
-              <div key={i} style={{ fontSize: '0.78rem', color: r.status === 'ok' ? '#16a34a' : r.status === 'error' ? '#ef4444' : r.status === 'blocked' ? '#dc2626' : th.muted, fontWeight: r.status === 'blocked' ? 600 : 400 }}>
-                <strong style={{ color: th.text }}>{r.store}:</strong> {r.status === 'blocked' ? '⚠ BLOCKED — ' : ''}{r.detail}
-              </div>
-            ))}
-            {paycorPush.running && <div style={{ fontSize: '0.78rem', color: th.muted }}>Sending…</div>}
-          </div>
-        </div>
-      )}
 
       {missingCheck && (
         <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>

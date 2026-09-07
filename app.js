@@ -21432,7 +21432,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.51";
+  var APP_VERSION = "v20.54";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29971,11 +29971,32 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const hourlyRate = totalHours > 0 ? pool / totalHours : 0;
     return s.crew.map((c) => ({ district: s.district, store: storeLabel, pc: s.pc, employee: c.name, guid: c.guid, payrollId: c.payrollId, tips: tipsRound2(hourlyRate * c.hours) }));
   }
-  function tipsFindFlaggedStorePcs(snapshots, dates) {
+  function tipsComputeDayInfo(date, data) {
+    if (!data) return { date, filled: false };
+    let employees = 0, storeSet = /* @__PURE__ */ new Set(), total = 0;
+    for (const s of data) {
+      for (const r of tipsRecordsForStore(s)) {
+        if (r.employee != null) {
+          employees++;
+          total = tipsRound2(total + r.tips);
+          storeSet.add(r.store);
+        }
+      }
+    }
+    return { date, filled: true, employees, stores: storeSet.size, total };
+  }
+  function tipsFindFlaggedStorePcs(snapshots, dates, stores, todayStr) {
     const flagged = {};
     (snapshots || []).forEach((dayResults, i) => {
-      if (!dayResults) return;
       const date = dates?.[i];
+      if (!dayResults) {
+        if (date && todayStr && date < todayStr) {
+          (stores || []).forEach((s) => {
+            (flagged[s.pc] = flagged[s.pc] || []).push({ date, detail: `No snapshot saved for ${date} \u2014 nightly report never completed` });
+          });
+        }
+        return;
+      }
       dayResults.forEach((s) => {
         const pool = Number((s.tipPool || 0).toFixed(2));
         const hasHours = (s.crew || []).some((c) => c.hours > 0);
@@ -29983,7 +30004,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         if (s.crewStatus === "ok" && (s.crew || []).length === 0 && pool > 0) {
           detail = `$${pool.toFixed(2)} collected on ${date}, no eligible crew hours recorded`;
         } else if (s.crewStatus === "ok" && hasHours && pool === 0) {
-          detail = `Real crew hours worked on ${date} but the tip pool fetch failed that day (treated as $0)`;
+          if (s.checkCount == null || s.checkCount === 0) {
+            detail = `Real crew hours worked on ${date} but the tip pool fetch failed that day (treated as $0)`;
+          }
         } else if (s.crewStatus === "error" && pool > 0) {
           detail = `$${pool.toFixed(2)} collected on ${date} but the crew fetch failed entirely that day`;
         }
@@ -30137,19 +30160,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [paycorCfg, setPaycorCfg] = useState({});
     const [paycorCfgLoaded, setPaycorCfgLoaded] = useState(false);
     const [paycorPush, setPaycorPush] = useState(null);
+    const [refreshingDates, setRefreshingDates] = useState(() => /* @__PURE__ */ new Set());
+    const [refreshingStores, setRefreshingStores] = useState(() => /* @__PURE__ */ new Set());
     useEffect(() => {
       if (!canPushToPaycor || paycorCfgLoaded) return;
       cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
       }).finally(() => setPaycorCfgLoaded(true));
     }, [canPushToPaycor, paycorCfgLoaded]);
-    const savePaycorEarningCode = (pc, value) => {
-      setPaycorCfg((prev) => {
-        const next = { ...prev, [pc]: { earningCode: value } };
-        cloudSave("pcg_paycor_tips_config", { earningCodes: next }).catch(() => {
-        });
-        return next;
-      });
-    };
     const fillAllEarningCodeWithTips = (storePcs) => {
       setPaycorCfg((prev) => {
         const next = { ...prev };
@@ -30161,6 +30178,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return next;
       });
     };
+    useEffect(() => {
+      if (!canPushToPaycor || !paycorCfgLoaded || !snapshots) return;
+      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+      fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc));
+    }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
     const [missingCheck, setMissingCheck] = useState(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
@@ -30176,21 +30198,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       try {
         const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
         const loaded = await Promise.all(dates.map((d) => cloudLoad("pcg_tips_snapshot_" + d).catch(() => null)));
-        const info = dates.map((d, i) => {
-          const data = loaded[i];
-          if (!data) return { date: d, filled: false };
-          let employees = 0, storeSet = /* @__PURE__ */ new Set(), total = 0;
-          for (const s of data) {
-            for (const r of tipsRecordsForStore(s)) {
-              if (r.employee != null) {
-                employees++;
-                total = tipsRound2(total + r.tips);
-                storeSet.add(r.store);
-              }
-            }
-          }
-          return { date: d, filled: true, employees, stores: storeSet.size, total };
-        });
+        const info = dates.map((d, i) => tipsComputeDayInfo(d, loaded[i]));
         setSnapshots(loaded);
         setDayInfo(info);
         setGrandTotal(tipsRound2(info.reduce((sum, d) => sum + (d.total || 0), 0)));
@@ -30198,6 +30206,62 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setError(e.message || "Failed to load tips data.");
       } finally {
         setLoading(false);
+      }
+    };
+    const refreshOneDay = async (date, storePc = null) => {
+      if (!start) return;
+      const dayKey = date, storeKey = storePc ? `${storePc}|${date}` : null;
+      setRefreshingDates((prev) => storePc ? prev : new Set(prev).add(dayKey));
+      setRefreshingStores((prev) => storePc ? new Set(prev).add(storeKey) : prev);
+      const before = await cloudLoad("pcg_tips_snapshot_" + date).catch(() => null);
+      const fingerprintOf = (data) => storePc ? JSON.stringify((data || []).find((s) => String(s.pc) === String(storePc)) || null) : JSON.stringify(data);
+      const beforeFingerprint = fingerprintOf(before);
+      try {
+        await fetch("/.netlify/functions/tips-report-refresh-background", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(storePc ? { busDt: date, storePc } : { busDt: date })
+        }).catch(() => {
+        });
+        await new Promise((r) => setTimeout(r, storePc ? 3e3 : 15e3));
+        let fresh = null;
+        for (let attempt = 0; attempt < 30; attempt++) {
+          const candidate = await cloudLoad("pcg_tips_snapshot_" + date).catch(() => null);
+          if (candidate && fingerprintOf(candidate) !== beforeFingerprint) {
+            fresh = candidate;
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 8e3));
+        }
+        if (!fresh) {
+          setError(`Refresh for ${date} didn't finish in time (or came back with the exact same data) \u2014 check back in a minute and reload the period.`);
+          return;
+        }
+        const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+        const dateIdx = dates.indexOf(date);
+        if (dateIdx < 0) return;
+        setSnapshots((prev) => {
+          const next = [...prev || []];
+          next[dateIdx] = fresh;
+          return next;
+        });
+        setDayInfo((prev) => {
+          const next = [...prev || []];
+          next[dateIdx] = tipsComputeDayInfo(date, fresh);
+          setGrandTotal(tipsRound2(next.reduce((sum, d) => sum + (d.total || 0), 0)));
+          return next;
+        });
+      } finally {
+        setRefreshingDates((prev) => {
+          const next = new Set(prev);
+          next.delete(dayKey);
+          return next;
+        });
+        if (storeKey) setRefreshingStores((prev) => {
+          const next = new Set(prev);
+          next.delete(storeKey);
+          return next;
+        });
       }
     };
     const download = () => {
@@ -30222,8 +30286,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!snapshots || !start) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
       const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates);
-      const results = [];
+      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
+      const results = storeOrder.map((store) => ({ pc: byStore[store][0]?.pc, store, status: "pending", detail: null }));
       setPaycorPush({ running: true, results });
       for (const store of storeOrder) {
         const recs = byStore[store];
@@ -30231,7 +30295,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const storeMeta = (stores || []).find((s) => s.pc === storePc);
         const cfg = paycorCfg[storePc];
         const record = (status, detail) => {
-          results.push({ pc: storePc, store, status, detail });
+          const idx = results.findIndex((r) => r.pc === storePc);
+          if (idx >= 0) results[idx] = { pc: storePc, store, status, detail };
           setPaycorPush({ running: true, results: [...results] });
         };
         if (flaggedByPc[storePc]?.length) {
@@ -30243,7 +30308,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           continue;
         }
         if (!cfg?.earningCode) {
-          record("skipped", "Earning code not set below for this store \u2014 fill in and save first");
+          record("skipped", "Earning code not auto-filled yet for this store \u2014 try Send again in a moment");
           continue;
         }
         const toSend = recs.filter((r) => r.payrollId && r.tips > 0);
@@ -30338,7 +30403,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setPaycorPush({ running: false, results });
     };
     const filledCount = dayInfo ? dayInfo.filter((d) => d.filled).length : 0;
-    const missingDates = dayInfo ? dayInfo.filter((d) => !d.filled).map((d) => d.date) : [];
+    const missingDates = dayInfo ? dayInfo.filter((d) => !d.filled && d.date < todayStr).map((d) => d.date) : [];
+    const notYetCollectedDates = dayInfo ? dayInfo.filter((d) => !d.filled && d.date >= todayStr).map((d) => d.date) : [];
     const isExcludedManager = (jobTitle) => /general\s*manager|store\s*manager/i.test(jobTitle || "") && !/assist|asst/i.test(jobTitle || "");
     const checkMissingEmployees = async () => {
       if (!snapshots || !start) return;
@@ -30401,39 +30467,63 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setMissingCheck(null);
     }, style: { ...inp(th), width: 200 } })), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !periodStart || loading, style: { ...btn(th), opacity: !periodStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load period"), start && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "Covers ", TIPS_DOW_FULL[start.getUTCDay()], ", ", TIPS_MONTHS[start.getUTCMonth()], " ", start.getUTCDate(), " \u2013 ", TIPS_DOW_FULL[end.getUTCDay()], ", ", TIPS_MONTHS[end.getUTCMonth()], " ", end.getUTCDate(), ", ", end.getUTCFullYear())), tooOld && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderLeft: "4px solid #f59e0b", padding: "0.9rem 1.1rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: th.text } }, "That start date is ", daysOld, " days ago \u2014 daily snapshots are only kept for about ", TIPS_SNAPSHOT_RETENTION_DAYS, " days, so some or all of this period's data may already be gone. Try a more recent pay period."), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderLeft: "4px solid #ef4444", padding: "0.9rem 1.1rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: th.text } }, error), dayInfo && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.9rem", flexWrap: "wrap", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "Pay period progress"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, filledCount, " / 14 days found \xB7 ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "$", grandTotal.toFixed(2)), " so far")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "0.4rem", marginBottom: missingDates.length ? "0.9rem" : 0 } }, dayInfo.map((d) => {
       const dt = tipsParseISODate(d.date);
+      const isFuture = d.date >= todayStr;
+      const isRefreshing = refreshingDates.has(d.date);
       return /* @__PURE__ */ React.createElement(
         "div",
         {
           key: d.date,
           title: d.filled ? `${d.employees} employees, ${d.stores} stores, $${(d.total || 0).toFixed(2)}` : "No data saved for this day",
-          style: { borderRadius: 8, border: `1px solid ${d.filled ? "#22c55e55" : th.cardBorder}`, background: d.filled ? "#22c55e14" : th.card2, padding: "0.5rem 0.3rem", textAlign: "center" }
+          style: { position: "relative", borderRadius: 8, border: `1px solid ${d.filled ? "#22c55e55" : th.cardBorder}`, background: d.filled ? "#22c55e14" : th.card2, padding: "0.5rem 0.3rem", textAlign: "center" }
         },
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: d.filled ? "#16a34a" : th.muted, textTransform: "uppercase" } }, TIPS_DOW[dt.getUTCDay()]),
-        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginTop: 2 } }, dt.getUTCMonth() + 1, "/", dt.getUTCDate())
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginTop: 2 } }, dt.getUTCMonth() + 1, "/", dt.getUTCDate()),
+        !isFuture && /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            onClick: () => !isRefreshing && refreshOneDay(d.date),
+            title: isRefreshing ? "Refreshing\u2026" : `Re-fetch ${d.date} from Pulse/Paycor`,
+            style: { position: "absolute", top: 2, right: 4, fontSize: "0.62rem", color: isRefreshing ? th.muted : th.subtle, cursor: isRefreshing ? "default" : "pointer", opacity: isRefreshing ? 1 : 0.6 }
+          },
+          isRefreshing ? "\u2026" : "\u21BB"
+        )
       );
-    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), (() => {
+    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), notYetCollectedDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: th.muted, marginTop: missingDates.length ? "0.3rem" : 0 } }, notYetCollectedDates.join(", "), " ", notYetCollectedDates.length === 1 ? "hasn't" : "haven't", " happened yet or ", notYetCollectedDates.length === 1 ? "isn't" : "aren't", " closed out for the night \u2014 nothing to collect yet."), (() => {
       const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates);
+      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
       const flaggedPcs = Object.keys(flaggedByPc);
       if (flaggedPcs.length === 0) return null;
       const storeName = (pc) => (stores || []).find((s) => String(s.pc) === String(pc))?.name || pc;
-      return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", background: "#dc262614", border: "1px solid #dc262655", borderRadius: 8, padding: "0.7rem 0.85rem", marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement("strong", null, "\u26A0 ", flaggedPcs.length, " store(s) have an unresolved data gap this period \u2014 these will be skipped if you send to Paycor now, not silently included wrong:"), /* @__PURE__ */ React.createElement("ul", { style: { margin: "0.4rem 0 0", paddingLeft: "1.1rem" } }, flaggedPcs.map((pc) => /* @__PURE__ */ React.createElement("li", { key: pc }, storeName(pc), ": ", flaggedByPc[pc].map((f) => f.detail).join("; ")))), "Re-fetch the flagged day(s) for these stores above, then send once they're clear.");
-    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), canPushToPaycor && dayInfo && (() => {
-      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots || []);
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Paycor import settings"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, `Department code is looked up automatically per employee from their current Paycor job title (Cust Svc / Shift Leader / Asst Manager) at send-time \u2014 no setup needed. Earning code isn't exposed by Paycor's API at all, so it still needs to be filled in below per store. "Send to Paycor" only STAGES data into a store's paygrid for review; it does not submit payroll.`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Earning code per store (each store is skipped until its code is set)"), /* @__PURE__ */ React.createElement("button", { onClick: () => fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc)), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.72rem", padding: "0.3rem 0.6rem" } }, 'Fill all with "Tips"')), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.6rem" } }, `"Tips" is confirmed real at Bustleton, but not yet confirmed at every store \u2014 the rollout is still in progress. Filling it in everywhere is a shortcut, not a guarantee; a store where it isn't set up yet will just get a clean rejection when sent, not bad data.`), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.6rem" } }, storeOrder.map((store) => {
-        const pc = byStore[store][0]?.pc;
-        const cfg = paycorCfg[pc] || {};
-        return /* @__PURE__ */ React.createElement("div", { key: store, style: { border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginBottom: "0.4rem" } }, store), /* @__PURE__ */ React.createElement(
-          "input",
-          {
-            placeholder: "Earning code",
-            value: cfg.earningCode || "",
-            onChange: (e) => savePaycorEarningCode(pc, e.target.value),
-            style: { ...inp(th), fontSize: "0.76rem", padding: "0.35rem 0.5rem", width: "100%" }
-          }
-        ));
+      return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", background: "#dc262614", border: "1px solid #dc262655", borderRadius: 8, padding: "0.7rem 0.85rem", marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement("strong", null, "\u26A0 ", flaggedPcs.length, " store(s) have an unresolved data gap this period \u2014 these will be skipped if you send to Paycor now, not silently included wrong:"), /* @__PURE__ */ React.createElement("ul", { style: { margin: "0.4rem 0 0", paddingLeft: "1.1rem" } }, flaggedPcs.map((pc) => {
+        const uniqueDates = [...new Set(flaggedByPc[pc].map((f) => f.date))];
+        return /* @__PURE__ */ React.createElement("li", { key: pc, style: { marginBottom: "0.2rem" } }, storeName(pc), ": ", flaggedByPc[pc].map((f) => f.detail).join("; "), uniqueDates.map((d) => {
+          const rKey = `${pc}|${d}`;
+          const isRefreshing = refreshingStores.has(rKey);
+          return /* @__PURE__ */ React.createElement(
+            "span",
+            {
+              key: d,
+              onClick: () => !isRefreshing && refreshOneDay(d, pc),
+              style: { marginLeft: "0.5rem", fontSize: "0.72rem", color: isRefreshing ? th.muted : "#dc2626", textDecoration: isRefreshing ? "none" : "underline", cursor: isRefreshing ? "default" : "pointer", fontWeight: 700 }
+            },
+            isRefreshing ? `\u21BB refreshing ${d}\u2026` : `\u21BB Retry ${d}`
+          );
+        }));
       })));
-    })(), paycorPush && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.6rem" } }, "Paycor send results"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, paycorPush.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : r.status === "error" ? "#ef4444" : r.status === "blocked" ? "#dc2626" : th.muted, fontWeight: r.status === "blocked" ? 600 : 400 } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, r.store, ":"), " ", r.status === "blocked" ? "\u26A0 BLOCKED \u2014 " : "", r.detail)), paycorPush.running && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Sending\u2026"))), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
+    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), paycorPush && (() => {
+      const doneCount = paycorPush.results.filter((r) => r.status !== "pending").length;
+      const icons = {
+        pending: { glyph: "\u25CB", color: th.muted, spin: true },
+        ok: { glyph: "\u2713", color: "#16a34a", spin: false },
+        error: { glyph: "\u2717", color: "#ef4444", spin: false },
+        blocked: { glyph: "\u26A0", color: "#dc2626", spin: false },
+        skipped: { glyph: "\u2013", color: th.muted, spin: false }
+      };
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "Paycor send progress"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, doneCount, " / ", paycorPush.results.length, " stores", paycorPush.running ? "\u2026" : " done")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "0.4rem 0.8rem" } }, paycorPush.results.map((r) => {
+        const ic = icons[r.status] || icons.skipped;
+        return /* @__PURE__ */ React.createElement("div", { key: r.pc, title: r.detail || "", style: { display: "flex", alignItems: "flex-start", gap: "0.4rem", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: ic.color, fontWeight: 700, flexShrink: 0, width: "1.1rem", textAlign: "center", animation: ic.spin ? "tipsSendPulse 1.1s ease-in-out infinite" : "none" } }, ic.glyph), /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, r.store), r.detail && r.status !== "pending" && /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: ic.color, fontSize: "0.7rem", lineHeight: 1.3 } }, r.status === "blocked" ? "BLOCKED \u2014 " : "", r.detail)));
+      })), /* @__PURE__ */ React.createElement("style", null, "@keyframes tipsSendPulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }"));
+    })(), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
   }
   function renderAnalystMarkdown(text, th) {
     if (!text) return null;

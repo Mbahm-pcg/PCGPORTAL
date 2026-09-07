@@ -67,7 +67,7 @@ export default async (request) => {
     await Promise.all(batch.map(async (s, j) => {
       const idx = i + j;
       const cfg = APIS[s.pc === '345986' ? 'p227' : 'p228'];
-      let rows = [], tipPool = 0, checksStatus = 'error';
+      let rows = [], tipPool = 0, checksStatus = 'error', checkCount = 0;
       try {
         const checksRaw = await callUpstream(cfg, 'getGuestChecks', { locRef: s.pc, opnBusDt: busDt, clsdGuestChecksOnly: true, include: 'guestChecks' });
         const data = JSON.parse(checksRaw || '{}');
@@ -77,11 +77,15 @@ export default async (request) => {
           .map(c => ({ chkNum: c.chkNum, time: c.clsdUTC ? toET(c.clsdUTC) : (c.opnUTC ? toET(c.opnUTC) : '--'), tip: c.tipTotal }))
           .sort((a, b) => a.time.localeCompare(b.time));
         tipPool = checks.reduce((sum, c) => sum + (c.tipTotal || 0), 0);
+        // See tips-report-cron-background.mjs's matching comment — total check
+        // count (not just the tip-eligible subset in `rows`) is what tells a
+        // genuine zero-tip day apart from a silently-swallowed fetch failure.
+        checkCount = checks.length;
         checksStatus = 'ok';
       } catch (err) {
         console.error(`[tips-report-refresh] ${s.name} checks error:`, err.message);
       }
-      storeResults[idx] = { pc: s.pc, name: s.name, district: s.district, status: checksStatus, crewStatus: 'error', rows, tipPool, crew: [] };
+      storeResults[idx] = { pc: s.pc, name: s.name, district: s.district, status: checksStatus, crewStatus: 'error', rows, tipPool, checkCount, crew: [] };
     }));
   }
 

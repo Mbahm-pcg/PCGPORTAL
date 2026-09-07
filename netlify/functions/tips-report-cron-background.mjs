@@ -896,7 +896,7 @@ export default async (request) => {
     await Promise.all(batch.map(async (s, j) => {
       const idx = i + j;
       const cfg = APIS[s.pc === '345986' ? 'p227' : 'p228'];
-      let rows = [], tipPool = 0, checksStatus = 'error';
+      let rows = [], tipPool = 0, checksStatus = 'error', checkCount = 0;
       try {
         const checksRaw = await callUpstream(cfg, 'getGuestChecks', { locRef: s.pc, opnBusDt: busDt, clsdGuestChecksOnly: true, include: 'guestChecks' });
         const data = JSON.parse(checksRaw || '{}');
@@ -906,11 +906,22 @@ export default async (request) => {
           .map(c => ({ chkNum: c.chkNum, time: c.clsdUTC ? toET(c.clsdUTC) : (c.opnUTC ? toET(c.opnUTC) : '--'), tip: c.tipTotal }))
           .sort((a, b) => a.time.localeCompare(b.time));
         tipPool = checks.reduce((sum, c) => sum + (c.tipTotal || 0), 0);
+        // Total check count, not just the tip-eligible subset in `rows` — this
+        // is what lets a genuine zero-tip day (real checks, nobody tipped) be
+        // told apart from a silently-swallowed fetch failure (Pulse returning
+        // 200 OK with no guestChecks, which looks identical to "zero tips" if
+        // all you saved was tipPool/rows). Confirmed real (2026-09-04): Little
+        // Welsh's 8/31 was flagged as a suspected failed fetch purely because
+        // tipPool was 0 despite real crew hours, but a live re-check found 522
+        // genuine checks and $3,536 in real sales that day — nobody tipped,
+        // nothing failed. Without checkCount, that's indistinguishable from
+        // an actual dropped fetch.
+        checkCount = checks.length;
         checksStatus = 'ok';
       } catch (err) {
         console.error(`[tips-report-cron] ${s.name} checks error:`, err.message);
       }
-      storeResults[idx] = { pc: s.pc, name: s.name, district: s.district, status: checksStatus, crewStatus: 'error', rows, tipPool, crew: [] };
+      storeResults[idx] = { pc: s.pc, name: s.name, district: s.district, status: checksStatus, crewStatus: 'error', rows, tipPool, checkCount, crew: [] };
     }));
   }
 
