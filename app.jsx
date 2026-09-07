@@ -23353,6 +23353,92 @@ function SafeAuditReport({ user, th, stores, showAlert, auditId, storePC, onBack
   );
 }
 
+// System Health tab — reads the pcg_system_health_v1 snapshot blob and renders
+// an overall Green/Yellow/Red banner plus per-category feed cards. "Refresh now"
+// hits the on-demand endpoint (Bearer auth via authHeader() + credentials:'include').
+function SystemHealth({ th, user }) {
+  const [snap, setSnap] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const d = await cloudLoad('pcg_system_health_v1');
+    setSnap(d || null);
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const refreshNow = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch('/.netlify/functions/system-health', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'refresh', userId: user?.id, userRole: user?.userType }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j.snapshot) setSnap(j.snapshot);
+    } finally { setRefreshing(false); }
+  };
+
+  const BANNER = { GREEN: { bg: '#1B8F5C', label: 'All systems healthy' }, YELLOW: { bg: '#C9922B', label: 'Degraded — non-critical or stale feeds' }, RED: { bg: '#C0392B', label: 'Critical outage' } };
+  const PILL = { OK: '#1B8F5C', STALE: '#C9922B', DOWN: '#C0392B' };
+  const rel = (ms) => {
+    if (!ms) return '—';
+    const mins = Math.round((Date.now() - ms) / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    if (mins < 1440) return `${Math.round(mins / 60)}h ago`;
+    return `${Math.round(mins / 1440)}d ago`;
+  };
+
+  if (loading) return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 1100, margin: '0 auto' }}>Loading…</div>;
+  if (!snap) return <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, maxWidth: 1100, margin: '0 auto' }}>System Health is initializing — the first snapshot appears after the monitor runs (within 30 minutes).</div>;
+
+  const counts = snap.feeds.reduce((a, f) => { a[f.status] = (a[f.status] || 0) + 1; return a; }, {});
+  const cats = [...new Set(snap.feeds.map(f => f.category))];
+  const b = BANNER[snap.overall] || BANNER.YELLOW;
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 0 2rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div style={{ ...card(th), flex: 1, minWidth: 260, padding: '1rem 1.25rem', background: b.bg, color: '#fff', border: 'none' }}>
+          <div style={{ fontWeight: 800, fontSize: '1.15rem' }}>{b.label}</div>
+          <div style={{ opacity: 0.9, fontSize: '.85rem', marginTop: 4 }}>
+            {counts.OK || 0} OK · {counts.STALE || 0} stale · {counts.DOWN || 0} down · updated {rel(snap.asOf)}
+          </div>
+        </div>
+        <button onClick={refreshNow} disabled={refreshing} style={{ ...btn(th), minHeight: 42 }}>
+          {refreshing ? 'Refreshing…' : 'Refresh now'}
+        </button>
+      </div>
+
+      {cats.map(cat => (
+        <div key={cat} style={{ marginBottom: 20 }}>
+          <div style={{ fontWeight: 700, color: th.muted, textTransform: 'uppercase', fontSize: '.75rem', letterSpacing: '.05em', margin: '0 0 8px 2px' }}>{cat}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+            {snap.feeds.filter(f => f.category === cat).map(f => (
+              <div key={f.key} style={{ ...card(th), padding: '0.9rem 1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 700, color: th.text }}>{f.label}</span>
+                  <span style={{ background: PILL[f.status] || th.muted, color: '#fff', borderRadius: 999, padding: '2px 10px', fontSize: '.72rem', fontWeight: 700 }}>{f.status}</span>
+                </div>
+                <div style={{ color: th.muted, fontSize: '.8rem', marginTop: 6 }}>
+                  {f.perStore
+                    ? <span>{f.storesOk}/{f.storesTotal} stores{f.staleStores && f.staleStores.length ? ` · stale: ${f.staleStores.map(s => s.pc).join(', ')}` : ''}</span>
+                    : <span>updated {rel(f.savedAt)}</span>}
+                  {f.critical ? <span style={{ marginLeft: 8, color: '#C0392B', fontWeight: 700 }}>critical</span> : null}
+                </div>
+                {f.error ? <div style={{ color: '#C0392B', fontSize: '.75rem', marginTop: 6 }}>{f.error}</div> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Audits tab shell — chooses Field Ops vs Safe mode (segmented control when both
 // are available; managers get Safe only; auditors/exec/it/dm get both).
 function AuditsTab({ user, th, stores, showAlert, setTab }) {
@@ -26337,7 +26423,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.48";
+const APP_VERSION = "v20.49";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -48904,6 +48990,7 @@ function PCGPortal() {
                 {tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place."}
                 {tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place."}
                 {tab === "system-hub" && "Admin, Email, and Reports in one place."}
+                {tab === "system-health" && "Pipeline health, feed freshness, and outage alerts."}
                 {tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion."}
                 {tab === "audits" && "Field operations audits — conduct on-site, scored automatically, critical failures cap the result."}
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
@@ -49316,6 +49403,7 @@ function PCGPortal() {
               { id: 'admin', name: 'Admin', sub: 'Users, role access, audit log, system data.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'system-hub', 'admin'), icon: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></>},
               { id: 'email', name: 'Email', sub: 'Shared inbox and outbound email from the portal.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'system-hub', 'email'), icon: <><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/></> },
               { id: 'reports', name: 'Reports', sub: 'Dashboards, decks, and scheduled reports from Orion.', show: accessSubOn(accessOverrides, user?.userType, 'system-hub', 'reports'), icon: <><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></> },
+              { id: 'system-health', name: 'System Health', sub: 'Feed freshness, cron monitoring, and outage alerts.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'system-hub', 'system-health'), icon: <>{ICONS.folder(SYS)}</> },
             ].filter(t => t.show);
             return <TileGrid title="System" tiles={sysTiles} color={SYS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}
@@ -49327,6 +49415,7 @@ function PCGPortal() {
           {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={stores} showAlert={showAlert} />}
+          {tab === "system-health" && isFullAdmin(user) && <SystemHealth th={th} user={user} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} users={users} />}
