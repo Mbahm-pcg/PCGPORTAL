@@ -13921,26 +13921,27 @@ ${t2.slice(0, 300)}`);
       setPgalError("");
       setPgalOpenPhotoId(null);
     };
-    const PGAL_RECENT_KEY = "pcg_gallery_recent_v1";
-    const pgalRecordVisit = (projectId) => {
-      try {
-        const raw = JSON.parse(localStorage.getItem(PGAL_RECENT_KEY) || "{}");
-        raw[projectId] = (/* @__PURE__ */ new Date()).toISOString();
-        localStorage.setItem(PGAL_RECENT_KEY, JSON.stringify(raw));
-      } catch {
-      }
-    };
+    const [pgalRecentRows, setPgalRecentRows] = React.useState([]);
+    React.useEffect(() => {
+      if (pgalStep !== "setup") return;
+      fetch("/.netlify/functions/project-photos", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "listRecentProjects", limit: 4 })
+      }).then((r) => r.json()).then((j) => {
+        if (j?.ok) setPgalRecentRows(j.recent || []);
+      }).catch(() => {
+      });
+    }, [pgalStep]);
     const pgalRecentProjects = React.useMemo(() => {
-      let visits = {};
-      try {
-        visits = JSON.parse(localStorage.getItem(PGAL_RECENT_KEY) || "{}");
-      } catch {
-      }
-      return (projects || []).filter((p) => visits[p.id]).sort((a, b) => (visits[b.id] || "").localeCompare(visits[a.id] || "")).slice(0, 4).map((p) => ({ project: p, lastVisit: visits[p.id] }));
-    }, [projects, pgalStep]);
+      return pgalRecentRows.map((r) => {
+        const p = (projects || []).find((pr) => pr.id === r.projectId);
+        return p ? { project: p, lastVisit: r.lastActivity } : null;
+      }).filter(Boolean);
+    }, [pgalRecentRows, projects]);
     const pgalOpenRecentProject = (projectId) => {
       setPgalSelectedProjectId(projectId);
-      pgalRecordVisit(projectId);
       setPgalStep("gallery");
     };
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto" } }, pgalStep === "setup" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.75rem", marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 40, height: 40, borderRadius: 10, background: "#FF671F1e", color: "#FF671F", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10", r: "3" }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, "Start a site visit"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.15rem" } }, "Select a project to begin a new site visit and update photos and notes."))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.4rem" } }, "Project"), /* @__PURE__ */ React.createElement("select", { value: pgalSelectedProjectId, onChange: (e) => setPgalSelectedProjectId(e.target.value), style: { ...inp(th), width: "100%" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a project\u2026"), (projects || []).map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.nickname || p.address))), !pgalShowNewProject ? /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalShowNewProject(true), style: { ...btn(th, { background: th.card2, color: th.text }), marginTop: "0.6rem", fontSize: "0.82rem" } }, "+ Add a new project") : /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", padding: "0.75rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.5rem" } }, "New project"), pgalNewProjectError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#dc2626", marginBottom: "0.4rem" } }, pgalNewProjectError), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.5rem", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("input", { placeholder: "Name", value: pgalNewProject.nickname, onChange: (e) => setPgalNewProject((p) => ({ ...p, nickname: e.target.value })), style: inp(th) }), /* @__PURE__ */ React.createElement("input", { placeholder: "Address", value: pgalNewProject.address, onChange: (e) => setPgalNewProject((p) => ({ ...p, address: e.target.value })), style: inp(th) }), /* @__PURE__ */ React.createElement("input", { placeholder: "City", value: pgalNewProject.city, onChange: (e) => setPgalNewProject((p) => ({ ...p, city: e.target.value })), style: inp(th) }), /* @__PURE__ */ React.createElement("input", { placeholder: "State", value: pgalNewProject.state, onChange: (e) => setPgalNewProject((p) => ({ ...p, state: e.target.value })), style: inp(th) }), /* @__PURE__ */ React.createElement("input", { placeholder: "Zip", value: pgalNewProject.zip, onChange: (e) => setPgalNewProject((p) => ({ ...p, zip: e.target.value })), style: inp(th) })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: pgalCreateProject, style: { ...btn(th, { background: "#1B8F5C" }), fontSize: "0.78rem" } }, "Create project"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
@@ -13949,12 +13950,7 @@ ${t2.slice(0, 300)}`);
     }, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "Cancel")))), /* @__PURE__ */ React.createElement(
       "button",
       {
-        onClick: () => {
-          if (selectedProject) {
-            pgalRecordVisit(selectedProject.id);
-            setPgalStep("capture");
-          }
-        },
+        onClick: () => selectedProject && setPgalStep("capture"),
         disabled: !selectedProject,
         style: { ...btn(th, { background: "#FF671F" }), opacity: selectedProject ? 1 : 0.5 }
       },
@@ -22181,7 +22177,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.72";
+  var APP_VERSION = "v20.73";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

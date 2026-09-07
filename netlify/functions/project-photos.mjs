@@ -145,6 +145,20 @@ export default async (request) => {
       return json(200, { ok: true, photos: rows.map(rowToPhoto) });
     }
 
+    // "Recent projects" for the setup screen — real activity (an actual photo
+    // exists), shared across every user/device, not a per-device click log.
+    // A project nobody has photographed yet just never shows up here.
+    if (action === 'listRecentProjects') {
+      const limit = Number.isFinite(Number(payload.limit)) ? Math.min(20, Number(payload.limit)) : 4;
+      const rows = await sql`
+        SELECT project_id, MAX(project_nickname) AS project_nickname, MAX(created_at) AS last_activity
+        FROM project_photos
+        GROUP BY project_id
+        ORDER BY last_activity DESC
+        LIMIT ${limit}`;
+      return json(200, { ok: true, recent: rows.map(r => ({ projectId: r.project_id, projectNickname: r.project_nickname, lastActivity: r.last_activity ? new Date(r.last_activity).toISOString() : null })) });
+    }
+
     if (action === 'saveAnnotations') {
       const id = payload.id != null ? String(payload.id) : null;
       if (!id) return json(400, { error: 'id required' });

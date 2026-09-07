@@ -15494,30 +15494,33 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
     setPgalOpenPhotoId(null);
   };
 
-  // "Recent projects" — a per-device visit history so the setup screen isn't
-  // just a bare dropdown. Recorded locally (not synced across devices) the
-  // moment someone actually starts a visit, not on every dropdown change.
-  const PGAL_RECENT_KEY = 'pcg_gallery_recent_v1';
-  const pgalRecordVisit = (projectId) => {
-    try {
-      const raw = JSON.parse(localStorage.getItem(PGAL_RECENT_KEY) || '{}');
-      raw[projectId] = new Date().toISOString();
-      localStorage.setItem(PGAL_RECENT_KEY, JSON.stringify(raw));
-    } catch {}
-  };
+  // "Recent projects" — real activity (an actual photo exists in that
+  // project's gallery), shared across every user/device via the backend,
+  // not a per-device click log. A project nobody has photographed yet just
+  // never shows up here.
+  const [pgalRecentRows, setPgalRecentRows] = React.useState([]);
+  React.useEffect(() => {
+    if (pgalStep !== 'setup') return;
+    fetch('/.netlify/functions/project-photos', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'listRecentProjects', limit: 4 }),
+    })
+      .then(r => r.json())
+      .then(j => { if (j?.ok) setPgalRecentRows(j.recent || []); })
+      .catch(() => {});
+  }, [pgalStep]);
   const pgalRecentProjects = React.useMemo(() => {
-    let visits = {};
-    try { visits = JSON.parse(localStorage.getItem(PGAL_RECENT_KEY) || '{}'); } catch {}
-    return (projects || [])
-      .filter(p => visits[p.id])
-      .sort((a, b) => (visits[b.id] || '').localeCompare(visits[a.id] || ''))
-      .slice(0, 4)
-      .map(p => ({ project: p, lastVisit: visits[p.id] }));
-  }, [projects, pgalStep]); // re-derive when returning to setup so a fresh visit shows up
+    return pgalRecentRows
+      .map(r => {
+        const p = (projects || []).find(pr => pr.id === r.projectId);
+        return p ? { project: p, lastVisit: r.lastActivity } : null;
+      })
+      .filter(Boolean);
+  }, [pgalRecentRows, projects]);
 
   const pgalOpenRecentProject = (projectId) => {
     setPgalSelectedProjectId(projectId);
-    pgalRecordVisit(projectId);
     setPgalStep('gallery');
   };
 
@@ -15564,7 +15567,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
               </div>
             )}
           </div>
-          <button onClick={() => { if (selectedProject) { pgalRecordVisit(selectedProject.id); setPgalStep('capture'); } }} disabled={!selectedProject}
+          <button onClick={() => selectedProject && setPgalStep('capture')} disabled={!selectedProject}
             style={{ ...btn(th, { background: '#FF671F' }), opacity: selectedProject ? 1 : 0.5 }}>
             Continue →
           </button>
@@ -27388,7 +27391,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.72";
+const APP_VERSION = "v20.73";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
