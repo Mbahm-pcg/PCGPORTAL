@@ -18626,7 +18626,7 @@ function ExpensesTab({ user, th, stores }) {
     fetch('/.netlify/functions/expenses', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ action: 'list' }),
+      body: JSON.stringify({ action: 'list', mine: true }),
     })
       .then(r => r.json())
       .then(j => { if (j?.ok) setBizExpenseMyRows(j.expenses || []); })
@@ -18666,7 +18666,7 @@ function ExpensesTab({ user, th, stores }) {
         }),
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) { setBizExpenseError(j?.error || 'Could not save this receipt — please try again.'); return; }
+      if (!res.ok || !j?.ok) { setBizExpenseError(j?.error || 'Could not save this receipt — please try again.'); setBizExpenseSubmitting(false); return; }
       setBizExpenseAmount(''); setBizExpenseNote(''); setBizExpensePhoto(null);
       loadMyExpenses();
     } catch { setBizExpenseError('Network error — please try again.'); }
@@ -18675,13 +18675,15 @@ function ExpensesTab({ user, th, stores }) {
 
   const deleteBizExpense = async (id) => {
     try {
-      await fetch('/.netlify/functions/expenses', {
+      const res = await fetch('/.netlify/functions/expenses', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ action: 'delete', id }),
       });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.ok) { setBizExpenseError(j?.error || 'Could not delete this receipt.'); return; }
       loadMyExpenses();
-    } catch {}
+    } catch { setBizExpenseError('Network error — please try again.'); }
   };
 
   const [bizExpenseAllRows, setBizExpenseAllRows] = React.useState([]);
@@ -18701,7 +18703,7 @@ function ExpensesTab({ user, th, stores }) {
         action: 'list',
         storePc: bizExpenseFilterStore || undefined,
         category: bizExpenseFilterCategory || undefined,
-        dateFrom: bizExpenseFilterFrom ? new Date(bizExpenseFilterFrom).toISOString() : undefined,
+        dateFrom: bizExpenseFilterFrom ? new Date(bizExpenseFilterFrom + 'T00:00:00').toISOString() : undefined,
         dateTo: bizExpenseFilterTo ? new Date(bizExpenseFilterTo + 'T23:59:59').toISOString() : undefined,
       }),
     })
@@ -18715,13 +18717,15 @@ function ExpensesTab({ user, th, stores }) {
 
   const deleteAnyBizExpense = async (id) => {
     try {
-      await fetch('/.netlify/functions/expenses', {
+      const res = await fetch('/.netlify/functions/expenses', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ action: 'delete', id }),
       });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.ok) { setBizExpenseError(j?.error || 'Could not delete this receipt.'); return; }
       loadAllExpenses();
-    } catch {}
+    } catch { setBizExpenseError('Network error — please try again.'); }
   };
 
   const downloadBizExpenses = () => {
@@ -18833,7 +18837,9 @@ function ExpensesTab({ user, th, stores }) {
                       {r.storeName || 'No store'}{r.district ? ` (District ${r.district})` : ''} · {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}{r.note ? ` · ${r.note}` : ''}
                     </div>
                   </div>
-                  <button onClick={() => deleteAnyBizExpense(r.id)} style={{ ...btn(th, { background: 'transparent', color: '#dc2626' }), fontSize: '0.72rem', padding: '0.3rem 0.5rem' }}>Delete</button>
+                  {(user?.userType === 'executive' || user?.userType === 'it' || String(r.submittedByUserId) === String(user?.id)) && (
+                    <button onClick={() => deleteAnyBizExpense(r.id)} style={{ ...btn(th, { background: 'transparent', color: '#dc2626' }), fontSize: '0.72rem', padding: '0.3rem 0.5rem' }}>Delete</button>
+                  )}
                 </div>
               ))}
             </div>
@@ -26675,7 +26681,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.56";
+const APP_VERSION = "v20.57";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -47129,7 +47135,7 @@ function PCGPortal() {
   };
   // Split the 10 universal BASE_TABS into flat essentials + a "Workspace" group.
   const ESSENTIAL_BASE_IDS = ['dashboard', 'chat', 'announcements', 'tickets'];
-  const WORKSPACE_BASE_IDS = ['calendar', 'todos', 'notes', 'contacts', 'links', 'kb'];
+  const WORKSPACE_BASE_IDS = ['calendar', 'todos', 'notes', 'contacts', 'links', 'kb', 'expenses'];
   // Badge count for a tab (chat unread, reports unread, cash missing, announcements unread).
   const navBadge = (t) => {
     if (!t) return null;

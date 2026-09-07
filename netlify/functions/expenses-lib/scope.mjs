@@ -45,14 +45,17 @@ export function canDeleteExpense(row, claims) {
 // Builds the effective filter set for a `list` query. A non-admin caller is
 // force-scoped to their own rows (forceUserId) regardless of any filter they
 // sent — the server enforces "everyone sees only their own" here, not the
-// client.
+// client. An admin caller may also explicitly request their own rows only
+// (filters.mine === true) — used by the "My receipts" view so exec/IT/
+// office_staff don't get the full network view under a misleading label.
 export function buildListScope(claims, filters = {}) {
+  const forceOwn = filters.mine === true || !isFullExpenseAdmin(claims?.userType);
   return {
     storePc: filters.storePc || null,
     district: filters.district != null && filters.district !== '' ? Number(filters.district) : null,
     category: filters.category || null,
     dateFrom: filters.dateFrom || null,
     dateTo: filters.dateTo || null,
-    forceUserId: isFullExpenseAdmin(claims?.userType) ? null : (claims?.sub ?? null),
+    forceUserId: forceOwn ? (claims?.sub ?? null) : null,
   };
 }

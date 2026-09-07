@@ -95,3 +95,18 @@ test('buildListScope: no filters given defaults every optional field to null', (
   const scope = buildListScope({ sub: 1, userType: 'it' }, {});
   assert.deepEqual(scope, { storePc: null, district: null, category: null, dateFrom: null, dateTo: null, forceUserId: null });
 });
+
+test('buildListScope: admin with filters.mine=true is force-scoped to their own user id ("My receipts" view)', () => {
+  const scope = buildListScope({ sub: 99, userType: 'executive' }, { mine: true });
+  assert.deepEqual(scope, { storePc: null, district: null, category: null, dateFrom: null, dateTo: null, forceUserId: 99 });
+});
+
+test('buildListScope: office_staff with filters.mine=true is force-scoped to their own user id', () => {
+  const scope = buildListScope({ sub: 55, userType: 'office_staff' }, { mine: true, storePc: '340794' });
+  assert.deepEqual(scope, { storePc: '340794', district: null, category: null, dateFrom: null, dateTo: null, forceUserId: 55 });
+});
+
+test('buildListScope: non-admin is still force-scoped even without filters.mine (unaffected by the new flag)', () => {
+  const scope = buildListScope({ sub: 42, userType: 'manager' }, { mine: false });
+  assert.deepEqual(scope, { storePc: null, district: null, category: null, dateFrom: null, dateTo: null, forceUserId: 42 });
+});
