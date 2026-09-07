@@ -25,6 +25,10 @@ const ICONS = {
   analytics: (c) => <Icon color={c} d={<>{React.createElement("line",{x1:"18",y1:"20",x2:"18",y2:"10"})}{React.createElement("line",{x1:"12",y1:"20",x2:"12",y2:"4"})}{React.createElement("line",{x1:"6",y1:"20",x2:"6",y2:"14"})}</>} />,
   pulse: (c) => <Icon color={c} d="M22 12h-4l-3 9L9 3l-3 9H2" />,
   projects: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"2",y:"6",width:"20",height:"14",rx:"2"})}{React.createElement("path",{d:"M12 2v4"})}{React.createElement("path",{d:"M2 10h20"})}</>} />,
+  projectGallery: (c) => <Icon color={c} d={<>
+    {React.createElement("path", { d: "M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" })}
+    {React.createElement("circle", { cx: "12", cy: "13", r: "4" })}
+  </>} />,
   users: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"})}{React.createElement("circle",{cx:"9",cy:"7",r:"4"})}{React.createElement("path",{d:"M23 21v-2a4 4 0 0 0-3-3.87"})}{React.createElement("path",{d:"M16 3.13a4 4 0 0 1 0 7.75"})}</>} />,
   settings: (c) => <Icon color={c} d={<>{React.createElement("line",{x1:"4",y1:"21",x2:"4",y2:"14"})}{React.createElement("line",{x1:"4",y1:"10",x2:"4",y2:"3"})}{React.createElement("line",{x1:"12",y1:"21",x2:"12",y2:"12"})}{React.createElement("line",{x1:"12",y1:"8",x2:"12",y2:"3"})}{React.createElement("line",{x1:"20",y1:"21",x2:"20",y2:"16"})}{React.createElement("line",{x1:"20",y1:"12",x2:"20",y2:"3"})}{React.createElement("line",{x1:"1",y1:"14",x2:"7",y2:"14"})}{React.createElement("line",{x1:"9",y1:"8",x2:"15",y2:"8"})}{React.createElement("line",{x1:"17",y1:"16",x2:"23",y2:"16"})}</>} />,
   logout: (c) => <Icon color={c} d={<>{React.createElement("path",{d:"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"})}{React.createElement("polyline",{points:"16 17 21 12 16 7"})}{React.createElement("line",{x1:"21",y1:"12",x2:"9",y2:"12"})}</>} />,

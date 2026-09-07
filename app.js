@@ -21,6 +21,7 @@
     analytics: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("line", { x1: "18", y1: "20", x2: "18", y2: "10" }), React.createElement("line", { x1: "12", y1: "20", x2: "12", y2: "4" }), React.createElement("line", { x1: "6", y1: "20", x2: "6", y2: "14" })) }),
     pulse: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: "M22 12h-4l-3 9L9 3l-3 9H2" }),
     projects: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "2", y: "6", width: "20", height: "14", rx: "2" }), React.createElement("path", { d: "M12 2v4" }), React.createElement("path", { d: "M2 10h20" })) }),
+    projectGallery: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" }), React.createElement("circle", { cx: "12", cy: "13", r: "4" })) }),
     users: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" }), React.createElement("circle", { cx: "9", cy: "7", r: "4" }), React.createElement("path", { d: "M23 21v-2a4 4 0 0 0-3-3.87" }), React.createElement("path", { d: "M16 3.13a4 4 0 0 1 0 7.75" })) }),
     settings: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }),
     logout: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }), React.createElement("polyline", { points: "16 17 21 12 16 7" }), React.createElement("line", { x1: "21", y1: "12", x2: "9", y2: "12" })) }),
@@ -13512,6 +13513,97 @@ ${t2.slice(0, 300)}`);
       }, style: { background: "none", border: "none", color: "#ff4444", cursor: "pointer", fontSize: "0.875rem", padding: "0.25rem" } }, "\u{1F5D1}"))
     ))));
   }
+  function ProjectGalleryTab({ user, th, projects, dailyReports }) {
+    const [pgalStep, setPgalStep] = React.useState("setup");
+    const [pgalSelectedProjectId, setPgalSelectedProjectId] = React.useState("");
+    const selectedProject = React.useMemo(
+      () => (projects || []).find((p) => String(p.id) === String(pgalSelectedProjectId)) || null,
+      [projects, pgalSelectedProjectId]
+    );
+    const pgalGeoRef = React.useRef(null);
+    const PGAL_GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
+    const [pgalShareLoc, setPgalShareLoc] = React.useState(() => {
+      try {
+        return localStorage.getItem("pcg_share_location") === "1";
+      } catch {
+        return false;
+      }
+    });
+    const [pgalLocDenied, setPgalLocDenied] = React.useState(false);
+    const pgalPersistLoc = (on) => {
+      try {
+        localStorage.setItem("pcg_share_location", on ? "1" : "0");
+      } catch {
+      }
+    };
+    React.useEffect(() => {
+      if (!navigator.permissions?.query) return;
+      let perm;
+      navigator.permissions.query({ name: "geolocation" }).then((p) => {
+        perm = p;
+        const apply = () => {
+          const denied = p.state === "denied";
+          setPgalLocDenied(denied);
+          if (denied) pgalGeoRef.current = null;
+        };
+        apply();
+        p.onchange = apply;
+      }).catch(() => {
+      });
+      return () => {
+        if (perm) perm.onchange = null;
+      };
+    }, []);
+    const pgalEnableLocation = () => {
+      if (!navigator.geolocation) {
+        setPgalShareLoc(false);
+        pgalPersistLoc(false);
+        return;
+      }
+      setPgalShareLoc(true);
+      pgalPersistLoc(true);
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          pgalGeoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() };
+          setPgalLocDenied(false);
+        },
+        (err) => {
+          if (err && err.code === 1) {
+            setPgalShareLoc(false);
+            pgalPersistLoc(false);
+            setPgalLocDenied(true);
+          }
+        },
+        PGAL_GEO_OPTS
+      );
+    };
+    const pgalDisableLocation = () => {
+      setPgalShareLoc(false);
+      pgalPersistLoc(false);
+    };
+    const pgalGetLocation = React.useCallback(() => new Promise((resolve) => {
+      if (!pgalShareLoc || !navigator.geolocation) return resolve(null);
+      const c = pgalGeoRef.current;
+      if (c && Date.now() - c.at < 12e4) return resolve({ lat: c.lat, lng: c.lng });
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          pgalGeoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() };
+          resolve({ lat: p.coords.latitude, lng: p.coords.longitude });
+        },
+        () => resolve(null),
+        PGAL_GEO_OPTS
+      );
+    }), [pgalShareLoc]);
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto" } }, pgalStep === "setup" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.8rem" } }, "Start a site visit"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.4rem" } }, "Project"), /* @__PURE__ */ React.createElement("select", { value: pgalSelectedProjectId, onChange: (e) => setPgalSelectedProjectId(e.target.value), style: { ...inp(th), width: "100%" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a project\u2026"), (projects || []).map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.nickname || p.address)))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", padding: "0.75rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Share your GPS location with these photos? (optional)"), pgalLocDenied && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#dc2626", marginBottom: "0.4rem" } }, "Location is blocked in your browser settings \u2014 you can still continue without it."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: pgalEnableLocation, style: { ...btn(th, { background: pgalShareLoc ? "#1B8F5C" : th.card2, color: pgalShareLoc ? "#fff" : th.text }), fontSize: "0.78rem" } }, pgalShareLoc ? "\u2713 Sharing location" : "Share location"), pgalShareLoc && /* @__PURE__ */ React.createElement("button", { onClick: pgalDisableLocation, style: { ...btn(th, { background: "transparent", color: th.muted }), fontSize: "0.78rem" } }, "Don't share"))), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => selectedProject && setPgalStep("capture"),
+        disabled: !selectedProject,
+        style: { ...btn(th, { background: "#FF671F" }), opacity: selectedProject ? 1 : 0.5 }
+      },
+      "Continue"
+    )));
+  }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
     const [view, setView] = useState("table");
@@ -20716,6 +20808,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
+      { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "email", label: "Email", icon: (c) => ICONS.mail(c) },
       { id: "admin", label: "Admin", icon: (c) => ICONS.settings(c) },
@@ -20789,7 +20882,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     if (ut === "construction") return [
       ...BASE_TABS,
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
-      { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) }
+      { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
+      { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) }
     ];
     if (ut === "vendor") return [
       { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
@@ -21695,7 +21789,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.61";
+  var APP_VERSION = "v20.62";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -38074,7 +38168,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "system-health", name: "System Health", sub: "Feed freshness, cron monitoring, and outage alerts.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "system-hub", "system-health"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.folder(SYS)) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement(TileGrid, { title: "System", tiles: sysTiles, color: SYS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
-    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, dailyReports }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
 })();

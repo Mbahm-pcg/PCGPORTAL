@@ -15048,6 +15048,89 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
   );
 }
 
+// ── Project Gallery: site-photo documentation (GPS + drawable annotations) ────
+function ProjectGalleryTab({ user, th, projects, dailyReports }) {
+  const [pgalStep, setPgalStep] = React.useState('setup'); // 'setup' | 'capture' | 'gallery'
+  const [pgalSelectedProjectId, setPgalSelectedProjectId] = React.useState('');
+  const selectedProject = React.useMemo(
+    () => (projects || []).find(p => String(p.id) === String(pgalSelectedProjectId)) || null,
+    [projects, pgalSelectedProjectId]
+  );
+
+  // Opt-in GPS — a fresh implementation of the exact pattern already proven
+  // in OpsTasks (app.jsx, search GEO_OPTS/pcg_share_location): per-device,
+  // localStorage-backed, never blocks progress, never throws.
+  const pgalGeoRef = React.useRef(null);
+  const PGAL_GEO_OPTS = { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 };
+  const [pgalShareLoc, setPgalShareLoc] = React.useState(() => { try { return localStorage.getItem('pcg_share_location') === '1'; } catch { return false; } });
+  const [pgalLocDenied, setPgalLocDenied] = React.useState(false);
+  const pgalPersistLoc = (on) => { try { localStorage.setItem('pcg_share_location', on ? '1' : '0'); } catch {} };
+
+  React.useEffect(() => {
+    if (!navigator.permissions?.query) return;
+    let perm;
+    navigator.permissions.query({ name: 'geolocation' }).then((p) => {
+      perm = p;
+      const apply = () => { const denied = p.state === 'denied'; setPgalLocDenied(denied); if (denied) pgalGeoRef.current = null; };
+      apply(); p.onchange = apply;
+    }).catch(() => {});
+    return () => { if (perm) perm.onchange = null; };
+  }, []);
+
+  const pgalEnableLocation = () => {
+    if (!navigator.geolocation) { setPgalShareLoc(false); pgalPersistLoc(false); return; }
+    setPgalShareLoc(true); pgalPersistLoc(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => { pgalGeoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() }; setPgalLocDenied(false); },
+      (err) => { if (err && err.code === 1) { setPgalShareLoc(false); pgalPersistLoc(false); setPgalLocDenied(true); } },
+      PGAL_GEO_OPTS
+    );
+  };
+  const pgalDisableLocation = () => { setPgalShareLoc(false); pgalPersistLoc(false); };
+
+  const pgalGetLocation = React.useCallback(() => new Promise((resolve) => {
+    if (!pgalShareLoc || !navigator.geolocation) return resolve(null);
+    const c = pgalGeoRef.current;
+    if (c && Date.now() - c.at < 120000) return resolve({ lat: c.lat, lng: c.lng });
+    navigator.geolocation.getCurrentPosition(
+      (p) => { pgalGeoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() }; resolve({ lat: p.coords.latitude, lng: p.coords.longitude }); },
+      () => resolve(null),
+      PGAL_GEO_OPTS
+    );
+  }), [pgalShareLoc]);
+
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      {pgalStep === 'setup' && (
+        <div style={{ ...card(th), padding: '1.25rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, marginBottom: '0.8rem' }}>Start a site visit</div>
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', marginBottom: '0.4rem' }}>Project</div>
+            <select value={pgalSelectedProjectId} onChange={e => setPgalSelectedProjectId(e.target.value)} style={{ ...inp(th), width: '100%' }}>
+              <option value="">Select a project…</option>
+              {(projects || []).map(p => <option key={p.id} value={p.id}>{p.nickname || p.address}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: '1.25rem', padding: '0.75rem', border: `1px solid ${th.cardBorder}`, borderRadius: 8 }}>
+            <div style={{ fontSize: '0.82rem', color: th.text, marginBottom: '0.5rem' }}>Share your GPS location with these photos? (optional)</div>
+            {pgalLocDenied && <div style={{ fontSize: '0.72rem', color: '#dc2626', marginBottom: '0.4rem' }}>Location is blocked in your browser settings — you can still continue without it.</div>}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={pgalEnableLocation} style={{ ...btn(th, { background: pgalShareLoc ? '#1B8F5C' : th.card2, color: pgalShareLoc ? '#fff' : th.text }), fontSize: '0.78rem' }}>
+                {pgalShareLoc ? '✓ Sharing location' : 'Share location'}
+              </button>
+              {pgalShareLoc && <button onClick={pgalDisableLocation} style={{ ...btn(th, { background: 'transparent', color: th.muted }), fontSize: '0.78rem' }}>Don't share</button>}
+            </div>
+          </div>
+          <button onClick={() => selectedProject && setPgalStep('capture')} disabled={!selectedProject}
+            style={{ ...btn(th, { background: '#FF671F' }), opacity: selectedProject ? 1 : 0.5 }}>
+            Continue
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Admin: Project Tracker ────────────────────────────────────────────────────
 function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
   const dailyReports = _dr || [];
@@ -25358,6 +25441,7 @@ const computeRoleTabs = (user) => {
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",        icon: (c) => ICONS.audits(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
+    { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "email",     label: "Email",        icon: (c) => ICONS.mail(c) },
     { id: "admin",     label: "Admin",        icon: (c) => ICONS.settings(c) },
@@ -25437,6 +25521,7 @@ const computeRoleTabs = (user) => {
     ...BASE_TABS,
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
+    { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
   ];
   // Vendor → projects + chat
   if (ut === "vendor") return [
@@ -26758,7 +26843,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.61";
+const APP_VERSION = "v20.62";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -49885,6 +49970,7 @@ function PCGPortal() {
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && <ProjectGalleryTab user={user} th={th} projects={projects} dailyReports={dailyReports} />}
           {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={stores} showAlert={showAlert} />}
           {tab === "system-health" && isFullAdmin(user) && <SystemHealth th={th} user={user} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
