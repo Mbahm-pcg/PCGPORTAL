@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { classifyFeed, rollup } from './system-health.mjs';
+import { classifyFeed, rollup, classifyPerStore, diffForAlerts } from './system-health.mjs';
 
 const MIN = 60000;
 const NOW = 1_000_000_000_000;
@@ -39,5 +39,59 @@ describe('rollup', () => {
   });
   test('non-critical DOWN caps at YELLOW (never RED)', () => {
     assert.strictEqual(rollup([{ status: 'DOWN', critical: false }, { status: 'OK', critical: true }]), 'YELLOW');
+  });
+});
+
+describe('classifyPerStore', () => {
+  const spec = { expectedMaxAgeMin: 90 };
+  const pcs = ['100', '200', '300'];
+  test('all fresh → OK, storesOk = total, no stale', () => {
+    const per = { '100': NOW, '200': NOW, '300': NOW };
+    const r = classifyPerStore(per, NOW, spec, pcs);
+    assert.strictEqual(r.status, 'OK');
+    assert.strictEqual(r.storesOk, 3);
+    assert.strictEqual(r.storesTotal, 3);
+    assert.deepStrictEqual(r.staleStores, []);
+  });
+  test('one stale → STALE with that store listed', () => {
+    const per = { '100': NOW, '200': NOW - 120 * MIN, '300': NOW };
+    const r = classifyPerStore(per, NOW, spec, pcs);
+    assert.strictEqual(r.status, 'STALE');
+    assert.strictEqual(r.storesOk, 2);
+    assert.deepStrictEqual(r.staleStores, [{ pc: '200', status: 'STALE' }]);
+  });
+  test('all missing → DOWN', () => {
+    const per = { '100': null, '200': null, '300': null };
+    const r = classifyPerStore(per, NOW, spec, pcs);
+    assert.strictEqual(r.status, 'DOWN');
+    assert.strictEqual(r.storesOk, 0);
+  });
+  test('zero active stores → DOWN', () => {
+    assert.strictEqual(classifyPerStore({}, NOW, spec, []).status, 'DOWN');
+  });
+});
+
+describe('diffForAlerts', () => {
+  const next = { feeds: [
+    { key: 'labor', status: 'DOWN', critical: true },
+    { key: 'reviews', status: 'OK', critical: false },
+  ] };
+  test('OK→DOWN emits a critical transition', () => {
+    const prev = { feeds: [{ key: 'labor', status: 'OK' }, { key: 'reviews', status: 'OK' }] };
+    assert.deepStrictEqual(diffForAlerts(prev, next), [{ key: 'labor', from: 'OK', to: 'DOWN', critical: true }]);
+  });
+  test('STALE→STALE emits nothing', () => {
+    const prev = { feeds: [{ key: 'labor', status: 'STALE' }] };
+    const nx = { feeds: [{ key: 'labor', status: 'STALE', critical: true }] };
+    assert.deepStrictEqual(diffForAlerts(prev, nx), []);
+  });
+  test('DOWN→OK emits a recovery transition', () => {
+    const prev = { feeds: [{ key: 'labor', status: 'DOWN' }] };
+    const nx = { feeds: [{ key: 'labor', status: 'OK', critical: true }] };
+    assert.deepStrictEqual(diffForAlerts(prev, nx), [{ key: 'labor', from: 'DOWN', to: 'OK', critical: true }]);
+  });
+  test('new feed absent in prev treated as from OK', () => {
+    const nx = { feeds: [{ key: 'newfeed', status: 'DOWN', critical: true }] };
+    assert.deepStrictEqual(diffForAlerts(null, nx), [{ key: 'newfeed', from: 'OK', to: 'DOWN', critical: true }]);
   });
 });
