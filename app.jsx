@@ -15059,8 +15059,18 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
   const [draft, setDraft] = React.useState(null); // in-progress shape while dragging
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState('');
+  const [zoom, setZoom] = React.useState(1);
+  const [pan, setPan] = React.useState({ x: 0, y: 0 });
   const dragStart = React.useRef(null);
   const svgRef = React.useRef(null);
+  // Two-finger pinch tracking. A CSS transform (translate+scale) on the
+  // img/svg wrapper handles the actual zoom/pan — fractionFromEvent still
+  // works unchanged, since getBoundingClientRect() always reports the
+  // post-transform on-screen box, so shape coordinates stay correct at any
+  // zoom level without touching the fraction math at all.
+  const pointersRef = React.useRef(new Map()); // pointerId -> {x,y} client coords
+  const pinchRef = React.useRef(null); // {dist, zoom, pan, mid} snapshot when the 2nd finger lands
+  const ZOOM_MIN = 1, ZOOM_MAX = 4;
 
   React.useEffect(() => {
     cloudLoad(photo.imageKey).then(data => { if (data?.base64) setSrc(data.base64); }).catch(() => {});
@@ -15070,19 +15080,55 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
     const rect = svgRef.current.getBoundingClientRect();
     return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
   };
+  const pointDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const pointMid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const resetZoom = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
 
   const handlePointerDown = (e) => {
     e.target.setPointerCapture?.(e.pointerId);
-    dragStart.current = fractionFromEvent(e);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2) {
+      // A second finger just landed — this is a pinch starting, not a draw.
+      // Discard any in-progress single-finger draft rather than letting it
+      // silently finalize into a shape the user didn't mean to draw.
+      dragStart.current = null;
+      setDraft(null);
+      const pts = Array.from(pointersRef.current.values());
+      pinchRef.current = { dist: pointDist(pts[0], pts[1]) || 1, zoom, pan, mid: pointMid(pts[0], pts[1]) };
+    } else if (pointersRef.current.size === 1) {
+      dragStart.current = fractionFromEvent(e);
+    }
   };
   const handlePointerMove = (e) => {
+    if (pointersRef.current.has(e.pointerId)) pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const pts = Array.from(pointersRef.current.values()).slice(0, 2);
+      const newDist = pointDist(pts[0], pts[1]);
+      const newMid = pointMid(pts[0], pts[1]);
+      const newZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pinchRef.current.zoom * (newDist / pinchRef.current.dist)));
+      setZoom(newZoom);
+      setPan({
+        x: pinchRef.current.pan.x + (newMid.x - pinchRef.current.mid.x),
+        y: pinchRef.current.pan.y + (newMid.y - pinchRef.current.mid.y),
+      });
+      return; // drawing is suspended while a pinch is in progress
+    }
     if (!dragStart.current) return;
     const cur = fractionFromEvent(e);
     const s = dragStart.current;
     if (tool === 'line') setDraft({ id: 'draft', type: 'line', x1: s.x, y1: s.y, x2: cur.x, y2: cur.y, color });
     else setDraft({ id: 'draft', type: 'circle', cx: (s.x + cur.x) / 2, cy: (s.y + cur.y) / 2, rx: Math.abs(cur.x - s.x) / 2, ry: Math.abs(cur.y - s.y) / 2, color });
   };
-  const handlePointerUp = () => {
+  const handlePointerUp = (e) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+    if (pointersRef.current.size > 0) {
+      // Dropped from 2 fingers to 1 (pinch ending) — don't resume drawing
+      // from a stale start point; require a fresh single-finger press.
+      dragStart.current = null;
+      setDraft(null);
+      return;
+    }
     if (draft) {
       // Reject a degenerate shape (a tap with no real drag) rather than saving
       // a zero-size circle/line that would fail isValidShape's rx/ry>0 check
@@ -15132,11 +15178,21 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
             <button key={c} onClick={() => setColor(c)} style={{ width: 28, height: 28, borderRadius: '50%', background: c, border: color === c ? '3px solid #fff' : '1px solid #0003', cursor: 'pointer' }} />
           ))}
         </div>
-        <button onClick={onClose} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Close</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          {zoom !== 1 && (
+            <button onClick={resetZoom} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem' }}>
+              Reset zoom ({Math.round(zoom * 100)}%)
+            </button>
+          )}
+          <button onClick={onClose} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Close</button>
+        </div>
       </div>
       <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
         {src && (
-          <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%' }}>
+          // Pinch-zoom is a plain CSS transform on this wrapper — fractionFromEvent
+          // still works unchanged, since getBoundingClientRect() always reports the
+          // real post-transform on-screen box.
+          <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
             <img src={src} alt="" onLoad={e => setNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
             <svg ref={svgRef} viewBox={`0 0 1000 ${1000 * (naturalSize.h / naturalSize.w)}`} preserveAspectRatio="none"
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none' }}
@@ -15195,16 +15251,25 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
     return () => { if (perm) perm.onchange = null; };
   }, []);
 
-  const pgalEnableLocation = () => {
+  const [pgalLocRequesting, setPgalLocRequesting] = React.useState(false);
+  const pgalEnableLocation = React.useCallback(() => {
     if (!navigator.geolocation) { setPgalShareLoc(false); pgalPersistLoc(false); return; }
-    setPgalShareLoc(true); pgalPersistLoc(true);
+    setPgalLocRequesting(true);
     navigator.geolocation.getCurrentPosition(
-      (p) => { pgalGeoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() }; setPgalLocDenied(false); },
-      (err) => { if (err && err.code === 1) { setPgalShareLoc(false); pgalPersistLoc(false); setPgalLocDenied(true); } },
+      (p) => { pgalGeoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() }; setPgalShareLoc(true); pgalPersistLoc(true); setPgalLocDenied(false); setPgalLocRequesting(false); },
+      (err) => { setPgalLocRequesting(false); if (err && err.code === 1) { setPgalShareLoc(false); pgalPersistLoc(false); setPgalLocDenied(true); } },
       PGAL_GEO_OPTS
     );
-  };
-  const pgalDisableLocation = () => { setPgalShareLoc(false); pgalPersistLoc(false); };
+  }, []);
+
+  // Auto-request location the moment this tab is opened, instead of making
+  // the user tap a "Share location" button first. If the browser already
+  // granted access on a previous visit, this resolves silently with no
+  // prompt at all; the very first time, the browser shows its own native
+  // permission dialog once and remembers the answer from then on — same as
+  // any other site. A hard deny surfaces an inline note; re-enabling it is
+  // the browser's own site-settings toggle, not anything in this app.
+  React.useEffect(() => { pgalEnableLocation(); }, [pgalEnableLocation]);
 
   const pgalGetLocation = React.useCallback(() => new Promise((resolve) => {
     if (!pgalShareLoc || !navigator.geolocation) return resolve(null);
@@ -15326,19 +15391,19 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
       // A candidate with no ph.data means the app's own size-saving cache
       // stripped this report's photos and hasn't rehydrated them yet (see
       // stripDailyReportPhotos/mergeDailyReports elsewhere in this file) —
-      // running now would silently "succeed" while importing nothing. Refuse
-      // and ask the user to wait rather than lying about the result.
-      const hasMissingData = photos.some(p => !p.dataUrl);
-      if (hasMissingData) {
-        setPgalMigrateError('Some Daily Report photos haven\'t finished loading yet — wait a few seconds and try again.');
-        setPgalMigrating(false);
-        return;
-      }
+      // sometimes transient (still loading), sometimes permanent (a report
+      // recovered only from the legacy stripped backup, which never gets
+      // photo data back). Either way, blocking the WHOLE import over one
+      // report is wrong — filter those out and import everything that IS
+      // ready now; re-running later (safe — already-imported photos are
+      // skipped via source_ref) picks up anything that rehydrates afterward.
+      const readyPhotos = photos.filter(p => p.dataUrl);
+      const clientMissingData = photos.length - readyPhotos.length;
 
       const BATCH_SIZE = 5;
-      let totalImported = 0, totalSkipped = 0, totalMissingData = 0;
-      for (let i = 0; i < photos.length; i += BATCH_SIZE) {
-        const batch = photos.slice(i, i + BATCH_SIZE);
+      let totalImported = 0, totalSkipped = 0, totalMissingData = clientMissingData;
+      for (let i = 0; i < readyPhotos.length; i += BATCH_SIZE) {
+        const batch = readyPhotos.slice(i, i + BATCH_SIZE);
         const res = await fetch('/.netlify/functions/project-photos', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...authHeader() },
@@ -15385,14 +15450,16 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
             </select>
           </div>
           <div style={{ marginBottom: '1.25rem', padding: '0.75rem', border: `1px solid ${th.cardBorder}`, borderRadius: 8 }}>
-            <div style={{ fontSize: '0.82rem', color: th.text, marginBottom: '0.5rem' }}>Share your GPS location with these photos? (optional)</div>
-            {pgalLocDenied && <div style={{ fontSize: '0.72rem', color: '#dc2626', marginBottom: '0.4rem' }}>Location is blocked in your browser settings — you can still continue without it.</div>}
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={pgalEnableLocation} style={{ ...btn(th, { background: pgalShareLoc ? '#1B8F5C' : th.card2, color: pgalShareLoc ? '#fff' : th.text }), fontSize: '0.78rem' }}>
-                {pgalShareLoc ? '✓ Sharing location' : 'Share location'}
-              </button>
-              {pgalShareLoc && <button onClick={pgalDisableLocation} style={{ ...btn(th, { background: 'transparent', color: th.muted }), fontSize: '0.78rem' }}>Don't share</button>}
-            </div>
+            <div style={{ fontSize: '0.82rem', color: th.text }}>GPS location</div>
+            {pgalShareLoc ? (
+              <div style={{ fontSize: '0.78rem', color: '#1B8F5C', marginTop: '0.3rem' }}>✓ Sharing location with these photos</div>
+            ) : pgalLocDenied ? (
+              <div style={{ fontSize: '0.72rem', color: '#dc2626', marginTop: '0.3rem' }}>Location is blocked in your browser's site settings — you can still continue without it, or enable it there.</div>
+            ) : pgalLocRequesting ? (
+              <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.3rem' }}>Requesting location…</div>
+            ) : (
+              <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.3rem' }}>Not shared — you can still continue without it.</div>
+            )}
           </div>
           <button onClick={() => selectedProject && setPgalStep('capture')} disabled={!selectedProject}
             style={{ ...btn(th, { background: '#FF671F' }), opacity: selectedProject ? 1 : 0.5 }}>
@@ -27197,7 +27264,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.66";
+const APP_VERSION = "v20.67";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

@@ -13523,8 +13523,13 @@ ${t2.slice(0, 300)}`);
     const [draft, setDraft] = React.useState(null);
     const [saving, setSaving] = React.useState(false);
     const [saveError, setSaveError] = React.useState("");
+    const [zoom, setZoom] = React.useState(1);
+    const [pan, setPan] = React.useState({ x: 0, y: 0 });
     const dragStart = React.useRef(null);
     const svgRef = React.useRef(null);
+    const pointersRef = React.useRef(/* @__PURE__ */ new Map());
+    const pinchRef = React.useRef(null);
+    const ZOOM_MIN = 1, ZOOM_MAX = 4;
     React.useEffect(() => {
       cloudLoad(photo.imageKey).then((data) => {
         if (data?.base64) setSrc(data.base64);
@@ -13535,18 +13540,52 @@ ${t2.slice(0, 300)}`);
       const rect = svgRef.current.getBoundingClientRect();
       return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
     };
+    const pointDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const pointMid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    const resetZoom = () => {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+    };
     const handlePointerDown = (e) => {
       e.target.setPointerCapture?.(e.pointerId);
-      dragStart.current = fractionFromEvent(e);
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointersRef.current.size === 2) {
+        dragStart.current = null;
+        setDraft(null);
+        const pts = Array.from(pointersRef.current.values());
+        pinchRef.current = { dist: pointDist(pts[0], pts[1]) || 1, zoom, pan, mid: pointMid(pts[0], pts[1]) };
+      } else if (pointersRef.current.size === 1) {
+        dragStart.current = fractionFromEvent(e);
+      }
     };
     const handlePointerMove = (e) => {
+      if (pointersRef.current.has(e.pointerId)) pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointersRef.current.size >= 2 && pinchRef.current) {
+        const pts = Array.from(pointersRef.current.values()).slice(0, 2);
+        const newDist = pointDist(pts[0], pts[1]);
+        const newMid = pointMid(pts[0], pts[1]);
+        const newZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pinchRef.current.zoom * (newDist / pinchRef.current.dist)));
+        setZoom(newZoom);
+        setPan({
+          x: pinchRef.current.pan.x + (newMid.x - pinchRef.current.mid.x),
+          y: pinchRef.current.pan.y + (newMid.y - pinchRef.current.mid.y)
+        });
+        return;
+      }
       if (!dragStart.current) return;
       const cur = fractionFromEvent(e);
       const s = dragStart.current;
       if (tool === "line") setDraft({ id: "draft", type: "line", x1: s.x, y1: s.y, x2: cur.x, y2: cur.y, color });
       else setDraft({ id: "draft", type: "circle", cx: (s.x + cur.x) / 2, cy: (s.y + cur.y) / 2, rx: Math.abs(cur.x - s.x) / 2, ry: Math.abs(cur.y - s.y) / 2, color });
     };
-    const handlePointerUp = () => {
+    const handlePointerUp = (e) => {
+      pointersRef.current.delete(e.pointerId);
+      if (pointersRef.current.size < 2) pinchRef.current = null;
+      if (pointersRef.current.size > 0) {
+        dragStart.current = null;
+        setDraft(null);
+        return;
+      }
       if (draft) {
         const tooSmall = draft.type === "circle" ? draft.rx < 0.01 || draft.ry < 0.01 : Math.abs(draft.x2 - draft.x1) < 0.01 && Math.abs(draft.y2 - draft.y1) < 0.01;
         if (!tooSmall) setShapes((prev) => [...prev, { ...draft, id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` }]);
@@ -13583,7 +13622,10 @@ ${t2.slice(0, 300)}`);
       if (s.type === "line") return /* @__PURE__ */ React.createElement("line", { key: s.id || i, x1: s.x1 * W2, y1: s.y1 * H, x2: s.x2 * W2, y2: s.y2 * H, stroke: s.color, strokeWidth: 4, strokeLinecap: "round" });
       return /* @__PURE__ */ React.createElement("ellipse", { key: s.id || i, cx: s.cx * W2, cy: s.cy * H, rx: s.rx * W2, ry: s.ry * H, fill: "none", stroke: s.color, strokeWidth: 4 });
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", flexDirection: "column", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTool("line"), style: { ...btn(th, { background: tool === "line" ? "#FF671F" : th.card2, color: tool === "line" ? "#fff" : th.text }) } }, "Line"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTool("circle"), style: { ...btn(th, { background: tool === "circle" ? "#FF671F" : th.card2, color: tool === "circle" ? "#fff" : th.text }) } }, "Circle"), PGAL_SHAPE_COLORS.map((c) => /* @__PURE__ */ React.createElement("button", { key: c, onClick: () => setColor(c), style: { width: 28, height: 28, borderRadius: "50%", background: c, border: color === c ? "3px solid #fff" : "1px solid #0003", cursor: "pointer" } }))), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Close")), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } }, src && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", maxWidth: "100%", maxHeight: "100%" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "", onLoad: (e) => setNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight }), style: { maxWidth: "100%", maxHeight: "80vh", display: "block" } }), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", flexDirection: "column", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTool("line"), style: { ...btn(th, { background: tool === "line" ? "#FF671F" : th.card2, color: tool === "line" ? "#fff" : th.text }) } }, "Line"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTool("circle"), style: { ...btn(th, { background: tool === "circle" ? "#FF671F" : th.card2, color: tool === "circle" ? "#fff" : th.text }) } }, "Circle"), PGAL_SHAPE_COLORS.map((c) => /* @__PURE__ */ React.createElement("button", { key: c, onClick: () => setColor(c), style: { width: 28, height: 28, borderRadius: "50%", background: c, border: color === c ? "3px solid #fff" : "1px solid #0003", cursor: "pointer" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, zoom !== 1 && /* @__PURE__ */ React.createElement("button", { onClick: resetZoom, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.75rem" } }, "Reset zoom (", Math.round(zoom * 100), "%)"), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Close"))), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } }, src && // Pinch-zoom is a plain CSS transform on this wrapper — fractionFromEvent
+    // still works unchanged, since getBoundingClientRect() always reports the
+    // real post-transform on-screen box.
+    /* @__PURE__ */ React.createElement("div", { style: { position: "relative", maxWidth: "100%", maxHeight: "100%", transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "0 0" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "", onLoad: (e) => setNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight }), style: { maxWidth: "100%", maxHeight: "80vh", display: "block" } }), /* @__PURE__ */ React.createElement(
       "svg",
       {
         ref: svgRef,
@@ -13640,20 +13682,24 @@ ${t2.slice(0, 300)}`);
         if (perm) perm.onchange = null;
       };
     }, []);
-    const pgalEnableLocation = () => {
+    const [pgalLocRequesting, setPgalLocRequesting] = React.useState(false);
+    const pgalEnableLocation = React.useCallback(() => {
       if (!navigator.geolocation) {
         setPgalShareLoc(false);
         pgalPersistLoc(false);
         return;
       }
-      setPgalShareLoc(true);
-      pgalPersistLoc(true);
+      setPgalLocRequesting(true);
       navigator.geolocation.getCurrentPosition(
         (p) => {
           pgalGeoRef.current = { lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() };
+          setPgalShareLoc(true);
+          pgalPersistLoc(true);
           setPgalLocDenied(false);
+          setPgalLocRequesting(false);
         },
         (err) => {
+          setPgalLocRequesting(false);
           if (err && err.code === 1) {
             setPgalShareLoc(false);
             pgalPersistLoc(false);
@@ -13662,11 +13708,10 @@ ${t2.slice(0, 300)}`);
         },
         PGAL_GEO_OPTS
       );
-    };
-    const pgalDisableLocation = () => {
-      setPgalShareLoc(false);
-      pgalPersistLoc(false);
-    };
+    }, []);
+    React.useEffect(() => {
+      pgalEnableLocation();
+    }, [pgalEnableLocation]);
     const pgalGetLocation = React.useCallback(() => new Promise((resolve) => {
       if (!pgalShareLoc || !navigator.geolocation) return resolve(null);
       const c = pgalGeoRef.current;
@@ -13788,16 +13833,12 @@ ${t2.slice(0, 300)}`);
             });
           });
         });
-        const hasMissingData = photos.some((p) => !p.dataUrl);
-        if (hasMissingData) {
-          setPgalMigrateError("Some Daily Report photos haven't finished loading yet \u2014 wait a few seconds and try again.");
-          setPgalMigrating(false);
-          return;
-        }
+        const readyPhotos = photos.filter((p) => p.dataUrl);
+        const clientMissingData = photos.length - readyPhotos.length;
         const BATCH_SIZE = 5;
-        let totalImported = 0, totalSkipped = 0, totalMissingData = 0;
-        for (let i = 0; i < photos.length; i += BATCH_SIZE) {
-          const batch = photos.slice(i, i + BATCH_SIZE);
+        let totalImported = 0, totalSkipped = 0, totalMissingData = clientMissingData;
+        for (let i = 0; i < readyPhotos.length; i += BATCH_SIZE) {
+          const batch = readyPhotos.slice(i, i + BATCH_SIZE);
           const res = await fetch("/.netlify/functions/project-photos", {
             method: "POST",
             credentials: "include",
@@ -13836,7 +13877,7 @@ ${t2.slice(0, 300)}`);
       setPgalMigrateError("");
       setPgalOpenPhotoId(null);
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto" } }, pgalStep === "setup" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.8rem" } }, "Start a site visit"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.4rem" } }, "Project"), /* @__PURE__ */ React.createElement("select", { value: pgalSelectedProjectId, onChange: (e) => setPgalSelectedProjectId(e.target.value), style: { ...inp(th), width: "100%" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a project\u2026"), (projects || []).map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.nickname || p.address)))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", padding: "0.75rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Share your GPS location with these photos? (optional)"), pgalLocDenied && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#dc2626", marginBottom: "0.4rem" } }, "Location is blocked in your browser settings \u2014 you can still continue without it."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: pgalEnableLocation, style: { ...btn(th, { background: pgalShareLoc ? "#1B8F5C" : th.card2, color: pgalShareLoc ? "#fff" : th.text }), fontSize: "0.78rem" } }, pgalShareLoc ? "\u2713 Sharing location" : "Share location"), pgalShareLoc && /* @__PURE__ */ React.createElement("button", { onClick: pgalDisableLocation, style: { ...btn(th, { background: "transparent", color: th.muted }), fontSize: "0.78rem" } }, "Don't share"))), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto" } }, pgalStep === "setup" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.8rem" } }, "Start a site visit"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.4rem" } }, "Project"), /* @__PURE__ */ React.createElement("select", { value: pgalSelectedProjectId, onChange: (e) => setPgalSelectedProjectId(e.target.value), style: { ...inp(th), width: "100%" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a project\u2026"), (projects || []).map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.nickname || p.address)))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", padding: "0.75rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text } }, "GPS location"), pgalShareLoc ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#1B8F5C", marginTop: "0.3rem" } }, "\u2713 Sharing location with these photos") : pgalLocDenied ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#dc2626", marginTop: "0.3rem" } }, "Location is blocked in your browser's site settings \u2014 you can still continue without it, or enable it there.") : pgalLocRequesting ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.3rem" } }, "Requesting location\u2026") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.3rem" } }, "Not shared \u2014 you can still continue without it.")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => selectedProject && setPgalStep("capture"),
@@ -22058,7 +22099,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.66";
+  var APP_VERSION = "v20.67";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
