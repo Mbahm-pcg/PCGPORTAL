@@ -15058,6 +15058,7 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
   const [color, setColor] = React.useState(PGAL_SHAPE_COLORS[0]);
   const [draft, setDraft] = React.useState(null); // in-progress shape while dragging
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState('');
   const dragStart = React.useRef(null);
   const svgRef = React.useRef(null);
 
@@ -15098,15 +15099,21 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
 
   const save = async () => {
     setSaving(true);
+    setSaveError('');
     try {
-      await fetch('/.netlify/functions/project-photos', {
+      const res = await fetch('/.netlify/functions/project-photos', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ action: 'saveAnnotations', id: photo.id, annotations: shapes }),
       });
+      const j = await res.json().catch(() => ({}));
+      // Stay open on a rejected save (role gate / validation / 500) so the user
+      // sees the failure and can retry, instead of onSaved() closing the editor
+      // and reloading the gallery as if the annotations had actually persisted.
+      if (!res.ok || !j?.ok) { setSaveError(j?.error || 'Could not save — please try again.'); return; }
       onSaved && onSaved();
-    } catch {}
-    setSaving(false);
+    } catch { setSaveError('Network error — please try again.'); }
+    finally { setSaving(false); }
   };
 
   const renderShape = (s, i) => {
@@ -15140,6 +15147,7 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
           </div>
         )}
       </div>
+      {saveError && <div style={{ color: '#ef4444', fontSize: '0.78rem', marginTop: '0.5rem' }}>{saveError}</div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap', gap: '0.5rem' }}>
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           {shapes.map((s, i) => (

@@ -13522,6 +13522,7 @@ ${t2.slice(0, 300)}`);
     const [color, setColor] = React.useState(PGAL_SHAPE_COLORS[0]);
     const [draft, setDraft] = React.useState(null);
     const [saving, setSaving] = React.useState(false);
+    const [saveError, setSaveError] = React.useState("");
     const dragStart = React.useRef(null);
     const svgRef = React.useRef(null);
     React.useEffect(() => {
@@ -13557,17 +13558,25 @@ ${t2.slice(0, 300)}`);
     const undoLast = () => setShapes((prev) => prev.slice(0, -1));
     const save = async () => {
       setSaving(true);
+      setSaveError("");
       try {
-        await fetch("/.netlify/functions/project-photos", {
+        const res = await fetch("/.netlify/functions/project-photos", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json", ...authHeader() },
           body: JSON.stringify({ action: "saveAnnotations", id: photo.id, annotations: shapes })
         });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.ok) {
+          setSaveError(j?.error || "Could not save \u2014 please try again.");
+          return;
+        }
         onSaved && onSaved();
       } catch {
+        setSaveError("Network error \u2014 please try again.");
+      } finally {
+        setSaving(false);
       }
-      setSaving(false);
     };
     const renderShape = (s, i) => {
       const W2 = 1e3, H = 1e3 * (naturalSize.h / naturalSize.w);
@@ -13587,7 +13596,7 @@ ${t2.slice(0, 300)}`);
       },
       shapes.map(renderShape),
       draft && renderShape(draft, "draft")
-    ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, shapes.map((s, i) => /* @__PURE__ */ React.createElement("span", { key: s.id || i, style: { fontSize: "0.72rem", color: "#fff", background: "#ffffff22", borderRadius: 6, padding: "2px 6px", display: "flex", alignItems: "center", gap: 4 } }, s.type === "line" ? "Line" : "Circle", " ", /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: s.color, display: "inline-block" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => removeShape(s.id), style: { background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 0 } }, "\u2715")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: undoLast, disabled: !shapes.length, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Undo"), /* @__PURE__ */ React.createElement("button", { onClick: save, disabled: saving, style: { ...btn(th, { background: "#1B8F5C" }), opacity: saving ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Save"))));
+    ))), saveError && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.78rem", marginTop: "0.5rem" } }, saveError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, shapes.map((s, i) => /* @__PURE__ */ React.createElement("span", { key: s.id || i, style: { fontSize: "0.72rem", color: "#fff", background: "#ffffff22", borderRadius: 6, padding: "2px 6px", display: "flex", alignItems: "center", gap: 4 } }, s.type === "line" ? "Line" : "Circle", " ", /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: s.color, display: "inline-block" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => removeShape(s.id), style: { background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 0 } }, "\u2715")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: undoLast, disabled: !shapes.length, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Undo"), /* @__PURE__ */ React.createElement("button", { onClick: save, disabled: saving, style: { ...btn(th, { background: "#1B8F5C" }), opacity: saving ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Save"))));
   }
   function ProjectGalleryTab({ user, th, projects, dailyReports }) {
     const [pgalStep, setPgalStep] = React.useState("setup");
