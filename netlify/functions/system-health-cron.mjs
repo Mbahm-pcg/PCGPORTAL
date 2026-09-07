@@ -104,8 +104,13 @@ export default async (request) => {
 
   let alerted = 0;
   if (alertKeys.size) {
-    const db = sql();
-    const { pushIds, emails } = await recipients(db);
+    let pushIds = [], emails = [];
+    try {
+      const db = sql();
+      ({ pushIds, emails } = await recipients(db));
+    } catch (e) {
+      // DB unavailable: skip notifications but never block the snapshot/alert-log writes below.
+    }
     for (const t of alertKeys.values()) {
       const feed = snapshot.feeds.find(f => f.key === t.key) || {};
       const recovered = t.to === 'OK';
