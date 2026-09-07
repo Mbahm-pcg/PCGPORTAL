@@ -15344,6 +15344,9 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
   const [pgalError, setPgalError] = React.useState('');
   const [pgalOpenPhotoId, setPgalOpenPhotoId] = React.useState(null);
   const [pgalOpenPhotoInitialSrc, setPgalOpenPhotoInitialSrc] = React.useState(null);
+  const PGAL_PAGE_SIZE = 10;
+  const [pgalGalleryPage, setPgalGalleryPage] = React.useState(1);
+  React.useEffect(() => { setPgalGalleryPage(1); }, [selectedProject?.id]);
 
   const pgalLoadPhotos = React.useCallback(() => {
     if (!selectedProject) return;
@@ -15639,17 +15642,32 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
             <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading…</div>
           ) : pgalPhotos.length === 0 ? (
             <div style={{ fontSize: '0.8rem', color: th.muted }}>No photos yet for this project.</div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.75rem' }}>
-              {pgalPhotos.map(p => (
-                <div key={p.id} style={{ position: 'relative' }}>
-                  <ProjectPhotoThumb imageKey={p.imageKey} size={120} onClick={() => setPgalOpenPhotoId(p.id)} />
-                  {p.source === 'migrated' && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '0.6rem', fontWeight: 700, background: '#7c3aed', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Migrated</span>}
-                  <button onClick={() => pgalDeletePhoto(p.id)} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444dd', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}>✕</button>
+          ) : (() => {
+            const totalPages = Math.max(1, Math.ceil(pgalPhotos.length / PGAL_PAGE_SIZE));
+            const page = Math.min(pgalGalleryPage, totalPages); // clamp if a delete shrank the list past the current page
+            const pageStart = (page - 1) * PGAL_PAGE_SIZE;
+            const pagePhotos = pgalPhotos.slice(pageStart, pageStart + PGAL_PAGE_SIZE);
+            return (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.75rem', marginBottom: totalPages > 1 ? '0.75rem' : 0 }}>
+                  {pagePhotos.map(p => (
+                    <div key={p.id} style={{ position: 'relative' }}>
+                      <ProjectPhotoThumb imageKey={p.imageKey} size={120} onClick={() => setPgalOpenPhotoId(p.id)} />
+                      {p.source === 'migrated' && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '0.6rem', fontWeight: 700, background: '#7c3aed', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Migrated</span>}
+                      <button onClick={() => pgalDeletePhoto(p.id)} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444dd', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}>✕</button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.75rem' }}>
+                    <button onClick={() => setPgalGalleryPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem', opacity: page <= 1 ? 0.5 : 1 }}>← Prev</button>
+                    <span style={{ fontSize: '0.78rem', color: th.muted }}>Page {page} of {totalPages}</span>
+                    <button onClick={() => setPgalGalleryPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem', opacity: page >= totalPages ? 0.5 : 1 }}>Next →</button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
       {pgalOpenPhotoId && (() => {
@@ -27391,7 +27409,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.73";
+const APP_VERSION = "v20.74";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
