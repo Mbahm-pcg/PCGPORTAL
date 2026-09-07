@@ -90,18 +90,18 @@ export const FEEDS = [
     expectedMaxAgeMin: 1560, perStore: true, critical: true, category: 'Sales' }, // daily snapshot per store
   // Labor
   { key: 'labor', label: 'Labor (network)', blobKey: 'pcg_labor_v1',
-    expectedMaxAgeMin: 90, perStore: false, critical: true, category: 'Labor' }, // hourly 9-23 ET, 90m tol
+    expectedMaxAgeMin: 420, perStore: false, critical: true, category: 'Labor' }, // labor-cron has a ~6h overnight gap (schedule 0 9-23,0-3 UTC); 420 clears it so no nightly false alarms. Token death is caught immediately via the recordHealth heartbeat regardless of this window.
   { key: 'labor-store', label: 'Labor (per-store history)', blobKey: 'pcg_labor_store_',
-    expectedMaxAgeMin: 90, perStore: true, critical: true, category: 'Labor' },
+    expectedMaxAgeMin: 420, perStore: true, critical: true, category: 'Labor' }, // see labor: 420 clears the overnight gap
   { key: 'schedule-alerts', label: 'Labor Schedule Alerts', blobKey: 'pcg_schedule_alerts_v1',
     expectedMaxAgeMin: 5760, perStore: false, critical: false, category: 'Labor' }, // Mon/Thu, 4d tol
   // Cash
   { key: 'tips', label: 'Tips Report', blobKey: 'pcg_tips_report_last_run',
     expectedMaxAgeMin: 1680, perStore: false, critical: true, category: 'Cash' }, // daily 7am ET, 28h tol
   { key: 'pnl-live', label: 'P&L (live)', blobKey: 'pcg_pnl_live_v1',
-    expectedMaxAgeMin: 180, perStore: false, critical: true, category: 'Cash' }, // written by labor-cron, hourly, 2x tol
+    expectedMaxAgeMin: 420, perStore: false, critical: true, category: 'Cash' }, // written by labor-cron (same ~6h overnight gap); 420 clears it
   { key: 'pnl-store', label: 'P&L (per-store)', blobKey: 'pcg_pnl_store_',
-    expectedMaxAgeMin: 180, perStore: true, critical: true, category: 'Cash' },
+    expectedMaxAgeMin: 420, perStore: true, critical: true, category: 'Cash' }, // per-store P&L; active set scoped to stores with a P&L blob (see cron/endpoint activePcsByKey)
   // Comms / AI / Platform (non-critical)
   { key: 'reviews', label: 'Google Reviews', blobKey: 'pcg_reviews_network',
     expectedMaxAgeMin: 11520, perStore: false, critical: false, category: 'Comms' }, // weekly, 8d tol
