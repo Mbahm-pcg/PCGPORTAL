@@ -26681,7 +26681,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.57";
+const APP_VERSION = "v20.58";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -43009,7 +43009,7 @@ function EmailTab({ th, user }) {
 
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
-function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, announcementsDismissed, setAnnouncementsDismissed, onSwitchToFull, onTickets, onTasks, todos, projects, users }) {
+function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, announcementsDismissed, setAnnouncementsDismissed, onSwitchToFull, onTickets, onTasks, onExpenses, todos, projects, users }) {
   const O = '#FF671F';
   const [activeTab, setActiveTab] = React.useState('brief');
   const [brief, setBrief] = React.useState(null);
@@ -43314,6 +43314,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
     { id: 'tasks',    label: 'Tasks',    color: '#FF671F', portal: true, icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg> },
     { id: 'calendar', label: 'Calendar', color: '#3b82f6', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
     { id: 'ask',      label: 'Ask',      color: '#06b6d4', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
+    { id: 'expenses', label: 'Expenses', color: '#1B8F5C', portal: true, icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><path d="M6 2h12a1 1 0 0 1 1 1v18l-2.5-1.5L14 21l-2-1.5L10 21l-2.5-1.5L5 21V3a1 1 0 0 1 1-1z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="16" y2="11"/><line x1="8" y1="15" x2="13" y2="15"/></svg> },
   ];
 
   const SUGGESTIONS = [
@@ -43842,7 +43843,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
         const activeIdx = NAV_ITEMS.findIndex(n => n.id === activeTab);
         const safeIdx = activeIdx >= 0 ? activeIdx : 0;
         const activeColor = NAV_ITEMS[safeIdx]?.color || O;
-        const circleLeft = `calc(${(safeIdx + 0.5) * (100 / 6)}% - 27px)`;
+        const circleLeft = `calc(${(safeIdx + 0.5) * (100 / 7)}% - 27px)`;
         const spring = '0.38s cubic-bezier(0.34, 1.4, 0.64, 1)';
         return (
           <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 24px)', maxWidth: 460, zIndex: 200 }}>
@@ -43851,12 +43852,13 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
               <span style={{ transform: 'scale(1.2)', display: 'flex' }}>{NAV_ITEMS[safeIdx]?.icon}</span>
             </div>
             {/* Glass pill bar */}
-            <div style={{ background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.22)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.6)'}`, borderRadius: 999, display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', height: 62, position: 'relative', zIndex: 0, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)'}` }}>
+            <div style={{ background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.22)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.6)'}`, borderRadius: 999, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', height: 62, position: 'relative', zIndex: 0, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)'}` }}>
               {NAV_ITEMS.map((item) => {
                 const isActive = item.id === activeTab;
                 const handleClick = () => {
                   if (item.id === 'tickets' && onTickets) { onTickets(); return; }
                   if (item.id === 'tasks' && onTasks) { onTasks(); return; }
+                  if (item.id === 'expenses' && onExpenses) { onExpenses(); return; }
                   setActiveTab(item.id);
                 };
                 const showRedDot = item.id === 'tasks';
@@ -49293,7 +49295,7 @@ function PCGPortal() {
           <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '0.8rem', cursor: 'pointer' }}>Log out</button>
         </div>
       }>
-        <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} onSwitchToFull={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} todos={todos} projects={projects} users={users} />
+        <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} onSwitchToFull={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} onExpenses={() => { togglePortalMode(true); setTab("expenses"); }} todos={todos} projects={projects} users={users} />
       </Guard>
     );
   }

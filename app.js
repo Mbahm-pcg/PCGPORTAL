@@ -21628,7 +21628,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.57";
+  var APP_VERSION = "v20.58";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -32811,7 +32811,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       ))))
     ));
   }
-  function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, announcementsDismissed, setAnnouncementsDismissed, onSwitchToFull, onTickets, onTasks, todos, projects, users }) {
+  function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, announcementsDismissed, setAnnouncementsDismissed, onSwitchToFull, onTickets, onTasks, onExpenses, todos, projects, users }) {
     const O2 = "#FF671F";
     const [activeTab, setActiveTab] = React.useState("brief");
     const [brief, setBrief] = React.useState(null);
@@ -33118,7 +33118,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { id: "tickets", label: "Tickets", color: "#ef4444", portal: true, icon: /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", width: 20, height: 20 }, /* @__PURE__ */ React.createElement("path", { d: "M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" })) },
       { id: "tasks", label: "Tasks", color: "#FF671F", portal: true, icon: /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", width: 20, height: 20 }, /* @__PURE__ */ React.createElement("path", { d: "M9 11l3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" })) },
       { id: "calendar", label: "Calendar", color: "#3b82f6", icon: /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", width: 20, height: 20 }, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), /* @__PURE__ */ React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), /* @__PURE__ */ React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" })) },
-      { id: "ask", label: "Ask", color: "#06b6d4", icon: /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", width: 20, height: 20 }, /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "11", r: "8" }), /* @__PURE__ */ React.createElement("path", { d: "M21 21l-4.35-4.35" })) }
+      { id: "ask", label: "Ask", color: "#06b6d4", icon: /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", width: 20, height: 20 }, /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "11", r: "8" }), /* @__PURE__ */ React.createElement("path", { d: "M21 21l-4.35-4.35" })) },
+      { id: "expenses", label: "Expenses", color: "#1B8F5C", portal: true, icon: /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", width: 20, height: 20 }, /* @__PURE__ */ React.createElement("path", { d: "M6 2h12a1 1 0 0 1 1 1v18l-2.5-1.5L14 21l-2-1.5L10 21l-2.5-1.5L5 21V3a1 1 0 0 1 1-1z" }), /* @__PURE__ */ React.createElement("line", { x1: "8", y1: "7", x2: "16", y2: "7" }), /* @__PURE__ */ React.createElement("line", { x1: "8", y1: "11", x2: "16", y2: "11" }), /* @__PURE__ */ React.createElement("line", { x1: "8", y1: "15", x2: "13", y2: "15" })) }
     ];
     const SUGGESTIONS = [
       "How is my district tracking vs target this week?",
@@ -33302,9 +33303,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const activeIdx = NAV_ITEMS.findIndex((n) => n.id === activeTab);
       const safeIdx = activeIdx >= 0 ? activeIdx : 0;
       const activeColor = NAV_ITEMS[safeIdx]?.color || O2;
-      const circleLeft = `calc(${(safeIdx + 0.5) * (100 / 6)}% - 27px)`;
+      const circleLeft = `calc(${(safeIdx + 0.5) * (100 / 7)}% - 27px)`;
       const spring = "0.38s cubic-bezier(0.34, 1.4, 0.64, 1)";
-      return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", width: "calc(100% - 24px)", maxWidth: 460, zIndex: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", width: 54, height: 54, borderRadius: "50%", background: `linear-gradient(135deg, ${activeColor}, ${activeColor}bb)`, top: -36, left: circleLeft, transition: `left ${spring}, background 0.25s ease`, zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 6px 24px ${activeColor}88`, color: "#fff", pointerEvents: "none" } }, /* @__PURE__ */ React.createElement("span", { style: { transform: "scale(1.2)", display: "flex" } }, NAV_ITEMS[safeIdx]?.icon)), /* @__PURE__ */ React.createElement("div", { style: { background: dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.22)", backdropFilter: "blur(40px) saturate(180%)", WebkitBackdropFilter: "blur(40px) saturate(180%)", border: `1px solid ${dark ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.6)"}`, borderRadius: 999, display: "grid", gridTemplateColumns: "repeat(6, 1fr)", height: 62, position: "relative", zIndex: 0, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.7)"}` } }, NAV_ITEMS.map((item) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", width: "calc(100% - 24px)", maxWidth: 460, zIndex: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", width: 54, height: 54, borderRadius: "50%", background: `linear-gradient(135deg, ${activeColor}, ${activeColor}bb)`, top: -36, left: circleLeft, transition: `left ${spring}, background 0.25s ease`, zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 6px 24px ${activeColor}88`, color: "#fff", pointerEvents: "none" } }, /* @__PURE__ */ React.createElement("span", { style: { transform: "scale(1.2)", display: "flex" } }, NAV_ITEMS[safeIdx]?.icon)), /* @__PURE__ */ React.createElement("div", { style: { background: dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.22)", backdropFilter: "blur(40px) saturate(180%)", WebkitBackdropFilter: "blur(40px) saturate(180%)", border: `1px solid ${dark ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.6)"}`, borderRadius: 999, display: "grid", gridTemplateColumns: "repeat(7, 1fr)", height: 62, position: "relative", zIndex: 0, boxShadow: `0 8px 40px rgba(0,0,0,0.15), inset 0 1px 0 ${dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.7)"}` } }, NAV_ITEMS.map((item) => {
         const isActive = item.id === activeTab;
         const handleClick = () => {
           if (item.id === "tickets" && onTickets) {
@@ -33313,6 +33314,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           }
           if (item.id === "tasks" && onTasks) {
             onTasks();
+            return;
+          }
+          if (item.id === "expenses" && onExpenses) {
+            onExpenses();
             return;
           }
           setActiveTab(item.id);
@@ -37686,6 +37691,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, onTasks: () => {
         togglePortalMode(true);
         setTab("tasks");
+      }, onExpenses: () => {
+        togglePortalMode(true);
+        setTab("expenses");
       }, todos, projects, users }));
     }
     return /* @__PURE__ */ React.createElement("div", { className: "dash-enter", style: { display: "flex", minHeight: "100vh", background: th.bg, color: th.text, transition: "background .3s, color .3s" } }, showTimeoutWarning && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: timeoutCountdown <= 5 ? "#ef4444" : "#FF671F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.5rem", boxShadow: "0 2px 12px rgba(0,0,0,0.25)", transition: "background .3s", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.625rem", fontFamily: "'Source Sans 3'", fontSize: "0.9375rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u23F1\uFE0F"), /* @__PURE__ */ React.createElement("span", null, "You've been inactive \u2014 logging out in"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.125rem", minWidth: "2rem" } }, timeoutCountdown, "s")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement(
