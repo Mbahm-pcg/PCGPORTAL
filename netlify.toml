@@ -52,6 +52,9 @@
 [functions.pulse-compare-cron]
   schedule = "*/30 * * * *"
 
+[functions.system-health-cron]
+  schedule = "*/30 * * * *"
+
 # Daily reports backup — 11:59 PM ET (4:59 AM UTC). Keeps 7 days of rolling backups.
 [functions.reports-backup]
   schedule = "59 4 * * *"
