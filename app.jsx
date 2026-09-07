@@ -15099,6 +15099,79 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
     );
   }), [pgalShareLoc]);
 
+  const PGAL_SESSION_LIMIT = 20;
+  const [pgalPhotos, setPgalPhotos] = React.useState([]);
+  const [pgalPhotosLoading, setPgalPhotosLoading] = React.useState(false);
+  const [pgalSessionCount, setPgalSessionCount] = React.useState(0);
+  const [pgalCapturing, setPgalCapturing] = React.useState(false);
+  const [pgalError, setPgalError] = React.useState('');
+
+  const pgalLoadPhotos = React.useCallback(() => {
+    if (!selectedProject) return;
+    setPgalPhotosLoading(true);
+    fetch('/.netlify/functions/project-photos', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'list', projectId: selectedProject.id }),
+    })
+      .then(r => r.json())
+      .then(j => { if (j?.ok) setPgalPhotos(j.photos || []); })
+      .catch(() => {})
+      .finally(() => setPgalPhotosLoading(false));
+  }, [selectedProject]);
+
+  React.useEffect(() => { if (pgalStep !== 'setup') pgalLoadPhotos(); }, [pgalStep, pgalLoadPhotos]);
+
+  // Compress to documentation quality (1600px/0.75) — mirrors DailyReportSection's
+  // compressImage (app.jsx, search "maxWidth = 1600, quality = 0.7"), not the much
+  // lossier compressImageToBase64 used for receipt/ticket thumbnails.
+  const pgalCompressPhoto = (file, maxWidth = 1600, quality = 0.75) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale; canvas.height = img.height * scale;
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const pgalHandleCapture = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow capturing the same shot again immediately
+    if (!file) return;
+    setPgalError('');
+    setPgalCapturing(true);
+    try {
+      const dataUrl = await pgalCompressPhoto(file);
+      const loc = await pgalGetLocation();
+      const res = await fetch('/.netlify/functions/project-photos', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          action: 'create',
+          projectId: selectedProject.id,
+          projectNickname: selectedProject.nickname || selectedProject.address,
+          lat: loc?.lat ?? null,
+          lng: loc?.lng ?? null,
+          imageBase64: dataUrl,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.ok) { setPgalError(j?.error || 'Could not save this photo — please try again.'); return; }
+      setPgalPhotos(prev => [j.photo, ...prev]);
+      setPgalSessionCount(n => n + 1);
+    } catch { setPgalError('Network error — please try again.'); }
+    setPgalCapturing(false);
+  };
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
       {pgalStep === 'setup' && (
@@ -15125,6 +15198,27 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
             style={{ ...btn(th, { background: '#FF671F' }), opacity: selectedProject ? 1 : 0.5 }}>
             Continue
           </button>
+        </div>
+      )}
+      {pgalStep === 'capture' && selectedProject && (
+        <div style={{ ...card(th), padding: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.8rem' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>{selectedProject.nickname || selectedProject.address}</div>
+            <div style={{ fontSize: '0.8rem', color: th.muted }}>{pgalSessionCount} / {PGAL_SESSION_LIMIT} this visit</div>
+          </div>
+          {pgalError && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginBottom: '0.6rem' }}>{pgalError}</div>}
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <label style={{ ...btn(th, { background: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.card2 : '#FF671F', color: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.muted : '#fff' }), cursor: pgalSessionCount >= PGAL_SESSION_LIMIT ? 'default' : 'pointer' }}>
+              {pgalCapturing ? 'Saving…' : pgalSessionCount >= PGAL_SESSION_LIMIT ? `Limit reached (${PGAL_SESSION_LIMIT}/${PGAL_SESSION_LIMIT})` : '📷 Take Photo'}
+              <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} disabled={pgalCapturing || pgalSessionCount >= PGAL_SESSION_LIMIT} onChange={pgalHandleCapture} />
+            </label>
+            <button onClick={() => setPgalStep('gallery')} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Done — view gallery</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '0.5rem' }}>
+            {pgalPhotosLoading ? <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading…</div> : pgalPhotos.map(p => (
+              <ProjectPhotoThumb key={p.id} imageKey={p.imageKey} size={90} />
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -18653,6 +18747,16 @@ function ReceiptThumb({ receiptKey, size = 48, expandable = true }) {
       )}
     </>
   );
+}
+
+function ProjectPhotoThumb({ imageKey, size = 90, onClick }) {
+  const [src, setSrc] = React.useState(null);
+  React.useEffect(() => {
+    if (!imageKey) return;
+    cloudLoad(imageKey).then(data => { if (data?.base64) setSrc(data.base64); }).catch(() => {});
+  }, [imageKey]);
+  if (!src) return <div style={{ width: size, height: size, borderRadius: 8, background: '#00000011' }} />;
+  return <img src={src} alt="" onClick={onClick} style={{ width: size, height: size, objectFit: 'cover', borderRadius: 8, cursor: onClick ? 'pointer' : 'default', border: '1px solid rgba(0,0,0,0.1)' }} />;
 }
 
 // Compress an image File to a base64 JPEG data-URL (max 600px, quality 0.72)
@@ -26843,7 +26947,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.62";
+const APP_VERSION = "v20.63";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

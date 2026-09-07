@@ -13594,6 +13594,80 @@ ${t2.slice(0, 300)}`);
         PGAL_GEO_OPTS
       );
     }), [pgalShareLoc]);
+    const PGAL_SESSION_LIMIT = 20;
+    const [pgalPhotos, setPgalPhotos] = React.useState([]);
+    const [pgalPhotosLoading, setPgalPhotosLoading] = React.useState(false);
+    const [pgalSessionCount, setPgalSessionCount] = React.useState(0);
+    const [pgalCapturing, setPgalCapturing] = React.useState(false);
+    const [pgalError, setPgalError] = React.useState("");
+    const pgalLoadPhotos = React.useCallback(() => {
+      if (!selectedProject) return;
+      setPgalPhotosLoading(true);
+      fetch("/.netlify/functions/project-photos", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "list", projectId: selectedProject.id })
+      }).then((r) => r.json()).then((j) => {
+        if (j?.ok) setPgalPhotos(j.photos || []);
+      }).catch(() => {
+      }).finally(() => setPgalPhotosLoading(false));
+    }, [selectedProject]);
+    React.useEffect(() => {
+      if (pgalStep !== "setup") pgalLoadPhotos();
+    }, [pgalStep, pgalLoadPhotos]);
+    const pgalCompressPhoto = (file, maxWidth = 1600, quality = 0.75) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxWidth / img.width);
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = reject;
+        img.src = ev.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const pgalHandleCapture = async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      setPgalError("");
+      setPgalCapturing(true);
+      try {
+        const dataUrl = await pgalCompressPhoto(file);
+        const loc = await pgalGetLocation();
+        const res = await fetch("/.netlify/functions/project-photos", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({
+            action: "create",
+            projectId: selectedProject.id,
+            projectNickname: selectedProject.nickname || selectedProject.address,
+            lat: loc?.lat ?? null,
+            lng: loc?.lng ?? null,
+            imageBase64: dataUrl
+          })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.ok) {
+          setPgalError(j?.error || "Could not save this photo \u2014 please try again.");
+          return;
+        }
+        setPgalPhotos((prev) => [j.photo, ...prev]);
+        setPgalSessionCount((n) => n + 1);
+      } catch {
+        setPgalError("Network error \u2014 please try again.");
+      }
+      setPgalCapturing(false);
+    };
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto" } }, pgalStep === "setup" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.8rem" } }, "Start a site visit"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.4rem" } }, "Project"), /* @__PURE__ */ React.createElement("select", { value: pgalSelectedProjectId, onChange: (e) => setPgalSelectedProjectId(e.target.value), style: { ...inp(th), width: "100%" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a project\u2026"), (projects || []).map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.nickname || p.address)))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", padding: "0.75rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Share your GPS location with these photos? (optional)"), pgalLocDenied && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#dc2626", marginBottom: "0.4rem" } }, "Location is blocked in your browser settings \u2014 you can still continue without it."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: pgalEnableLocation, style: { ...btn(th, { background: pgalShareLoc ? "#1B8F5C" : th.card2, color: pgalShareLoc ? "#fff" : th.text }), fontSize: "0.78rem" } }, pgalShareLoc ? "\u2713 Sharing location" : "Share location"), pgalShareLoc && /* @__PURE__ */ React.createElement("button", { onClick: pgalDisableLocation, style: { ...btn(th, { background: "transparent", color: th.muted }), fontSize: "0.78rem" } }, "Don't share"))), /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -13602,7 +13676,7 @@ ${t2.slice(0, 300)}`);
         style: { ...btn(th, { background: "#FF671F" }), opacity: selectedProject ? 1 : 0.5 }
       },
       "Continue"
-    )));
+    )), pgalStep === "capture" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, pgalSessionCount, " / ", PGAL_SESSION_LIMIT, " this visit")), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.card2 : "#FF671F", color: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.muted : "#fff" }), cursor: pgalSessionCount >= PGAL_SESSION_LIMIT ? "default" : "pointer" } }, pgalCapturing ? "Saving\u2026" : pgalSessionCount >= PGAL_SESSION_LIMIT ? `Limit reached (${PGAL_SESSION_LIMIT}/${PGAL_SESSION_LIMIT})` : "\u{1F4F7} Take Photo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, disabled: pgalCapturing || pgalSessionCount >= PGAL_SESSION_LIMIT, onChange: pgalHandleCapture })), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("gallery"), style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Done \u2014 view gallery")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: "0.5rem" } }, pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.map((p) => /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { key: p.id, imageKey: p.imageKey, size: 90 })))));
   }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
@@ -15961,6 +16035,18 @@ ${t2.slice(0, 300)}`);
     if (loading) return /* @__PURE__ */ React.createElement("span", { style: { width: size, height: size, borderRadius: 6, background: "#f59e0b22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", color: "#f59e0b" } }, "...");
     if (!src) return /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, borderRadius: 6, background: "#ef444422", fontSize: "0.6rem", color: "#ef4444" } }, "\u2717");
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("img", { onClick: () => expandable && setExpanded(true), src, alt: "Receipt", style: { width: size, height: size, objectFit: "cover", borderRadius: 6, border: "1px solid rgba(0,0,0,0.15)", cursor: expandable ? "zoom-in" : "default", flexShrink: 0 } }), expanded && /* @__PURE__ */ React.createElement("div", { onClick: () => setExpanded(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out", padding: "1.5rem" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "Receipt", style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" } })));
+  }
+  function ProjectPhotoThumb({ imageKey, size = 90, onClick }) {
+    const [src, setSrc] = React.useState(null);
+    React.useEffect(() => {
+      if (!imageKey) return;
+      cloudLoad(imageKey).then((data) => {
+        if (data?.base64) setSrc(data.base64);
+      }).catch(() => {
+      });
+    }, [imageKey]);
+    if (!src) return /* @__PURE__ */ React.createElement("div", { style: { width: size, height: size, borderRadius: 8, background: "#00000011" } });
+    return /* @__PURE__ */ React.createElement("img", { src, alt: "", onClick, style: { width: size, height: size, objectFit: "cover", borderRadius: 8, cursor: onClick ? "pointer" : "default", border: "1px solid rgba(0,0,0,0.1)" } });
   }
   async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
     return new Promise((resolve, reject) => {
@@ -21789,7 +21875,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.62";
+  var APP_VERSION = "v20.63";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
