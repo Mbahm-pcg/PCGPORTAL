@@ -15494,11 +15494,48 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
     setPgalOpenPhotoId(null);
   };
 
+  // "Recent projects" — a per-device visit history so the setup screen isn't
+  // just a bare dropdown. Recorded locally (not synced across devices) the
+  // moment someone actually starts a visit, not on every dropdown change.
+  const PGAL_RECENT_KEY = 'pcg_gallery_recent_v1';
+  const pgalRecordVisit = (projectId) => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(PGAL_RECENT_KEY) || '{}');
+      raw[projectId] = new Date().toISOString();
+      localStorage.setItem(PGAL_RECENT_KEY, JSON.stringify(raw));
+    } catch {}
+  };
+  const pgalRecentProjects = React.useMemo(() => {
+    let visits = {};
+    try { visits = JSON.parse(localStorage.getItem(PGAL_RECENT_KEY) || '{}'); } catch {}
+    return (projects || [])
+      .filter(p => visits[p.id])
+      .sort((a, b) => (visits[b.id] || '').localeCompare(visits[a.id] || ''))
+      .slice(0, 4)
+      .map(p => ({ project: p, lastVisit: visits[p.id] }));
+  }, [projects, pgalStep]); // re-derive when returning to setup so a fresh visit shows up
+
+  const pgalOpenRecentProject = (projectId) => {
+    setPgalSelectedProjectId(projectId);
+    pgalRecordVisit(projectId);
+    setPgalStep('gallery');
+  };
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
       {pgalStep === 'setup' && (
-        <div style={{ ...card(th), padding: '1.25rem' }}>
-          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, marginBottom: '0.8rem' }}>Start a site visit</div>
+        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1.1rem' }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: '#FF671F1e', color: '#FF671F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>Start a site visit</div>
+              <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.15rem' }}>Select a project to begin a new site visit and update photos and notes.</div>
+            </div>
+          </div>
           <div style={{ marginBottom: '1rem' }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', marginBottom: '0.4rem' }}>Project</div>
             <select value={pgalSelectedProjectId} onChange={e => setPgalSelectedProjectId(e.target.value)} style={{ ...inp(th), width: '100%' }}>
@@ -15527,10 +15564,39 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
               </div>
             )}
           </div>
-          <button onClick={() => selectedProject && setPgalStep('capture')} disabled={!selectedProject}
+          <button onClick={() => { if (selectedProject) { pgalRecordVisit(selectedProject.id); setPgalStep('capture'); } }} disabled={!selectedProject}
             style={{ ...btn(th, { background: '#FF671F' }), opacity: selectedProject ? 1 : 0.5 }}>
-            Continue
+            Continue →
           </button>
+        </div>
+      )}
+      {pgalStep === 'setup' && pgalRecentProjects.length > 0 && (
+        <div style={{ ...card(th), padding: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1rem' }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: '#3b82f61e', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>Recent projects</div>
+              <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.15rem' }}>Quickly jump back into a project you've visited recently.</div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+            {pgalRecentProjects.map(({ project: p, lastVisit }) => {
+              const phase = getCurrentPhase(p);
+              return (
+                <div key={p.id} style={{ border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '0.85rem' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: th.text, marginBottom: '0.2rem' }}>{p.nickname || p.address}</div>
+                  <div style={{ fontSize: '0.72rem', color: th.muted, marginBottom: '0.5rem' }}>{[p.city, p.state].filter(Boolean).join(', ') || p.address}</div>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: phase.color + '1e', color: phase.color }}>{phase.label}</span>
+                  <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.5rem', marginBottom: '0.6rem' }}>Last visit: {new Date(lastVisit).toLocaleDateString()}</div>
+                  <button onClick={() => pgalOpenRecentProject(p.id)} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.75rem', width: '100%' }}>View gallery →</button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
       {pgalStep === 'capture' && selectedProject && (
@@ -27322,7 +27388,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.71";
+const APP_VERSION = "v20.72";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
