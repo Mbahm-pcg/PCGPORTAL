@@ -60,21 +60,35 @@ export default async (request) => {
   const nowMs = Date.now();
   const store = healthStore();
 
+  // Only monitor operational stores. A non-operational store (Temp Closed / Remodel /
+  // Coming Soon) stops receiving fresh writes but keeps its old blobs, so it would be
+  // falsely flagged STALE/DOWN. Read current statuses from pcg_stores_v1 (written by the
+  // portal's Locations editor) and whitelist status === 'Open'. If the blob is missing,
+  // openPcs stays null → no filtering (fail-open: better to over-report than silently hide
+  // a real store's staleness).
+  let openPcs = null;
+  try {
+    const raw = await store.get('pcg_stores_v1', { type: 'json' });
+    const list = (raw && raw.data) ? raw.data : null;
+    if (Array.isArray(list)) openPcs = new Set(list.filter(s => s && s.status === 'Open').map(s => String(s.pc)));
+  } catch { openPcs = null; }
+  const keepOpen = (pcs) => (openPcs ? pcs.filter(pc => openPcs.has(pc)) : pcs);
+
   // Discover active store pcs from the per-store labor blobs (no hardcoded list).
   let activePcs = [];
   try {
     const { blobs } = await store.list({ prefix: 'pcg_labor_store_' });
-    activePcs = blobs.map(b => b.key.replace('pcg_labor_store_', ''));
+    activePcs = keepOpen(blobs.map(b => b.key.replace('pcg_labor_store_', '')));
   } catch { activePcs = []; }
 
-  // Scope each per-store feed to the stores that actually have THAT feed's blob
-  // (e.g. closed/excluded stores have no P&L blob and would otherwise be flagged STALE).
+  // Scope each per-store feed to the operational stores that actually have THAT feed's blob
+  // (closed/remodel/coming-soon stores, and stores with no P&L blob, are excluded).
   const activePcsByKey = {};
   for (const f of FEEDS) {
     if (!f.perStore) continue;
     try {
       const { blobs } = await store.list({ prefix: f.blobKey });
-      activePcsByKey[f.key] = blobs.map(b => b.key.slice(f.blobKey.length));
+      activePcsByKey[f.key] = keepOpen(blobs.map(b => b.key.slice(f.blobKey.length)));
     } catch { activePcsByKey[f.key] = []; }
   }
 

@@ -48,17 +48,28 @@ export default async (request) => {
 
   // action === 'refresh' → live recompute.
   const nowMs = Date.now();
-  let activePcs = [];
-  try { const { blobs } = await store.list({ prefix: 'pcg_labor_store_' }); activePcs = blobs.map(b => b.key.replace('pcg_labor_store_', '')); } catch {}
 
-  // Scope each per-store feed to the stores that actually have THAT feed's blob
-  // (e.g. closed/excluded stores have no P&L blob and would otherwise be flagged STALE).
+  // Only monitor operational stores (status === 'Open' in pcg_stores_v1). Non-operational
+  // stores (Temp Closed / Remodel / Coming Soon) keep stale blobs and would be falsely
+  // flagged. Missing blob → openPcs null → no filtering (fail-open). Mirrors the cron.
+  let openPcs = null;
+  try {
+    const raw = await store.get('pcg_stores_v1', { type: 'json' });
+    const list = (raw && raw.data) ? raw.data : null;
+    if (Array.isArray(list)) openPcs = new Set(list.filter(s => s && s.status === 'Open').map(s => String(s.pc)));
+  } catch { openPcs = null; }
+  const keepOpen = (pcs) => (openPcs ? pcs.filter(pc => openPcs.has(pc)) : pcs);
+
+  let activePcs = [];
+  try { const { blobs } = await store.list({ prefix: 'pcg_labor_store_' }); activePcs = keepOpen(blobs.map(b => b.key.replace('pcg_labor_store_', ''))); } catch {}
+
+  // Scope each per-store feed to the operational stores that actually have THAT feed's blob.
   const activePcsByKey = {};
   for (const f of FEEDS) {
     if (!f.perStore) continue;
     try {
       const { blobs } = await store.list({ prefix: f.blobKey });
-      activePcsByKey[f.key] = blobs.map(b => b.key.slice(f.blobKey.length));
+      activePcsByKey[f.key] = keepOpen(blobs.map(b => b.key.slice(f.blobKey.length)));
     } catch { activePcsByKey[f.key] = []; }
   }
 
