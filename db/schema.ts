@@ -1,4 +1,4 @@
-import { integer, pgTable, varchar, text, boolean, timestamp, real, jsonb, serial, bigint, primaryKey, numeric } from "drizzle-orm/pg-core";
+import { integer, pgTable, varchar, text, boolean, timestamp, real, jsonb, serial, bigint, primaryKey, numeric, doublePrecision } from "drizzle-orm/pg-core";
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
@@ -151,6 +151,27 @@ export const businessExpenses = pgTable("business_expenses", {
   amount: numeric("amount").notNull(),
   note: text("note"),
   receiptKey: text("receipt_key"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ── Project Photo Gallery (LIVE) ──────────────────────────────────────────────
+// Backs the "Project Gallery" tab (netlify/functions/project-photos.mjs),
+// construction/executive/it only. project-photos.mjs self-creates this table
+// via CREATE TABLE IF NOT EXISTS; this block documents the schema for
+// drizzle/tooling only.
+export const projectPhotos = pgTable("project_photos", {
+  id: text("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  projectNickname: text("project_nickname"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  takenByUserId: integer("taken_by_user_id").notNull(),
+  takenByName: text("taken_by_name").notNull(),
+  userType: text("user_type").notNull(),
+  imageKey: text("image_key").notNull(),
+  annotations: jsonb("annotations").notNull().default([]),
+  source: text("source").notNull().default("capture"),
+  sourceRef: text("source_ref"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
