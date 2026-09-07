@@ -15048,6 +15048,116 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
   );
 }
 
+const PGAL_SHAPE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#22c55e'];
+
+function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
+  const [src, setSrc] = React.useState(null);
+  const [naturalSize, setNaturalSize] = React.useState({ w: 1, h: 1 });
+  const [shapes, setShapes] = React.useState(photo.annotations || []);
+  const [tool, setTool] = React.useState('line'); // 'line' | 'circle'
+  const [color, setColor] = React.useState(PGAL_SHAPE_COLORS[0]);
+  const [draft, setDraft] = React.useState(null); // in-progress shape while dragging
+  const [saving, setSaving] = React.useState(false);
+  const dragStart = React.useRef(null);
+  const svgRef = React.useRef(null);
+
+  React.useEffect(() => {
+    cloudLoad(photo.imageKey).then(data => { if (data?.base64) setSrc(data.base64); }).catch(() => {});
+  }, [photo.imageKey]);
+
+  const fractionFromEvent = (e) => {
+    const rect = svgRef.current.getBoundingClientRect();
+    return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+  };
+
+  const handlePointerDown = (e) => {
+    e.target.setPointerCapture?.(e.pointerId);
+    dragStart.current = fractionFromEvent(e);
+  };
+  const handlePointerMove = (e) => {
+    if (!dragStart.current) return;
+    const cur = fractionFromEvent(e);
+    const s = dragStart.current;
+    if (tool === 'line') setDraft({ id: 'draft', type: 'line', x1: s.x, y1: s.y, x2: cur.x, y2: cur.y, color });
+    else setDraft({ id: 'draft', type: 'circle', cx: (s.x + cur.x) / 2, cy: (s.y + cur.y) / 2, rx: Math.abs(cur.x - s.x) / 2, ry: Math.abs(cur.y - s.y) / 2, color });
+  };
+  const handlePointerUp = () => {
+    if (draft) {
+      // Reject a degenerate shape (a tap with no real drag) rather than saving
+      // a zero-size circle/line that would fail isValidShape's rx/ry>0 check
+      // server-side and silently vanish on the next load.
+      const tooSmall = draft.type === 'circle' ? (draft.rx < 0.01 || draft.ry < 0.01) : (Math.abs(draft.x2 - draft.x1) < 0.01 && Math.abs(draft.y2 - draft.y1) < 0.01);
+      if (!tooSmall) setShapes(prev => [...prev, { ...draft, id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` }]);
+    }
+    dragStart.current = null;
+    setDraft(null);
+  };
+
+  const removeShape = (id) => setShapes(prev => prev.filter(s => s.id !== id));
+  const undoLast = () => setShapes(prev => prev.slice(0, -1));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await fetch('/.netlify/functions/project-photos', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'saveAnnotations', id: photo.id, annotations: shapes }),
+      });
+      onSaved && onSaved();
+    } catch {}
+    setSaving(false);
+  };
+
+  const renderShape = (s, i) => {
+    const W = 1000, H = 1000 * (naturalSize.h / naturalSize.w); // any fixed ratio works since viewBox is unitless-consistent
+    if (s.type === 'line') return <line key={s.id || i} x1={s.x1 * W} y1={s.y1 * H} x2={s.x2 * W} y2={s.y2 * H} stroke={s.color} strokeWidth={4} strokeLinecap="round" />;
+    return <ellipse key={s.id || i} cx={s.cx * W} cy={s.cy * H} rx={s.rx * W} ry={s.ry * H} fill="none" stroke={s.color} strokeWidth={4} />;
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', flexDirection: 'column', padding: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <button onClick={() => setTool('line')} style={{ ...btn(th, { background: tool === 'line' ? '#FF671F' : th.card2, color: tool === 'line' ? '#fff' : th.text }) }}>Line</button>
+          <button onClick={() => setTool('circle')} style={{ ...btn(th, { background: tool === 'circle' ? '#FF671F' : th.card2, color: tool === 'circle' ? '#fff' : th.text }) }}>Circle</button>
+          {PGAL_SHAPE_COLORS.map(c => (
+            <button key={c} onClick={() => setColor(c)} style={{ width: 28, height: 28, borderRadius: '50%', background: c, border: color === c ? '3px solid #fff' : '1px solid #0003', cursor: 'pointer' }} />
+          ))}
+        </div>
+        <button onClick={onClose} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Close</button>
+      </div>
+      <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {src && (
+          <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%' }}>
+            <img src={src} alt="" onLoad={e => setNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
+            <svg ref={svgRef} viewBox={`0 0 1000 ${1000 * (naturalSize.h / naturalSize.w)}`} preserveAspectRatio="none"
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none' }}
+              onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
+              {shapes.map(renderShape)}
+              {draft && renderShape(draft, 'draft')}
+            </svg>
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          {shapes.map((s, i) => (
+            <span key={s.id || i} style={{ fontSize: '0.72rem', color: '#fff', background: '#ffffff22', borderRadius: 6, padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {s.type === 'line' ? 'Line' : 'Circle'} <span style={{ width: 10, height: 10, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
+              <button onClick={() => removeShape(s.id)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0 }}>✕</button>
+            </span>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button onClick={undoLast} disabled={!shapes.length} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Undo</button>
+          <button onClick={save} disabled={saving} style={{ ...btn(th, { background: '#1B8F5C' }), opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Save'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Project Gallery: site-photo documentation (GPS + drawable annotations) ────
 function ProjectGalleryTab({ user, th, projects, dailyReports }) {
   const [pgalStep, setPgalStep] = React.useState('setup'); // 'setup' | 'capture' | 'gallery'
@@ -15299,6 +15409,18 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
           )}
         </div>
       )}
+      {pgalOpenPhotoId && (() => {
+        const photo = pgalPhotos.find(p => p.id === pgalOpenPhotoId);
+        if (!photo) return null;
+        return (
+          <ProjectPhotoAnnotator
+            photo={photo}
+            th={th}
+            onClose={() => setPgalOpenPhotoId(null)}
+            onSaved={() => { setPgalOpenPhotoId(null); pgalLoadPhotos(); }}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -27025,7 +27147,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.64";
+const APP_VERSION = "v20.65";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

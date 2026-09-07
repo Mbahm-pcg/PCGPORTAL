@@ -13513,6 +13513,82 @@ ${t2.slice(0, 300)}`);
       }, style: { background: "none", border: "none", color: "#ff4444", cursor: "pointer", fontSize: "0.875rem", padding: "0.25rem" } }, "\u{1F5D1}"))
     ))));
   }
+  var PGAL_SHAPE_COLORS = ["#ef4444", "#f59e0b", "#3b82f6", "#22c55e"];
+  function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
+    const [src, setSrc] = React.useState(null);
+    const [naturalSize, setNaturalSize] = React.useState({ w: 1, h: 1 });
+    const [shapes, setShapes] = React.useState(photo.annotations || []);
+    const [tool, setTool] = React.useState("line");
+    const [color, setColor] = React.useState(PGAL_SHAPE_COLORS[0]);
+    const [draft, setDraft] = React.useState(null);
+    const [saving, setSaving] = React.useState(false);
+    const dragStart = React.useRef(null);
+    const svgRef = React.useRef(null);
+    React.useEffect(() => {
+      cloudLoad(photo.imageKey).then((data) => {
+        if (data?.base64) setSrc(data.base64);
+      }).catch(() => {
+      });
+    }, [photo.imageKey]);
+    const fractionFromEvent = (e) => {
+      const rect = svgRef.current.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+    };
+    const handlePointerDown = (e) => {
+      e.target.setPointerCapture?.(e.pointerId);
+      dragStart.current = fractionFromEvent(e);
+    };
+    const handlePointerMove = (e) => {
+      if (!dragStart.current) return;
+      const cur = fractionFromEvent(e);
+      const s = dragStart.current;
+      if (tool === "line") setDraft({ id: "draft", type: "line", x1: s.x, y1: s.y, x2: cur.x, y2: cur.y, color });
+      else setDraft({ id: "draft", type: "circle", cx: (s.x + cur.x) / 2, cy: (s.y + cur.y) / 2, rx: Math.abs(cur.x - s.x) / 2, ry: Math.abs(cur.y - s.y) / 2, color });
+    };
+    const handlePointerUp = () => {
+      if (draft) {
+        const tooSmall = draft.type === "circle" ? draft.rx < 0.01 || draft.ry < 0.01 : Math.abs(draft.x2 - draft.x1) < 0.01 && Math.abs(draft.y2 - draft.y1) < 0.01;
+        if (!tooSmall) setShapes((prev) => [...prev, { ...draft, id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` }]);
+      }
+      dragStart.current = null;
+      setDraft(null);
+    };
+    const removeShape = (id) => setShapes((prev) => prev.filter((s) => s.id !== id));
+    const undoLast = () => setShapes((prev) => prev.slice(0, -1));
+    const save = async () => {
+      setSaving(true);
+      try {
+        await fetch("/.netlify/functions/project-photos", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "saveAnnotations", id: photo.id, annotations: shapes })
+        });
+        onSaved && onSaved();
+      } catch {
+      }
+      setSaving(false);
+    };
+    const renderShape = (s, i) => {
+      const W2 = 1e3, H = 1e3 * (naturalSize.h / naturalSize.w);
+      if (s.type === "line") return /* @__PURE__ */ React.createElement("line", { key: s.id || i, x1: s.x1 * W2, y1: s.y1 * H, x2: s.x2 * W2, y2: s.y2 * H, stroke: s.color, strokeWidth: 4, strokeLinecap: "round" });
+      return /* @__PURE__ */ React.createElement("ellipse", { key: s.id || i, cx: s.cx * W2, cy: s.cy * H, rx: s.rx * W2, ry: s.ry * H, fill: "none", stroke: s.color, strokeWidth: 4 });
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", flexDirection: "column", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTool("line"), style: { ...btn(th, { background: tool === "line" ? "#FF671F" : th.card2, color: tool === "line" ? "#fff" : th.text }) } }, "Line"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTool("circle"), style: { ...btn(th, { background: tool === "circle" ? "#FF671F" : th.card2, color: tool === "circle" ? "#fff" : th.text }) } }, "Circle"), PGAL_SHAPE_COLORS.map((c) => /* @__PURE__ */ React.createElement("button", { key: c, onClick: () => setColor(c), style: { width: 28, height: 28, borderRadius: "50%", background: c, border: color === c ? "3px solid #fff" : "1px solid #0003", cursor: "pointer" } }))), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Close")), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } }, src && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", maxWidth: "100%", maxHeight: "100%" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "", onLoad: (e) => setNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight }), style: { maxWidth: "100%", maxHeight: "80vh", display: "block" } }), /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        ref: svgRef,
+        viewBox: `0 0 1000 ${1e3 * (naturalSize.h / naturalSize.w)}`,
+        preserveAspectRatio: "none",
+        style: { position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none" },
+        onPointerDown: handlePointerDown,
+        onPointerMove: handlePointerMove,
+        onPointerUp: handlePointerUp
+      },
+      shapes.map(renderShape),
+      draft && renderShape(draft, "draft")
+    ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, shapes.map((s, i) => /* @__PURE__ */ React.createElement("span", { key: s.id || i, style: { fontSize: "0.72rem", color: "#fff", background: "#ffffff22", borderRadius: 6, padding: "2px 6px", display: "flex", alignItems: "center", gap: 4 } }, s.type === "line" ? "Line" : "Circle", " ", /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: s.color, display: "inline-block" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => removeShape(s.id), style: { background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 0 } }, "\u2715")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: undoLast, disabled: !shapes.length, style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Undo"), /* @__PURE__ */ React.createElement("button", { onClick: save, disabled: saving, style: { ...btn(th, { background: "#1B8F5C" }), opacity: saving ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Save"))));
+  }
   function ProjectGalleryTab({ user, th, projects, dailyReports }) {
     const [pgalStep, setPgalStep] = React.useState("setup");
     const [pgalSelectedProjectId, setPgalSelectedProjectId] = React.useState("");
@@ -13728,7 +13804,22 @@ ${t2.slice(0, 300)}`);
         style: { ...btn(th, { background: "#FF671F" }), opacity: selectedProject ? 1 : 0.5 }
       },
       "Continue"
-    )), pgalStep === "capture" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, pgalSessionCount, " / ", PGAL_SESSION_LIMIT, " this visit")), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.card2 : "#FF671F", color: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.muted : "#fff" }), cursor: pgalSessionCount >= PGAL_SESSION_LIMIT ? "default" : "pointer" } }, pgalCapturing ? "Saving\u2026" : pgalSessionCount >= PGAL_SESSION_LIMIT ? `Limit reached (${PGAL_SESSION_LIMIT}/${PGAL_SESSION_LIMIT})` : "\u{1F4F7} Take Photo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, disabled: pgalCapturing || pgalSessionCount >= PGAL_SESSION_LIMIT, onChange: pgalHandleCapture })), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("gallery"), style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Done \u2014 view gallery")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: "0.5rem" } }, pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.map((p) => /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { key: p.id, imageKey: p.imageKey, size: 90 })))), pgalStep === "gallery" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address, " \u2014 Gallery"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("capture"), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "+ Take more photos"), isExecOrIT && /* @__PURE__ */ React.createElement("button", { onClick: pgalRunMigration, disabled: pgalMigrating, style: { ...btn(th, { background: "#7c3aed" }), fontSize: "0.78rem", opacity: pgalMigrating ? 0.6 : 1 } }, pgalMigrating ? "Importing\u2026" : "Import from Daily Reports"))), pgalMigrateResult && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, pgalMigrateResult.imported, " imported, ", pgalMigrateResult.skipped, " already present."), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No photos yet for this project.") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "0.75rem" } }, pgalPhotos.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: { position: "relative" } }, /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { imageKey: p.imageKey, size: 120, onClick: () => setPgalOpenPhotoId(p.id) }), p.source === "migrated" && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, left: 4, fontSize: "0.6rem", fontWeight: 700, background: "#7c3aed", color: "#fff", borderRadius: 4, padding: "1px 5px" } }, "Migrated"), /* @__PURE__ */ React.createElement("button", { onClick: () => pgalDeletePhoto(p.id), style: { position: "absolute", top: 4, right: 4, background: "#ef4444dd", border: "none", borderRadius: 4, color: "#fff", fontSize: "0.65rem", padding: "1px 5px", cursor: "pointer" } }, "\u2715"))))));
+    )), pgalStep === "capture" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, pgalSessionCount, " / ", PGAL_SESSION_LIMIT, " this visit")), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.card2 : "#FF671F", color: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.muted : "#fff" }), cursor: pgalSessionCount >= PGAL_SESSION_LIMIT ? "default" : "pointer" } }, pgalCapturing ? "Saving\u2026" : pgalSessionCount >= PGAL_SESSION_LIMIT ? `Limit reached (${PGAL_SESSION_LIMIT}/${PGAL_SESSION_LIMIT})` : "\u{1F4F7} Take Photo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, disabled: pgalCapturing || pgalSessionCount >= PGAL_SESSION_LIMIT, onChange: pgalHandleCapture })), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("gallery"), style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Done \u2014 view gallery")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: "0.5rem" } }, pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.map((p) => /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { key: p.id, imageKey: p.imageKey, size: 90 })))), pgalStep === "gallery" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address, " \u2014 Gallery"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("capture"), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "+ Take more photos"), isExecOrIT && /* @__PURE__ */ React.createElement("button", { onClick: pgalRunMigration, disabled: pgalMigrating, style: { ...btn(th, { background: "#7c3aed" }), fontSize: "0.78rem", opacity: pgalMigrating ? 0.6 : 1 } }, pgalMigrating ? "Importing\u2026" : "Import from Daily Reports"))), pgalMigrateResult && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, pgalMigrateResult.imported, " imported, ", pgalMigrateResult.skipped, " already present."), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No photos yet for this project.") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "0.75rem" } }, pgalPhotos.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: { position: "relative" } }, /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { imageKey: p.imageKey, size: 120, onClick: () => setPgalOpenPhotoId(p.id) }), p.source === "migrated" && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, left: 4, fontSize: "0.6rem", fontWeight: 700, background: "#7c3aed", color: "#fff", borderRadius: 4, padding: "1px 5px" } }, "Migrated"), /* @__PURE__ */ React.createElement("button", { onClick: () => pgalDeletePhoto(p.id), style: { position: "absolute", top: 4, right: 4, background: "#ef4444dd", border: "none", borderRadius: 4, color: "#fff", fontSize: "0.65rem", padding: "1px 5px", cursor: "pointer" } }, "\u2715"))))), pgalOpenPhotoId && (() => {
+      const photo = pgalPhotos.find((p) => p.id === pgalOpenPhotoId);
+      if (!photo) return null;
+      return /* @__PURE__ */ React.createElement(
+        ProjectPhotoAnnotator,
+        {
+          photo,
+          th,
+          onClose: () => setPgalOpenPhotoId(null),
+          onSaved: () => {
+            setPgalOpenPhotoId(null);
+            pgalLoadPhotos();
+          }
+        }
+      );
+    })());
   }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
@@ -21927,7 +22018,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.64";
+  var APP_VERSION = "v20.65";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
