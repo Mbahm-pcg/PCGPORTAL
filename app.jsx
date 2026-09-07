@@ -15105,6 +15105,10 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
   const [pgalSessionCount, setPgalSessionCount] = React.useState(0);
   const [pgalCapturing, setPgalCapturing] = React.useState(false);
   const [pgalError, setPgalError] = React.useState('');
+  const [pgalOpenPhotoId, setPgalOpenPhotoId] = React.useState(null);
+  const [pgalMigrating, setPgalMigrating] = React.useState(false);
+  const [pgalMigrateResult, setPgalMigrateResult] = React.useState(null);
+  const isExecOrIT = user?.userType === 'executive' || user?.userType === 'it';
 
   const pgalLoadPhotos = React.useCallback(() => {
     if (!selectedProject) return;
@@ -15172,6 +15176,48 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
     finally { setPgalCapturing(false); }
   };
 
+  const pgalDeletePhoto = async (id) => {
+    try {
+      await fetch('/.netlify/functions/project-photos', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'delete', id }),
+      });
+      pgalLoadPhotos();
+    } catch {}
+  };
+
+  const pgalRunMigration = async () => {
+    if (!selectedProject) return;
+    setPgalMigrating(true);
+    setPgalMigrateResult(null);
+    try {
+      const reportsForProject = (dailyReports || []).filter(r => r.projectId === selectedProject.id);
+      const photos = [];
+      reportsForProject.forEach(r => {
+        (r.workLogs || []).forEach((w, wi) => {
+          (w.photos || []).forEach((ph, pi) => {
+            photos.push({ sourceRef: `dr_${r.id}_${wi}_${pi}`, dataUrl: ph.data, name: ph.name, timestamp: ph.timestamp, addedBy: r.preparedBy || 'Daily Report' });
+          });
+        });
+      });
+      const res = await fetch('/.netlify/functions/project-photos', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          action: 'migrateFromDailyReports',
+          projectId: selectedProject.id,
+          projectNickname: selectedProject.nickname || selectedProject.address,
+          photos,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j?.ok) { setPgalMigrateResult(j); pgalLoadPhotos(); }
+      else setPgalError(j?.error || 'Import failed.');
+    } catch { setPgalError('Network error during import.'); }
+    setPgalMigrating(false);
+  };
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
       {pgalStep === 'setup' && (
@@ -15219,6 +15265,38 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
               <ProjectPhotoThumb key={p.id} imageKey={p.imageKey} size={90} />
             ))}
           </div>
+        </div>
+      )}
+      {pgalStep === 'gallery' && selectedProject && (
+        <div style={{ ...card(th), padding: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>{selectedProject.nickname || selectedProject.address} — Gallery</div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={() => setPgalStep('capture')} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem' }}>+ Take more photos</button>
+              {isExecOrIT && (
+                <button onClick={pgalRunMigration} disabled={pgalMigrating} style={{ ...btn(th, { background: '#7c3aed' }), fontSize: '0.78rem', opacity: pgalMigrating ? 0.6 : 1 }}>
+                  {pgalMigrating ? 'Importing…' : 'Import from Daily Reports'}
+                </button>
+              )}
+            </div>
+          </div>
+          {pgalMigrateResult && <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>{pgalMigrateResult.imported} imported, {pgalMigrateResult.skipped} already present.</div>}
+          {pgalError && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginBottom: '0.6rem' }}>{pgalError}</div>}
+          {pgalPhotosLoading ? (
+            <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading…</div>
+          ) : pgalPhotos.length === 0 ? (
+            <div style={{ fontSize: '0.8rem', color: th.muted }}>No photos yet for this project.</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.75rem' }}>
+              {pgalPhotos.map(p => (
+                <div key={p.id} style={{ position: 'relative' }}>
+                  <ProjectPhotoThumb imageKey={p.imageKey} size={120} onClick={() => setPgalOpenPhotoId(p.id)} />
+                  {p.source === 'migrated' && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '0.6rem', fontWeight: 700, background: '#7c3aed', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Migrated</span>}
+                  <button onClick={() => pgalDeletePhoto(p.id)} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444dd', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -26947,7 +27025,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.63";
+const APP_VERSION = "v20.64";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
