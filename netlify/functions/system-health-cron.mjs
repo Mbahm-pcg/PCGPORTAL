@@ -104,12 +104,14 @@ export default async (request) => {
 
   let alerted = 0;
   if (alertKeys.size) {
-    let pushIds = [], emails = [];
+    let pushIds = [], emails = [], recipientsOk = false;
     try {
       const db = sql();
       ({ pushIds, emails } = await recipients(db));
+      recipientsOk = true;
     } catch (e) {
-      // DB unavailable: skip notifications but never block the snapshot/alert-log writes below.
+      // DB unavailable: skip notifications AND leave the re-alert guard unarmed
+      // (below) so the next run re-attempts once the DB recovers.
     }
     for (const t of alertKeys.values()) {
       const feed = snapshot.feeds.find(f => f.key === t.key) || {};
@@ -117,11 +119,16 @@ export default async (request) => {
       const title = recovered ? `✅ System Health: ${feed.label} recovered` : `⚠️ System Health: ${feed.label} ${t.to}`;
       const detail = feed.error ? ` — ${feed.error}` : '';
       const body = recovered ? `${feed.label} is OK again.` : `${feed.label} is ${t.to}${detail}.`;
-      try { await sendPush(pushIds, title, body, 'system_health'); } catch {}
-      try { await sendEmail(emails, title, `<p>${body}</p><p>As of ${new Date(nowMs).toISOString()}.</p>`); } catch {}
-      log.lastAlerted[t.key] = recovered ? 0 : nowMs; // reset guard on recovery
-      log.events.unshift({ key: t.key, from: t.from, to: t.to, at: new Date(nowMs).toISOString() });
-      alerted++;
+      if (recipientsOk) {
+        try { await sendPush(pushIds, title, body, 'system_health'); } catch {}
+        try { await sendEmail(emails, title, `<p>${body}</p><p>As of ${new Date(nowMs).toISOString()}.</p>`); } catch {}
+        log.lastAlerted[t.key] = recovered ? 0 : nowMs; // arm guard only when recipients were reachable
+        log.events.unshift({ key: t.key, from: t.from, to: t.to, at: new Date(nowMs).toISOString(), delivered: true });
+        alerted++;
+      } else {
+        // Recipients unavailable: do NOT arm the guard, so the next run re-alerts. Record the miss.
+        log.events.unshift({ key: t.key, from: t.from, to: t.to, at: new Date(nowMs).toISOString(), delivered: false });
+      }
     }
     log.events = log.events.slice(0, 200);
   }
