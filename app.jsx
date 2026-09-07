@@ -18597,6 +18597,154 @@ async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
   });
 }
 
+// ── Business Expenses Tab (own-receipts submit + log; Task 4 adds admin section) ──
+const BIZ_EXPENSE_CATEGORIES = ['Gas', 'Food', 'Tools', 'Supplies', 'Repairs', 'Office', 'Other'];
+
+function ExpensesTab({ user, th, stores }) {
+  const isBizExpenseAdmin = user?.userType === 'executive' || user?.userType === 'it' || user?.userType === 'office_staff';
+  const defaultStorePc = React.useMemo(() => {
+    const s = (stores || []).find(s => String(s.pc) === String(user?.storePC));
+    return s ? s.pc : '';
+  }, [stores, user]);
+
+  const [bizExpenseCategory, setBizExpenseCategory] = React.useState(BIZ_EXPENSE_CATEGORIES[0]);
+  const [bizExpenseAmount, setBizExpenseAmount] = React.useState('');
+  const [bizExpenseStorePc, setBizExpenseStorePc] = React.useState(defaultStorePc);
+  const [bizExpenseNote, setBizExpenseNote] = React.useState('');
+  const [bizExpensePhoto, setBizExpensePhoto] = React.useState(null); // base64 data URL
+  const [bizExpensePhotoLoading, setBizExpensePhotoLoading] = React.useState(false);
+  const [bizExpenseSubmitting, setBizExpenseSubmitting] = React.useState(false);
+  const [bizExpenseError, setBizExpenseError] = React.useState('');
+
+  React.useEffect(() => { setBizExpenseStorePc(defaultStorePc); }, [defaultStorePc]);
+
+  const [bizExpenseMyRows, setBizExpenseMyRows] = React.useState([]);
+  const [bizExpenseMyLoading, setBizExpenseMyLoading] = React.useState(true);
+
+  const loadMyExpenses = React.useCallback(() => {
+    setBizExpenseMyLoading(true);
+    fetch('/.netlify/functions/expenses', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'list' }),
+    })
+      .then(r => r.json())
+      .then(j => { if (j?.ok) setBizExpenseMyRows(j.expenses || []); })
+      .catch(() => {})
+      .finally(() => setBizExpenseMyLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadMyExpenses(); }, [loadMyExpenses]);
+
+  const handleBizExpensePhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBizExpensePhotoLoading(true);
+    try {
+      const b64 = await compressImageToBase64(file);
+      setBizExpensePhoto(b64);
+    } catch { setBizExpenseError('Could not read that photo — please try again.'); }
+    setBizExpensePhotoLoading(false);
+  };
+
+  const submitBizExpense = async () => {
+    setBizExpenseError('');
+    const amt = Number(bizExpenseAmount);
+    if (!Number.isFinite(amt) || amt <= 0) { setBizExpenseError('Enter a valid amount.'); return; }
+    setBizExpenseSubmitting(true);
+    try {
+      const res = await fetch('/.netlify/functions/expenses', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          action: 'create',
+          category: bizExpenseCategory,
+          amount: amt,
+          storePc: bizExpenseStorePc || null,
+          note: bizExpenseNote || null,
+          receiptBase64: bizExpensePhoto || null,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.ok) { setBizExpenseError(j?.error || 'Could not save this receipt — please try again.'); return; }
+      setBizExpenseAmount(''); setBizExpenseNote(''); setBizExpensePhoto(null);
+      loadMyExpenses();
+    } catch { setBizExpenseError('Network error — please try again.'); }
+    setBizExpenseSubmitting(false);
+  };
+
+  const deleteBizExpense = async (id) => {
+    try {
+      await fetch('/.netlify/functions/expenses', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'delete', id }),
+      });
+      loadMyExpenses();
+    } catch {}
+  };
+
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+        <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, marginBottom: '0.8rem' }}>Log a receipt</div>
+        {bizExpenseError && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginBottom: '0.6rem' }}>{bizExpenseError}</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.6rem', marginBottom: '0.6rem' }}>
+          <select value={bizExpenseCategory} onChange={e => setBizExpenseCategory(e.target.value)} style={inp(th)}>
+            {BIZ_EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <input type="number" step="0.01" min="0" placeholder="Amount ($)" value={bizExpenseAmount}
+            onChange={e => setBizExpenseAmount(e.target.value)} style={inp(th)} />
+          <select value={bizExpenseStorePc} onChange={e => setBizExpenseStorePc(e.target.value)} style={inp(th)}>
+            <option value="">No store</option>
+            {(stores || []).map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
+          </select>
+        </div>
+        <input placeholder="Note (optional)" value={bizExpenseNote} onChange={e => setBizExpenseNote(e.target.value)}
+          style={{ ...inp(th), width: '100%', marginBottom: '0.6rem' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap' }}>
+          <label style={{ ...btn(th, { background: th.card2, color: th.text }), cursor: 'pointer' }}>
+            📷 {bizExpensePhoto ? 'Retake / choose photo' : 'Take or choose photo'}
+            <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleBizExpensePhoto} />
+          </label>
+          {bizExpensePhotoLoading && <span style={{ fontSize: '0.78rem', color: th.muted }}>Processing photo…</span>}
+          {bizExpensePhoto && !bizExpensePhotoLoading && (
+            <img src={bizExpensePhoto} alt="Receipt preview" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, border: `1px solid ${th.cardBorder}` }} />
+          )}
+          <button onClick={submitBizExpense} disabled={bizExpenseSubmitting}
+            style={{ ...btn(th, { background: '#1B8F5C' }), opacity: bizExpenseSubmitting ? 0.6 : 1, marginLeft: 'auto' }}>
+            {bizExpenseSubmitting ? 'Saving…' : 'Save receipt'}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+        <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text, marginBottom: '0.6rem' }}>My receipts</div>
+        {bizExpenseMyLoading ? (
+          <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading…</div>
+        ) : bizExpenseMyRows.length === 0 ? (
+          <div style={{ fontSize: '0.8rem', color: th.muted }}>No receipts logged yet.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {bizExpenseMyRows.map(r => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.5rem', border: `1px solid ${th.cardBorder}`, borderRadius: 8 }}>
+                <ReceiptThumb receiptKey={r.receiptKey} size={40} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: th.text }}>{r.category} — ${r.amount.toFixed(2)}</div>
+                  <div style={{ fontSize: '0.72rem', color: th.muted }}>
+                    {r.storeName || 'No store'} · {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}{r.note ? ` · ${r.note}` : ''}
+                  </div>
+                </div>
+                <button onClick={() => deleteBizExpense(r.id)} style={{ ...btn(th, { background: 'transparent', color: '#dc2626' }), fontSize: '0.72rem', padding: '0.3rem 0.5rem' }}>Delete</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ExpenseLogSection({ th, user, standalone }) {
   const O = '#FF671F';
   const GOLD = '#f59e0b';
@@ -24999,6 +25147,7 @@ const BASE_TABS = [
   { id: "announcements", label: "Announcements", icon: (c) => ICONS.announcements(c) },
   { id: "kb", label: "Knowledge Base", icon: (c) => ICONS.kb(c) },
   { id: "tickets", label: "Tickets", icon: (c) => ICONS.tickets(c) },
+  { id: "expenses", label: "Expenses", icon: (c) => ICONS.expenses(c) },
 ];
 const BASE_TAB_IDS = BASE_TABS.map(t => t.id);
 // Per-user `auditsAccess` grant ('view'/'full') adds the Audits tab for roles
@@ -26427,7 +26576,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.54";
+const APP_VERSION = "v20.55";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -49560,6 +49709,7 @@ function PCGPortal() {
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
           {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} setTab={setTab} deepLinkRef={ticketDeepLinkRef} />}
+          {tab === "expenses" && <ExpensesTab user={user} th={th} stores={stores} />}
           {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}
           {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
           </Guard>

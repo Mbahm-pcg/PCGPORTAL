@@ -44,6 +44,7 @@
     coffee: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M18 8h1a4 4 0 0 1 0 8h-1" }), React.createElement("path", { d: "M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" }), React.createElement("line", { x1: "6", y1: "1", x2: "6", y2: "4" }), React.createElement("line", { x1: "10", y1: "1", x2: "10", y2: "4" }), React.createElement("line", { x1: "14", y1: "1", x2: "14", y2: "4" })) }),
     briefcase: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "2", y: "7", width: "20", height: "14", rx: "2", ry: "2" }), React.createElement("path", { d: "M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" })) }),
     dollar: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("line", { x1: "12", y1: "1", x2: "12", y2: "23" }), React.createElement("path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" })) }),
+    expenses: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M6 2h12a1 1 0 0 1 1 1v18l-2.5-1.5L14 21l-2-1.5L10 21l-2.5-1.5L5 21V3a1 1 0 0 1 1-1z" }), React.createElement("line", { x1: "8", y1: "7", x2: "16", y2: "7" }), React.createElement("line", { x1: "8", y1: "11", x2: "16", y2: "11" }), React.createElement("line", { x1: "8", y1: "15", x2: "13", y2: "15" })) }),
     mail: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" }), React.createElement("polyline", { points: "22,6 12,13 2,6" })) }),
     kb: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20" }), React.createElement("path", { d: "M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" }), React.createElement("line", { x1: "8", y1: "7", x2: "16", y2: "7" }), React.createElement("line", { x1: "8", y1: "11", x2: "14", y2: "11" })) }),
     tickets: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M2 9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V9z" }), React.createElement("line", { x1: "9", y1: "4", x2: "9", y2: "20", strokeDasharray: "2 3" })) }),
@@ -15898,6 +15899,130 @@ ${t2.slice(0, 300)}`);
       reader.readAsDataURL(file);
     });
   }
+  var BIZ_EXPENSE_CATEGORIES = ["Gas", "Food", "Tools", "Supplies", "Repairs", "Office", "Other"];
+  function ExpensesTab({ user, th, stores }) {
+    const isBizExpenseAdmin = user?.userType === "executive" || user?.userType === "it" || user?.userType === "office_staff";
+    const defaultStorePc = React.useMemo(() => {
+      const s = (stores || []).find((s2) => String(s2.pc) === String(user?.storePC));
+      return s ? s.pc : "";
+    }, [stores, user]);
+    const [bizExpenseCategory, setBizExpenseCategory] = React.useState(BIZ_EXPENSE_CATEGORIES[0]);
+    const [bizExpenseAmount, setBizExpenseAmount] = React.useState("");
+    const [bizExpenseStorePc, setBizExpenseStorePc] = React.useState(defaultStorePc);
+    const [bizExpenseNote, setBizExpenseNote] = React.useState("");
+    const [bizExpensePhoto, setBizExpensePhoto] = React.useState(null);
+    const [bizExpensePhotoLoading, setBizExpensePhotoLoading] = React.useState(false);
+    const [bizExpenseSubmitting, setBizExpenseSubmitting] = React.useState(false);
+    const [bizExpenseError, setBizExpenseError] = React.useState("");
+    React.useEffect(() => {
+      setBizExpenseStorePc(defaultStorePc);
+    }, [defaultStorePc]);
+    const [bizExpenseMyRows, setBizExpenseMyRows] = React.useState([]);
+    const [bizExpenseMyLoading, setBizExpenseMyLoading] = React.useState(true);
+    const loadMyExpenses = React.useCallback(() => {
+      setBizExpenseMyLoading(true);
+      fetch("/.netlify/functions/expenses", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "list" })
+      }).then((r) => r.json()).then((j) => {
+        if (j?.ok) setBizExpenseMyRows(j.expenses || []);
+      }).catch(() => {
+      }).finally(() => setBizExpenseMyLoading(false));
+    }, []);
+    React.useEffect(() => {
+      loadMyExpenses();
+    }, [loadMyExpenses]);
+    const handleBizExpensePhoto = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setBizExpensePhotoLoading(true);
+      try {
+        const b64 = await compressImageToBase64(file);
+        setBizExpensePhoto(b64);
+      } catch {
+        setBizExpenseError("Could not read that photo \u2014 please try again.");
+      }
+      setBizExpensePhotoLoading(false);
+    };
+    const submitBizExpense = async () => {
+      setBizExpenseError("");
+      const amt = Number(bizExpenseAmount);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        setBizExpenseError("Enter a valid amount.");
+        return;
+      }
+      setBizExpenseSubmitting(true);
+      try {
+        const res = await fetch("/.netlify/functions/expenses", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({
+            action: "create",
+            category: bizExpenseCategory,
+            amount: amt,
+            storePc: bizExpenseStorePc || null,
+            note: bizExpenseNote || null,
+            receiptBase64: bizExpensePhoto || null
+          })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.ok) {
+          setBizExpenseError(j?.error || "Could not save this receipt \u2014 please try again.");
+          return;
+        }
+        setBizExpenseAmount("");
+        setBizExpenseNote("");
+        setBizExpensePhoto(null);
+        loadMyExpenses();
+      } catch {
+        setBizExpenseError("Network error \u2014 please try again.");
+      }
+      setBizExpenseSubmitting(false);
+    };
+    const deleteBizExpense = async (id) => {
+      try {
+        await fetch("/.netlify/functions/expenses", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "delete", id })
+        });
+        loadMyExpenses();
+      } catch {
+      }
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.8rem" } }, "Log a receipt"), bizExpenseError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, bizExpenseError), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.6rem", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("select", { value: bizExpenseCategory, onChange: (e) => setBizExpenseCategory(e.target.value), style: inp(th) }, BIZ_EXPENSE_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "number",
+        step: "0.01",
+        min: "0",
+        placeholder: "Amount ($)",
+        value: bizExpenseAmount,
+        onChange: (e) => setBizExpenseAmount(e.target.value),
+        style: inp(th)
+      }
+    ), /* @__PURE__ */ React.createElement("select", { value: bizExpenseStorePc, onChange: (e) => setBizExpenseStorePc(e.target.value), style: inp(th) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "No store"), (stores || []).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        placeholder: "Note (optional)",
+        value: bizExpenseNote,
+        onChange: (e) => setBizExpenseNote(e.target.value),
+        style: { ...inp(th), width: "100%", marginBottom: "0.6rem" }
+      }
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.7rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: th.card2, color: th.text }), cursor: "pointer" } }, "\u{1F4F7} ", bizExpensePhoto ? "Retake / choose photo" : "Take or choose photo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: handleBizExpensePhoto })), bizExpensePhotoLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Processing photo\u2026"), bizExpensePhoto && !bizExpensePhotoLoading && /* @__PURE__ */ React.createElement("img", { src: bizExpensePhoto, alt: "Receipt preview", style: { width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: `1px solid ${th.cardBorder}` } }), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: submitBizExpense,
+        disabled: bizExpenseSubmitting,
+        style: { ...btn(th, { background: "#1B8F5C" }), opacity: bizExpenseSubmitting ? 0.6 : 1, marginLeft: "auto" }
+      },
+      bizExpenseSubmitting ? "Saving\u2026" : "Save receipt"
+    ))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.6rem" } }, "My receipts"), bizExpenseMyLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : bizExpenseMyRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No receipts logged yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, bizExpenseMyRows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.7rem", padding: "0.5rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement(ReceiptThumb, { receiptKey: r.receiptKey, size: 40 }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, r.category, " \u2014 $", r.amount.toFixed(2)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, r.storeName || "No store", " \xB7 ", r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "", r.note ? ` \xB7 ${r.note}` : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => deleteBizExpense(r.id), style: { ...btn(th, { background: "transparent", color: "#dc2626" }), fontSize: "0.72rem", padding: "0.3rem 0.5rem" } }, "Delete"))))));
+  }
   function ExpenseLogSection({ th, user, standalone }) {
     const O2 = "#FF671F";
     const GOLD = "#f59e0b";
@@ -20429,7 +20554,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     { id: "chat", label: "Chat", icon: (c) => ICONS.chat(c) },
     { id: "announcements", label: "Announcements", icon: (c) => ICONS.announcements(c) },
     { id: "kb", label: "Knowledge Base", icon: (c) => ICONS.kb(c) },
-    { id: "tickets", label: "Tickets", icon: (c) => ICONS.tickets(c) }
+    { id: "tickets", label: "Tickets", icon: (c) => ICONS.tickets(c) },
+    { id: "expenses", label: "Expenses", icon: (c) => ICONS.expenses(c) }
   ];
   var BASE_TAB_IDS = BASE_TABS.map((t) => t.id);
   var getTabs = (user) => {
@@ -21432,7 +21558,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.54";
+  var APP_VERSION = "v20.55";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -37803,7 +37929,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "system-health", name: "System Health", sub: "Feed freshness, cron monitoring, and outage alerts.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "system-hub", "system-health"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.folder(SYS)) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement(TileGrid, { title: "System", tiles: sysTiles, color: SYS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
-    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
 })();
