@@ -15994,6 +15994,63 @@ ${t2.slice(0, 300)}`);
       } catch {
       }
     };
+    const [bizExpenseAllRows, setBizExpenseAllRows] = React.useState([]);
+    const [bizExpenseAllLoading, setBizExpenseAllLoading] = React.useState(false);
+    const [bizExpenseFilterStore, setBizExpenseFilterStore] = React.useState("");
+    const [bizExpenseFilterCategory, setBizExpenseFilterCategory] = React.useState("");
+    const [bizExpenseFilterFrom, setBizExpenseFilterFrom] = React.useState("");
+    const [bizExpenseFilterTo, setBizExpenseFilterTo] = React.useState("");
+    const loadAllExpenses = React.useCallback(() => {
+      if (!isBizExpenseAdmin) return;
+      setBizExpenseAllLoading(true);
+      fetch("/.netlify/functions/expenses", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          action: "list",
+          storePc: bizExpenseFilterStore || void 0,
+          category: bizExpenseFilterCategory || void 0,
+          dateFrom: bizExpenseFilterFrom ? new Date(bizExpenseFilterFrom).toISOString() : void 0,
+          dateTo: bizExpenseFilterTo ? (/* @__PURE__ */ new Date(bizExpenseFilterTo + "T23:59:59")).toISOString() : void 0
+        })
+      }).then((r) => r.json()).then((j) => {
+        if (j?.ok) setBizExpenseAllRows(j.expenses || []);
+      }).catch(() => {
+      }).finally(() => setBizExpenseAllLoading(false));
+    }, [isBizExpenseAdmin, bizExpenseFilterStore, bizExpenseFilterCategory, bizExpenseFilterFrom, bizExpenseFilterTo]);
+    React.useEffect(() => {
+      loadAllExpenses();
+    }, [loadAllExpenses]);
+    const deleteAnyBizExpense = async (id) => {
+      try {
+        await fetch("/.netlify/functions/expenses", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "delete", id })
+        });
+        loadAllExpenses();
+      } catch {
+      }
+    };
+    const downloadBizExpenses = () => {
+      const XLSX = window.XLSX;
+      if (!XLSX) return;
+      const wb = XLSX.utils.book_new();
+      const aoa = [["Date", "Store", "District", "Category", "Amount", "Submitted By", "Note"]];
+      bizExpenseAllRows.forEach((r) => aoa.push([
+        r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "",
+        r.storeName || "",
+        r.district ?? "",
+        r.category,
+        r.amount,
+        r.submittedByName,
+        r.note || ""
+      ]));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Expenses");
+      XLSX.writeFile(wb, `Business_Expenses_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.xlsx`);
+    };
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.8rem" } }, "Log a receipt"), bizExpenseError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, bizExpenseError), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.6rem", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("select", { value: bizExpenseCategory, onChange: (e) => setBizExpenseCategory(e.target.value), style: inp(th) }, BIZ_EXPENSE_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))), /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -16021,7 +16078,7 @@ ${t2.slice(0, 300)}`);
         style: { ...btn(th, { background: "#1B8F5C" }), opacity: bizExpenseSubmitting ? 0.6 : 1, marginLeft: "auto" }
       },
       bizExpenseSubmitting ? "Saving\u2026" : "Save receipt"
-    ))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.6rem" } }, "My receipts"), bizExpenseMyLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : bizExpenseMyRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No receipts logged yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, bizExpenseMyRows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.7rem", padding: "0.5rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement(ReceiptThumb, { receiptKey: r.receiptKey, size: 40 }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, r.category, " \u2014 $", r.amount.toFixed(2)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, r.storeName || "No store", " \xB7 ", r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "", r.note ? ` \xB7 ${r.note}` : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => deleteBizExpense(r.id), style: { ...btn(th, { background: "transparent", color: "#dc2626" }), fontSize: "0.72rem", padding: "0.3rem 0.5rem" } }, "Delete"))))));
+    ))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.6rem" } }, "My receipts"), bizExpenseMyLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : bizExpenseMyRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No receipts logged yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, bizExpenseMyRows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.7rem", padding: "0.5rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement(ReceiptThumb, { receiptKey: r.receiptKey, size: 40 }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, r.category, " \u2014 $", r.amount.toFixed(2)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, r.storeName || "No store", " \xB7 ", r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "", r.note ? ` \xB7 ${r.note}` : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => deleteBizExpense(r.id), style: { ...btn(th, { background: "transparent", color: "#dc2626" }), fontSize: "0.72rem", padding: "0.3rem 0.5rem" } }, "Delete"))))), isBizExpenseAdmin && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.6rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, "All receipts (network-wide)"), /* @__PURE__ */ React.createElement("button", { onClick: downloadBizExpenses, style: { ...btn(th, { background: "#1B8F5C" }), fontSize: "0.78rem" } }, "Download workbook")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.5rem", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("select", { value: bizExpenseFilterStore, onChange: (e) => setBizExpenseFilterStore(e.target.value), style: inp(th) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All stores"), (stores || []).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name))), /* @__PURE__ */ React.createElement("select", { value: bizExpenseFilterCategory, onChange: (e) => setBizExpenseFilterCategory(e.target.value), style: inp(th) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All categories"), BIZ_EXPENSE_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))), /* @__PURE__ */ React.createElement("input", { type: "date", value: bizExpenseFilterFrom, onChange: (e) => setBizExpenseFilterFrom(e.target.value), style: inp(th) }), /* @__PURE__ */ React.createElement("input", { type: "date", value: bizExpenseFilterTo, onChange: (e) => setBizExpenseFilterTo(e.target.value), style: inp(th) })), bizExpenseAllLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : bizExpenseAllRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No receipts match these filters.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, bizExpenseAllRows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.7rem", padding: "0.5rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement(ReceiptThumb, { receiptKey: r.receiptKey, size: 40 }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, r.category, " \u2014 $", r.amount.toFixed(2), " \u2014 ", r.submittedByName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, r.storeName || "No store", r.district ? ` (District ${r.district})` : "", " \xB7 ", r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "", r.note ? ` \xB7 ${r.note}` : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => deleteAnyBizExpense(r.id), style: { ...btn(th, { background: "transparent", color: "#dc2626" }), fontSize: "0.72rem", padding: "0.3rem 0.5rem" } }, "Delete"))))));
   }
   function ExpenseLogSection({ th, user, standalone }) {
     const O2 = "#FF671F";
@@ -21558,7 +21615,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.55";
+  var APP_VERSION = "v20.56";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

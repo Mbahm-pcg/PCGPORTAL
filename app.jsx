@@ -18684,6 +18684,64 @@ function ExpensesTab({ user, th, stores }) {
     } catch {}
   };
 
+  const [bizExpenseAllRows, setBizExpenseAllRows] = React.useState([]);
+  const [bizExpenseAllLoading, setBizExpenseAllLoading] = React.useState(false);
+  const [bizExpenseFilterStore, setBizExpenseFilterStore] = React.useState('');
+  const [bizExpenseFilterCategory, setBizExpenseFilterCategory] = React.useState('');
+  const [bizExpenseFilterFrom, setBizExpenseFilterFrom] = React.useState('');
+  const [bizExpenseFilterTo, setBizExpenseFilterTo] = React.useState('');
+
+  const loadAllExpenses = React.useCallback(() => {
+    if (!isBizExpenseAdmin) return;
+    setBizExpenseAllLoading(true);
+    fetch('/.netlify/functions/expenses', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({
+        action: 'list',
+        storePc: bizExpenseFilterStore || undefined,
+        category: bizExpenseFilterCategory || undefined,
+        dateFrom: bizExpenseFilterFrom ? new Date(bizExpenseFilterFrom).toISOString() : undefined,
+        dateTo: bizExpenseFilterTo ? new Date(bizExpenseFilterTo + 'T23:59:59').toISOString() : undefined,
+      }),
+    })
+      .then(r => r.json())
+      .then(j => { if (j?.ok) setBizExpenseAllRows(j.expenses || []); })
+      .catch(() => {})
+      .finally(() => setBizExpenseAllLoading(false));
+  }, [isBizExpenseAdmin, bizExpenseFilterStore, bizExpenseFilterCategory, bizExpenseFilterFrom, bizExpenseFilterTo]);
+
+  React.useEffect(() => { loadAllExpenses(); }, [loadAllExpenses]);
+
+  const deleteAnyBizExpense = async (id) => {
+    try {
+      await fetch('/.netlify/functions/expenses', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'delete', id }),
+      });
+      loadAllExpenses();
+    } catch {}
+  };
+
+  const downloadBizExpenses = () => {
+    const XLSX = window.XLSX;
+    if (!XLSX) return;
+    const wb = XLSX.utils.book_new();
+    const aoa = [['Date', 'Store', 'District', 'Category', 'Amount', 'Submitted By', 'Note']];
+    bizExpenseAllRows.forEach(r => aoa.push([
+      r.createdAt ? new Date(r.createdAt).toLocaleDateString() : '',
+      r.storeName || '',
+      r.district ?? '',
+      r.category,
+      r.amount,
+      r.submittedByName,
+      r.note || '',
+    ]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Expenses');
+    XLSX.writeFile(wb, `Business_Expenses_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
       <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
@@ -18741,6 +18799,47 @@ function ExpensesTab({ user, th, stores }) {
           </div>
         )}
       </div>
+
+      {isBizExpenseAdmin && (
+        <div style={{ ...card(th), padding: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.6rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>All receipts (network-wide)</div>
+            <button onClick={downloadBizExpenses} style={{ ...btn(th, { background: '#1B8F5C' }), fontSize: '0.78rem' }}>Download workbook</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.5rem', marginBottom: '0.8rem' }}>
+            <select value={bizExpenseFilterStore} onChange={e => setBizExpenseFilterStore(e.target.value)} style={inp(th)}>
+              <option value="">All stores</option>
+              {(stores || []).map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
+            </select>
+            <select value={bizExpenseFilterCategory} onChange={e => setBizExpenseFilterCategory(e.target.value)} style={inp(th)}>
+              <option value="">All categories</option>
+              {BIZ_EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input type="date" value={bizExpenseFilterFrom} onChange={e => setBizExpenseFilterFrom(e.target.value)} style={inp(th)} />
+            <input type="date" value={bizExpenseFilterTo} onChange={e => setBizExpenseFilterTo(e.target.value)} style={inp(th)} />
+          </div>
+          {bizExpenseAllLoading ? (
+            <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading…</div>
+          ) : bizExpenseAllRows.length === 0 ? (
+            <div style={{ fontSize: '0.8rem', color: th.muted }}>No receipts match these filters.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {bizExpenseAllRows.map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.5rem', border: `1px solid ${th.cardBorder}`, borderRadius: 8 }}>
+                  <ReceiptThumb receiptKey={r.receiptKey} size={40} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: th.text }}>{r.category} — ${r.amount.toFixed(2)} — {r.submittedByName}</div>
+                    <div style={{ fontSize: '0.72rem', color: th.muted }}>
+                      {r.storeName || 'No store'}{r.district ? ` (District ${r.district})` : ''} · {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}{r.note ? ` · ${r.note}` : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => deleteAnyBizExpense(r.id)} style={{ ...btn(th, { background: 'transparent', color: '#dc2626' }), fontSize: '0.72rem', padding: '0.3rem 0.5rem' }}>Delete</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -26576,7 +26675,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.55";
+const APP_VERSION = "v20.56";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
