@@ -16125,11 +16125,29 @@ ${t2.slice(0, 300)}`);
       }).catch(() => {
       });
     }, [open]);
+    const [bizRows, setBizRows] = React.useState([]);
+    const loadBizRows = React.useCallback(() => {
+      if (!open) return;
+      fetch("/.netlify/functions/expenses", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "list" })
+      }).then((r) => r.json()).then((j) => {
+        if (j?.ok) setBizRows(j.expenses || []);
+      }).catch(() => {
+      });
+    }, [open]);
+    React.useEffect(() => {
+      loadBizRows();
+    }, [loadBizRows]);
     const rows = React.useMemo(() => {
       const all = [];
       allTickets.forEach((t) => {
         (t.expenses || []).forEach((ex) => {
           all.push({
+            source: "ticket",
+            rowId: `${t.id}_${ex.id}`,
             ticketId: t.id,
             expenseId: ex.id,
             ticketNumber: t.number || t.id,
@@ -16151,8 +16169,35 @@ ${t2.slice(0, 300)}`);
           });
         });
       });
+      bizRows.forEach((ex) => {
+        all.push({
+          source: "business",
+          rowId: `biz_${ex.id}`,
+          ticketId: null,
+          expenseId: ex.id,
+          ticketNumber: "\u2014",
+          ticketTitle: "",
+          storeName: ex.storeName,
+          storePC: ex.storePc,
+          noExpense: false,
+          description: ex.note || "",
+          amount: ex.amount,
+          category: ex.category,
+          addedBy: ex.submittedByName || "\u2014",
+          addedAt: ex.createdAt,
+          receiptKey: ex.receiptKey || null,
+          // No approval workflow on this feature — always renders as "—" below,
+          // never a pending/approved/rejected badge and never Approve/Reject
+          // buttons (both gated on approvalStatus === 'pending').
+          approvalStatus: null,
+          approvedBy: null,
+          approvedAt: null,
+          submittedByUserId: ex.submittedByUserId || null,
+          ticketStatus: null
+        });
+      });
       return all.sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt));
-    }, [allTickets]);
+    }, [allTickets, bizRows]);
     const pendingCount = rows.filter((r) => !r.noExpense && r.approvalStatus === "pending").length;
     const handleApprove = async (row, decision) => {
       const id = `${row.ticketId}_${row.expenseId}`;
@@ -16220,6 +16265,21 @@ ${t2.slice(0, 300)}`);
       setDeletingId(null);
       setConfirmDeleteRowId(null);
     };
+    const handleDeleteBusiness = async (row) => {
+      setDeletingId(row.rowId);
+      try {
+        await fetch("/.netlify/functions/expenses", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "delete", id: row.expenseId })
+        });
+      } catch {
+      }
+      loadBizRows();
+      setDeletingId(null);
+      setConfirmDeleteRowId(null);
+    };
     const categories = ["All", ...Array.from(new Set(rows.map((r) => r.category)))];
     const users = ["All", ...Array.from(new Set(rows.map((r) => r.addedBy).filter(Boolean)))];
     const filtered = rows.filter((r) => {
@@ -16236,11 +16296,11 @@ ${t2.slice(0, 300)}`);
     const totalAmount = filtered.reduce((s, r) => s + (r.amount || 0), 0);
     const approvedTotal = filtered.filter((r) => r.approvalStatus === "approved").reduce((s, r) => s + (r.amount || 0), 0);
     const catColor = (c) => ({ Parts: "#3b82f6", Labor: "#8b5cf6", Materials: "#f59e0b", Equipment: "#06b6d4", Contractor: "#ec4899", Other: "#6b7280", None: "#9ca3af" })[c] || "#6b7280";
-    return /* @__PURE__ */ React.createElement("div", { style: accentCard(th, GOLD, { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: open ? "1rem" : 0, cursor: "pointer" }, onClick: () => setOpen((o) => !o) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.3rem" } }, "\u{1F4B0}"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "Expense Log"), pendingCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { background: "#f59e0b", color: "#fff", borderRadius: 999, fontSize: "0.65rem", fontWeight: 800, padding: "1px 7px", boxShadow: "0 0 8px #f59e0b66" } }, pendingCount, " pending")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 1 } }, "All ticket expenses \u2014 VP approval required"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, !open && rows.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, rows.filter((r) => !r.noExpense).length, " entr", rows.length === 1 ? "y" : "ies"), /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+    return /* @__PURE__ */ React.createElement("div", { style: accentCard(th, GOLD, { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: open ? "1rem" : 0, cursor: "pointer" }, onClick: () => setOpen((o) => !o) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.3rem" } }, "\u{1F4B0}"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "Expense Log"), pendingCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { background: "#f59e0b", color: "#fff", borderRadius: 999, fontSize: "0.65rem", fontWeight: 800, padding: "1px 7px", boxShadow: "0 0 8px #f59e0b66" } }, pendingCount, " pending")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: 1 } }, "Ticket expenses (VP approval required) + logged business receipts (no approval)"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, !open && rows.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, rows.filter((r) => !r.noExpense).length, " entr", rows.length === 1 ? "y" : "ies"), /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
       e.stopPropagation();
       setOpen((o) => !o);
     }, style: { background: O2, border: "none", borderRadius: 8, color: "#fff", padding: "0.35rem 0.875rem", cursor: "pointer", fontWeight: 700, fontSize: "0.8rem" } }, open ? "Close" : "View Log"))), open && /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem", marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { value: search, onChange: (e) => setSearch(e.target.value), placeholder: "Search ticket, store, user...", style: { flex: "1 1 160px", padding: "0.4rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.82rem" } }), /* @__PURE__ */ React.createElement("select", { value: filterApproval, onChange: (e) => setFilterApproval(e.target.value), style: { padding: "0.4rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.82rem" } }, ["All", "pending", "approved", "rejected"].map((s) => /* @__PURE__ */ React.createElement("option", { key: s, value: s }, s === "All" ? "All Statuses" : s.charAt(0).toUpperCase() + s.slice(1)))), /* @__PURE__ */ React.createElement("select", { value: filterCat, onChange: (e) => setFilterCat(e.target.value), style: { padding: "0.4rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.82rem" } }, categories.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c === "All" ? "All Categories" : c))), /* @__PURE__ */ React.createElement("select", { value: filterUser, onChange: (e) => setFilterUser(e.target.value), style: { padding: "0.4rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.82rem" } }, users.map((u) => /* @__PURE__ */ React.createElement("option", { key: u, value: u }, u === "All" ? "All Users" : u))), filtered.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.88rem", color: th.muted } }, "Total: ", /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, "$", totalAmount.toFixed(2))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#16a34a", fontWeight: 700 } }, "Approved: $", approvedTotal.toFixed(2)))), filtered.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", textAlign: "center", padding: "2rem 0" } }, "No expense entries found.") : /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["Receipt", "Date", "User", "Ticket", "Store", "Category", "Description", "Amount", "Approval", isVP && "Actions"].filter(Boolean).map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "0.5rem 0.75rem", textAlign: "left", fontWeight: 700, color: th.muted, fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: 0.8, whiteSpace: "nowrap", borderBottom: `1px solid ${th.cardBorder}` } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filtered.map((r, i) => {
-      const rowId = `${r.ticketId}_${r.expenseId}`;
+      const rowId = r.rowId;
       const isApproving = approvingId === rowId;
       return /* @__PURE__ */ React.createElement("tr", { key: i, style: { borderBottom: `1px solid ${th.cardBorder}`, background: i % 2 === 0 ? "transparent" : th.card2 + "55" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, r.receiptKey ? /* @__PURE__ */ React.createElement(ReceiptThumb, { receiptKey: r.receiptKey, size: 38 }) : /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.7rem" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted, whiteSpace: "nowrap" } }, r.addedAt ? new Date(r.addedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014", /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem" } }, r.addedAt ? new Date(r.addedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", fontWeight: 600, color: th.text, whiteSpace: "nowrap" } }, r.addedBy), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, color: O2, background: O2 + "18", padding: "1px 6px", borderRadius: 4 } }, r.ticketNumber), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", marginTop: 2, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.ticketTitle)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted, fontSize: "0.78rem" } }, r.storeName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, padding: "2px 7px", borderRadius: 999, color: "#fff", background: catColor(r.category) } }, r.category)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.text, maxWidth: 180 } }, r.description), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", fontWeight: 700, color: "#16a34a", whiteSpace: "nowrap" } }, "$", (r.amount || 0).toFixed(2)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", whiteSpace: "nowrap" } }, r.approvalStatus ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: {
         fontSize: "0.7rem",
@@ -16253,7 +16313,7 @@ ${t2.slice(0, 300)}`);
       } }, r.approvalStatus === "approved" ? "\u2713 Approved" : r.approvalStatus === "rejected" ? "\u2717 Rejected" : "\u23F3 Pending"), r.approvedBy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, marginTop: 2 } }, r.approvedBy)) : /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.75rem" } }, "\u2014")), isVP && (() => {
         const isDeleting = deletingId === rowId;
         const confirming = confirmDeleteRowId === rowId;
-        return /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center" } }, r.approvalStatus === "pending" && !confirming && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => handleApprove(r, "approved"), disabled: isApproving, style: { background: "#16a34a", border: "none", borderRadius: 6, color: "#fff", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isApproving ? 0.5 : 1 } }, isApproving ? "..." : "\u2713 Approve"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleApprove(r, "rejected"), disabled: isApproving, style: { background: "#ef444422", border: "1px solid #ef444444", borderRadius: 6, color: "#ef4444", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isApproving ? 0.5 : 1 } }, "\u2717 Reject")), confirming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#ef4444", fontWeight: 700 } }, "Delete?"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleDelete(r), disabled: isDeleting, style: { background: "#ef4444", border: "none", borderRadius: 6, color: "#fff", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isDeleting ? 0.5 : 1 } }, isDeleting ? "..." : "Yes"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteRowId(null), disabled: isDeleting, style: { background: "transparent", border: `1px solid ${th.cardBorder}`, borderRadius: 6, color: th.muted, padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer" } }, "No")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteRowId(rowId), title: "Delete this expense entry (Exec/IT only)", style: { background: "#ef444418", border: "1px solid #ef444444", borderRadius: 6, color: "#ef4444", padding: "3px 8px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer" } }, "\u{1F5D1}")));
+        return /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center" } }, r.approvalStatus === "pending" && !confirming && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => handleApprove(r, "approved"), disabled: isApproving, style: { background: "#16a34a", border: "none", borderRadius: 6, color: "#fff", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isApproving ? 0.5 : 1 } }, isApproving ? "..." : "\u2713 Approve"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleApprove(r, "rejected"), disabled: isApproving, style: { background: "#ef444422", border: "1px solid #ef444444", borderRadius: 6, color: "#ef4444", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isApproving ? 0.5 : 1 } }, "\u2717 Reject")), confirming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#ef4444", fontWeight: 700 } }, "Delete?"), /* @__PURE__ */ React.createElement("button", { onClick: () => r.source === "business" ? handleDeleteBusiness(r) : handleDelete(r), disabled: isDeleting, style: { background: "#ef4444", border: "none", borderRadius: 6, color: "#fff", padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", opacity: isDeleting ? 0.5 : 1 } }, isDeleting ? "..." : "Yes"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteRowId(null), disabled: isDeleting, style: { background: "transparent", border: `1px solid ${th.cardBorder}`, borderRadius: 6, color: th.muted, padding: "3px 10px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer" } }, "No")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteRowId(rowId), title: "Delete this expense entry (Exec/IT only)", style: { background: "#ef444418", border: "1px solid #ef444444", borderRadius: 6, color: "#ef4444", padding: "3px 8px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer" } }, "\u{1F5D1}")));
       })());
     }))))));
   }
@@ -21628,7 +21688,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.58";
+  var APP_VERSION = "v20.59";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

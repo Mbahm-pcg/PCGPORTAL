@@ -18871,11 +18871,33 @@ function ExpenseLogSection({ th, user, standalone }) {
     cloudLoadOrThrow('pcg_tickets_v1').then(data => { if (Array.isArray(data)) { setAllTickets(data); try { localStorage.setItem('pcg_tickets_v1', JSON.stringify(data)); } catch {} } }).catch(() => { /* keep cache */ });
   }, [open]);
 
+  // General business-expense receipts (gas/food/tools/etc., logged from the
+  // "Expenses" tab) — a separate feature/table (business_expenses, no VP
+  // approval) merged into this log at display time only, per user request,
+  // so this stays the one place to see ALL company spending. isVP-gated at
+  // this component's call site means the caller is always executive/it, so
+  // the `list` action here returns the full network-wide view (unscoped).
+  const [bizRows, setBizRows] = React.useState([]);
+  const loadBizRows = React.useCallback(() => {
+    if (!open) return;
+    fetch('/.netlify/functions/expenses', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'list' }),
+    })
+      .then(r => r.json())
+      .then(j => { if (j?.ok) setBizRows(j.expenses || []); })
+      .catch(() => {});
+  }, [open]);
+  React.useEffect(() => { loadBizRows(); }, [loadBizRows]);
+
   const rows = React.useMemo(() => {
     const all = [];
     allTickets.forEach(t => {
       (t.expenses || []).forEach(ex => {
         all.push({
+          source: 'ticket',
+          rowId: `${t.id}_${ex.id}`,
           ticketId: t.id,
           expenseId: ex.id,
           ticketNumber: t.number || t.id,
@@ -18897,8 +18919,35 @@ function ExpenseLogSection({ th, user, standalone }) {
         });
       });
     });
+    bizRows.forEach(ex => {
+      all.push({
+        source: 'business',
+        rowId: `biz_${ex.id}`,
+        ticketId: null,
+        expenseId: ex.id,
+        ticketNumber: '—',
+        ticketTitle: '',
+        storeName: ex.storeName,
+        storePC: ex.storePc,
+        noExpense: false,
+        description: ex.note || '',
+        amount: ex.amount,
+        category: ex.category,
+        addedBy: ex.submittedByName || '—',
+        addedAt: ex.createdAt,
+        receiptKey: ex.receiptKey || null,
+        // No approval workflow on this feature — always renders as "—" below,
+        // never a pending/approved/rejected badge and never Approve/Reject
+        // buttons (both gated on approvalStatus === 'pending').
+        approvalStatus: null,
+        approvedBy: null,
+        approvedAt: null,
+        submittedByUserId: ex.submittedByUserId || null,
+        ticketStatus: null,
+      });
+    });
     return all.sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt));
-  }, [allTickets]);
+  }, [allTickets, bizRows]);
 
   const pendingCount = rows.filter(r => !r.noExpense && r.approvalStatus === 'pending').length;
 
@@ -18967,6 +19016,22 @@ function ExpenseLogSection({ th, user, standalone }) {
     setConfirmDeleteRowId(null);
   };
 
+  // Delete for the merged-in business-expense rows (separate table/endpoint —
+  // see the business_expenses `delete` action in netlify/functions/expenses.mjs).
+  const handleDeleteBusiness = async (row) => {
+    setDeletingId(row.rowId);
+    try {
+      await fetch('/.netlify/functions/expenses', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'delete', id: row.expenseId }),
+      });
+    } catch {}
+    loadBizRows();
+    setDeletingId(null);
+    setConfirmDeleteRowId(null);
+  };
+
   const categories = ['All', ...Array.from(new Set(rows.map(r => r.category)))];
   const users = ['All', ...Array.from(new Set(rows.map(r => r.addedBy).filter(Boolean)))];
 
@@ -18997,7 +19062,7 @@ function ExpenseLogSection({ th, user, standalone }) {
               <span style={{ fontWeight: 800, fontSize: '0.95rem', color: th.text }}>Expense Log</span>
               {pendingCount > 0 && <span style={{ background:'#f59e0b', color:'#fff', borderRadius:999, fontSize:'0.65rem', fontWeight:800, padding:'1px 7px', boxShadow:'0 0 8px #f59e0b66' }}>{pendingCount} pending</span>}
             </div>
-            <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: 1 }}>All ticket expenses — VP approval required</div>
+            <div style={{ fontSize: '0.72rem', color: th.muted, marginTop: 1 }}>Ticket expenses (VP approval required) + logged business receipts (no approval)</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -19044,7 +19109,7 @@ function ExpenseLogSection({ th, user, standalone }) {
                 </thead>
                 <tbody>
                   {filtered.map((r, i) => {
-                    const rowId = `${r.ticketId}_${r.expenseId}`;
+                    const rowId = r.rowId;
                     const isApproving = approvingId === rowId;
                     return (
                       <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}`, background: i % 2 === 0 ? 'transparent' : th.card2 + '55' }}>
@@ -19099,7 +19164,7 @@ function ExpenseLogSection({ th, user, standalone }) {
                                 {confirming ? (
                                   <>
                                     <span style={{ fontSize:'0.68rem', color:'#ef4444', fontWeight:700 }}>Delete?</span>
-                                    <button onClick={() => handleDelete(r)} disabled={isDeleting} style={{ background:'#ef4444', border:'none', borderRadius:6, color:'#fff', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isDeleting?0.5:1 }}>
+                                    <button onClick={() => (r.source === 'business' ? handleDeleteBusiness(r) : handleDelete(r))} disabled={isDeleting} style={{ background:'#ef4444', border:'none', borderRadius:6, color:'#fff', padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', opacity:isDeleting?0.5:1 }}>
                                       {isDeleting ? '...' : 'Yes'}
                                     </button>
                                     <button onClick={() => setConfirmDeleteRowId(null)} disabled={isDeleting} style={{ background:'transparent', border:`1px solid ${th.cardBorder}`, borderRadius:6, color:th.muted, padding:'3px 10px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer' }}>
@@ -26681,7 +26746,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.58";
+const APP_VERSION = "v20.59";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
