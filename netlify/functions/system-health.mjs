@@ -5,7 +5,7 @@ import { getStore } from '@netlify/blobs';
 import { buildSnapshot } from '../../src/system-health.mjs';
 import { resolveCaller } from './_shared/auth.mjs';
 import { sql } from './_shared/db.mjs';
-import { sessionGate } from './auth-lib/require-user.js';
+import { sessionGate, requireUser } from './auth-lib/require-user.js';
 
 const EXEC_ROLES = new Set(['executive', 'it']);
 const SNAPSHOT_KEY = 'pcg_system_health_v1';
@@ -28,14 +28,16 @@ export default async (request) => {
   if (request.method !== 'POST') return json(405, { error: 'POST only' });
 
   const payload = await request.json().catch(() => ({}));
-  const { action = 'refresh', userId, userRole } = payload;
+  const { action = 'refresh' } = payload;
 
-  // Auth gate (mirrors analyst.mjs): revoked session → 401; non-exec/IT → 403.
   const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
+
+  // Require a valid, non-revoked portal session; derive identity + role from the VERIFIED token.
+  const authed = requireUser(eventShim);
+  if (!authed) return json(401, { error: 'Sign in required.' });
   if (await sessionGate(eventShim, sql()) === 'revoked') return json(401, { error: 'Session ended. Please sign in again.' });
-  const caller = await resolveCaller(userId);
-  const effRole = caller?.role || userRole;
-  if (!EXEC_ROLES.has(effRole)) return json(403, { error: 'This information is limited to Exec/IT.' });
+  const caller = await resolveCaller(authed.sub);
+  if (!caller || !EXEC_ROLES.has(caller.role)) return json(403, { error: 'This information is limited to Exec/IT.' });
 
   const store = healthStore();
 
