@@ -25033,6 +25033,10 @@ const computeRoleTabs = (user) => {
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "email",     label: "Email",        icon: (c) => ICONS.mail(c) },
     { id: "admin",     label: "Admin",        icon: (c) => ICONS.settings(c) },
+    // Reached only via the System hub tile (like admin/email); registered here so the
+    // tab-validity guard (tabsForUser) doesn't bounce it to Dashboard. NOT in ADMIN_GROUPS
+    // → no separate sidebar button.
+    { id: "system-health", label: "System Health", icon: (c) => ICONS.folder(c) },
     { id: "network-complaints", label: "Complaints", icon: (c) => ICONS.bell(c) },
     { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.schedule(c), noPinToggle: true },
     { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
@@ -26423,7 +26427,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.49";
+const APP_VERSION = "v20.50";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

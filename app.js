@@ -20459,6 +20459,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "email", label: "Email", icon: (c) => ICONS.mail(c) },
       { id: "admin", label: "Admin", icon: (c) => ICONS.settings(c) },
+      // Reached only via the System hub tile (like admin/email); registered here so the
+      // tab-validity guard (tabsForUser) doesn't bounce it to Dashboard. NOT in ADMIN_GROUPS
+      // → no separate sidebar button.
+      { id: "system-health", label: "System Health", icon: (c) => ICONS.folder(c) },
       { id: "network-complaints", label: "Complaints", icon: (c) => ICONS.bell(c) },
       { id: "ops-hub", label: "Operations", icon: (c) => ICONS.schedule(c), noPinToggle: true },
       { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
@@ -21428,7 +21432,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.49";
+  var APP_VERSION = "v20.50";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
