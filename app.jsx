@@ -15223,13 +15223,42 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
 }
 
 // ── Project Gallery: site-photo documentation (GPS + drawable annotations) ────
-function ProjectGalleryTab({ user, th, projects, dailyReports }) {
+function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
   const [pgalStep, setPgalStep] = React.useState('setup'); // 'setup' | 'capture' | 'gallery'
   const [pgalSelectedProjectId, setPgalSelectedProjectId] = React.useState('');
   const selectedProject = React.useMemo(
     () => (projects || []).find(p => String(p.id) === String(pgalSelectedProjectId)) || null,
     [projects, pgalSelectedProjectId]
   );
+
+  // Quick-add: a store/site not yet in Projects at all. Reuses the exact
+  // record shape AdminProjects itself creates (EMPTY_PROJECT + nextId()) so
+  // whatever gets made here opens cleanly in the full Projects tab too —
+  // just with the construction-pipeline checklist fields left at their
+  // defaults, to be filled in there later if needed.
+  const [pgalShowNewProject, setPgalShowNewProject] = React.useState(false);
+  const [pgalNewProject, setPgalNewProject] = React.useState({ nickname: '', address: '', city: '', state: '', zip: '' });
+  const [pgalNewProjectError, setPgalNewProjectError] = React.useState('');
+
+  const pgalCreateProject = () => {
+    if (!pgalNewProject.nickname.trim() && !pgalNewProject.address.trim()) {
+      setPgalNewProjectError('Enter at least a name or an address.');
+      return;
+    }
+    setPgalNewProjectError('');
+    const now = new Date().toISOString();
+    const newId = Math.max(0, ...(projects || []).map(p => p.id)) + 1;
+    const newProj = {
+      ...EMPTY_PROJECT,
+      ...pgalNewProject,
+      id: newId,
+      createdAt: now, createdBy: user?.name || '', updatedAt: now, lastEditedBy: user?.name || 'Unknown', lastEditedAt: now,
+    };
+    setProjects(ps => [...ps, newProj]);
+    setPgalSelectedProjectId(newId);
+    setPgalShowNewProject(false);
+    setPgalNewProject({ nickname: '', address: '', city: '', state: '', zip: '' });
+  };
 
   // Opt-in GPS — a fresh implementation of the exact pattern already proven
   // in OpsTasks (app.jsx, search GEO_OPTS/pcg_share_location): per-device,
@@ -15282,7 +15311,7 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
     );
   }), [pgalShareLoc]);
 
-  const PGAL_SESSION_LIMIT = 20;
+  const PGAL_SESSION_LIMIT = 300; // realistic ceiling per store, not a per-visit cap in practice
   const [pgalPhotos, setPgalPhotos] = React.useState([]);
   const [pgalPhotosLoading, setPgalPhotosLoading] = React.useState(false);
   const [pgalSessionCount, setPgalSessionCount] = React.useState(0);
@@ -15448,6 +15477,27 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
               <option value="">Select a project…</option>
               {(projects || []).map(p => <option key={p.id} value={p.id}>{p.nickname || p.address}</option>)}
             </select>
+            {!pgalShowNewProject ? (
+              <button onClick={() => setPgalShowNewProject(true)} style={{ background: 'none', border: 'none', color: '#FF671F', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', padding: '0.4rem 0' }}>
+                + Add a new project
+              </button>
+            ) : (
+              <div style={{ marginTop: '0.6rem', padding: '0.75rem', border: `1px solid ${th.cardBorder}`, borderRadius: 8 }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', marginBottom: '0.5rem' }}>New project</div>
+                {pgalNewProjectError && <div style={{ fontSize: '0.75rem', color: '#dc2626', marginBottom: '0.4rem' }}>{pgalNewProjectError}</div>}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                  <input placeholder="Name" value={pgalNewProject.nickname} onChange={e => setPgalNewProject(p => ({ ...p, nickname: e.target.value }))} style={inp(th)} />
+                  <input placeholder="Address" value={pgalNewProject.address} onChange={e => setPgalNewProject(p => ({ ...p, address: e.target.value }))} style={inp(th)} />
+                  <input placeholder="City" value={pgalNewProject.city} onChange={e => setPgalNewProject(p => ({ ...p, city: e.target.value }))} style={inp(th)} />
+                  <input placeholder="State" value={pgalNewProject.state} onChange={e => setPgalNewProject(p => ({ ...p, state: e.target.value }))} style={inp(th)} />
+                  <input placeholder="Zip" value={pgalNewProject.zip} onChange={e => setPgalNewProject(p => ({ ...p, zip: e.target.value }))} style={inp(th)} />
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={pgalCreateProject} style={{ ...btn(th, { background: '#1B8F5C' }), fontSize: '0.78rem' }}>Create project</button>
+                  <button onClick={() => { setPgalShowNewProject(false); setPgalNewProjectError(''); }} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem' }}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
           <div style={{ marginBottom: '1.25rem', padding: '0.75rem', border: `1px solid ${th.cardBorder}`, borderRadius: 8 }}>
             <div style={{ fontSize: '0.82rem', color: th.text }}>GPS location</div>
@@ -27264,7 +27314,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.67";
+const APP_VERSION = "v20.68";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -50391,7 +50441,7 @@ function PCGPortal() {
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && <ProjectGalleryTab user={user} th={th} projects={projects} dailyReports={dailyReports} />}
+          {tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && <ProjectGalleryTab user={user} th={th} projects={projects} setProjects={setProjectsUser} dailyReports={dailyReports} />}
           {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={stores} showAlert={showAlert} />}
           {tab === "system-health" && isFullAdmin(user) && <SystemHealth th={th} user={user} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
