@@ -15906,6 +15906,10 @@ ${t2.slice(0, 300)}`);
       const s = (stores || []).find((s2) => String(s2.pc) === String(user?.storePC));
       return s ? s.pc : "";
     }, [stores, user]);
+    const submitStoreOptions = React.useMemo(() => {
+      if (user?.userType === "dm") return (stores || []).filter((s) => Number(s.district) === Number(user.district));
+      return stores || [];
+    }, [stores, user]);
     const [bizExpenseCategory, setBizExpenseCategory] = React.useState(BIZ_EXPENSE_CATEGORIES[0]);
     const [bizExpenseAmount, setBizExpenseAmount] = React.useState("");
     const [bizExpenseStorePc, setBizExpenseStorePc] = React.useState(defaultStorePc);
@@ -16075,7 +16079,7 @@ ${t2.slice(0, 300)}`);
         onChange: (e) => setBizExpenseAmount(e.target.value),
         style: inp(th)
       }
-    ), /* @__PURE__ */ React.createElement("select", { value: bizExpenseStorePc, onChange: (e) => setBizExpenseStorePc(e.target.value), style: inp(th) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "No store"), (stores || []).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("select", { value: bizExpenseStorePc, onChange: (e) => setBizExpenseStorePc(e.target.value), style: inp(th) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "No store"), submitStoreOptions.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement(
       "input",
       {
         placeholder: "Note (optional)",
@@ -20769,7 +20773,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true }
     ];
     if (ut === "manager") return [
-      ...BASE_TABS,
+      // Expenses (personal receipt log) is intentionally NOT available to
+      // store managers — only DM and above. Every other role still gets it
+      // via the plain ...BASE_TABS spread elsewhere in this function.
+      ...BASE_TABS.filter((t) => t.id !== "expenses"),
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
       { id: "pulse", label: "My Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -21688,7 +21695,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.59";
+  var APP_VERSION = "v20.61";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

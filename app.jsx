@@ -18607,6 +18607,15 @@ function ExpensesTab({ user, th, stores }) {
     return s ? s.pc : '';
   }, [stores, user]);
 
+  // A DM oversees one district, not the whole network — their submit-form
+  // store picker only offers their own district's stores, so they can't
+  // misattribute a receipt to a store outside their scope. Every other role
+  // still gets the full list.
+  const submitStoreOptions = React.useMemo(() => {
+    if (user?.userType === 'dm') return (stores || []).filter(s => Number(s.district) === Number(user.district));
+    return stores || [];
+  }, [stores, user]);
+
   const [bizExpenseCategory, setBizExpenseCategory] = React.useState(BIZ_EXPENSE_CATEGORIES[0]);
   const [bizExpenseAmount, setBizExpenseAmount] = React.useState('');
   const [bizExpenseStorePc, setBizExpenseStorePc] = React.useState(defaultStorePc);
@@ -18759,7 +18768,7 @@ function ExpensesTab({ user, th, stores }) {
             onChange={e => setBizExpenseAmount(e.target.value)} style={inp(th)} />
           <select value={bizExpenseStorePc} onChange={e => setBizExpenseStorePc(e.target.value)} style={inp(th)}>
             <option value="">No store</option>
-            {(stores || []).map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
+            {submitStoreOptions.map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
           </select>
         </div>
         <input placeholder="Note (optional)" value={bizExpenseNote} onChange={e => setBizExpenseNote(e.target.value)}
@@ -25410,7 +25419,10 @@ const computeRoleTabs = (user) => {
   ];
   // Store managers see only their assigned stores.
   if (ut === "manager") return [
-    ...BASE_TABS,
+    // Expenses (personal receipt log) is intentionally NOT available to
+    // store managers — only DM and above. Every other role still gets it
+    // via the plain ...BASE_TABS spread elsewhere in this function.
+    ...BASE_TABS.filter(t => t.id !== "expenses"),
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -26746,7 +26758,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.59";
+const APP_VERSION = "v20.61";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
