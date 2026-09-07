@@ -15140,7 +15140,7 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
             <img src={src} alt="" onLoad={e => setNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
             <svg ref={svgRef} viewBox={`0 0 1000 ${1000 * (naturalSize.h / naturalSize.w)}`} preserveAspectRatio="none"
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none' }}
-              onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
+              onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}>
               {shapes.map(renderShape)}
               {draft && renderShape(draft, 'draft')}
             </svg>
@@ -15226,6 +15226,7 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
   const [pgalOpenPhotoId, setPgalOpenPhotoId] = React.useState(null);
   const [pgalMigrating, setPgalMigrating] = React.useState(false);
   const [pgalMigrateResult, setPgalMigrateResult] = React.useState(null);
+  const [pgalMigrateError, setPgalMigrateError] = React.useState('');
   const isExecOrIT = user?.userType === 'executive' || user?.userType === 'it';
 
   const pgalLoadPhotos = React.useCallback(() => {
@@ -15309,6 +15310,8 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
     if (!selectedProject) return;
     setPgalMigrating(true);
     setPgalMigrateResult(null);
+    setPgalMigrateError('');
+    setPgalError('');
     try {
       const reportsForProject = (dailyReports || []).filter(r => r.projectId === selectedProject.id);
       const photos = [];
@@ -15319,21 +15322,54 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
           });
         });
       });
-      const res = await fetch('/.netlify/functions/project-photos', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({
-          action: 'migrateFromDailyReports',
-          projectId: selectedProject.id,
-          projectNickname: selectedProject.nickname || selectedProject.address,
-          photos,
-        }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (res.ok && j?.ok) { setPgalMigrateResult(j); pgalLoadPhotos(); }
-      else setPgalError(j?.error || 'Import failed.');
-    } catch { setPgalError('Network error during import.'); }
+
+      // A candidate with no ph.data means the app's own size-saving cache
+      // stripped this report's photos and hasn't rehydrated them yet (see
+      // stripDailyReportPhotos/mergeDailyReports elsewhere in this file) —
+      // running now would silently "succeed" while importing nothing. Refuse
+      // and ask the user to wait rather than lying about the result.
+      const hasMissingData = photos.some(p => !p.dataUrl);
+      if (hasMissingData) {
+        setPgalMigrateError('Some Daily Report photos haven\'t finished loading yet — wait a few seconds and try again.');
+        setPgalMigrating(false);
+        return;
+      }
+
+      const BATCH_SIZE = 5;
+      let totalImported = 0, totalSkipped = 0, totalMissingData = 0;
+      for (let i = 0; i < photos.length; i += BATCH_SIZE) {
+        const batch = photos.slice(i, i + BATCH_SIZE);
+        const res = await fetch('/.netlify/functions/project-photos', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({
+            action: 'migrateFromDailyReports',
+            projectId: selectedProject.id,
+            projectNickname: selectedProject.nickname || selectedProject.address,
+            photos: batch,
+          }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.ok) { setPgalMigrateError(j?.error || 'Import failed partway through — some photos may already be imported; you can safely run it again.'); setPgalMigrating(false); return; }
+        totalImported += j.imported || 0;
+        totalSkipped += j.skipped || 0;
+        totalMissingData += j.missingData || 0;
+      }
+      setPgalMigrateResult({ imported: totalImported, skipped: totalSkipped, missingData: totalMissingData });
+      pgalLoadPhotos();
+    } catch { setPgalMigrateError('Network error during import — you can safely run it again (already-imported photos are skipped automatically).'); }
     setPgalMigrating(false);
+  };
+
+  const pgalChangeProject = () => {
+    setPgalStep('setup');
+    setPgalSelectedProjectId('');
+    setPgalSessionCount(0);
+    setPgalPhotos([]);
+    setPgalError('');
+    setPgalMigrateResult(null);
+    setPgalMigrateError('');
+    setPgalOpenPhotoId(null);
   };
 
   return (
@@ -15368,7 +15404,10 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
         <div style={{ ...card(th), padding: '1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.8rem' }}>
             <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>{selectedProject.nickname || selectedProject.address}</div>
-            <div style={{ fontSize: '0.8rem', color: th.muted }}>{pgalSessionCount} / {PGAL_SESSION_LIMIT} this visit</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <div style={{ fontSize: '0.8rem', color: th.muted }}>{pgalSessionCount} / {PGAL_SESSION_LIMIT} this visit</div>
+              <button onClick={pgalChangeProject} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem' }}>Change project</button>
+            </div>
           </div>
           {pgalError && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginBottom: '0.6rem' }}>{pgalError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
@@ -15396,10 +15435,13 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
                   {pgalMigrating ? 'Importing…' : 'Import from Daily Reports'}
                 </button>
               )}
+              <button onClick={pgalChangeProject} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem' }}>Change project</button>
             </div>
           </div>
-          {pgalMigrateResult && <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>{pgalMigrateResult.imported} imported, {pgalMigrateResult.skipped} already present.</div>}
-          {pgalError && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginBottom: '0.6rem' }}>{pgalError}</div>}
+          {pgalMigrateResult && <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.6rem' }}>
+            {pgalMigrateResult.imported} imported, {pgalMigrateResult.skipped} already present{pgalMigrateResult.missingData ? `, ${pgalMigrateResult.missingData} not yet loaded` : ''}.
+          </div>}
+          {pgalMigrateError && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginBottom: '0.6rem' }}>{pgalMigrateError}</div>}
           {pgalPhotosLoading ? (
             <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading…</div>
           ) : pgalPhotos.length === 0 ? (
@@ -27155,7 +27197,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.65";
+const APP_VERSION = "v20.66";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

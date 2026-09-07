@@ -13592,7 +13592,8 @@ ${t2.slice(0, 300)}`);
         style: { position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none" },
         onPointerDown: handlePointerDown,
         onPointerMove: handlePointerMove,
-        onPointerUp: handlePointerUp
+        onPointerUp: handlePointerUp,
+        onPointerCancel: handlePointerUp
       },
       shapes.map(renderShape),
       draft && renderShape(draft, "draft")
@@ -13688,6 +13689,7 @@ ${t2.slice(0, 300)}`);
     const [pgalOpenPhotoId, setPgalOpenPhotoId] = React.useState(null);
     const [pgalMigrating, setPgalMigrating] = React.useState(false);
     const [pgalMigrateResult, setPgalMigrateResult] = React.useState(null);
+    const [pgalMigrateError, setPgalMigrateError] = React.useState("");
     const isExecOrIT = user?.userType === "executive" || user?.userType === "it";
     const pgalLoadPhotos = React.useCallback(() => {
       if (!selectedProject) return;
@@ -13774,6 +13776,8 @@ ${t2.slice(0, 300)}`);
       if (!selectedProject) return;
       setPgalMigrating(true);
       setPgalMigrateResult(null);
+      setPgalMigrateError("");
+      setPgalError("");
       try {
         const reportsForProject = (dailyReports || []).filter((r) => r.projectId === selectedProject.id);
         const photos = [];
@@ -13784,26 +13788,53 @@ ${t2.slice(0, 300)}`);
             });
           });
         });
-        const res = await fetch("/.netlify/functions/project-photos", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json", ...authHeader() },
-          body: JSON.stringify({
-            action: "migrateFromDailyReports",
-            projectId: selectedProject.id,
-            projectNickname: selectedProject.nickname || selectedProject.address,
-            photos
-          })
-        });
-        const j = await res.json().catch(() => ({}));
-        if (res.ok && j?.ok) {
-          setPgalMigrateResult(j);
-          pgalLoadPhotos();
-        } else setPgalError(j?.error || "Import failed.");
+        const hasMissingData = photos.some((p) => !p.dataUrl);
+        if (hasMissingData) {
+          setPgalMigrateError("Some Daily Report photos haven't finished loading yet \u2014 wait a few seconds and try again.");
+          setPgalMigrating(false);
+          return;
+        }
+        const BATCH_SIZE = 5;
+        let totalImported = 0, totalSkipped = 0, totalMissingData = 0;
+        for (let i = 0; i < photos.length; i += BATCH_SIZE) {
+          const batch = photos.slice(i, i + BATCH_SIZE);
+          const res = await fetch("/.netlify/functions/project-photos", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({
+              action: "migrateFromDailyReports",
+              projectId: selectedProject.id,
+              projectNickname: selectedProject.nickname || selectedProject.address,
+              photos: batch
+            })
+          });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok || !j?.ok) {
+            setPgalMigrateError(j?.error || "Import failed partway through \u2014 some photos may already be imported; you can safely run it again.");
+            setPgalMigrating(false);
+            return;
+          }
+          totalImported += j.imported || 0;
+          totalSkipped += j.skipped || 0;
+          totalMissingData += j.missingData || 0;
+        }
+        setPgalMigrateResult({ imported: totalImported, skipped: totalSkipped, missingData: totalMissingData });
+        pgalLoadPhotos();
       } catch {
-        setPgalError("Network error during import.");
+        setPgalMigrateError("Network error during import \u2014 you can safely run it again (already-imported photos are skipped automatically).");
       }
       setPgalMigrating(false);
+    };
+    const pgalChangeProject = () => {
+      setPgalStep("setup");
+      setPgalSelectedProjectId("");
+      setPgalSessionCount(0);
+      setPgalPhotos([]);
+      setPgalError("");
+      setPgalMigrateResult(null);
+      setPgalMigrateError("");
+      setPgalOpenPhotoId(null);
     };
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto" } }, pgalStep === "setup" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text, marginBottom: "0.8rem" } }, "Start a site visit"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", marginBottom: "0.4rem" } }, "Project"), /* @__PURE__ */ React.createElement("select", { value: pgalSelectedProjectId, onChange: (e) => setPgalSelectedProjectId(e.target.value), style: { ...inp(th), width: "100%" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a project\u2026"), (projects || []).map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.nickname || p.address)))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", padding: "0.75rem", border: `1px solid ${th.cardBorder}`, borderRadius: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Share your GPS location with these photos? (optional)"), pgalLocDenied && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: "#dc2626", marginBottom: "0.4rem" } }, "Location is blocked in your browser settings \u2014 you can still continue without it."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: pgalEnableLocation, style: { ...btn(th, { background: pgalShareLoc ? "#1B8F5C" : th.card2, color: pgalShareLoc ? "#fff" : th.text }), fontSize: "0.78rem" } }, pgalShareLoc ? "\u2713 Sharing location" : "Share location"), pgalShareLoc && /* @__PURE__ */ React.createElement("button", { onClick: pgalDisableLocation, style: { ...btn(th, { background: "transparent", color: th.muted }), fontSize: "0.78rem" } }, "Don't share"))), /* @__PURE__ */ React.createElement(
       "button",
@@ -13813,7 +13844,7 @@ ${t2.slice(0, 300)}`);
         style: { ...btn(th, { background: "#FF671F" }), opacity: selectedProject ? 1 : 0.5 }
       },
       "Continue"
-    )), pgalStep === "capture" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, pgalSessionCount, " / ", PGAL_SESSION_LIMIT, " this visit")), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.card2 : "#FF671F", color: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.muted : "#fff" }), cursor: pgalSessionCount >= PGAL_SESSION_LIMIT ? "default" : "pointer" } }, pgalCapturing ? "Saving\u2026" : pgalSessionCount >= PGAL_SESSION_LIMIT ? `Limit reached (${PGAL_SESSION_LIMIT}/${PGAL_SESSION_LIMIT})` : "\u{1F4F7} Take Photo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, disabled: pgalCapturing || pgalSessionCount >= PGAL_SESSION_LIMIT, onChange: pgalHandleCapture })), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("gallery"), style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Done \u2014 view gallery")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: "0.5rem" } }, pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.map((p) => /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { key: p.id, imageKey: p.imageKey, size: 90 })))), pgalStep === "gallery" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address, " \u2014 Gallery"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("capture"), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "+ Take more photos"), isExecOrIT && /* @__PURE__ */ React.createElement("button", { onClick: pgalRunMigration, disabled: pgalMigrating, style: { ...btn(th, { background: "#7c3aed" }), fontSize: "0.78rem", opacity: pgalMigrating ? 0.6 : 1 } }, pgalMigrating ? "Importing\u2026" : "Import from Daily Reports"))), pgalMigrateResult && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, pgalMigrateResult.imported, " imported, ", pgalMigrateResult.skipped, " already present."), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No photos yet for this project.") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "0.75rem" } }, pgalPhotos.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: { position: "relative" } }, /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { imageKey: p.imageKey, size: 120, onClick: () => setPgalOpenPhotoId(p.id) }), p.source === "migrated" && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, left: 4, fontSize: "0.6rem", fontWeight: 700, background: "#7c3aed", color: "#fff", borderRadius: 4, padding: "1px 5px" } }, "Migrated"), /* @__PURE__ */ React.createElement("button", { onClick: () => pgalDeletePhoto(p.id), style: { position: "absolute", top: 4, right: 4, background: "#ef4444dd", border: "none", borderRadius: 4, color: "#fff", fontSize: "0.65rem", padding: "1px 5px", cursor: "pointer" } }, "\u2715"))))), pgalOpenPhotoId && (() => {
+    )), pgalStep === "capture" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, pgalSessionCount, " / ", PGAL_SESSION_LIMIT, " this visit"), /* @__PURE__ */ React.createElement("button", { onClick: pgalChangeProject, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "Change project"))), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.card2 : "#FF671F", color: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.muted : "#fff" }), cursor: pgalSessionCount >= PGAL_SESSION_LIMIT ? "default" : "pointer" } }, pgalCapturing ? "Saving\u2026" : pgalSessionCount >= PGAL_SESSION_LIMIT ? `Limit reached (${PGAL_SESSION_LIMIT}/${PGAL_SESSION_LIMIT})` : "\u{1F4F7} Take Photo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, disabled: pgalCapturing || pgalSessionCount >= PGAL_SESSION_LIMIT, onChange: pgalHandleCapture })), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("gallery"), style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Done \u2014 view gallery")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: "0.5rem" } }, pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.map((p) => /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { key: p.id, imageKey: p.imageKey, size: 90 })))), pgalStep === "gallery" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address, " \u2014 Gallery"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("capture"), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "+ Take more photos"), isExecOrIT && /* @__PURE__ */ React.createElement("button", { onClick: pgalRunMigration, disabled: pgalMigrating, style: { ...btn(th, { background: "#7c3aed" }), fontSize: "0.78rem", opacity: pgalMigrating ? 0.6 : 1 } }, pgalMigrating ? "Importing\u2026" : "Import from Daily Reports"), /* @__PURE__ */ React.createElement("button", { onClick: pgalChangeProject, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "Change project"))), pgalMigrateResult && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.6rem" } }, pgalMigrateResult.imported, " imported, ", pgalMigrateResult.skipped, " already present", pgalMigrateResult.missingData ? `, ${pgalMigrateResult.missingData} not yet loaded` : "", "."), pgalMigrateError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalMigrateError), pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No photos yet for this project.") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "0.75rem" } }, pgalPhotos.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: { position: "relative" } }, /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { imageKey: p.imageKey, size: 120, onClick: () => setPgalOpenPhotoId(p.id) }), p.source === "migrated" && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, left: 4, fontSize: "0.6rem", fontWeight: 700, background: "#7c3aed", color: "#fff", borderRadius: 4, padding: "1px 5px" } }, "Migrated"), /* @__PURE__ */ React.createElement("button", { onClick: () => pgalDeletePhoto(p.id), style: { position: "absolute", top: 4, right: 4, background: "#ef4444dd", border: "none", borderRadius: 4, color: "#fff", fontSize: "0.65rem", padding: "1px 5px", cursor: "pointer" } }, "\u2715"))))), pgalOpenPhotoId && (() => {
       const photo = pgalPhotos.find((p) => p.id === pgalOpenPhotoId);
       if (!photo) return null;
       return /* @__PURE__ */ React.createElement(
@@ -22027,7 +22058,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.65";
+  var APP_VERSION = "v20.66";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

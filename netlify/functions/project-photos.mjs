@@ -169,9 +169,9 @@ export default async (request) => {
       const projectId = Number(payload.projectId);
       if (!Number.isFinite(projectId)) return json(400, { error: 'projectId required' });
       const photos = Array.isArray(payload.photos) ? payload.photos : [];
-      let imported = 0, skipped = 0;
+      let imported = 0, skipped = 0, missingData = 0;
       for (const p of photos) {
-        if (!p?.sourceRef || !p?.dataUrl) { skipped++; continue; }
+        if (!p?.sourceRef || !p?.dataUrl) { missingData++; continue; }
         const existing = await sql`SELECT id FROM project_photos WHERE source_ref = ${p.sourceRef}`;
         if (existing.length) { skipped++; continue; }
         const id = genId();
@@ -187,7 +187,7 @@ export default async (request) => {
           ON CONFLICT (source_ref) DO NOTHING`;
         imported++;
       }
-      return json(200, { ok: true, imported, skipped });
+      return json(200, { ok: true, imported, skipped, missingData });
     }
 
     return json(400, { error: `Unknown action: ${action}` });
