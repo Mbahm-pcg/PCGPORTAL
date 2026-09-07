@@ -15050,8 +15050,11 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
 
 const PGAL_SHAPE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#22c55e'];
 
-function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
-  const [src, setSrc] = React.useState(null);
+function ProjectPhotoAnnotator({ photo, th, onClose, onSaved, initialSrc }) {
+  // When opened right after a capture, the caller already has the compressed
+  // image in memory (it just uploaded it) — skip the redundant cloudLoad
+  // round-trip and show it instantly instead of a brief "loading" blank.
+  const [src, setSrc] = React.useState(initialSrc || null);
   const [naturalSize, setNaturalSize] = React.useState({ w: 1, h: 1 });
   const [shapes, setShapes] = React.useState(photo.annotations || []);
   const [tool, setTool] = React.useState('line'); // 'line' | 'circle'
@@ -15073,6 +15076,7 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
   const ZOOM_MIN = 1, ZOOM_MAX = 4;
 
   React.useEffect(() => {
+    if (initialSrc) return;
     cloudLoad(photo.imageKey).then(data => { if (data?.base64) setSrc(data.base64); }).catch(() => {});
   }, [photo.imageKey]);
 
@@ -15114,6 +15118,7 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
       return; // drawing is suspended while a pinch is in progress
     }
     if (!dragStart.current) return;
+    if (tool === 'text') return; // a text label is placed on tap, not dragged — no live preview needed
     const cur = fractionFromEvent(e);
     const s = dragStart.current;
     if (tool === 'line') setDraft({ id: 'draft', type: 'line', x1: s.x, y1: s.y, x2: cur.x, y2: cur.y, color });
@@ -15125,6 +15130,21 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
     if (pointersRef.current.size > 0) {
       // Dropped from 2 fingers to 1 (pinch ending) — don't resume drawing
       // from a stale start point; require a fresh single-finger press.
+      dragStart.current = null;
+      setDraft(null);
+      return;
+    }
+    if (tool === 'text') {
+      // Numbers/callouts pointing at something — tap to place, then type the
+      // label. A native prompt() is the fastest reliable cross-device way to
+      // get text input mid-gesture; it also works fine on mobile Chrome/Safari.
+      if (dragStart.current) {
+        const s = dragStart.current;
+        const text = window.prompt('Label text (e.g. a number or short note):');
+        if (text && text.trim()) {
+          setShapes(prev => [...prev, { id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, type: 'text', x: s.x, y: s.y, text: text.trim().slice(0, 200), color }]);
+        }
+      }
       dragStart.current = null;
       setDraft(null);
       return;
@@ -15165,6 +15185,10 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
   const renderShape = (s, i) => {
     const W = 1000, H = 1000 * (naturalSize.h / naturalSize.w); // any fixed ratio works since viewBox is unitless-consistent
     if (s.type === 'line') return <line key={s.id || i} x1={s.x1 * W} y1={s.y1 * H} x2={s.x2 * W} y2={s.y2 * H} stroke={s.color} strokeWidth={4} strokeLinecap="round" />;
+    if (s.type === 'text') return (
+      <text key={s.id || i} x={s.x * W} y={s.y * H} fill={s.color} stroke="#000" strokeWidth={3} paintOrder="stroke"
+        fontSize={40} fontWeight={800} fontFamily="'Source Sans 3', sans-serif">{s.text}</text>
+    );
     return <ellipse key={s.id || i} cx={s.cx * W} cy={s.cy * H} rx={s.rx * W} ry={s.ry * H} fill="none" stroke={s.color} strokeWidth={4} />;
   };
 
@@ -15174,6 +15198,7 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
         <div style={{ display: 'flex', gap: '0.4rem' }}>
           <button onClick={() => setTool('line')} style={{ ...btn(th, { background: tool === 'line' ? '#FF671F' : th.card2, color: tool === 'line' ? '#fff' : th.text }) }}>Line</button>
           <button onClick={() => setTool('circle')} style={{ ...btn(th, { background: tool === 'circle' ? '#FF671F' : th.card2, color: tool === 'circle' ? '#fff' : th.text }) }}>Circle</button>
+          <button onClick={() => setTool('text')} style={{ ...btn(th, { background: tool === 'text' ? '#FF671F' : th.card2, color: tool === 'text' ? '#fff' : th.text }) }}>Text</button>
           {PGAL_SHAPE_COLORS.map(c => (
             <button key={c} onClick={() => setColor(c)} style={{ width: 28, height: 28, borderRadius: '50%', background: c, border: color === c ? '3px solid #fff' : '1px solid #0003', cursor: 'pointer' }} />
           ))}
@@ -15208,7 +15233,7 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved }) {
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           {shapes.map((s, i) => (
             <span key={s.id || i} style={{ fontSize: '0.72rem', color: '#fff', background: '#ffffff22', borderRadius: 6, padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {s.type === 'line' ? 'Line' : 'Circle'} <span style={{ width: 10, height: 10, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
+              {s.type === 'line' ? 'Line' : s.type === 'text' ? `"${s.text}"` : 'Circle'} <span style={{ width: 10, height: 10, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
               <button onClick={() => removeShape(s.id)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0 }}>✕</button>
             </span>
           ))}
@@ -15318,6 +15343,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
   const [pgalCapturing, setPgalCapturing] = React.useState(false);
   const [pgalError, setPgalError] = React.useState('');
   const [pgalOpenPhotoId, setPgalOpenPhotoId] = React.useState(null);
+  const [pgalOpenPhotoInitialSrc, setPgalOpenPhotoInitialSrc] = React.useState(null);
 
   const pgalLoadPhotos = React.useCallback(() => {
     if (!selectedProject) return;
@@ -15381,6 +15407,15 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
       if (!res.ok || !j?.ok) { setPgalError(j?.error || 'Could not save this photo — please try again.'); return; }
       setPgalPhotos(prev => [j.photo, ...prev]);
       setPgalSessionCount(n => n + 1);
+      // Open the annotator on this photo right away, so drawing a
+      // measurement/flag feels like one continuous action instead of a
+      // separate trip to the gallery afterward. The photo is already
+      // safely saved at this point — closing without drawing anything
+      // just means no annotations, never data loss. Pass the dataUrl we
+      // already have in memory so the annotator shows it instantly instead
+      // of re-fetching the same bytes we just uploaded.
+      setPgalOpenPhotoInitialSrc(dataUrl);
+      setPgalOpenPhotoId(j.photo.id);
     } catch { setPgalError('Network error — please try again.'); }
     finally { setPgalCapturing(false); }
   };
@@ -15421,6 +15456,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
       // those silently rather than blocking the rest; a later visit to this
       // project's gallery will pick them up once they're loaded.
       const readyPhotos = photos.filter(p => p.dataUrl);
+      console.log(`[project-gallery] sync for "${selectedProject.nickname || selectedProject.address}" (id ${selectedProject.id}): ${reportsForProject.length} daily report(s), ${photos.length} photo(s) total, ${readyPhotos.length} with image data ready to sync.`);
       if (readyPhotos.length === 0) return;
 
       const BATCH_SIZE = 5;
@@ -15470,7 +15506,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
               {(projects || []).map(p => <option key={p.id} value={p.id}>{p.nickname || p.address}</option>)}
             </select>
             {!pgalShowNewProject ? (
-              <button onClick={() => setPgalShowNewProject(true)} style={{ background: 'none', border: 'none', color: '#FF671F', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', padding: '0.4rem 0' }}>
+              <button onClick={() => setPgalShowNewProject(true)} style={{ ...btn(th, { background: th.card2, color: th.text }), marginTop: '0.6rem', fontSize: '0.82rem' }}>
                 + Add a new project
               </button>
             ) : (
@@ -15554,8 +15590,9 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
           <ProjectPhotoAnnotator
             photo={photo}
             th={th}
-            onClose={() => setPgalOpenPhotoId(null)}
-            onSaved={() => { setPgalOpenPhotoId(null); pgalLoadPhotos(); }}
+            initialSrc={pgalOpenPhotoInitialSrc}
+            onClose={() => { setPgalOpenPhotoId(null); setPgalOpenPhotoInitialSrc(null); }}
+            onSaved={() => { setPgalOpenPhotoId(null); setPgalOpenPhotoInitialSrc(null); pgalLoadPhotos(); }}
           />
         );
       })()}
@@ -27285,7 +27322,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.69";
+const APP_VERSION = "v20.71";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

@@ -27,9 +27,14 @@ export const SHAPE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#22c55e'];
 
 const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
+// Max characters for a text-callout shape — a label/number, not a paragraph.
+const TEXT_MAX_LEN = 200;
+
 // Coordinates are fractions of the photo's natural width/height (line) or
 // width/height separately (circle's cx/rx vs cy/ry) — see the design spec's
 // "Coordinate system" section for why a circle is an ellipse under the hood.
+// A text shape is a single anchor point (x,y, same width/height-fraction
+// convention) plus a short label string — for numbering/callouts on a photo.
 export function isValidShape(shape) {
   if (!shape || typeof shape !== 'object') return false;
   if (!SHAPE_COLORS.includes(shape.color)) return false;
@@ -39,6 +44,10 @@ export function isValidShape(shape) {
   if (shape.type === 'circle') {
     return isFiniteNum(shape.cx) && isFiniteNum(shape.cy) && isFiniteNum(shape.rx) && isFiniteNum(shape.ry)
       && shape.rx > 0 && shape.ry > 0;
+  }
+  if (shape.type === 'text') {
+    return isFiniteNum(shape.x) && isFiniteNum(shape.y)
+      && typeof shape.text === 'string' && shape.text.trim().length > 0 && shape.text.length <= TEXT_MAX_LEN;
   }
   return false;
 }
@@ -50,6 +59,7 @@ export function sanitizeAnnotations(rawArray) {
   if (!Array.isArray(rawArray)) return [];
   return rawArray.filter(isValidShape).map((s) => {
     if (s.type === 'line') return { id: s.id, type: 'line', x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, color: s.color };
+    if (s.type === 'text') return { id: s.id, type: 'text', x: s.x, y: s.y, text: s.text, color: s.color };
     return { id: s.id, type: 'circle', cx: s.cx, cy: s.cy, rx: s.rx, ry: s.ry, color: s.color };
   });
 }

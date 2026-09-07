@@ -75,6 +75,25 @@ test('isValidShape: false for missing/non-object input', () => {
   assert.equal(isValidShape('not a shape'), false);
 });
 
+test('isValidShape: a well-formed text label is valid', () => {
+  assert.equal(isValidShape({ id: 's9', type: 'text', x: 0.4, y: 0.6, text: '1', color: '#22c55e' }), true);
+});
+
+test('isValidShape: false for a text label with no text / whitespace-only text', () => {
+  assert.equal(isValidShape({ id: 's10', type: 'text', x: 0.4, y: 0.6, text: '', color: '#22c55e' }), false);
+  assert.equal(isValidShape({ id: 's11', type: 'text', x: 0.4, y: 0.6, text: '   ', color: '#22c55e' }), false);
+  assert.equal(isValidShape({ id: 's12', type: 'text', x: 0.4, y: 0.6, color: '#22c55e' }), false);
+});
+
+test('isValidShape: false for a text label over the length cap', () => {
+  assert.equal(isValidShape({ id: 's13', type: 'text', x: 0.4, y: 0.6, text: 'a'.repeat(201), color: '#22c55e' }), false);
+  assert.equal(isValidShape({ id: 's14', type: 'text', x: 0.4, y: 0.6, text: 'a'.repeat(200), color: '#22c55e' }), true);
+});
+
+test('isValidShape: false for a text label with non-finite coordinates', () => {
+  assert.equal(isValidShape({ id: 's15', type: 'text', x: NaN, y: 0.6, text: '2', color: '#22c55e' }), false);
+});
+
 test('sanitizeAnnotations: drops invalid entries, keeps valid ones', () => {
   const raw = [
     { id: 'a', type: 'line', x1: 0, y1: 0, x2: 1, y2: 1, color: '#ef4444' },
@@ -95,4 +114,10 @@ test('sanitizeAnnotations: strips unknown extra fields from a valid shape', () =
 test('sanitizeAnnotations: non-array input returns an empty array', () => {
   assert.deepEqual(sanitizeAnnotations(null), []);
   assert.deepEqual(sanitizeAnnotations('not an array'), []);
+});
+
+test('sanitizeAnnotations: keeps a valid text label and strips its unknown extra fields', () => {
+  const raw = [{ id: 'a', type: 'text', x: 0.3, y: 0.7, text: '3', color: '#f59e0b', evilPayload: '<script>' }];
+  const cleaned = sanitizeAnnotations(raw);
+  assert.deepEqual(cleaned, [{ id: 'a', type: 'text', x: 0.3, y: 0.7, text: '3', color: '#f59e0b' }]);
 });
