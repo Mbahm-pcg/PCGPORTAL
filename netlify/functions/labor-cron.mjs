@@ -7,6 +7,7 @@ import https from 'node:https';
 import { getStore } from '@netlify/blobs';
 import { lookupUnitCost } from './analyst-lib/cost-lookup.mjs';
 import { computeStorePnL, DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
+import { recordHealth } from './health-lib/record-health.mjs';
 
 export const config = { schedule: "0 9-23,0-3 * * *" };
 
@@ -1002,6 +1003,7 @@ function cogsPctFor(cfg, store) {
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export default async (request, context) => {
+  const startMs = Date.now();
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -1317,12 +1319,14 @@ export default async (request, context) => {
     };
 
     console.log('[labor-cron] complete:', JSON.stringify(summary));
+    await recordHealth('labor', { ok: true, durationMs: Date.now() - startMs });
     return isManual
       ? new Response(JSON.stringify(summary), { status: 200, headers })
       : undefined;
 
   } catch (err) {
     console.error('[labor-cron] fatal error:', err);
+    await recordHealth('labor', { ok: false, error: err });
     return isManual
       ? new Response(JSON.stringify({ error: err.message }), { status: 500, headers })
       : undefined;

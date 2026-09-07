@@ -5,6 +5,7 @@
 import https from 'node:https';
 import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
+import { recordHealth } from './health-lib/record-health.mjs';
 
 // ── Store configs ─────────────────────────────────────────────────────────────
 const STORES = [
@@ -544,10 +545,12 @@ export default async (request) => {
     });
 
     console.log('Pulse notify complete:', JSON.stringify(result));
+    await recordHealth('pulse-sales', { ok: true });
     return isManual ? new Response(JSON.stringify(result), { status: 200, headers }) : undefined;
 
   } catch (err) {
     console.error('Pulse notify error:', err);
+    await recordHealth('pulse-sales', { ok: false, error: err });
     return isManual
       ? new Response(JSON.stringify({ error: err.message }), { status: 500, headers })
       : undefined;

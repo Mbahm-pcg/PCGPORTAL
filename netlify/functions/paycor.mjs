@@ -7,6 +7,7 @@ import { getStore } from '@netlify/blobs';
 import { neon } from '@neondatabase/serverless';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { STORES } from './labor-cron.mjs';
+import { recordHealth } from './health-lib/record-health.mjs';
 
 // Same lazy-init pattern as audits.mjs (netlify/functions/audits.mjs) — this
 // is the proven, already-shipped way a .mjs function in this codebase gets a
@@ -775,6 +776,13 @@ export default async (request, context) => {
 
   } catch (err) {
     console.error('Paycor function error:', err);
+    // NO_TOKEN means the refresh flow itself failed (dead/missing refresh
+    // token, or Paycor rejected every refresh attempt with nothing usable in
+    // the shared cache either) — the exact silent Paycor auth failure this
+    // heartbeat exists to surface on the labor feed (Paycor backs labor).
+    if (err.message?.startsWith('NO_TOKEN')) {
+      await recordHealth('labor', { ok: false, error: `Paycor token refresh failed: ${err?.message || err}` });
+    }
     return new Response(JSON.stringify({ error: err.message }), {
       status: err.message?.startsWith('NO_TOKEN') ? 401 : 500,
       headers,

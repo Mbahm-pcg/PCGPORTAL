@@ -46,6 +46,7 @@ import { getStore } from '@netlify/blobs';
 import { runReconcileForDates } from './tips-reconcile-cron.mjs';
 import { retryErrorDays } from './tips-report-morning-sweep-background.mjs';
 import { computeFinalizeStatuses, deriveWithheldSet } from './tips-lib/period-settle.mjs';
+import { recordHealth } from './health-lib/record-health.mjs';
 
 export const config = { schedule: '0 7 * * *' };
 
@@ -1284,5 +1285,6 @@ export default async (request) => {
 
   const summary = { ok: true, busDt, daily: dailyResult, weekly: weeklyResult, biweekly: biweeklyResult };
   console.log('[tips-report-cron] done:', JSON.stringify(summary));
+  await recordHealth('tips', { ok: true, durationMs: Date.now() - invocationStart });
   return new Response(JSON.stringify(summary), { status: 200, headers: { 'Content-Type': 'application/json' } });
 };
