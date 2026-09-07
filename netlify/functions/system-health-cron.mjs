@@ -5,7 +5,7 @@ import https from 'node:https';
 import { getStore } from '@netlify/blobs';
 import webpush from 'web-push';
 import { sql } from './_shared/db.mjs';
-import { buildSnapshot, diffForAlerts } from '../../src/system-health.mjs';
+import { buildSnapshot, diffForAlerts, FEEDS } from '../../src/system-health.mjs';
 
 export const config = { schedule: '*/30 * * * *' };
 
@@ -67,6 +67,17 @@ export default async (request) => {
     activePcs = blobs.map(b => b.key.replace('pcg_labor_store_', ''));
   } catch { activePcs = []; }
 
+  // Scope each per-store feed to the stores that actually have THAT feed's blob
+  // (e.g. closed/excluded stores have no P&L blob and would otherwise be flagged STALE).
+  const activePcsByKey = {};
+  for (const f of FEEDS) {
+    if (!f.perStore) continue;
+    try {
+      const { blobs } = await store.list({ prefix: f.blobKey });
+      activePcsByKey[f.key] = blobs.map(b => b.key.slice(f.blobKey.length));
+    } catch { activePcsByKey[f.key] = []; }
+  }
+
   // Injected reader: returns savedAt epoch ms or null (missing/error).
   const readSavedAt = async (key) => {
     try {
@@ -85,7 +96,7 @@ export default async (request) => {
   let prev = null;
   try { const raw = await store.get(SNAPSHOT_KEY, { type: 'json' }); prev = (raw && raw.data) ? raw.data : null; } catch {}
 
-  const snapshot = await buildSnapshot({ readSavedAt, activePcs, nowMs, beats });
+  const snapshot = await buildSnapshot({ readSavedAt, activePcs, activePcsByKey, nowMs, beats });
 
   // Alert log { lastAlerted:{key:ms}, events:[...] }.
   let log = { lastAlerted: {}, events: [] };

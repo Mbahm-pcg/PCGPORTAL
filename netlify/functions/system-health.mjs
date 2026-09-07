@@ -2,7 +2,7 @@
 // On-demand System Health recompute for the dashboard's "Refresh now".
 // Exec/IT only (server-enforced). Same buildSnapshot as the cron, minus alerting.
 import { getStore } from '@netlify/blobs';
-import { buildSnapshot } from '../../src/system-health.mjs';
+import { buildSnapshot, FEEDS } from '../../src/system-health.mjs';
 import { resolveCaller } from './_shared/auth.mjs';
 import { sql } from './_shared/db.mjs';
 import { sessionGate, requireUser } from './auth-lib/require-user.js';
@@ -50,12 +50,24 @@ export default async (request) => {
   const nowMs = Date.now();
   let activePcs = [];
   try { const { blobs } = await store.list({ prefix: 'pcg_labor_store_' }); activePcs = blobs.map(b => b.key.replace('pcg_labor_store_', '')); } catch {}
+
+  // Scope each per-store feed to the stores that actually have THAT feed's blob
+  // (e.g. closed/excluded stores have no P&L blob and would otherwise be flagged STALE).
+  const activePcsByKey = {};
+  for (const f of FEEDS) {
+    if (!f.perStore) continue;
+    try {
+      const { blobs } = await store.list({ prefix: f.blobKey });
+      activePcsByKey[f.key] = blobs.map(b => b.key.slice(f.blobKey.length));
+    } catch { activePcsByKey[f.key] = []; }
+  }
+
   const readSavedAt = async (key) => {
     try { const raw = await store.get(key, { type: 'json' }); if (!raw || !raw.savedAt) return null; const ms = Date.parse(raw.savedAt); return Number.isFinite(ms) ? ms : null; } catch { return null; }
   };
   let beats = {};
   try { const raw = await store.get(BEATS_KEY, { type: 'json' }); beats = (raw && raw.data) ? raw.data : {}; } catch {}
 
-  const snapshot = await buildSnapshot({ readSavedAt, activePcs, nowMs, beats });
+  const snapshot = await buildSnapshot({ readSavedAt, activePcs, activePcsByKey, nowMs, beats });
   return json(200, { ok: true, snapshot });
 };

@@ -149,4 +149,26 @@ describe('buildSnapshot', () => {
     assert.strictEqual(feed.status, 'STALE');
     assert.strictEqual(feed.error, 'token expired');
   });
+  test('activePcsByKey scopes a per-store feed to its own blob set, ignoring pcs absent from it', async () => {
+    // 'pnl-store' only has a blob for pc '100' (e.g. '200' is a closed/excluded
+    // store with no P&L blob). Without scoping, '200' would be checked against
+    // the shared labor store-set and flag this critical feed STALE.
+    const subset = ['100'];
+    const readSavedAt = async (key) => {
+      if (key.startsWith('pcg_pnl_store_')) {
+        const pc = key.slice('pcg_pnl_store_'.length);
+        return subset.includes(pc) ? NOW2 : null; // '200' would be missing/stale
+      }
+      return NOW2;
+    };
+    const snap = await buildSnapshot({
+      readSavedAt, activePcs: pcs, activePcsByKey: { 'pnl-store': subset }, nowMs: NOW2, beats: {},
+    });
+    const feed = snap.feeds.find(f => f.key === 'pnl-store');
+    assert.strictEqual(feed.status, 'OK');
+    assert.strictEqual(feed.storesTotal, subset.length);
+    assert.strictEqual(feed.storesOk, subset.length);
+    assert.deepStrictEqual(feed.staleStores, []);
+    assert.strictEqual(snap.overall, 'GREEN');
+  });
 });

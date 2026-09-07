@@ -99,9 +99,9 @@ export const FEEDS = [
   { key: 'tips', label: 'Tips Report', blobKey: 'pcg_tips_report_last_run',
     expectedMaxAgeMin: 1680, perStore: false, critical: true, category: 'Cash' }, // daily 7am ET, 28h tol
   { key: 'pnl-live', label: 'P&L (live)', blobKey: 'pcg_pnl_live_v1',
-    expectedMaxAgeMin: 1560, perStore: false, critical: true, category: 'Cash' }, // written by labor-cron
+    expectedMaxAgeMin: 180, perStore: false, critical: true, category: 'Cash' }, // written by labor-cron, hourly, 2x tol
   { key: 'pnl-store', label: 'P&L (per-store)', blobKey: 'pcg_pnl_store_',
-    expectedMaxAgeMin: 1560, perStore: true, critical: true, category: 'Cash' },
+    expectedMaxAgeMin: 180, perStore: true, critical: true, category: 'Cash' },
   // Comms / AI / Platform (non-critical)
   { key: 'reviews', label: 'Google Reviews', blobKey: 'pcg_reviews_network',
     expectedMaxAgeMin: 11520, perStore: false, critical: false, category: 'Comms' }, // weekly, 8d tol
@@ -114,17 +114,18 @@ export const FEEDS = [
 /**
  * Build a full snapshot by reading each feed's blob freshness via an injected
  * async reader (kept injectable so this stays pure and unit-testable).
- * @param {{ readSavedAt:(key:string)=>Promise<number|null>, activePcs?:string[], nowMs:number, beats?:object }} args
+ * @param {{ readSavedAt:(key:string)=>Promise<number|null>, activePcs?:string[], activePcsByKey?:object, nowMs:number, beats?:object }} args
  */
-export async function buildSnapshot({ readSavedAt, activePcs = [], nowMs, beats = {} }) {
+export async function buildSnapshot({ readSavedAt, activePcs = [], activePcsByKey = {}, nowMs, beats = {} }) {
   const feeds = [];
   for (const spec of FEEDS) {
     let entry;
     try {
       if (spec.perStore) {
+        const pcs = activePcsByKey[spec.key] || activePcs;
         const perStoreSavedAt = {};
-        for (const pc of activePcs) perStoreSavedAt[pc] = await readSavedAt(spec.blobKey + pc);
-        const r = classifyPerStore(perStoreSavedAt, nowMs, spec, activePcs);
+        for (const pc of pcs) perStoreSavedAt[pc] = await readSavedAt(spec.blobKey + pc);
+        const r = classifyPerStore(perStoreSavedAt, nowMs, spec, pcs);
         entry = { key: spec.key, label: spec.label, category: spec.category, critical: spec.critical, perStore: true, ...r };
       } else {
         const savedAt = await readSavedAt(spec.blobKey);
