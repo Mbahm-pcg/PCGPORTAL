@@ -15169,7 +15169,7 @@ function ProjectGalleryTab({ user, th, projects, dailyReports }) {
       setPgalPhotos(prev => [j.photo, ...prev]);
       setPgalSessionCount(n => n + 1);
     } catch { setPgalError('Network error — please try again.'); }
-    setPgalCapturing(false);
+    finally { setPgalCapturing(false); }
   };
 
   return (
