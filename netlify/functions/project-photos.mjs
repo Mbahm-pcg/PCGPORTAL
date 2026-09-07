@@ -17,7 +17,7 @@
 import { neon } from '@neondatabase/serverless';
 import { getStore } from '@netlify/blobs';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { canAccessProjectGallery, canMigrate, sanitizeAnnotations } from './project-photos-lib/shapes.mjs';
+import { canAccessProjectGallery, sanitizeAnnotations } from './project-photos-lib/shapes.mjs';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -165,7 +165,10 @@ export default async (request) => {
     }
 
     if (action === 'migrateFromDailyReports') {
-      if (!canMigrate(claims.userType)) return json(403, { error: 'Only executive/it can run an import' });
+      // No extra role check here — the top-level canAccessProjectGallery
+      // gate above already covers this action. It's now an automatic
+      // background sync (making photos that already exist visible), not a
+      // privileged bulk operation, so it's open to any gallery role.
       const projectId = Number(payload.projectId);
       if (!Number.isFinite(projectId)) return json(400, { error: 'projectId required' });
       const photos = Array.isArray(payload.photos) ? payload.photos : [];
@@ -184,7 +187,7 @@ export default async (request) => {
             ${id}, ${projectId}, ${payload.projectNickname || null}, ${claims.sub}, ${p.addedBy || 'Daily Report'},
             ${claims.userType}, ${imageKey}, 'migrated', ${p.sourceRef}, ${p.timestamp || new Date().toISOString()}
           )
-          ON CONFLICT (source_ref) DO NOTHING`;
+          ON CONFLICT (source_ref) WHERE source_ref IS NOT NULL DO NOTHING`;
         imported++;
       }
       return json(200, { ok: true, imported, skipped, missingData });
