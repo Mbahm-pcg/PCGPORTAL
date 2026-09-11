@@ -15212,6 +15212,17 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved, initialSrc }) {
           <button onClick={onClose} style={{ ...btn(th, { background: th.card2, color: th.text }) }}>Close</button>
         </div>
       </div>
+      <div style={{ fontSize: '0.78rem', color: '#ccc', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <span>{photo.takenByName || 'Unknown'}</span>
+        <span style={{ color: '#666' }}>·</span>
+        <span>{photo.createdAt ? new Date(photo.createdAt).toLocaleString() : '—'}</span>
+        {photo.lat != null && photo.lng != null && (
+          <>
+            <span style={{ color: '#666' }}>·</span>
+            <a href={`https://www.google.com/maps?q=${photo.lat},${photo.lng}`} target="_blank" rel="noopener noreferrer" style={{ color: '#5ba7ff' }}>📍 View on map</a>
+          </>
+        )}
+      </div>
       <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
         {src && (
           // Pinch-zoom is a plain CSS transform on this wrapper — fractionFromEvent
@@ -15248,7 +15259,7 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved, initialSrc }) {
 }
 
 // ── Project Gallery: site-photo documentation (GPS + drawable annotations) ────
-function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
+function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports, isMobile }) {
   const [pgalStep, setPgalStep] = React.useState('setup'); // 'setup' | 'capture' | 'gallery'
   const [pgalSelectedProjectId, setPgalSelectedProjectId] = React.useState('');
   const selectedProject = React.useMemo(
@@ -15323,7 +15334,9 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
   // permission dialog once and remembers the answer from then on — same as
   // any other site. A hard deny surfaces an inline note; re-enabling it is
   // the browser's own site-settings toggle, not anything in this app.
-  React.useEffect(() => { pgalEnableLocation(); }, [pgalEnableLocation]);
+  // Desktop/PC is view-only (no capture flow at all — see isMobile below),
+  // so there's nothing to tag with a location; skip the prompt entirely.
+  React.useEffect(() => { if (isMobile) pgalEnableLocation(); }, [isMobile, pgalEnableLocation]);
 
   const pgalGetLocation = React.useCallback(() => new Promise((resolve) => {
     if (!pgalShareLoc || !navigator.geolocation) return resolve(null);
@@ -15570,9 +15583,9 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
               </div>
             )}
           </div>
-          <button onClick={() => selectedProject && setPgalStep('capture')} disabled={!selectedProject}
+          <button onClick={() => selectedProject && setPgalStep(isMobile ? 'capture' : 'gallery')} disabled={!selectedProject}
             style={{ ...btn(th, { background: '#FF671F' }), opacity: selectedProject ? 1 : 0.5 }}>
-            Continue →
+            {isMobile ? 'Continue →' : 'View gallery →'}
           </button>
         </div>
       )}
@@ -15634,7 +15647,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.95rem', color: th.text }}>{selectedProject.nickname || selectedProject.address} — Gallery</div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => setPgalStep('capture')} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem' }}>+ Take more photos</button>
+              {isMobile && <button onClick={() => setPgalStep('capture')} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem' }}>+ Take more photos</button>}
               <button onClick={pgalChangeProject} style={{ ...btn(th, { background: th.card2, color: th.text }), fontSize: '0.78rem' }}>Change project</button>
             </div>
           </div>
@@ -15651,10 +15664,19 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports }) {
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.75rem', marginBottom: totalPages > 1 ? '0.75rem' : 0 }}>
                   {pagePhotos.map(p => (
-                    <div key={p.id} style={{ position: 'relative' }}>
-                      <ProjectPhotoThumb imageKey={p.imageKey} size={120} onClick={() => setPgalOpenPhotoId(p.id)} />
-                      {p.source === 'migrated' && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '0.6rem', fontWeight: 700, background: '#7c3aed', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Migrated</span>}
-                      <button onClick={() => pgalDeletePhoto(p.id)} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444dd', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}>✕</button>
+                    <div key={p.id}>
+                      <div style={{ position: 'relative' }}>
+                        <ProjectPhotoThumb imageKey={p.imageKey} size={120} onClick={() => setPgalOpenPhotoId(p.id)} />
+                        {p.source === 'migrated' && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '0.6rem', fontWeight: 700, background: '#7c3aed', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Migrated</span>}
+                        <button onClick={() => pgalDeletePhoto(p.id)} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444dd', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}>✕</button>
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: th.text, marginTop: '0.3rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.takenByName || 'Unknown'}</div>
+                      <div style={{ fontSize: '0.64rem', color: th.muted, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <span>{p.createdAt ? new Date(p.createdAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}</span>
+                        {p.lat != null && p.lng != null && (
+                          <a href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title="View location on map" style={{ color: '#3b82f6', textDecoration: 'none' }}>📍</a>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -27409,7 +27431,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.74";
+const APP_VERSION = "v20.76";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -50512,6 +50534,7 @@ function PCGPortal() {
               { id: 'locations', name: 'Locations', sub: 'Store roster — table, cards, and map, one filter bar.', show: (isFullAdmin(user) || isOfficeStaff || isDM) && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'locations'), icon: <><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></> },
               { id: 'impact', name: 'Impact Radar', sub: 'Competitive intelligence — nearby openings and closures.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'impact'), icon: <><circle cx="12" cy="12" r="9"/><path d="M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12h18"/></> },
               { id: 'projects', name: 'Projects', sub: 'Construction pipeline, vendors, permits, inspections.', show: canViewProjects(user) && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'projects'), icon: <><path d="M3 21h18M6 21V9l6-4 6 4v12M10 21v-6h4v6"/></> },
+              { id: 'project-gallery', name: 'Project Gallery', sub: 'Site photos with GPS tags and drawable annotations.', show: (isFullAdmin(user) || user?.userType === 'construction') && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'project-gallery'), icon: <>{ICONS.projectGallery(TEAM)}</> },
               { id: 'deals', name: 'Deal Pipeline', sub: 'Site acquisition deals and critical-date reminders.', show: canDeals && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'deals'), icon: <><path d="M7 12h4l2 3 2-6 2 3h3"/><rect x="2" y="5" width="20" height="14" rx="2"/></> },
               // Exec/IT manage users via Admin, not a separate tab — only office_staff has a
               // standalone "users" route/tab entry today, so only show this tile for them.
@@ -50536,7 +50559,7 @@ function PCGPortal() {
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
           {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
           {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && <ProjectGalleryTab user={user} th={th} projects={projects} setProjects={setProjectsUser} dailyReports={dailyReports} />}
+          {tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && <ProjectGalleryTab user={user} th={th} projects={projects} setProjects={setProjectsUser} dailyReports={dailyReports} isMobile={isMobile} />}
           {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={stores} showAlert={showAlert} />}
           {tab === "system-health" && isFullAdmin(user) && <SystemHealth th={th} user={user} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
