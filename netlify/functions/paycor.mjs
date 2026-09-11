@@ -460,14 +460,18 @@ export default async (request, context) => {
     }
 
     // ── Proxy: employee payroll hours ──
+    // version defaults to v1 (the long-standing read path); pass "v2" to read
+    // back rows staged via the v2 stagePayrollHours write (different schema/
+    // employee-id shape, so a v1 read of a v2-staged employeeId 404s).
     if (action === 'payrollHours') {
-      const { employeeId, legalEntityId } = payload;
+      const { employeeId, legalEntityId, version } = payload;
+      const ver = version === 'v2' ? 'v2' : 'v1';
       if (employeeId) {
-        const res = await callPaycor(`/employees/${employeeId}/payrollhours`);
+        const res = await callPaycor(`/employees/${employeeId}/payrollhours`, 'GET', null, ver);
         return new Response(JSON.stringify(res.data), { status: res.status, headers });
       }
       if (legalEntityId) {
-        const res = await callPaycor(`/legalentities/${legalEntityId}/payrollhours`);
+        const res = await callPaycor(`/legalentities/${legalEntityId}/payrollhours`, 'GET', null, ver);
         return new Response(JSON.stringify(res.data), { status: res.status, headers });
       }
       return new Response(JSON.stringify({ error: 'Missing employeeId or legalEntityId' }), { status: 400, headers });
