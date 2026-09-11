@@ -27431,7 +27431,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.76";
+const APP_VERSION = "v20.77";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -40523,6 +40523,24 @@ function tipsParseISODate(s) {
 function tipsFormatISODate(dt) { return dt.toISOString().slice(0, 10); }
 function tipsAddDays(dt, n) { return new Date(dt.getTime() + n * 86400000); }
 function tipsRound2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+
+// Deterministic (not random) processId for a given store+period, so sending
+// the same store's tips twice for the same period reuses the same Paycor
+// processId instead of minting a new one every click. Combined with
+// replaceData:true on the stagePayrollHours call, this makes "Send to
+// Paycor" idempotent — a re-send (e.g. after more tips come in later in the
+// period) overwrites the same staged batch with the current full total,
+// rather than stacking a second, additive entry on top of the first. Confirmed
+// live (2026-09-11): a random processId per send left TWO separate $25.28
+// entries staged for the same employee/period, neither replacing the other.
+async function tipsStableProcessId(seed) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
+  const bytes = new Uint8Array(digest).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50; // version 5 (name-based)
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 const TIPS_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TIPS_DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const TIPS_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -41107,10 +41125,14 @@ function TipsReportBuilder({ th, stores, user }) {
       if (importEmployees.length === 0) { record('skipped', `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ''}`); continue; }
 
       try {
-        const processId = crypto.randomUUID();
+        // Stable per store+period, not crypto.randomUUID() — see
+        // tipsStableProcessId. replaceData:true means a re-send for the same
+        // store/period overwrites Paycor's existing staged batch with this
+        // call's full current total instead of adding a duplicate one.
+        const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
         const res = await fetch('/.netlify/functions/paycor', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'stagePayrollHours', legalEntityId: storeMeta.paycor, processId, importEmployees }),
+          body: JSON.stringify({ action: 'stagePayrollHours', legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {

@@ -22188,7 +22188,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.76";
+  var APP_VERSION = "v20.77";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -30710,6 +30710,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function tipsRound2(n) {
     return Math.round((n + Number.EPSILON) * 100) / 100;
   }
+  async function tipsStableProcessId(seed) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(seed));
+    const bytes = new Uint8Array(digest).slice(0, 16);
+    bytes[6] = bytes[6] & 15 | 80;
+    bytes[8] = bytes[8] & 63 | 128;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
   var TIPS_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   var TIPS_DOW_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   var TIPS_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -31135,11 +31143,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           continue;
         }
         try {
-          const processId = crypto.randomUUID();
+          const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
           const res = await fetch("/.netlify/functions/paycor", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "stagePayrollHours", legalEntityId: storeMeta.paycor, processId, importEmployees })
+            body: JSON.stringify({ action: "stagePayrollHours", legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true })
           });
           const data = await res.json().catch(() => ({}));
           if (res.ok) {
