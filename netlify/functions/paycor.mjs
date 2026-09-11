@@ -462,16 +462,24 @@ export default async (request, context) => {
     // ── Proxy: employee payroll hours ──
     // version defaults to v1 (the long-standing read path); pass "v2" to read
     // back rows staged via the v2 stagePayrollHours write (different schema/
-    // employee-id shape, so a v1 read of a v2-staged employeeId 404s).
+    // employee-id shape, so a v1 read of a v2-staged employeeId 404s). v2's
+    // legalEntityId read requires either processId or a businessStartDate/
+    // businessEndDate pair (Paycor 400s otherwise) — both optional passthrough
+    // query params here, unused by the existing v1 callers.
     if (action === 'payrollHours') {
-      const { employeeId, legalEntityId, version } = payload;
+      const { employeeId, legalEntityId, version, processId, businessStartDate, businessEndDate } = payload;
       const ver = version === 'v2' ? 'v2' : 'v1';
+      const params = [];
+      if (processId) params.push(`processId=${encodeURIComponent(processId)}`);
+      if (businessStartDate) params.push(`businessStartDate=${encodeURIComponent(businessStartDate)}`);
+      if (businessEndDate) params.push(`businessEndDate=${encodeURIComponent(businessEndDate)}`);
+      const qs = params.length ? `?${params.join('&')}` : '';
       if (employeeId) {
-        const res = await callPaycor(`/employees/${employeeId}/payrollhours`, 'GET', null, ver);
+        const res = await callPaycor(`/employees/${employeeId}/payrollhours${qs}`, 'GET', null, ver);
         return new Response(JSON.stringify(res.data), { status: res.status, headers });
       }
       if (legalEntityId) {
-        const res = await callPaycor(`/legalentities/${legalEntityId}/payrollhours`, 'GET', null, ver);
+        const res = await callPaycor(`/legalentities/${legalEntityId}/payrollhours${qs}`, 'GET', null, ver);
         return new Response(JSON.stringify(res.data), { status: res.status, headers });
       }
       return new Response(JSON.stringify({ error: 'Missing employeeId or legalEntityId' }), { status: 400, headers });
