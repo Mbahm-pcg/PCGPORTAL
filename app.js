@@ -15462,6 +15462,10 @@ ${t2.slice(0, 300)}`);
   function PulseDailyPanel({ th, user, showAlert: showAlert2 }) {
     const [pulseEnabled, setPulseEnabled] = React.useState(true);
     const [pulseEmails, setPulseEmails] = React.useState("mike@peoplecapitalgroup.com");
+    const [pulseSms, setPulseSms] = React.useState("+12154903936, +12679340658");
+    const [pulseTestTo, setPulseTestTo] = React.useState("+12154903936");
+    const [pulseSmsStatus, setPulseSmsStatus] = React.useState(null);
+    const [pulseSmsPreview, setPulseSmsPreview] = React.useState("");
     const [pulseTime, setPulseTime] = React.useState("22:00");
     const [pulseSaving, setPulseSaving] = React.useState(false);
     const [pulseTestStatus, setPulseTestStatus] = React.useState(null);
@@ -15482,6 +15486,7 @@ ${t2.slice(0, 300)}`);
               const cfg = json.data;
               setPulseEnabled(cfg.enabled !== false);
               setPulseEmails((cfg.emailRecipients || []).join(", "));
+              if (cfg.smsRecipients && cfg.smsRecipients.length) setPulseSms(cfg.smsRecipients.join(", "));
               setPulseTime(cfg.time || "22:00");
             }
           }
@@ -15505,7 +15510,7 @@ ${t2.slice(0, 300)}`);
     const savePulseConfig = async () => {
       setPulseSaving(true);
       try {
-        const cfg = { enabled: pulseEnabled, emailRecipients: pulseEmails.split(",").map((e) => e.trim()).filter(Boolean), time: pulseTime, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), updatedBy: user?.name };
+        const cfg = { enabled: pulseEnabled, emailRecipients: pulseEmails.split(",").map((e) => e.trim()).filter(Boolean), smsRecipients: pulseSms.split(",").map((s) => s.trim()).filter(Boolean), time: pulseTime, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), updatedBy: user?.name };
         await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save", key: "pcg_pulse_notify_config", data: cfg }) });
         showAlert2("success", "Pulse notification settings saved");
       } catch (e) {
@@ -15532,7 +15537,33 @@ ${t2.slice(0, 300)}`);
       }
       setTimeout(() => setPulseTestStatus(null), 5e3);
     };
-    return /* @__PURE__ */ React.createElement("div", { style: accentCard(th, O, { padding: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" } }, "Pulse Daily Notifications"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "0.75rem", lineHeight: 1.5 } }, "Automatically fetch daily totals + WTD for all 45 stores and send a summary via push notification and email."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setPulseEnabled((e) => !e), style: { width: 36, height: 20, borderRadius: "0.625rem", background: pulseEnabled ? O : "#ccc", position: "relative", cursor: "pointer", transition: "background .25s", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 3, left: pulseEnabled ? 19 : 3, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .25s", boxShadow: "0 1px 3px #00000030" } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8125rem", color: th.text, fontWeight: 600 } }, pulseEnabled ? "Enabled" : "Disabled")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.75rem", padding: "0.5rem", background: th.card2, borderRadius: "0.375rem" } }, "Schedule: ", /* @__PURE__ */ React.createElement("strong", null, "Daily at 9:00 PM ET"), " (cron-based via Netlify)"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", fontWeight: 600, color: th.text, display: "block", marginBottom: "0.25rem" } }, "Email Recipients"), /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), width: "100%", fontSize: "0.8rem" }, placeholder: "email1@example.com, email2@example.com", value: pulseEmails, onChange: (e) => setPulseEmails(e.target.value) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, marginTop: "0.25rem" } }, "Comma-separated. Push goes to all subscribed users automatically.")), /* @__PURE__ */ React.createElement("button", { onClick: savePulseConfig, disabled: pulseSaving, style: btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", marginBottom: "0.5rem", opacity: pulseSaving ? 0.6 : 1 }) }, pulseSaving ? "Saving..." : "Save Settings"), /* @__PURE__ */ React.createElement("button", { onClick: triggerPulseNow, disabled: pulseTestStatus === "sending", style: btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", background: th.card3, color: th.text, opacity: pulseTestStatus === "sending" ? 0.6 : 1 }) }, pulseTestStatus === "sending" ? "\u23F3 Fetching all stores..." : pulseTestStatus === "ok" ? "\u2705 Sent!" : pulseTestStatus === "fail" ? "\u274C Failed" : "\u26A1 Run Pulse Now (manual)"), lastRun && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", padding: "0.5rem", background: th.card2, borderRadius: "0.375rem", fontSize: "0.7rem", color: th.muted, lineHeight: 1.6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, color: th.text, marginBottom: "0.25rem" } }, "Last Run"), /* @__PURE__ */ React.createElement("div", null, "Time: ", new Date(lastRun.ranAt).toLocaleString()), lastRun.daily && /* @__PURE__ */ React.createElement("div", null, "Daily: $", lastRun.daily.netSales?.toLocaleString("en-US", { minimumFractionDigits: 2 }), " | ", lastRun.daily.guests?.toLocaleString(), " guests"), lastRun.wtd && /* @__PURE__ */ React.createElement("div", null, "WTD: $", lastRun.wtd.netSales?.toLocaleString("en-US", { minimumFractionDigits: 2 }), " | ", lastRun.wtd.guests?.toLocaleString(), " guests (", lastRun.wtd.days, " days)"), /* @__PURE__ */ React.createElement("div", null, "Stores: ", lastRun.storesReporting, "/45 | Push: ", lastRun.push?.sent || 0, " sent")));
+    const sendTestPulseSms = async () => {
+      setPulseSmsStatus("sending");
+      setPulseSmsPreview("");
+      try {
+        const res = await fetch("/.netlify/functions/pulse-notify", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ testSms: true, testTo: pulseTestTo.trim() })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          setPulseSmsPreview(data.message || "");
+          const sent = data.sms && data.sms.sent > 0;
+          setPulseSmsStatus(sent ? "ok" : "fail");
+          showAlert2(sent ? "success" : "error", sent ? "Test SMS sent" : "Not sent: " + (data.sms && data.sms.results && data.sms.results[0] && data.sms.results[0].error || "check number/quota"));
+        } else {
+          setPulseSmsStatus("fail");
+          showAlert2("error", "Test failed: " + (data.error || res.status));
+        }
+      } catch (e) {
+        setPulseSmsStatus("fail");
+        showAlert2("error", "Error: " + e.message);
+      }
+      setTimeout(() => setPulseSmsStatus(null), 6e3);
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: accentCard(th, O, { padding: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" } }, "Pulse Daily Notifications"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "0.75rem", lineHeight: 1.5 } }, "Automatically fetch daily totals + WTD for all 45 stores and send a summary via push notification and email."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setPulseEnabled((e) => !e), style: { width: 36, height: 20, borderRadius: "0.625rem", background: pulseEnabled ? O : "#ccc", position: "relative", cursor: "pointer", transition: "background .25s", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 3, left: pulseEnabled ? 19 : 3, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .25s", boxShadow: "0 1px 3px #00000030" } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8125rem", color: th.text, fontWeight: 600 } }, pulseEnabled ? "Enabled" : "Disabled")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.75rem", padding: "0.5rem", background: th.card2, borderRadius: "0.375rem" } }, "Schedule: ", /* @__PURE__ */ React.createElement("strong", null, "Daily at 9:00 PM ET"), " (cron-based via Netlify)"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", fontWeight: 600, color: th.text, display: "block", marginBottom: "0.25rem" } }, "Email Recipients"), /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), width: "100%", fontSize: "0.8rem" }, placeholder: "email1@example.com, email2@example.com", value: pulseEmails, onChange: (e) => setPulseEmails(e.target.value) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, marginTop: "0.25rem" } }, "Comma-separated. Push goes to all subscribed users automatically.")), /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.75rem", color: th.muted, margin: "0.75rem 0 0.25rem" } }, "SMS Recipients (comma-separated)"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: pulseSms, onChange: (e) => setPulseSms(e.target.value), placeholder: "+12154903936, +12679340658" }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), flex: 1 }, value: pulseTestTo, onChange: (e) => setPulseTestTo(e.target.value), placeholder: "+12154903936" }), /* @__PURE__ */ React.createElement("button", { onClick: sendTestPulseSms, disabled: pulseSmsStatus === "sending", style: btn(th, { padding: "0.5rem 0.75rem", fontSize: "0.8rem", opacity: pulseSmsStatus === "sending" ? 0.6 : 1 }) }, pulseSmsStatus === "sending" ? "\u23F3 Fetching\u2026" : pulseSmsStatus === "ok" ? "\u2705 Sent!" : pulseSmsStatus === "fail" ? "\u274C Failed" : "\u{1F4F1} Send Test Pulse SMS (last day)")), pulseSmsPreview ? /* @__PURE__ */ React.createElement("pre", { style: { ...card(th), padding: "0.6rem", marginTop: "0.5rem", fontSize: "0.75rem", whiteSpace: "pre-wrap", color: th.text } }, pulseSmsPreview) : null, /* @__PURE__ */ React.createElement("button", { onClick: savePulseConfig, disabled: pulseSaving, style: btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", marginBottom: "0.5rem", marginTop: "0.75rem", opacity: pulseSaving ? 0.6 : 1 }) }, pulseSaving ? "Saving..." : "Save Settings"), /* @__PURE__ */ React.createElement("button", { onClick: triggerPulseNow, disabled: pulseTestStatus === "sending", style: btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", background: th.card3, color: th.text, opacity: pulseTestStatus === "sending" ? 0.6 : 1 }) }, pulseTestStatus === "sending" ? "\u23F3 Fetching all stores..." : pulseTestStatus === "ok" ? "\u2705 Sent!" : pulseTestStatus === "fail" ? "\u274C Failed" : "\u26A1 Run Pulse Now (manual)"), lastRun && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", padding: "0.5rem", background: th.card2, borderRadius: "0.375rem", fontSize: "0.7rem", color: th.muted, lineHeight: 1.6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, color: th.text, marginBottom: "0.25rem" } }, "Last Run"), /* @__PURE__ */ React.createElement("div", null, "Time: ", new Date(lastRun.ranAt).toLocaleString()), lastRun.daily && /* @__PURE__ */ React.createElement("div", null, "Daily: $", lastRun.daily.netSales?.toLocaleString("en-US", { minimumFractionDigits: 2 }), " | ", lastRun.daily.guests?.toLocaleString(), " guests"), lastRun.wtd && /* @__PURE__ */ React.createElement("div", null, "WTD: $", lastRun.wtd.netSales?.toLocaleString("en-US", { minimumFractionDigits: 2 }), " | ", lastRun.wtd.guests?.toLocaleString(), " guests (", lastRun.wtd.days, " days)"), /* @__PURE__ */ React.createElement("div", null, "Stores: ", lastRun.storesReporting, "/45 | Push: ", lastRun.push?.sent || 0, " sent")));
   }
   function AnnouncementsPanel({ th, user, showAlert: showAlert2, announcements, setAnnouncements }) {
     const [annTitle, setAnnTitle] = React.useState("");
@@ -22188,7 +22219,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.77";
+  var APP_VERSION = "v20.78";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

@@ -17720,6 +17720,10 @@ function TestNotificationsPanel({ th, user, showAlert }) {
 function PulseDailyPanel({ th, user, showAlert }) {
   const [pulseEnabled, setPulseEnabled] = React.useState(true);
   const [pulseEmails, setPulseEmails] = React.useState("mike@peoplecapitalgroup.com");
+  const [pulseSms, setPulseSms] = React.useState("+12154903936, +12679340658");
+  const [pulseTestTo, setPulseTestTo] = React.useState("+12154903936");
+  const [pulseSmsStatus, setPulseSmsStatus] = React.useState(null);
+  const [pulseSmsPreview, setPulseSmsPreview] = React.useState("");
   const [pulseTime, setPulseTime] = React.useState("22:00");
   const [pulseSaving, setPulseSaving] = React.useState(false);
   const [pulseTestStatus, setPulseTestStatus] = React.useState(null);
@@ -17740,6 +17744,7 @@ function PulseDailyPanel({ th, user, showAlert }) {
             const cfg = json.data;
             setPulseEnabled(cfg.enabled !== false);
             setPulseEmails((cfg.emailRecipients || []).join(', '));
+            if (cfg.smsRecipients && cfg.smsRecipients.length) setPulseSms(cfg.smsRecipients.join(', '));
             setPulseTime(cfg.time || "22:00");
           }
         }
@@ -17757,7 +17762,7 @@ function PulseDailyPanel({ th, user, showAlert }) {
   const savePulseConfig = async () => {
     setPulseSaving(true);
     try {
-      const cfg = { enabled: pulseEnabled, emailRecipients: pulseEmails.split(',').map(e => e.trim()).filter(Boolean), time: pulseTime, updatedAt: new Date().toISOString(), updatedBy: user?.name };
+      const cfg = { enabled: pulseEnabled, emailRecipients: pulseEmails.split(',').map(e => e.trim()).filter(Boolean), smsRecipients: pulseSms.split(',').map(s => s.trim()).filter(Boolean), time: pulseTime, updatedAt: new Date().toISOString(), updatedBy: user?.name };
       await fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', key: 'pcg_pulse_notify_config', data: cfg }) });
       showAlert("success", "Pulse notification settings saved");
     } catch(e) { showAlert("error", "Failed to save: " + e.message); }
@@ -17777,6 +17782,25 @@ function PulseDailyPanel({ th, user, showAlert }) {
     setTimeout(() => setPulseTestStatus(null), 5000);
   };
 
+  const sendTestPulseSms = async () => {
+    setPulseSmsStatus("sending"); setPulseSmsPreview("");
+    try {
+      const res = await fetch('/.netlify/functions/pulse-notify', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ testSms: true, testTo: pulseTestTo.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setPulseSmsPreview(data.message || "");
+        const sent = data.sms && data.sms.sent > 0;
+        setPulseSmsStatus(sent ? "ok" : "fail");
+        showAlert(sent ? "success" : "error", sent ? "Test SMS sent" : ("Not sent: " + ((data.sms && data.sms.results && data.sms.results[0] && data.sms.results[0].error) || "check number/quota")));
+      } else { setPulseSmsStatus("fail"); showAlert("error", "Test failed: " + (data.error || res.status)); }
+    } catch (e) { setPulseSmsStatus("fail"); showAlert("error", "Error: " + e.message); }
+    setTimeout(() => setPulseSmsStatus(null), 6000);
+  };
+
   return (
     <div style={accentCard(th, O, { padding: "1.25rem" })}>
       <div style={{ fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" }}>Pulse Daily Notifications</div>
@@ -17793,7 +17817,17 @@ function PulseDailyPanel({ th, user, showAlert }) {
         <input style={{ ...inp(th), width: "100%", fontSize: "0.8rem" }} placeholder="email1@example.com, email2@example.com" value={pulseEmails} onChange={e => setPulseEmails(e.target.value)} />
         <div style={{ fontSize: "0.65rem", color: th.muted, marginTop: "0.25rem" }}>Comma-separated. Push goes to all subscribed users automatically.</div>
       </div>
-      <button onClick={savePulseConfig} disabled={pulseSaving} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", marginBottom: "0.5rem", opacity: pulseSaving ? 0.6 : 1 })}>{pulseSaving ? "Saving..." : "Save Settings"}</button>
+      <label style={{ display: "block", fontSize: "0.75rem", color: th.muted, margin: "0.75rem 0 0.25rem" }}>SMS Recipients (comma-separated)</label>
+      <input style={inp(th)} value={pulseSms} onChange={e => setPulseSms(e.target.value)} placeholder="+12154903936, +12679340658" />
+
+      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+        <input style={{ ...inp(th), flex: 1 }} value={pulseTestTo} onChange={e => setPulseTestTo(e.target.value)} placeholder="+12154903936" />
+        <button onClick={sendTestPulseSms} disabled={pulseSmsStatus === "sending"} style={btn(th, { padding: "0.5rem 0.75rem", fontSize: "0.8rem", opacity: pulseSmsStatus === "sending" ? 0.6 : 1 })}>
+          {pulseSmsStatus === "sending" ? "⏳ Fetching…" : pulseSmsStatus === "ok" ? "✅ Sent!" : pulseSmsStatus === "fail" ? "❌ Failed" : "📱 Send Test Pulse SMS (last day)"}
+        </button>
+      </div>
+      {pulseSmsPreview ? <pre style={{ ...card(th), padding: "0.6rem", marginTop: "0.5rem", fontSize: "0.75rem", whiteSpace: "pre-wrap", color: th.text }}>{pulseSmsPreview}</pre> : null}
+      <button onClick={savePulseConfig} disabled={pulseSaving} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", marginBottom: "0.5rem", marginTop: "0.75rem", opacity: pulseSaving ? 0.6 : 1 })}>{pulseSaving ? "Saving..." : "Save Settings"}</button>
       <button onClick={triggerPulseNow} disabled={pulseTestStatus === "sending"} style={btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", background: th.card3, color: th.text, opacity: pulseTestStatus === "sending" ? 0.6 : 1 })}>
         {pulseTestStatus === "sending" ? "⏳ Fetching all stores..." : pulseTestStatus === "ok" ? "✅ Sent!" : pulseTestStatus === "fail" ? "❌ Failed" : "⚡ Run Pulse Now (manual)"}
       </button>
@@ -27431,7 +27465,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.77";
+const APP_VERSION = "v20.78";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
