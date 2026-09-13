@@ -6,6 +6,7 @@ import https from 'node:https';
 import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
 import { recordHealth } from './health-lib/record-health.mjs';
+import { buildPulseSms } from '../../src/pulse-sms.mjs';
 
 // ── Store configs ─────────────────────────────────────────────────────────────
 const STORES = [
@@ -190,6 +191,30 @@ function aggResults(results) {
 function fmtMoney(n) { return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 function fmtMoney2(n) { return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function fmtNum(n) { return Number(n).toLocaleString('en-US'); }
+
+// Best-effort SMS via Textbelt (same provider/contract as sms.mjs). Never throws.
+async function sendSms(numbers, message) {
+  const KEY = process.env.TEXTBELT_API_KEY;
+  const list = (Array.isArray(numbers) ? numbers : [numbers]).filter(Boolean);
+  if (!KEY || !list.length) return { sent: 0, results: [] };
+  const results = [];
+  for (const number of list) {
+    let cleaned = String(number).replace(/\D/g, '');
+    if (cleaned.length === 10) cleaned = '1' + cleaned;
+    const phone = '+' + cleaned;
+    const postData = new URLSearchParams({ phone, message, key: KEY }).toString();
+    const r = await new Promise((resolve) => {
+      const req = https.request(
+        { hostname: 'textbelt.com', port: 443, path: '/text', method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(postData) } },
+        (res) => { let raw = ''; res.on('data', d => raw += d); res.on('end', () => { let j = {}; try { j = JSON.parse(raw); } catch {} resolve({ number: phone, success: !!j.success, error: j.error }); }); });
+      req.on('error', (e) => resolve({ number: phone, success: false, error: e.message }));
+      req.write(postData); req.end();
+    });
+    results.push(r);
+  }
+  return { sent: results.filter(r => r.success).length, results };
+}
 
 // Load store statuses from cloud (to identify closed/remodel stores)
 async function loadStoreStatuses(store) {
@@ -418,6 +443,11 @@ export default async (request) => {
   // calls us with x-pcg-invocation:scheduled so dedup + disabled-config checks apply.
   const isManual = request.method === 'POST' && request.headers.get('x-pcg-invocation') !== 'scheduled';
 
+  let body = {};
+  if (request.method === 'POST') { try { body = await request.json(); } catch {} }
+  const testSms = !!body.testSms;
+  const testTo = body.testTo;
+
   console.log('Pulse notify triggered at', new Date().toISOString());
 
   try {
@@ -469,25 +499,20 @@ export default async (request) => {
     const daily = aggResults(dailyResults);
     console.log(`Daily: ${storesOk}/${STORES.length} stores, $${daily.netSales.toFixed(2)}`);
 
-    // 3. Calculate WTD
+    // 3. Calculate WTD (network) + per-store WTD (for Saturday Top 5) in one pass.
     const weekDates = getWeekDates(busDt);
     let wtd = { netSales: 0, guests: 0, voids: 0, discounts: 0, forecast: 0 };
+    const perStoreWtd = {};
     for (const date of weekDates) {
-      if (date === busDt) {
-        // We already have today's data
-        wtd.netSales  += daily.netSales;
-        wtd.guests    += daily.guests;
-        wtd.voids     += daily.voids;
-        wtd.discounts += daily.discounts;
-        wtd.forecast  += daily.forecast;
-      } else {
-        const results = await fetchAllStores(date);
-        const dayAgg = aggResults(results);
-        wtd.netSales  += dayAgg.netSales;
-        wtd.guests    += dayAgg.guests;
-        wtd.voids     += dayAgg.voids;
-        wtd.discounts += dayAgg.discounts;
-        wtd.forecast  += dayAgg.forecast;
+      const dayRes = (date === busDt) ? dailyResults : await fetchAllStores(date);
+      const dayAgg = (date === busDt) ? daily : aggResults(dayRes);
+      wtd.netSales  += dayAgg.netSales;
+      wtd.guests    += dayAgg.guests;
+      wtd.voids     += dayAgg.voids;
+      wtd.discounts += dayAgg.discounts;
+      wtd.forecast  += dayAgg.forecast;
+      for (const [pc, r] of Object.entries(dayRes)) {
+        if (r.status === 'ok') perStoreWtd[pc] = (perStoreWtd[pc] || 0) + r.data.netSales;
       }
     }
     console.log(`WTD: $${wtd.netSales.toFixed(2)} over ${weekDates.length} days`);
@@ -499,6 +524,23 @@ export default async (request) => {
     wtd.days = weekDates.length;
     const summary = buildSummary(daily, wtd, busDt, storesOk, STORES.length, dailyResults, storeStatuses);
 
+    // Build the nightly SMS text (Saturday adds Top 5 by WTD).
+    const smsMessage = buildPulseSms({
+      busDt,
+      todaySales: daily.netSales,
+      wtdSales: wtd.netSales,
+      perStoreWtd,
+      stores: STORES,
+      statusByPc: storeStatuses,
+    });
+
+    // Test mode: send ONLY the SMS to the requested number; no email/push, no guard write.
+    if (testSms) {
+      let sms = { sent: 0, results: [] };
+      try { sms = await sendSms(testTo ? [testTo] : [], smsMessage); } catch (e) { sms = { sent: 0, error: e.message }; }
+      return new Response(JSON.stringify({ ok: true, testSms: true, busDt, message: smsMessage, sms }), { status: 200, headers });
+    }
+
     // 6. Send push notifications
     const pushResult = await sendPushToAll(store, summary.title, summary.body);
     console.log('Push result:', pushResult);
@@ -508,6 +550,12 @@ export default async (request) => {
     await sendEmail(emailTo, `PCG Pulse — ${busDt} — ${fmtMoney(daily.netSales)}`, summary.html);
     console.log('Email sent to:', emailTo);
 
+    // 7b. Send SMS to configured recipients — best-effort, never blocks the email/result.
+    const smsTo = config.smsRecipients || ['+12154903936', '+12679340658'];
+    let smsResult = { sent: 0, results: [] };
+    try { smsResult = await sendSms(smsTo, smsMessage); console.log('SMS result:', smsResult); }
+    catch (e) { console.warn('SMS send failed (non-blocking):', e.message); }
+
     const result = {
       ok: true,
       busDt,
@@ -516,6 +564,7 @@ export default async (request) => {
       wtd:   { netSales: wtd.netSales, guests: wtd.guests, days: weekDates.length },
       push: { sent: pushResult.sent, failed: pushResult.failed, expired: pushResult.expired },
       email: { to: emailTo },
+      sms: { sent: smsResult.sent, to: smsTo },
     };
 
     // Save delivery log for the notification history viewer
