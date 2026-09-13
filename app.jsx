@@ -17772,7 +17772,7 @@ function PulseDailyPanel({ th, user, showAlert }) {
   const triggerPulseNow = async () => {
     setPulseTestStatus("sending");
     try {
-      const res = await fetch('/.netlify/functions/pulse-notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manual: true }) });
+      const res = await fetch('/.netlify/functions/pulse-notify', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ manual: true }) });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         setPulseTestStatus("ok"); setLastRun({ ranAt: new Date().toISOString(), ...data });

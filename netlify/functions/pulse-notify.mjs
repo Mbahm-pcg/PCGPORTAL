@@ -455,15 +455,14 @@ export default async (request) => {
   const testSms = !!body.testSms;
   const testTo = body.testTo;
 
-  // Gate the testSms path EARLY — before any Pulse data is fetched or built —
-  // so an unauthenticated caller can't trigger the expensive computation or
-  // exfiltrate today's/WTD sales data via an arbitrary testTo number. Only an
-  // active exec or IT session may use this path; the scheduled/nightly path
-  // and the existing manual:true behavior below are untouched.
-  if (testSms) {
+  // Any manual invocation (Run Pulse Now full-run, or a testSms preview) requires an
+  // exec/IT session. The scheduled cron path (isManual=false, x-pcg-invocation:scheduled)
+  // is unaffected. Prevents an anonymous POST from triggering real email/push/SMS sends
+  // (and draining Textbelt quota) on this otherwise-open function.
+  if (isManual) {
     const authed = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db());
     if (!authed || (authed.userType !== 'executive' && authed.userType !== 'it')) {
-      return new Response(JSON.stringify({ error: 'Exec/IT session required for test SMS.' }), { status: 403, headers });
+      return new Response(JSON.stringify({ error: 'Exec/IT session required.' }), { status: 403, headers });
     }
   }
 
