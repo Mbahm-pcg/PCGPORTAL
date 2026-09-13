@@ -17722,6 +17722,7 @@ function PulseDailyPanel({ th, user, showAlert }) {
   const [pulseEmails, setPulseEmails] = React.useState("mike@peoplecapitalgroup.com");
   const [pulseSms, setPulseSms] = React.useState("+12154903936, +12679340658");
   const [pulseTestTo, setPulseTestTo] = React.useState("+12154903936");
+  const [pulseTestDate, setPulseTestDate] = React.useState("");
   const [pulseSmsStatus, setPulseSmsStatus] = React.useState(null);
   const [pulseSmsPreview, setPulseSmsPreview] = React.useState("");
   const [pulseTime, setPulseTime] = React.useState("22:00");
@@ -17788,7 +17789,7 @@ function PulseDailyPanel({ th, user, showAlert }) {
       const res = await fetch('/.netlify/functions/pulse-notify', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ testSms: true, testTo: pulseTestTo.trim() }),
+        body: JSON.stringify({ testSms: true, testTo: pulseTestTo.trim(), testDate: pulseTestDate.trim() || undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
@@ -17820,10 +17821,12 @@ function PulseDailyPanel({ th, user, showAlert }) {
       <label style={{ display: "block", fontSize: "0.75rem", color: th.muted, margin: "0.75rem 0 0.25rem" }}>SMS Recipients (comma-separated)</label>
       <input style={inp(th)} value={pulseSms} onChange={e => setPulseSms(e.target.value)} placeholder="+12154903936, +12679340658" />
 
-      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
-        <input style={{ ...inp(th), flex: 1 }} value={pulseTestTo} onChange={e => setPulseTestTo(e.target.value)} placeholder="+12154903936" />
+      <label style={{ display: "block", fontSize: "0.75rem", color: th.muted, margin: "0.75rem 0 0.25rem" }}>Test date (optional, YYYY-MM-DD — blank = last day; a Saturday shows Top 5)</label>
+      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem", flexWrap: "wrap" }}>
+        <input style={{ ...inp(th), flex: 1, minWidth: 120 }} value={pulseTestDate} onChange={e => setPulseTestDate(e.target.value)} placeholder="2026-09-12" />
+        <input style={{ ...inp(th), flex: 1, minWidth: 120 }} value={pulseTestTo} onChange={e => setPulseTestTo(e.target.value)} placeholder="+12154903936" />
         <button onClick={sendTestPulseSms} disabled={pulseSmsStatus === "sending"} style={btn(th, { padding: "0.5rem 0.75rem", fontSize: "0.8rem", opacity: pulseSmsStatus === "sending" ? 0.6 : 1 })}>
-          {pulseSmsStatus === "sending" ? "⏳ Fetching…" : pulseSmsStatus === "ok" ? "✅ Sent!" : pulseSmsStatus === "fail" ? "❌ Failed" : "📱 Send Test Pulse SMS (last day)"}
+          {pulseSmsStatus === "sending" ? "⏳ Fetching…" : pulseSmsStatus === "ok" ? "✅ Sent!" : pulseSmsStatus === "fail" ? "❌ Failed" : "📱 Send Test Pulse SMS"}
         </button>
       </div>
       {pulseSmsPreview ? <pre style={{ ...card(th), padding: "0.6rem", marginTop: "0.5rem", fontSize: "0.75rem", whiteSpace: "pre-wrap", color: th.text }}>{pulseSmsPreview}</pre> : null}
@@ -27465,7 +27468,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.78";
+const APP_VERSION = "v20.79";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

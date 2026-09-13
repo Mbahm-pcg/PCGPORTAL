@@ -463,6 +463,9 @@ export default async (request) => {
   if (request.method === 'POST') { try { body = await request.json(); } catch {} }
   const testSms = !!body.testSms;
   const testTo = body.testTo;
+  // Optional: a testSms preview may pin a specific business date (YYYY-MM-DD), e.g. last
+  // Saturday, to preview that day's numbers + Top-5. Ignored unless it's a valid date.
+  const testDate = (typeof body.testDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.testDate)) ? body.testDate : null;
 
   // Any manual invocation (Run Pulse Now full-run, or a testSms preview) requires an
   // exec/IT session. The scheduled cron path (isManual=false, x-pcg-invocation:scheduled)
@@ -508,15 +511,20 @@ export default async (request) => {
         : undefined;
     }
 
-    // 1. Get business date — try API first, fall back to today's date in ET
+    // 1. Get business date — a testSms preview may pin a specific date (e.g. last
+    // Saturday, to preview the Top 5); otherwise try the API, fall back to today (ET).
     let busDt = null;
-    for (const s of STORES) {
-      busDt = await fetchLatestBusDt(s.pc);
-      if (busDt) break;
-    }
-    if (!busDt) {
-      busDt = todayET();
-      console.log('getLatestBusDt unavailable, using today:', busDt);
+    if (testSms && testDate) {
+      busDt = testDate;
+    } else {
+      for (const s of STORES) {
+        busDt = await fetchLatestBusDt(s.pc);
+        if (busDt) break;
+      }
+      if (!busDt) {
+        busDt = todayET();
+        console.log('getLatestBusDt unavailable, using today:', busDt);
+      }
     }
     console.log('Business date:', busDt);
 
