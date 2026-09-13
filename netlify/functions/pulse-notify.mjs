@@ -448,7 +448,16 @@ export default async (request) => {
 
   // Also allow manual trigger via POST for testing. The scheduled pulse-cron entry
   // calls us with x-pcg-invocation:scheduled so dedup + disabled-config checks apply.
-  const isManual = request.method === 'POST' && request.headers.get('x-pcg-invocation') !== 'scheduled';
+  // Trusted scheduled invocation = the in-process pulse-cron call, proven by a secret
+  // header only server code knows. The x-pcg-invocation header alone is spoofable and a
+  // bare GET would otherwise read as "scheduled", so an anonymous caller could trigger a
+  // real email/push/SMS blast. Require the secret; everything else (anon GET, spoofed
+  // header, the manual UI buttons) is "manual" and must pass the exec/IT gate below.
+  const CRON_SECRET = process.env.PCG_AUTH_TOKEN || '';
+  const isScheduled = request.headers.get('x-pcg-invocation') === 'scheduled'
+    && !!CRON_SECRET
+    && request.headers.get('x-pcg-cron-secret') === CRON_SECRET;
+  const isManual = !isScheduled;
 
   let body = {};
   if (request.method === 'POST') { try { body = await request.json(); } catch {} }

@@ -10,7 +10,7 @@ export default async (request, context) => {
   return pulseNotify(
     new Request('https://pcg.internal/pulse-notify', {
       method: 'POST',
-      headers: { 'x-pcg-invocation': 'scheduled' },
+      headers: { 'x-pcg-invocation': 'scheduled', 'x-pcg-cron-secret': process.env.PCG_AUTH_TOKEN || '' },
     }),
     context,
   );
