@@ -5,8 +5,15 @@
 import https from 'node:https';
 import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
+import { neon } from '@neondatabase/serverless';
+import { requireActiveUser } from './auth-lib/require-user.js';
 import { recordHealth } from './health-lib/record-health.mjs';
 import { buildPulseSms } from '../../src/pulse-sms.mjs';
+
+// Lazy Neon client — same pattern as paycor.mjs — used only to gate the
+// testSms path below via requireActiveUser's DB-backed active/revocation check.
+let _sql = null;
+const db = () => (_sql ||= neon(process.env.NEON_DATABASE_URL));
 
 // ── Store configs ─────────────────────────────────────────────────────────────
 const STORES = [
@@ -447,6 +454,18 @@ export default async (request) => {
   if (request.method === 'POST') { try { body = await request.json(); } catch {} }
   const testSms = !!body.testSms;
   const testTo = body.testTo;
+
+  // Gate the testSms path EARLY — before any Pulse data is fetched or built —
+  // so an unauthenticated caller can't trigger the expensive computation or
+  // exfiltrate today's/WTD sales data via an arbitrary testTo number. Only an
+  // active exec or IT session may use this path; the scheduled/nightly path
+  // and the existing manual:true behavior below are untouched.
+  if (testSms) {
+    const authed = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db());
+    if (!authed || (authed.userType !== 'executive' && authed.userType !== 'it')) {
+      return new Response(JSON.stringify({ error: 'Exec/IT session required for test SMS.' }), { status: 403, headers });
+    }
+  }
 
   console.log('Pulse notify triggered at', new Date().toISOString());
 
