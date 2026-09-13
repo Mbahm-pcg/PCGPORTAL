@@ -386,6 +386,8 @@ In `savePulseConfig`, change the `cfg` object to include `smsRecipients`. Replac
 
 - [ ] **Step 4: Add the test-SMS handler**
 
+Note: `pulse-notify`'s `testSms` mode is gated to exec/IT (Task 2 security fix), so this fetch MUST send `credentials: 'include'` + `...authHeader()` (the panel is exec-only, so the session token is present). `authHeader` is already imported at the top of `app.jsx`.
+
 Add this function next to the existing `triggerPulseNow`:
 
 ```jsx
@@ -393,7 +395,8 @@ Add this function next to the existing `triggerPulseNow`:
     setPulseSmsStatus("sending"); setPulseSmsPreview("");
     try {
       const res = await fetch('/.netlify/functions/pulse-notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ testSms: true, testTo: pulseTestTo.trim() }),
       });
       const data = await res.json().catch(() => ({}));
