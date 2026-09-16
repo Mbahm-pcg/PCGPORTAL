@@ -2340,7 +2340,7 @@
   var storeMgrName = (store, users) => {
     if (!store) return "";
     const u = (users || []).find((x) => x.userType === "manager" && String(x.storePC) === String(store.pc) && x.active !== false);
-    return u?.name || store.mgr || "";
+    return u?.name || "";
   };
   var isDistrictManagersStore = (store, user) => {
     if (user?.userType !== "dm") return false;
@@ -4572,60 +4572,67 @@
   };
   var WEATHER_EMOJI = { clear: "\u2600\uFE0F", cloudy: "\u26C5", fog: "\u{1F32B}\uFE0F", rain: "\u{1F327}\uFE0F", snow: "\u2744\uFE0F", storm: "\u26C8\uFE0F" };
   var STORES_SEED = [
-    { id: 1, pc: "339616", paycor: "193919", legal: "KJ Donuts Inc.", name: "Wadsworth", address: "1630 W Wadsworth Ave", city: "Philadelphia", state: "PA", zip: "19150", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Clarence Jackson", mgrPhone: "", email: "339616@rgi.life", district: 1, dmName: "Taylor Cormier", status: "Open", employees: 0, sales: 0 },
-    { id: 2, pc: "340794", paycor: "193904", legal: "PCG 6 LLC", name: "Front", address: "6190 North Front Street", city: "Philadelphia", state: "PA", zip: "19120", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Siani Lopez", mgrPhone: "", email: "340794@peoplecapitalgroup.com", district: 1, dmName: "Taylor Cormier", status: "Open", employees: 0, sales: 0 },
-    { id: 3, pc: "351099", paycor: "193900", legal: "Rao 12 Inc.", name: "Sonic", address: "15 Bustleton Pike", city: "Feasterville", state: "PA", zip: "19053", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Sefali Patel", mgrPhone: "", email: "351099@rgi.life", district: 2, dmName: "Jay Patel", status: "Open", employees: 0, sales: 0 },
-    { id: 4, pc: "351259", paycor: "193892", legal: "Rosemore Donuts Inc", name: "Rosemore", address: "1069 W County Line Rd", city: "Warminster", state: "PA", zip: "18974", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "351259@rgi.life", district: 2, dmName: "Jay Patel", status: "Open", employees: 0, sales: 0 },
-    { id: 5, pc: "302642", paycor: "193914", legal: "Rao 11 Donuts Inc.", name: "County Line", address: "2112 County Line Rd", city: "Huntingdon Valley", state: "PA", zip: "19006", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Muska Mahboobi", mgrPhone: "", email: "302642@rgi.life", district: 2, dmName: "Jay Patel", status: "Open", employees: 0, sales: 0 },
-    { id: 6, pc: "352894", paycor: "193890", legal: "Mahaprabhuji Inc.", name: "Street Rd", address: "110 E Street Rd", city: "Feasterville", state: "PA", zip: "19053", isNextGen: true, baseAsset: "DT", isBaskin: true, isBridge: true, mgr: "MD Obaid", mgrPhone: "", email: "352894@rgi.life", district: 2, dmName: "Jay Patel", status: "Open", employees: 0, sales: 0 },
-    { id: 7, pc: "341350", paycor: "193920", legal: "1050 Yardley Hospitality LLC", name: "Yardley", address: "1050 Stony Hill Rd", city: "Yardley", state: "PA", zip: "19067", isNextGen: true, baseAsset: "IL", isBaskin: false, isBridge: false, mgr: "Sara Elhagar", mgrPhone: "", email: "341350@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", status: "Open", employees: 0, sales: 0 },
-    { id: 8, pc: "337839", paycor: "193888", legal: "334 Warrington Hospitality LLC", name: "Warrington", address: "334 Easton Rd", city: "Warrington", state: "PA", zip: "18976", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Kirtida Singh", mgrPhone: "", email: "337839@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", status: "Open", employees: 0, sales: 0 },
-    { id: 9, pc: "330338", paycor: "193887", legal: "Chester Holding LLC", name: "Drexel Hill", address: "5060 Township Line Rd", city: "Drexel Hill", state: "PA", zip: "19026", isNextGen: false, baseAsset: "IL", isBaskin: false, isBridge: false, mgr: "Satpal Kaur", mgrPhone: "", email: "330338@rgi.life", district: 3, dmName: "Sonia Khalique", status: "Remodel", employees: 0, sales: 0 },
-    { id: 10, pc: "337063", paycor: "193902", legal: "Chester Holding Three LLC", name: "Sharon Hill", address: "1100 Chester Pike", city: "Sharon Hill", state: "PA", zip: "19079", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Mosammat Akhtar", mgrPhone: "", email: "337063@rgi.life", district: 3, dmName: "Sonia Khalique", status: "Open", employees: 0, sales: 0 },
-    { id: 11, pc: "343832", paycor: "193876", legal: "Chester Holdings Two LLC", name: "Lansdowne", address: "23 E. Baltimore Avenue", city: "Lansdowne", state: "PA", zip: "19050", isNextGen: false, baseAsset: "FS", isBaskin: false, isBridge: false, mgr: "Mahfuja Tajrin", mgrPhone: "", email: "343832@rgi.life", district: 3, dmName: "Sonia Khalique", status: "Open", employees: 0, sales: 0 },
-    { id: 12, pc: "304669", paycor: "193894", legal: "Chester Holdings One LLC", name: "Collingdale", address: "5 Macdade Boulevard", city: "Collingdale", state: "PA", zip: "19023", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Ijaz Ali", mgrPhone: "", email: "304669@rgi.life", district: 3, dmName: "Sonia Khalique", status: "Open", employees: 0, sales: 0 },
-    { id: 13, pc: "355146", paycor: "193895", legal: "Philadelphia Restaurant Holdings LLC", name: "Gallery", address: "901 Market Street", city: "Philadelphia", state: "PA", zip: "19107", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Moslima Akhter", mgrPhone: "", email: "355146@rgi.life", district: 3, dmName: "Sonia Khalique", status: "Open", employees: 0, sales: 0 },
-    { id: 14, pc: "300496", paycor: "193906", legal: "Creek Capital Partners LLC", name: "Cobbs Creek", address: "7000 Chester Ave", city: "Philadelphia", state: "PA", zip: "19142", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Mosammat Akter", mgrPhone: "", email: "300496@rgi.life", district: 3, dmName: "Sonia Khalique", status: "Open", employees: 0, sales: 0 },
-    { id: 15, pc: "304863", paycor: "193885", legal: "PCG 01 LLC", name: "18th St", address: "2654 S. 18th St", city: "Philadelphia", state: "PA", zip: "19145", isNextGen: false, baseAsset: "FS", isBaskin: false, isBridge: false, mgr: "Mahmuda Akter", mgrPhone: "", email: "304863@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", status: "Open", employees: 0, sales: 0 },
-    { id: 16, pc: "354561", paycor: "193910", legal: "PCG 3 LLC", name: "Carlisle", address: "2640 S. Carlisle St", city: "Philadelphia", state: "PA", zip: "19145", isNextGen: false, baseAsset: "FS", isBaskin: false, isBridge: false, mgr: "Thai Banh", mgrPhone: "", email: "354561@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", status: "Open", employees: 0, sales: 0 },
-    { id: 17, pc: "332393", paycor: "193907", legal: "PCG 4 LLC", name: "Lindbergh", address: "7601 Lindbergh Blvd", city: "Philadelphia", state: "PA", zip: "19153", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Rajiv Kumar", mgrPhone: "", email: "332393@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", status: "Open", employees: 0, sales: 0 },
-    { id: 18, pc: "341167", paycor: "193893", legal: "Om Ganabandhave Namah LLC", name: "5th Street", address: "4017 N 5th St", city: "Philadelphia", state: "PA", zip: "19140", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: true, mgr: "Norberto Rodriguez", mgrPhone: "", email: "341167@rgi.life", district: 4, dmName: "Yolicet Grin-Martinez", status: "Open", employees: 0, sales: 0 },
-    { id: 19, pc: "340870", paycor: "193912", legal: "Om Ganesvaraya Namah LLC.", name: "Hunting Park", address: "221 W Hunting Park Ave", city: "Philadelphia", state: "PA", zip: "19140", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Paulina Sierra", mgrPhone: "", email: "340870@rgi.life", district: 4, dmName: "Yolicet Grin-Martinez", status: "Open", employees: 0, sales: 0 },
-    { id: 20, pc: "335981", paycor: "193873", legal: "Om Ganatratre Namah LLC", name: "Lehigh", address: "532 W Lehigh Ave", city: "Philadelphia", state: "PA", zip: "19133", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Chris Brown", mgrPhone: "", email: "335981@rgi.life", district: 4, dmName: "Yolicet Grin-Martinez", status: "Open", employees: 0, sales: 0 },
-    { id: 21, pc: "353150", paycor: "193903", legal: "Bakers Square Inc.", name: "Bakers Square", address: "2749 W Hunting Park Ave", city: "Philadelphia", state: "PA", zip: "19129", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Edmonds Brandy", mgrPhone: "", email: "353150@rgi.life", district: 4, dmName: "Yolicet Grin-Martinez", status: "Open", employees: 0, sales: 0 },
-    { id: 22, pc: "351050", paycor: "193877", legal: "Allegheny Donuts Inc.", name: "Allegheny", address: "2145 W Allegheny Ave", city: "Philadelphia", state: "PA", zip: "19132", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Torres Katiuska", mgrPhone: "", email: "351050@rgi.life", district: 4, dmName: "Yolicet Grin-Martinez", status: "Open", employees: 0, sales: 0 },
-    { id: 23, pc: "345985", paycor: "193916", legal: "9271 Philadelphia Holdings LLC", name: "Wissahickon", address: "5051 Wissahickon Ave", city: "Philadelphia", state: "PA", zip: "19144", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "Jessica Garcia", mgrPhone: "", email: "345985@peoplecapitalgroup.com", district: 4, dmName: "Yolicet Grin-Martinez", status: "Open", employees: 0, sales: 0 },
-    { id: 24, pc: "356374", paycor: "193898", legal: "Montgomeryville Donuts LLC", name: "Montgomeryville", address: "738 Bethlehem Pike", city: "Montgomeryville", state: "PA", zip: "18936", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Radha Rao", mgrPhone: "", email: "356374@rgi.life", district: 5, dmName: "Shreyes Mehta", status: "Open", employees: 0, sales: 0 },
-    { id: 25, pc: "353843", paycor: "193891", legal: "Quakertown Donuts Inc", name: "Tollgate", address: "1110 West End Blvd", city: "Quakertown", state: "PA", zip: "18951", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Syncere Myer", mgrPhone: "", email: "353843@rgi.life", district: 5, dmName: "Shreyes Mehta", status: "Open", employees: 0, sales: 0 },
-    { id: 26, pc: "353047", paycor: "193875", legal: "Doylestown Retail Foods LLC", name: "Silverdale", address: "103 South Baringer Ave", city: "Silverdale", state: "PA", zip: "18962", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Joseph Allen", mgrPhone: "", email: "353047@rgi.life", district: 5, dmName: "Shreyes Mehta", status: "Open", employees: 0, sales: 0 },
-    { id: 27, pc: "340538", paycor: "193879", legal: "Om Ganajite Namah LLC", name: "Easton", address: "4460 Easton Ave", city: "Bethlehem", state: "PA", zip: "18020", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Vinit Patel", mgrPhone: "", email: "340538@rgi.life", district: 5, dmName: "Shreyes Mehta", status: "Open", employees: 0, sales: 0 },
-    { id: 28, pc: "343079", paycor: "193901", legal: "Om Ganabhuje Namah LLC", name: "Downingtown", address: "376 W. Uwchlan Ave", city: "Downingtown", state: "PA", zip: "19335", isNextGen: false, baseAsset: "DT", isBaskin: true, isBridge: false, mgr: "", mgrPhone: "", email: "343079@rgi.life", district: 6, dmName: "Mohamed", status: "Open", employees: 0, sales: 0 },
-    { id: 29, pc: "342144", paycor: "193908", legal: "Om Ganacaraya Namah LLC", name: "Westchester", address: "750 Miles Rd", city: "West Chester", state: "PA", zip: "19380", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "342144@rgi.life", district: 6, dmName: "Mohamed", status: "Open", employees: 0, sales: 0 },
-    { id: 30, pc: "364295", paycor: "193881", legal: "Lionville LLC", name: "Lionville", address: "80 E Uwchlan Ave", city: "Exton", state: "PA", zip: "19341", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "364295@peoplecapitalgroup.com", district: 6, dmName: "Mohamed", status: "Open", employees: 0, sales: 0 },
-    { id: 31, pc: "365361", paycor: "194373", legal: "Welsh Hospitality LLC", name: "Little Welsh", address: "2301 Welsh Rd", city: "Philadelphia", state: "PA", zip: "19114", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Ashley DiNardo", mgrPhone: "", email: "365361@poeplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 32, pc: "310382", paycor: "193899", legal: "Rao 7 Inc.", name: "Grant", address: "1619 Grant Ave", city: "Philadelphia", state: "PA", zip: "19115", isNextGen: false, baseAsset: "IL", isBaskin: false, isBridge: false, mgr: "Safiya Eshag", mgrPhone: "", email: "310382@rgi.life", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 33, pc: "332941", paycor: "193884", legal: "Bustleton Retail Business LLC", name: "Bustleton", address: "9834 Bustleton Ave", city: "Philadelphia", state: "PA", zip: "19114", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Franyi Leiva", mgrPhone: "", email: "332941@rgi.life", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 34, pc: "343497", paycor: "193874", legal: "Aum Shreeji LLC", name: "Red Lion", address: "842 Red Lion Rd", city: "Philadelphia", state: "PA", zip: "19115", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Olivia Lilley", mgrPhone: "", email: "343497@rgi.life", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 35, pc: "302446", paycor: "193878", legal: "10500 Philadelphia Hospitality LLC", name: "Little Red Lion", address: "10050 Roosevelt Blvd", city: "Philadelphia", state: "PA", zip: "19116", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Nurani Chowdhury", mgrPhone: "", email: "302446@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 36, pc: "337079", paycor: "193911", legal: "Rao 11 Inc.", name: "Holme Circle", address: "2998 A Welsh Rd", city: "Philadelphia", state: "PA", zip: "19152", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Andrea Robison", mgrPhone: "", email: "337079@rgi.life", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 37, pc: "345986", paycor: "193896", legal: "Rao 4 Inc.", name: "Willits", address: "3170 Willits Rd", city: "Philadelphia", state: "PA", zip: "19136", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "345986@rgi.life", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 38, pc: "364412", paycor: "193905", legal: "One Hospitality Opco", name: "8200", address: "8200 Roosevelt Boulevard", city: "Philadelphia", state: "PA", zip: "19152", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Tejal Soni", mgrPhone: "", email: "364412@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 39, pc: "345489", paycor: "193880", legal: "8200 Philadelphia Hospitality LLC", name: "Oxford", address: "5801 Oxford Ave", city: "Philadelphia", state: "PA", zip: "19149", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "Iqbal Komal", mgrPhone: "", email: "345489@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 40, pc: "336372", paycor: "193897", legal: "Sai Shraddha Inc.", name: "Elkins Park", address: "2 Township Line Rd", city: "Elkins Park", state: "PA", zip: "19027", isNextGen: false, baseAsset: "FS", isBaskin: false, isBridge: false, mgr: "Dilara Begum", mgrPhone: "", email: "336372@rgi.life", district: 7, dmName: "Sharmin Akter", status: "Open", employees: 0, sales: 0 },
-    { id: 41, pc: "358933", paycor: "193886", legal: "PCG 2 LLC", name: "Brace Rd", address: "1402 Brace Rd", city: "Cherry Hill", state: "NJ", zip: "08034", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Nitin Patel", mgrPhone: "", email: "358933@peoplecapitalgroup.com", district: 8, dmName: "Mike", status: "Open", employees: 0, sales: 0 },
-    { id: 42, pc: "354865", paycor: "193915", legal: "Quakertown Food Operations LLC.", name: "Quakertown", address: "224 W Broad Street", city: "Quakertown", state: "PA", zip: "18951", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Kenny / Robin Fontano", mgrPhone: "", email: "354865@rgi.life", district: 8, dmName: "Mike", status: "Open", employees: 0, sales: 0 },
-    { id: 43, pc: "353689", paycor: "193883", legal: "Fort Washington Retail Foods LLC", name: "Fort Washington", address: "520 Pennsylvania Ave", city: "Fort Washington", state: "PA", zip: "19034", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Kenny (Kintan) Patel", mgrPhone: "", email: "353689@rgi.life", district: 8, dmName: "Mike", status: "Open", employees: 0, sales: 0 },
-    { id: 44, pc: "342184", paycor: "193917", legal: "Rao 1 Inc.", name: "Lansdale", address: "549 Doylestown Rd", city: "Lansdale", state: "PA", zip: "19445", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "Cheri Patel", mgrPhone: "", email: "342184@rgi.life", district: 8, dmName: "Mike", status: "Open", employees: 0, sales: 0 },
-    { id: 45, pc: "356316", paycor: "193889", legal: "Star Alliance Capital LLC", name: "BJ's", address: "2054 Red Lion Rd", city: "Philadelphia", state: "PA", zip: "19115", isNextGen: false, baseAsset: "APOD", isBaskin: false, isBridge: false, mgr: "Perry Patel", mgrPhone: "", email: "356316@rgi.life", district: 8, dmName: "Mike", status: "Open", employees: 0, sales: 0 }
+    { id: 1, pc: "339616", paycor: "193919", legal: "KJ Donuts Inc.", name: "Wadsworth", address: "1630 W Wadsworth Ave", city: "Philadelphia", state: "PA", zip: "19150", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Clarence Jackson", mgrPhone: "", email: "339616@peoplecapitalgroup.com", district: 1, dmName: "Taylor Cormier", dmEmail: "taylor@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 2, pc: "340794", paycor: "193904", legal: "PCG 6 LLC", name: "Front", address: "6190 North Front Street", city: "Philadelphia", state: "PA", zip: "19120", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Siani Lopez", mgrPhone: "", email: "340794@peoplecapitalgroup.com", district: 1, dmName: "Taylor Cormier", dmEmail: "taylor@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 3, pc: "351099", paycor: "193900", legal: "Rao 12 Inc.", name: "Sonic", address: "15 Bustleton Pike", city: "Feasterville", state: "PA", zip: "19053", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Sefali Patel", mgrPhone: "", email: "351099@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", dmEmail: "jay@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 4, pc: "351259", paycor: "193892", legal: "Rosemore Donuts Inc", name: "Rosemore", address: "1069 W County Line Rd", city: "Warminster", state: "PA", zip: "18974", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "351259@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", dmEmail: "jay@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 5, pc: "302642", paycor: "193914", legal: "Rao 11 Donuts Inc.", name: "County Line", address: "2112 County Line Rd", city: "Huntingdon Valley", state: "PA", zip: "19006", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Muska Mahboobi", mgrPhone: "", email: "302642@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", dmEmail: "jay@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 6, pc: "352894", paycor: "193890", legal: "Mahaprabhuji Inc.", name: "Street Rd", address: "110 E Street Rd", city: "Feasterville", state: "PA", zip: "19053", isNextGen: true, baseAsset: "DT", isBaskin: true, isBridge: true, mgr: "MD Obaid", mgrPhone: "", email: "352894@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", dmEmail: "jay@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 7, pc: "341350", paycor: "193920", legal: "1050 Yardley Hospitality LLC", name: "Yardley", address: "1050 Stony Hill Rd", city: "Yardley", state: "PA", zip: "19067", isNextGen: true, baseAsset: "IL", isBaskin: false, isBridge: false, mgr: "Sara Elhagar", mgrPhone: "", email: "341350@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", dmEmail: "jay@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 8, pc: "337839", paycor: "193888", legal: "334 Warrington Hospitality LLC", name: "Warrington", address: "334 Easton Rd", city: "Warrington", state: "PA", zip: "18976", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Kirtida Singh", mgrPhone: "", email: "337839@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", dmEmail: "jay@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 9, pc: "330338", paycor: "193887", legal: "Chester Holding LLC", name: "Drexel Hill", address: "5060 Township Line Rd", city: "Drexel Hill", state: "PA", zip: "19026", isNextGen: false, baseAsset: "IL", isBaskin: false, isBridge: false, mgr: "Satpal Kaur", mgrPhone: "", email: "330338@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Remodel", employees: 0, sales: 0 },
+    { id: 10, pc: "337063", paycor: "193902", legal: "Chester Holding Three LLC", name: "Sharon Hill", address: "1100 Chester Pike", city: "Sharon Hill", state: "PA", zip: "19079", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Mosammat Akhtar", mgrPhone: "", email: "337063@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 11, pc: "343832", paycor: "193876", legal: "Chester Holdings Two LLC", name: "Lansdowne", address: "23 E. Baltimore Avenue", city: "Lansdowne", state: "PA", zip: "19050", isNextGen: false, baseAsset: "FS", isBaskin: false, isBridge: false, mgr: "Mahfuja Tajrin", mgrPhone: "", email: "343832@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 12, pc: "304669", paycor: "193894", legal: "Chester Holdings One LLC", name: "Collingdale", address: "5 Macdade Boulevard", city: "Collingdale", state: "PA", zip: "19023", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Ijaz Ali", mgrPhone: "", email: "304669@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 13, pc: "355146", paycor: "193895", legal: "Philadelphia Restaurant Holdings LLC", name: "Gallery", address: "901 Market Street", city: "Philadelphia", state: "PA", zip: "19107", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Moslima Akhter", mgrPhone: "", email: "355146@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 14, pc: "300496", paycor: "193906", legal: "Creek Capital Partners LLC", name: "Cobbs Creek", address: "7000 Chester Ave", city: "Philadelphia", state: "PA", zip: "19142", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Mosammat Akter", mgrPhone: "", email: "300496@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 15, pc: "304863", paycor: "193885", legal: "PCG 01 LLC", name: "18th St", address: "2654 S. 18th St", city: "Philadelphia", state: "PA", zip: "19145", isNextGen: false, baseAsset: "FS", isBaskin: false, isBridge: false, mgr: "Mahmuda Akter", mgrPhone: "", email: "304863@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 16, pc: "354561", paycor: "193910", legal: "PCG 3 LLC", name: "Carlisle", address: "2640 S. Carlisle St", city: "Philadelphia", state: "PA", zip: "19145", isNextGen: false, baseAsset: "FS", isBaskin: false, isBridge: false, mgr: "Thai Banh", mgrPhone: "", email: "354561@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 17, pc: "332393", paycor: "193907", legal: "PCG 4 LLC", name: "Lindbergh", address: "7601 Lindbergh Blvd", city: "Philadelphia", state: "PA", zip: "19153", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Rajiv Kumar", mgrPhone: "", email: "332393@peoplecapitalgroup.com", district: 3, dmName: "Sonia Khalique", dmEmail: "sonia@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 18, pc: "341167", paycor: "193893", legal: "Om Ganabandhave Namah LLC", name: "5th Street", address: "4017 N 5th St", city: "Philadelphia", state: "PA", zip: "19140", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: true, mgr: "Norberto Rodriguez", mgrPhone: "", email: "341167@peoplecapitalgroup.com", district: 4, dmName: "Yolicet Grin-Martinez", dmEmail: "yolicet@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 19, pc: "340870", paycor: "193912", legal: "Om Ganesvaraya Namah LLC.", name: "Hunting Park", address: "221 W Hunting Park Ave", city: "Philadelphia", state: "PA", zip: "19140", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Paulina Sierra", mgrPhone: "", email: "340870@peoplecapitalgroup.com", district: 4, dmName: "Yolicet Grin-Martinez", dmEmail: "yolicet@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 20, pc: "335981", paycor: "193873", legal: "Om Ganatratre Namah LLC", name: "Lehigh", address: "532 W Lehigh Ave", city: "Philadelphia", state: "PA", zip: "19133", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Chris Brown", mgrPhone: "", email: "335981@peoplecapitalgroup.com", district: 4, dmName: "Yolicet Grin-Martinez", dmEmail: "yolicet@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 21, pc: "353150", paycor: "193903", legal: "Bakers Square Inc.", name: "Bakers Square", address: "2749 W Hunting Park Ave", city: "Philadelphia", state: "PA", zip: "19129", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Edmonds Brandy", mgrPhone: "", email: "353150@peoplecapitalgroup.com", district: 4, dmName: "Yolicet Grin-Martinez", dmEmail: "yolicet@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 22, pc: "351050", paycor: "193877", legal: "Allegheny Donuts Inc.", name: "Allegheny", address: "2145 W Allegheny Ave", city: "Philadelphia", state: "PA", zip: "19132", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Torres Katiuska", mgrPhone: "", email: "351050@peoplecapitalgroup.com", district: 4, dmName: "Yolicet Grin-Martinez", dmEmail: "yolicet@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 23, pc: "345985", paycor: "193916", legal: "9271 Philadelphia Holdings LLC", name: "Wissahickon", address: "5051 Wissahickon Ave", city: "Philadelphia", state: "PA", zip: "19144", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "Jessica Garcia", mgrPhone: "", email: "345985@peoplecapitalgroup.com", district: 4, dmName: "Yolicet Grin-Martinez", dmEmail: "yolicet@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 24, pc: "356374", paycor: "193898", legal: "Montgomeryville Donuts LLC", name: "Montgomeryville", address: "738 Bethlehem Pike", city: "Montgomeryville", state: "PA", zip: "18936", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Radha Rao", mgrPhone: "", email: "356374@peoplecapitalgroup.com", district: 5, dmName: "Shreyes Mehta", dmEmail: "sunny@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 25, pc: "353843", paycor: "193891", legal: "Quakertown Donuts Inc", name: "Tollgate", address: "1110 West End Blvd", city: "Quakertown", state: "PA", zip: "18951", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Syncere Myer", mgrPhone: "", email: "353843@peoplecapitalgroup.com", district: 5, dmName: "Shreyes Mehta", dmEmail: "sunny@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 26, pc: "353047", paycor: "193875", legal: "Doylestown Retail Foods LLC", name: "Silverdale", address: "103 South Baringer Ave", city: "Silverdale", state: "PA", zip: "18962", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Joseph Allen", mgrPhone: "", email: "353047@peoplecapitalgroup.com", district: 5, dmName: "Shreyes Mehta", dmEmail: "sunny@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 27, pc: "340538", paycor: "193879", legal: "Om Ganajite Namah LLC", name: "Easton", address: "4460 Easton Ave", city: "Bethlehem", state: "PA", zip: "18020", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Vinit Patel", mgrPhone: "", email: "340538@peoplecapitalgroup.com", district: 5, dmName: "Shreyes Mehta", dmEmail: "sunny@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 28, pc: "343079", paycor: "193901", legal: "Om Ganabhuje Namah LLC", name: "Downingtown", address: "376 W. Uwchlan Ave", city: "Downingtown", state: "PA", zip: "19335", isNextGen: false, baseAsset: "DT", isBaskin: true, isBridge: false, mgr: "", mgrPhone: "", email: "343079@peoplecapitalgroup.com", district: 6, dmName: "Mohamed", dmEmail: "mohamed@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 29, pc: "342144", paycor: "193908", legal: "Om Ganacaraya Namah LLC", name: "Westchester", address: "750 Miles Rd", city: "West Chester", state: "PA", zip: "19380", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "342144@peoplecapitalgroup.com", district: 6, dmName: "Mohamed", dmEmail: "mohamed@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 30, pc: "364295", paycor: "193881", legal: "Lionville LLC", name: "Lionville", address: "80 E Uwchlan Ave", city: "Exton", state: "PA", zip: "19341", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "364295@peoplecapitalgroup.com", district: 6, dmName: "Mohamed", dmEmail: "mohamed@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 31, pc: "365361", paycor: "194373", legal: "Welsh Hospitality LLC", name: "Little Welsh", address: "2301 Welsh Rd", city: "Philadelphia", state: "PA", zip: "19114", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Ashley DiNardo", mgrPhone: "", email: "365361@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 32, pc: "310382", paycor: "193899", legal: "Rao 7 Inc.", name: "Grant", address: "1619 Grant Ave", city: "Philadelphia", state: "PA", zip: "19115", isNextGen: false, baseAsset: "IL", isBaskin: false, isBridge: false, mgr: "Safiya Eshag", mgrPhone: "", email: "310382@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 33, pc: "332941", paycor: "193884", legal: "Bustleton Retail Business LLC", name: "Bustleton", address: "9834 Bustleton Ave", city: "Philadelphia", state: "PA", zip: "19114", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Franyi Leiva", mgrPhone: "", email: "332941@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 34, pc: "343497", paycor: "193874", legal: "Aum Shreeji LLC", name: "Red Lion", address: "842 Red Lion Rd", city: "Philadelphia", state: "PA", zip: "19115", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Olivia Lilley", mgrPhone: "", email: "343497@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 35, pc: "302446", paycor: "193878", legal: "10500 Philadelphia Hospitality LLC", name: "Little Red Lion", address: "10050 Roosevelt Blvd", city: "Philadelphia", state: "PA", zip: "19116", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Nurani Chowdhury", mgrPhone: "", email: "302446@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 36, pc: "337079", paycor: "193911", legal: "Rao 11 Inc.", name: "Holme Circle", address: "2998 A Welsh Rd", city: "Philadelphia", state: "PA", zip: "19152", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Andrea Robison", mgrPhone: "", email: "337079@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 37, pc: "345986", paycor: "193896", legal: "Rao 4 Inc.", name: "Willits", address: "3170 Willits Rd", city: "Philadelphia", state: "PA", zip: "19136", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "345986@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Permanently Closed", closedDate: "2026-08-30", employees: 0, sales: 0 },
+    { id: 38, pc: "364412", paycor: "193905", legal: "One Hospitality Opco", name: "8200", address: "8200 Roosevelt Boulevard", city: "Philadelphia", state: "PA", zip: "19152", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Tejal Soni", mgrPhone: "", email: "364412@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 39, pc: "345489", paycor: "193880", legal: "8200 Philadelphia Hospitality LLC", name: "Oxford", address: "5801 Oxford Ave", city: "Philadelphia", state: "PA", zip: "19149", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "Iqbal Komal", mgrPhone: "", email: "345489@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 40, pc: "336372", paycor: "193897", legal: "Sai Shraddha Inc.", name: "Elkins Park", address: "2 Township Line Rd", city: "Elkins Park", state: "PA", zip: "19027", isNextGen: false, baseAsset: "FS", isBaskin: false, isBridge: false, mgr: "Dilara Begum", mgrPhone: "", email: "336372@peoplecapitalgroup.com", district: 7, dmName: "Sharmin Akter", dmEmail: "sharmin@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 41, pc: "358933", paycor: "193886", legal: "PCG 2 LLC", name: "Brace Rd", address: "1402 Brace Rd", city: "Cherry Hill", state: "NJ", zip: "08034", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Nitin Patel", mgrPhone: "", email: "358933@peoplecapitalgroup.com", district: 8, dmName: "Mike", dmEmail: "mike@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 42, pc: "354865", paycor: "193915", legal: "Quakertown Food Operations LLC.", name: "Quakertown", address: "224 W Broad Street", city: "Quakertown", state: "PA", zip: "18951", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Kenny / Robin Fontano", mgrPhone: "", email: "354865@peoplecapitalgroup.com", district: 8, dmName: "Mike", dmEmail: "mike@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 43, pc: "353689", paycor: "193883", legal: "Fort Washington Retail Foods LLC", name: "Fort Washington", address: "520 Pennsylvania Ave", city: "Fort Washington", state: "PA", zip: "19034", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Kenny (Kintan) Patel", mgrPhone: "", email: "353689@peoplecapitalgroup.com", district: 8, dmName: "Mike", dmEmail: "mike@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 44, pc: "342184", paycor: "193917", legal: "Rao 1 Inc.", name: "Lansdale", address: "549 Doylestown Rd", city: "Lansdale", state: "PA", zip: "19445", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "Cheri Patel", mgrPhone: "", email: "342184@peoplecapitalgroup.com", district: 8, dmName: "Mike", dmEmail: "mike@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 45, pc: "356316", paycor: "193889", legal: "Star Alliance Capital LLC", name: "BJ's", address: "2054 Red Lion Rd", city: "Philadelphia", state: "PA", zip: "19115", isNextGen: false, baseAsset: "APOD", isBaskin: false, isBridge: false, mgr: "Perry Patel", mgrPhone: "", email: "356316@peoplecapitalgroup.com", district: 8, dmName: "Mike", dmEmail: "mike@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    { id: 46, pc: "365953", paycor: "200540", legal: "256 Hatboro Hospitality LLC", name: "Hatboro", address: "256 South York Road", city: "Hatboro", state: "PA", zip: "19040", isNextGen: true, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "Justin", mgrPhone: "", email: "365953@peoplecapitalgroup.com", district: 2, dmName: "Jay Patel", dmEmail: "jay@peoplecapitalgroup.com", status: "Open", employees: 0, sales: 0 },
+    // id 47, not 46 — 46 was already taken in production by the Hatboro store
+    // above (added via the UI before this store ever existed in this seed
+    // array). Reusing it collided as a React list key and caused rendering
+    // artifacts (phantom duplicate rows) confirmed live 2026-09-16, even
+    // though the underlying data was never actually duplicated.
+    { id: 47, pc: "345222", paycor: "", legal: "Om Ganadevaya Namah LLC", name: "Allentown GS", address: "3655 Route 378", city: "Bethlehem", state: "PA", zip: "18015", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "345222@peoplecapitalgroup.com", district: null, dmName: "", dmEmail: "", status: "Permanently Closed", closedDate: "2025-11-26", employees: 0, sales: 0 }
   ];
   var DISTRICTS_SEED = {
     1: { num: 1, name: "Taylor Cormier", email: "taylor@peoplecapitalgroup.com" },
     2: { num: 2, name: "Jay Patel", email: "jay@peoplecapitalgroup.com" },
-    3: { num: 3, name: "Sonia Khalique", email: "sonia@rgi.life" },
-    4: { num: 4, name: "Yolicet Grin-Martinez", email: "yolicet@rgi.life" },
-    5: { num: 5, name: "Shreyes Mehta", email: "sunny@rgi.life" },
-    6: { num: 6, name: "Mohamed", email: "Mohamed@rgi.life" },
-    7: { num: 7, name: "Sharmin Akter", email: "sharmin@rgi.life" },
+    3: { num: 3, name: "Sonia Khalique", email: "sonia@peoplecapitalgroup.com" },
+    4: { num: 4, name: "Yolicet Grin-Martinez", email: "yolicet@peoplecapitalgroup.com" },
+    5: { num: 5, name: "Shreyes Mehta", email: "sunny@peoplecapitalgroup.com" },
+    6: { num: 6, name: "Mohamed", email: "Mohamed@peoplecapitalgroup.com" },
+    7: { num: 7, name: "Sharmin Akter", email: "sharmin@peoplecapitalgroup.com" },
     8: { num: 8, name: "Mike", email: "" }
   };
   function AdminUsers({ users, setUsers, currentUser, th, showAlert: showAlert2, stores }) {
@@ -5062,8 +5069,24 @@
     "Open": { color: "#69db7c", bg: "#69db7c18" },
     "Remodel": { color: "#ffa94d", bg: "#ffa94d18" },
     "Temp Closed": { color: "#ff6b6b", bg: "#ff6b6b18" },
-    "Coming Soon": { color: "#b197fc", bg: "#b197fc18" }
+    "Coming Soon": { color: "#b197fc", bg: "#b197fc18" },
+    "Permanently Closed": { color: "#adb5bd", bg: "#00000030" }
   };
+  var DISTRICT_COLORS = {
+    1: { bg: "#4dd8e8", text: "#063338" },
+    2: { bg: "#7fd88a", text: "#0a3312" },
+    3: { bg: "#e8c96a", text: "#3a2e05" },
+    4: { bg: "#f0954a", text: "#3a1c04" },
+    5: { bg: "#6fa8dc", text: "#04203a" },
+    6: { bg: "#3fa79a", text: "#04302a" },
+    7: { bg: "#a3b859", text: "#2a3305" },
+    8: { bg: "#e0559f", text: "#3a0524" }
+  };
+  function districtTint(hex, alpha = 0.16) {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
   var _districtsRef = DISTRICTS_SEED;
   function setDistrictsRef(d) {
     if (d && typeof d === "object") _districtsRef = d;
@@ -5875,7 +5898,7 @@
         console.warn("Copy failed:", err);
       }
     };
-    const emptyStore = { pc: "", paycor: "", legal: "", name: "", address: "", city: "", state: "PA", zip: "", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "", district: "", dmName: "", status: "Coming Soon", employees: 0, sales: 0 };
+    const emptyStore = { pc: "", paycor: "", legal: "", name: "", address: "", city: "", state: "PA", zip: "", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "", district: "", dmName: "", dmEmail: "", status: "Coming Soon", closedDate: "", employees: 0, sales: 0 };
     const [newStore, setNewStore] = useState(emptyStore);
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
@@ -5916,6 +5939,81 @@
     const totalEmp = baseStores.reduce((a, s) => a + s.employees, 0);
     const openCount = baseStores.filter((s) => s.status === "Open").length;
     const totalSales = baseStores.filter((s) => s.status === "Open").reduce((a, s) => a + s.sales, 0);
+    const directoryQ = search.trim().toLowerCase();
+    const dirStores = baseStores.filter((s) => {
+      if (!directoryQ) return true;
+      return [s.pc, s.name, s.address, s.mgr, s.dmName, s.paycor, s.legal, s.baseAsset, s.email].some((v) => (v || "").toString().toLowerCase().includes(directoryQ));
+    });
+    const dirActive = dirStores.filter((s) => s.status !== "Permanently Closed");
+    const dirClosed = dirStores.filter((s) => s.status === "Permanently Closed");
+    const dirByDistrict = {};
+    dirActive.forEach((s) => {
+      const d = s.district || 0;
+      (dirByDistrict[d] ||= []).push(s);
+    });
+    const dirDistrictNums = Object.keys(dirByDistrict).map(Number).sort((a, b) => a - b);
+    const dirAssetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "\u2014"}`;
+    const dirFmtClosedDate = (d) => d ? (/* @__PURE__ */ new Date(d + "T12:00:00")).toLocaleDateString() : "\u2014";
+    const exportDirectoryPdf = () => {
+      const cell = "padding:2px 6px;font-size:8.5px;color:#1a1a1a;border-bottom:0.5px solid #ddd;";
+      const rowsHtml = (list, bg) => list.map((s) => `
+      <tr style="background:${bg};">
+        <td style="${cell}font-weight:700;color:#c2540c;">${s.pc}</td>
+        <td style="${cell}">${s.paycor || "\u2014"}</td>
+        <td style="${cell}">${s.legal || "\u2014"}</td>
+        <td style="${cell}font-weight:700;">${s.name || "\u2014"}</td>
+        <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+        <td style="${cell}">${dirAssetCombined(s)}</td>
+        <td style="${cell}">${mgrOf2(s) || "Unassigned"}</td>
+        <td style="${cell}">${s.email || "\u2014"}</td>
+      </tr>`).join("");
+      const districtsHtml = dirDistrictNums.map((dNum) => {
+        const rows = dirByDistrict[dNum];
+        const dc = DISTRICT_COLORS[dNum] || { bg: "#e5e7eb", text: "#111" };
+        const dmName = rows[0]?.dmName || "";
+        const dmEmail = rows[0]?.dmEmail || "";
+        return `
+        <tr style="background:${dc.bg};">
+          <td colspan="6" style="padding:3px 6px;font-size:9.5px;font-weight:800;color:${dc.text};">${dNum ? `District #${dNum}${dmName ? " " + dmName : ""}` : "Unassigned"}</td>
+          <td colspan="2" style="padding:3px 6px;font-size:8.5px;font-weight:700;color:${dc.text};text-align:right;">${dmEmail}</td>
+        </tr>
+        ${rowsHtml(rows, districtTint(dc.bg))}`;
+      }).join("");
+      const closedHtml = dirClosed.length === 0 ? "" : `
+      <tr style="background:#111318;">
+        <td colspan="8" style="padding:3px 6px;font-size:9.5px;font-weight:800;color:#fff;letter-spacing:0.4px;">PERMANENTLY CLOSED</td>
+      </tr>
+      <tr style="background:#e5e7eb;">
+        ${["PC#", "Legal Name", "Property Name", "Address", "Asset Type", "Closed Date", "", ""].map((h) => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join("")}
+      </tr>
+      ${dirClosed.map((s) => `
+        <tr style="opacity:0.85;">
+          <td style="${cell}font-weight:700;">${s.pc}</td>
+          <td style="${cell}">${s.legal || "\u2014"}</td>
+          <td style="${cell}font-weight:700;">${s.name || "\u2014"}</td>
+          <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+          <td style="${cell}">${dirAssetCombined(s)}</td>
+          <td style="${cell}">${dirFmtClosedDate(s.closedDate)}</td>
+          <td style="${cell}"></td>
+          <td style="${cell}"></td>
+        </tr>`).join("")}`;
+      const el = document.createElement("div");
+      el.innerHTML = `
+      <div style="font-family:'Source Sans 3',sans-serif;background:#fff;padding:2px;">
+        <div style="font-family:'Raleway',sans-serif;font-weight:800;font-size:14px;color:#1a1a1a;margin-bottom:1px;">People Capital Group \u2014 Store Directory</div>
+        <div style="font-size:8px;color:#888;margin-bottom:5px;">Generated ${(/* @__PURE__ */ new Date()).toLocaleDateString()}</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#e5e7eb;">
+              ${["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email"].map((h) => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>${districtsHtml}${closedHtml}</tbody>
+        </table>
+      </div>`;
+      const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      html2pdf().set({ margin: 0.15, filename: `PCG-Store-Directory-${dateStr}.pdf`, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: "in", format: "letter", orientation: "landscape" }, pagebreak: { mode: ["css", "legacy"] } }).from(el).save();
+    };
     const saveEdit = () => {
       setStores((ss) => ss.map((s) => s.id === editStore.id ? editStore : s));
       setEditStore(null);
@@ -5984,7 +6082,7 @@
         value: search,
         onChange: (e) => setSearch(e.target.value)
       }
-    )), (isAdmin || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: th.card2, padding: "0.2rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem" } }, [{ id: "list", label: "\u2630 List" }, { id: "map", label: "\u{1F5FA} Map" }].map((v) => /* @__PURE__ */ React.createElement("button", { key: v.id, onClick: () => setViewMode(v.id), style: {
+    )), (isAdmin || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: th.card2, padding: "0.2rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem" } }, [{ id: "list", label: "\u2630 List" }, { id: "map", label: "\u{1F5FA} Map" }, { id: "directory", label: "\u{1F4CB} Directory" }].map((v) => /* @__PURE__ */ React.createElement("button", { key: v.id, onClick: () => setViewMode(v.id), style: {
       padding: "0.45rem 0.85rem",
       fontSize: "0.72rem",
       fontWeight: 800,
@@ -5994,62 +6092,7 @@
       border: "none",
       borderRadius: "0.4rem",
       cursor: "pointer"
-    } }, v.label))), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: loadFoodLicenses,
-        disabled: foodLicensesLoading,
-        style: { ...btn(th, { padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 800, opacity: foodLicensesLoading ? 0.6 : 1 }) }
-      },
-      foodLicensesLoading ? "Loading\u2026" : "\u{1F354} Load Food Licenses"
-    ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setToolsOpen((o) => !o), style: {
-      ...btn(th),
-      padding: "0.55rem 0.9rem",
-      fontSize: "0.78rem",
-      fontWeight: 800,
-      display: "inline-flex",
-      alignItems: "center",
-      gap: "0.35rem"
-    } }, "\u{1F9F0} Tools ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem" } }, "\u25BE")), toolsOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setToolsOpen(false), style: { position: "fixed", inset: 0, zIndex: 40 } }), /* @__PURE__ */ React.createElement("div", { style: {
-      position: "absolute",
-      top: "calc(100% + 6px)",
-      left: 0,
-      zIndex: 41,
-      background: th.card,
-      border: `1px solid ${th.cardBorder}`,
-      borderRadius: "0.6rem",
-      boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
-      minWidth: 220,
-      overflow: "hidden"
-    } }, LOCATION_TOOLS.map((t) => /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        key: t.id,
-        onClick: () => {
-          setActiveTool(t.id);
-          setToolsOpen(false);
-        },
-        onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
-        onMouseLeave: (e) => e.currentTarget.style.background = "none",
-        style: {
-          display: "flex",
-          alignItems: "center",
-          gap: "0.55rem",
-          width: "100%",
-          padding: "0.7rem 0.9rem",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          color: th.text,
-          fontFamily: "'Source Sans 3'",
-          fontSize: "0.82rem",
-          textAlign: "left"
-        }
-      },
-      /* @__PURE__ */ React.createElement("span", null, t.icon),
-      " ",
-      t.label
-    ))))), activeTool === "closest" && /* @__PURE__ */ React.createElement(ClosestToFinder, { th, onClose: () => setActiveTool(null) }), !isDM && !isManager && /* @__PURE__ */ React.createElement("div", { style: {
+    } }, v.label))), !isDM && !isManager && /* @__PURE__ */ React.createElement("div", { style: {
       display: "inline-flex",
       gap: "0.2rem",
       background: th.card2,
@@ -6065,9 +6108,9 @@
         fontFamily: "'Source Sans 3'",
         textTransform: "uppercase",
         letterSpacing: 0.6,
-        background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
+        background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : th.card,
         color: active ? "#fff" : th.muted,
-        border: "none",
+        border: `1px solid ${active ? "transparent" : th.cardBorder}`,
         borderRadius: "0.4rem",
         cursor: "pointer",
         transition: "all .2s",
@@ -6075,13 +6118,10 @@
       } }, s);
     })), /* @__PURE__ */ React.createElement("div", { style: {
       display: "inline-flex",
-      gap: "0.2rem",
-      background: th.card2,
+      gap: "0.3rem",
       padding: "0.25rem",
-      border: `1px solid ${th.cardBorder}`,
-      borderRadius: "0.6rem",
       flexWrap: "wrap"
-    } }, ["All", "Open", "Remodel", "Temp Closed", "Coming Soon"].map((s) => {
+    } }, ["All", "Open", "Remodel", "Temp Closed", "Coming Soon", "Permanently Closed"].map((s) => {
       const active = filterStatus === s;
       return /* @__PURE__ */ React.createElement("button", { key: s, onClick: () => setFilterStatus(s), style: {
         padding: "0.45rem 0.85rem",
@@ -6090,9 +6130,9 @@
         fontFamily: "'Source Sans 3'",
         textTransform: "uppercase",
         letterSpacing: 0.6,
-        background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
+        background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : th.card,
         color: active ? "#fff" : th.muted,
-        border: "none",
+        border: `1px solid ${active ? "transparent" : th.cardBorder}`,
         borderRadius: "0.4rem",
         cursor: "pointer",
         transition: "all .2s",
@@ -6142,6 +6182,61 @@
       },
       addMode ? "\u2715 Cancel" : "+ Add Location"
     ), /* @__PURE__ */ React.createElement("div", { style: { width: 1, height: 28, background: th.cardBorder, margin: "0 0.4rem" } })), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: loadFoodLicenses,
+        disabled: foodLicensesLoading,
+        style: { ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 700, opacity: foodLicensesLoading ? 0.6 : 1 }) }
+      },
+      foodLicensesLoading ? "Loading\u2026" : "\u{1F354} Load Food Licenses"
+    ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setToolsOpen((o) => !o), style: {
+      ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }),
+      padding: "0.55rem 0.9rem",
+      fontSize: "0.78rem",
+      fontWeight: 700,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "0.35rem"
+    } }, "\u{1F9F0} Tools ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem" } }, "\u25BE")), toolsOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setToolsOpen(false), style: { position: "fixed", inset: 0, zIndex: 40 } }), /* @__PURE__ */ React.createElement("div", { style: {
+      position: "absolute",
+      top: "calc(100% + 6px)",
+      left: 0,
+      zIndex: 41,
+      background: th.card,
+      border: `1px solid ${th.cardBorder}`,
+      borderRadius: "0.6rem",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+      minWidth: 220,
+      overflow: "hidden"
+    } }, LOCATION_TOOLS.map((t) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: t.id,
+        onClick: () => {
+          setActiveTool(t.id);
+          setToolsOpen(false);
+        },
+        onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
+        onMouseLeave: (e) => e.currentTarget.style.background = "none",
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: "0.55rem",
+          width: "100%",
+          padding: "0.7rem 0.9rem",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: th.text,
+          fontFamily: "'Source Sans 3'",
+          fontSize: "0.82rem",
+          textAlign: "left"
+        }
+      },
+      /* @__PURE__ */ React.createElement("span", null, t.icon),
+      " ",
+      t.label
+    ))))), activeTool === "closest" && /* @__PURE__ */ React.createElement(ClosestToFinder, { th, onClose: () => setActiveTool(null) }), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => {
@@ -6197,19 +6292,19 @@
       },
       "\u{1F366} Baskin",
       filterBaskin ? ` \xB7 ${baseStores.filter((s) => s.isBaskin).length}` : ""
-    ))), /* @__PURE__ */ React.createElement("div", { className: "loc-right" }, addMode && isAdmin && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 20, marginBottom: "1.5rem", border: `1px solid ${O}44` }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: O, letterSpacing: 1, textTransform: "uppercase", marginBottom: "0.875rem" } }, "New Location"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.875rem" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "PC Number", value: newStore.pc, onChange: (e) => setNewStore((s) => ({ ...s, pc: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Paycor Client ID", value: newStore.paycor, onChange: (e) => setNewStore((s) => ({ ...s, paycor: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Property / Store Name", value: newStore.name, onChange: (e) => setNewStore((s) => ({ ...s, name: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1/-1" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Street Address *", value: newStore.address, onChange: (e) => setNewStore((s) => ({ ...s, address: e.target.value })) })), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "City", value: newStore.city, onChange: (e) => setNewStore((s) => ({ ...s, city: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: newStore.state, onChange: (e) => setNewStore((s) => ({ ...s, state: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "PA" }, "PA"), /* @__PURE__ */ React.createElement("option", { value: "NJ" }, "NJ")), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "ZIP Code", value: newStore.zip, onChange: (e) => setNewStore((s) => ({ ...s, zip: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Legal Company Name", value: newStore.legal, onChange: (e) => setNewStore((s) => ({ ...s, legal: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), flex: 1 }, value: newStore.baseAsset, onChange: (e) => setNewStore((s) => ({ ...s, baseAsset: e.target.value })) }, BASE_ASSET_TYPES.map((a) => /* @__PURE__ */ React.createElement("option", { key: a.code, value: a.code }, a.label))), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.8125rem", color: newStore.isNextGen ? "#b197fc" : th.muted, whiteSpace: "nowrap", padding: "0.625rem 0.875rem", background: th.inputBg, border: `1px solid ${newStore.isNextGen ? "#b197fc44" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: newStore.isNextGen, onChange: (e) => setNewStore((s) => ({ ...s, isNextGen: e.target.checked })), style: { accentColor: "#b197fc", width: 15, height: 15 } }), "\u26A1 Next-Gen"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.8125rem", color: newStore.isBaskin ? "#ff69b4" : th.muted, whiteSpace: "nowrap", padding: "0.625rem 0.875rem", background: th.inputBg, border: `1px solid ${newStore.isBaskin ? "#ff69b444" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!newStore.isBaskin, onChange: (e) => setNewStore((s) => ({ ...s, isBaskin: e.target.checked })), style: { accentColor: "#ff69b4", width: 15, height: 15 } }), "\u{1F366} Baskin")), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Manager Name", value: newStore.mgr, onChange: (e) => setNewStore((s) => ({ ...s, mgr: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Manager Phone", value: newStore.mgrPhone || "", onChange: (e) => setNewStore((s) => ({ ...s, mgrPhone: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Store Email", value: newStore.email, onChange: (e) => setNewStore((s) => ({ ...s, email: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: newStore.district || "", onChange: (e) => setNewStore((s) => ({ ...s, district: +e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 District \u2014"), Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: newStore.status, onChange: (e) => setNewStore((s) => ({ ...s, status: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "Coming Soon"), /* @__PURE__ */ React.createElement("option", null, "Open"), /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Temp Closed"))), /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: addLocation }, "Add Location")), editStore && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "#00000075", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem" }, onClick: (e) => {
+    ))), /* @__PURE__ */ React.createElement("div", { className: "loc-right" }, addMode && isAdmin && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 20, marginBottom: "1.5rem", border: `1px solid ${O}44` }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: O, letterSpacing: 1, textTransform: "uppercase", marginBottom: "0.875rem" } }, "New Location"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.875rem" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "PC Number", value: newStore.pc, onChange: (e) => setNewStore((s) => ({ ...s, pc: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Paycor Client ID", value: newStore.paycor, onChange: (e) => setNewStore((s) => ({ ...s, paycor: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Property / Store Name", value: newStore.name, onChange: (e) => setNewStore((s) => ({ ...s, name: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1/-1" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Street Address *", value: newStore.address, onChange: (e) => setNewStore((s) => ({ ...s, address: e.target.value })) })), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "City", value: newStore.city, onChange: (e) => setNewStore((s) => ({ ...s, city: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: newStore.state, onChange: (e) => setNewStore((s) => ({ ...s, state: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "PA" }, "PA"), /* @__PURE__ */ React.createElement("option", { value: "NJ" }, "NJ")), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "ZIP Code", value: newStore.zip, onChange: (e) => setNewStore((s) => ({ ...s, zip: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Legal Company Name", value: newStore.legal, onChange: (e) => setNewStore((s) => ({ ...s, legal: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), flex: 1 }, value: newStore.baseAsset, onChange: (e) => setNewStore((s) => ({ ...s, baseAsset: e.target.value })) }, BASE_ASSET_TYPES.map((a) => /* @__PURE__ */ React.createElement("option", { key: a.code, value: a.code }, a.label))), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.8125rem", color: newStore.isNextGen ? "#b197fc" : th.muted, whiteSpace: "nowrap", padding: "0.625rem 0.875rem", background: th.inputBg, border: `1px solid ${newStore.isNextGen ? "#b197fc44" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: newStore.isNextGen, onChange: (e) => setNewStore((s) => ({ ...s, isNextGen: e.target.checked })), style: { accentColor: "#b197fc", width: 15, height: 15 } }), "\u26A1 Next-Gen"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.8125rem", color: newStore.isBaskin ? "#ff69b4" : th.muted, whiteSpace: "nowrap", padding: "0.625rem 0.875rem", background: th.inputBg, border: `1px solid ${newStore.isBaskin ? "#ff69b444" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!newStore.isBaskin, onChange: (e) => setNewStore((s) => ({ ...s, isBaskin: e.target.checked })), style: { accentColor: "#ff69b4", width: 15, height: 15 } }), "\u{1F366} Baskin")), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Manager Name", value: newStore.mgr, onChange: (e) => setNewStore((s) => ({ ...s, mgr: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Manager Phone", value: newStore.mgrPhone || "", onChange: (e) => setNewStore((s) => ({ ...s, mgrPhone: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Store Email", value: newStore.email, onChange: (e) => setNewStore((s) => ({ ...s, email: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: newStore.district || "", onChange: (e) => setNewStore((s) => ({ ...s, district: +e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 District \u2014"), Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: newStore.status, onChange: (e) => setNewStore((s) => ({ ...s, status: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "Coming Soon"), /* @__PURE__ */ React.createElement("option", null, "Open"), /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Temp Closed"), /* @__PURE__ */ React.createElement("option", null, "Permanently Closed"))), /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: addLocation }, "Add Location")), editStore && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "#00000075", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem" }, onClick: (e) => {
       if (e.target === e.currentTarget) setEditStore(null);
     } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", width: "100%", maxWidth: "min(820px, 96vw)", maxHeight: "92vh", overflowY: "auto" }, className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: th.text, marginBottom: "1.5rem" } }, "Edit Location \u2014 PC# ", editStore.pc), (() => {
       const lbl = { fontSize: "0.72rem", color: th.muted, marginBottom: "0.35rem", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 };
       const row2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" };
       const row3 = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" };
       const fld = (label, children) => /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: lbl }, label), children);
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: row2 }, fld("PC Number", /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), background: th.card3, color: th.muted }, value: editStore.pc, readOnly: true })), fld("Paycor Client ID", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.paycor || "", onChange: (e) => setEditStore((s) => ({ ...s, paycor: e.target.value })) }))), fld("Property / Store Name", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.name || "", onChange: (e) => setEditStore((s) => ({ ...s, name: e.target.value })) })), fld("Legal Company Name", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.legal || "", onChange: (e) => setEditStore((s) => ({ ...s, legal: e.target.value })) })), fld("Street Address", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.address || "", onChange: (e) => setEditStore((s) => ({ ...s, address: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: row3 }, fld("City", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.city || "", onChange: (e) => setEditStore((s) => ({ ...s, city: e.target.value })) })), fld("State", /* @__PURE__ */ React.createElement("select", { style: inp(th), value: editStore.state, onChange: (e) => setEditStore((s) => ({ ...s, state: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "PA"), /* @__PURE__ */ React.createElement("option", null, "NJ"))), fld("ZIP Code", /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "19000", value: editStore.zip || "", onChange: (e) => setEditStore((s) => ({ ...s, zip: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { style: row2 }, fld("Asset Type", /* @__PURE__ */ React.createElement("select", { style: inp(th), value: editStore.baseAsset || "DT", onChange: (e) => setEditStore((s) => ({ ...s, baseAsset: e.target.value })) }, BASE_ASSET_TYPES.map((a) => /* @__PURE__ */ React.createElement("option", { key: a.code, value: a.code }, a.label)))), fld("District", /* @__PURE__ */ React.createElement("select", { style: inp(th), value: editStore.district || "", onChange: (e) => setEditStore((s) => ({ ...s, district: +e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Unassigned \u2014"), Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: lbl }, "Flags"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.9rem", color: editStore.isNextGen ? "#b197fc" : th.muted, padding: "0.6rem 1.1rem", background: th.inputBg, border: `1px solid ${editStore.isNextGen ? "#b197fc66" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editStore.isNextGen, onChange: (e) => setEditStore((s) => ({ ...s, isNextGen: e.target.checked })), style: { accentColor: "#b197fc", width: "1rem", height: "1rem" } }), "\u26A1 Next-Gen"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.9rem", color: editStore.isBaskin ? "#ff69b4" : th.muted, padding: "0.6rem 1.1rem", background: th.inputBg, border: `1px solid ${editStore.isBaskin ? "#ff69b466" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editStore.isBaskin, onChange: (e) => setEditStore((s) => ({ ...s, isBaskin: e.target.checked })), style: { accentColor: "#ff69b4", width: "1rem", height: "1rem" } }), "\u{1F366} Baskin-Robbins"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.9rem", color: editStore.isBridge ? "#ffa94d" : th.muted, padding: "0.6rem 1.1rem", background: th.inputBg, border: `1px solid ${editStore.isBridge ? "#ffa94d66" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editStore.isBridge, onChange: (e) => setEditStore((s) => ({ ...s, isBridge: e.target.checked })), style: { accentColor: "#ffa94d", width: "1rem", height: "1rem" } }), "\u{1F309} Bridge Remodel"))), /* @__PURE__ */ React.createElement("div", { style: row2 }, fld("Manager", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.mgr || "", onChange: (e) => setEditStore((s) => ({ ...s, mgr: e.target.value })) })), fld("Manager Phone", /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "(215) 555-0100", value: editStore.mgrPhone || "", onChange: (e) => setEditStore((s) => ({ ...s, mgrPhone: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { style: row3 }, fld("Store Email", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.email || "", onChange: (e) => setEditStore((s) => ({ ...s, email: e.target.value })) })), fld("Employees", /* @__PURE__ */ React.createElement("input", { style: inp(th), type: "number", min: "0", value: editStore.employees || 0, onChange: (e) => setEditStore((s) => ({ ...s, employees: +e.target.value })) })), fld("Status", /* @__PURE__ */ React.createElement("select", { style: inp(th), value: editStore.status, onChange: (e) => setEditStore((s) => ({ ...s, status: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "Open"), /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Temp Closed"), /* @__PURE__ */ React.createElement("option", null, "Coming Soon")))));
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: row2 }, fld("PC Number", /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), background: th.card3, color: th.muted }, value: editStore.pc, readOnly: true })), fld("Paycor Client ID", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.paycor || "", onChange: (e) => setEditStore((s) => ({ ...s, paycor: e.target.value })) }))), fld("Property / Store Name", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.name || "", onChange: (e) => setEditStore((s) => ({ ...s, name: e.target.value })) })), fld("Legal Company Name", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.legal || "", onChange: (e) => setEditStore((s) => ({ ...s, legal: e.target.value })) })), fld("Street Address", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.address || "", onChange: (e) => setEditStore((s) => ({ ...s, address: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: row3 }, fld("City", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.city || "", onChange: (e) => setEditStore((s) => ({ ...s, city: e.target.value })) })), fld("State", /* @__PURE__ */ React.createElement("select", { style: inp(th), value: editStore.state, onChange: (e) => setEditStore((s) => ({ ...s, state: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "PA"), /* @__PURE__ */ React.createElement("option", null, "NJ"))), fld("ZIP Code", /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "19000", value: editStore.zip || "", onChange: (e) => setEditStore((s) => ({ ...s, zip: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { style: row2 }, fld("Asset Type", /* @__PURE__ */ React.createElement("select", { style: inp(th), value: editStore.baseAsset || "DT", onChange: (e) => setEditStore((s) => ({ ...s, baseAsset: e.target.value })) }, BASE_ASSET_TYPES.map((a) => /* @__PURE__ */ React.createElement("option", { key: a.code, value: a.code }, a.label)))), fld("District", /* @__PURE__ */ React.createElement("select", { style: inp(th), value: editStore.district || "", onChange: (e) => setEditStore((s) => ({ ...s, district: +e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Unassigned \u2014"), Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))))), /* @__PURE__ */ React.createElement("div", { style: row2 }, fld("District Lead", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.dmName || "", onChange: (e) => setEditStore((s) => ({ ...s, dmName: e.target.value })) })), fld("District Lead Email", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.dmEmail || "", onChange: (e) => setEditStore((s) => ({ ...s, dmEmail: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: lbl }, "Flags"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.9rem", color: editStore.isNextGen ? "#b197fc" : th.muted, padding: "0.6rem 1.1rem", background: th.inputBg, border: `1px solid ${editStore.isNextGen ? "#b197fc66" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editStore.isNextGen, onChange: (e) => setEditStore((s) => ({ ...s, isNextGen: e.target.checked })), style: { accentColor: "#b197fc", width: "1rem", height: "1rem" } }), "\u26A1 Next-Gen"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.9rem", color: editStore.isBaskin ? "#ff69b4" : th.muted, padding: "0.6rem 1.1rem", background: th.inputBg, border: `1px solid ${editStore.isBaskin ? "#ff69b466" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editStore.isBaskin, onChange: (e) => setEditStore((s) => ({ ...s, isBaskin: e.target.checked })), style: { accentColor: "#ff69b4", width: "1rem", height: "1rem" } }), "\u{1F366} Baskin-Robbins"), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.9rem", color: editStore.isBridge ? "#ffa94d" : th.muted, padding: "0.6rem 1.1rem", background: th.inputBg, border: `1px solid ${editStore.isBridge ? "#ffa94d66" : th.inputBorder}`, borderRadius: "0.5rem", transition: "all .2s" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!editStore.isBridge, onChange: (e) => setEditStore((s) => ({ ...s, isBridge: e.target.checked })), style: { accentColor: "#ffa94d", width: "1rem", height: "1rem" } }), "\u{1F309} Bridge Remodel"))), /* @__PURE__ */ React.createElement("div", { style: row2 }, fld("Manager", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.mgr || "", onChange: (e) => setEditStore((s) => ({ ...s, mgr: e.target.value })) })), fld("Manager Phone", /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "(215) 555-0100", value: editStore.mgrPhone || "", onChange: (e) => setEditStore((s) => ({ ...s, mgrPhone: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { style: row3 }, fld("Store Email", /* @__PURE__ */ React.createElement("input", { style: inp(th), value: editStore.email || "", onChange: (e) => setEditStore((s) => ({ ...s, email: e.target.value })) })), fld("Employees", /* @__PURE__ */ React.createElement("input", { style: inp(th), type: "number", min: "0", value: editStore.employees || 0, onChange: (e) => setEditStore((s) => ({ ...s, employees: +e.target.value })) })), fld("Status", /* @__PURE__ */ React.createElement("select", { style: inp(th), value: editStore.status, onChange: (e) => setEditStore((s) => ({ ...s, status: e.target.value })) }, /* @__PURE__ */ React.createElement("option", null, "Open"), /* @__PURE__ */ React.createElement("option", null, "Remodel"), /* @__PURE__ */ React.createElement("option", null, "Temp Closed"), /* @__PURE__ */ React.createElement("option", null, "Coming Soon"), /* @__PURE__ */ React.createElement("option", null, "Permanently Closed")))), editStore.status === "Permanently Closed" && fld("Closed Date", /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: editStore.closedDate || "", onChange: (e) => setEditStore((s) => ({ ...s, closedDate: e.target.value })) })));
     })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: saveEdit }, "Save Changes"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted }), onClick: () => setEditStore(null) }, "Cancel")))), selectedStore && (() => {
       const s = selectedStore;
       const nxt = s.isNextGen;
       const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((s.address || "") + " " + (s.city || "") + " " + (s.state || "") + " " + (s.zip || ""))}`;
-      const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`;
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${s.pc}@peoplecapitalgroup.com`;
       const ss = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
       return /* @__PURE__ */ React.createElement(
         "div",
@@ -6312,8 +6407,8 @@
             onMouseLeave: (e) => e.currentTarget.style.textDecoration = "none"
           },
           "\u{1F4DE} ",
-          mgrOf2(s) || "\u2014"
-        ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.text } }, mgrOf2(s) || "\u2014"), s.mgrPhone && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, marginTop: "0.125rem" } }, s.mgrPhone)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.188rem" } }, "Store Email"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, wordBreak: "break-all" } }, s.email || "\u2014")), s.employees > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.188rem" } }, "Employees"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", fontWeight: 700, color: th.text } }, "\u{1F465} ", s.employees)), s.city === "Philadelphia" && (() => {
+          mgrOf2(s) || "Unassigned"
+        ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.text } }, mgrOf2(s) || "Unassigned"), s.mgrPhone && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, marginTop: "0.125rem" } }, s.mgrPhone)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.188rem" } }, "Store Email"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, wordBreak: "break-all" } }, s.email || "\u2014")), s.employees > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.188rem" } }, "Employees"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", fontWeight: 700, color: th.text } }, "\u{1F465} ", s.employees)), s.city === "Philadelphia" && (() => {
           const cd = cityData;
           const fmtCurr = (n) => n != null ? "$" + Number(n).toLocaleString() : "\u2014";
           const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : "\u2014";
@@ -6371,7 +6466,24 @@
           setSelectedStore(null);
         }, style: btn(th, { marginLeft: "auto", fontSize: "0.75rem" }) }, "\u270F\uFE0F Edit")))
       );
-    })(), /* @__PURE__ */ React.createElement("div", { className: "loc-scroll" }, viewMode === "map" ? /* @__PURE__ */ React.createElement(StoreMap, { stores: filtered, th, setTab, users, height: "100%" }) : isNarrow ? (
+    })(), /* @__PURE__ */ React.createElement("div", { className: "loc-scroll" }, viewMode === "directory" ? (() => {
+      const thStyle = { textAlign: "left", padding: "0.3rem 0.5rem", fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" };
+      const tdStyle = { padding: "0.3rem 0.5rem", fontSize: "0.68rem", color: "#1a1a1a", borderBottom: "1px solid #e5e7eb" };
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: exportDirectoryPdf, style: { ...btn(th, { fontSize: "0.78rem", fontWeight: 800 }) } }, "\u2B07 Download as PDF")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", background: "#fff", borderRadius: "0.5rem", padding: "0.5rem" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 900 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: "#e5e7eb" } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thStyle, color: "#555" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, dirDistrictNums.map((dNum) => {
+        const rows = dirByDistrict[dNum];
+        const dc = DISTRICT_COLORS[dNum] || { bg: "#e5e7eb", text: "#1a1a1a" };
+        const rowBg = districtTint(dc.bg);
+        const dmName = rows[0]?.dmName || "";
+        const dmEmail = rows[0]?.dmEmail || "";
+        return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: { background: dc.bg } }, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { padding: "0.3rem 0.5rem", fontSize: "0.7rem", fontWeight: 800, color: dc.text } }, dNum ? `District #${dNum}${dmName ? " " + dmName : ""}` : "Unassigned"), /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { padding: "0.3rem 0.5rem", fontSize: "0.66rem", fontWeight: 700, color: dc.text, textAlign: "right" } }, dmEmail)), rows.map((s) => /* @__PURE__ */ React.createElement("tr", { key: s.id, onClick: () => {
+          setCityData(null);
+          setSelectedStore(s);
+        }, style: { cursor: "pointer", background: rowBg } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, s.pc), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, dirAssetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, mgrOf2(s) || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"))));
+      }), dirClosed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { style: { background: "#111318" } }, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { padding: "0.3rem 0.5rem", fontSize: "0.7rem", fontWeight: 800, color: "#fff", letterSpacing: 0.4 } }, "PERMANENTLY CLOSED")), /* @__PURE__ */ React.createElement("tr", { style: { background: "#e5e7eb" } }, ["PC#", "Legal Name", "Property Name", "Address", "Asset Type", "Closed Date", "", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thStyle, color: "#555" } }, h))), dirClosed.map((s) => /* @__PURE__ */ React.createElement("tr", { key: s.id, onClick: () => {
+        setCityData(null);
+        setSelectedStore(s);
+      }, style: { cursor: "pointer", opacity: 0.75 } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.pc), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, dirAssetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, dirFmtClosedDate(s.closedDate)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }), /* @__PURE__ */ React.createElement("td", { style: tdStyle }))))))));
+    })() : viewMode === "map" ? /* @__PURE__ */ React.createElement(StoreMap, { stores: filtered, th, setTab, users, height: "100%" }) : isNarrow ? (
       /* ── Mobile: stacked store cards (the wide table is unreadable on phones) ── */
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.65rem" } }, filtered.map((s) => {
         const ss = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
@@ -6381,7 +6493,7 @@
         return /* @__PURE__ */ React.createElement("div", { key: s.id, style: { ...card(th), padding: "0.85rem 0.95rem", display: "flex", flexDirection: "column", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
           "a",
           {
-            href: `https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`,
+            href: `https://mail.google.com/mail/?view=cm&to=${s.pc}@peoplecapitalgroup.com`,
             target: "_blank",
             rel: "noopener noreferrer",
             style: { fontSize: "0.8rem", fontWeight: 800, color: O, textDecoration: "none" }
@@ -6391,7 +6503,7 @@
         ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", padding: "0.2rem 0.6rem", borderRadius: "1rem", background: ss.bg, color: ss.color, fontWeight: 700, whiteSpace: "nowrap" } }, s.status)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: () => {
           setCityData(null);
           setSelectedStore(s);
-        }, style: { background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", width: "100%" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.05rem", fontWeight: 700, color: th.text } }, s.name || "\u2014")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" } }, nxt && /* @__PURE__ */ React.createElement(NextGenBadge, null), s.isBaskin && /* @__PURE__ */ React.createElement(BaskinBadge, null), s.isBridge && /* @__PURE__ */ React.createElement(BridgeBadge, null))), /* @__PURE__ */ React.createElement("a", { href: mapsUrl, target: "_blank", rel: "noopener noreferrer", style: { fontSize: "0.82rem", color: th.text, textDecoration: "none", display: "block" } }, "\u{1F4CD} ", s.address, s.city ? `, ${s.city}` : "", " ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip ? " " + s.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.55rem 0.85rem", paddingTop: "0.55rem", borderTop: `1px solid ${th.cardBorder}` } }, meta("District", s.district ? districtLabel(s.district, { short: true }) : "\u2014"), meta("Manager", s.mgrPhone ? /* @__PURE__ */ React.createElement("a", { href: `tel:${s.mgrPhone.replace(/\D/g, "")}`, style: { color: "#69db7c", textDecoration: "none" } }, "\u{1F4DE} ", mgrOf2(s) || "\u2014") : mgrOf2(s) || "\u2014"), meta("Asset", assetLabel(s.baseAsset))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => copyStoreInfo(s, e), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem", background: copiedId === s.id ? "#22c55e" : th.card3, color: copiedId === s.id ? "#fff" : th.muted, border: `1px solid ${copiedId === s.id ? "#22c55e" : th.cardBorder}` }) }, copiedId === s.id ? "\u2713 Copied" : "\u{1F4CB} Copy"), canEditLocs && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditStore({ ...s }), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem" }) }, "\u270F\uFE0F Edit")));
+        }, style: { background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", width: "100%" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.05rem", fontWeight: 700, color: th.text } }, s.name || "\u2014")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" } }, nxt && /* @__PURE__ */ React.createElement(NextGenBadge, null), s.isBaskin && /* @__PURE__ */ React.createElement(BaskinBadge, null), s.isBridge && /* @__PURE__ */ React.createElement(BridgeBadge, null))), /* @__PURE__ */ React.createElement("a", { href: mapsUrl, target: "_blank", rel: "noopener noreferrer", style: { fontSize: "0.82rem", color: th.text, textDecoration: "none", display: "block" } }, "\u{1F4CD} ", s.address, s.city ? `, ${s.city}` : "", " ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip ? " " + s.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.55rem 0.85rem", paddingTop: "0.55rem", borderTop: `1px solid ${th.cardBorder}` } }, meta("District", s.district ? districtLabel(s.district, { short: true }) : "\u2014"), meta("Manager", s.mgrPhone ? /* @__PURE__ */ React.createElement("a", { href: `tel:${s.mgrPhone.replace(/\D/g, "")}`, style: { color: "#69db7c", textDecoration: "none" } }, "\u{1F4DE} ", mgrOf2(s) || "Unassigned") : mgrOf2(s) || "Unassigned"), meta("Asset", assetLabel(s.baseAsset))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => copyStoreInfo(s, e), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem", background: copiedId === s.id ? "#22c55e" : th.card3, color: copiedId === s.id ? "#fff" : th.muted, border: `1px solid ${copiedId === s.id ? "#22c55e" : th.cardBorder}` }) }, copiedId === s.id ? "\u2713 Copied" : "\u{1F4CB} Copy"), canEditLocs && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditStore({ ...s }), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem" }) }, "\u270F\uFE0F Edit")));
       }), filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 40, textAlign: "center", color: th.muted } }, "No stores match filters."))
     ) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: COLS, gap: "0.7rem", padding: "1rem 1.25rem", background: th.card2, borderBottom: "1px solid " + th.cardBorder, position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement(SortTh, { label: "PC #", col: "pc" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Property", col: "name" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Address", col: "address" }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Food License"), !isDM && /* @__PURE__ */ React.createElement(SortTh, { label: "District Mgr", col: "dmName" }), isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Manager"), /* @__PURE__ */ React.createElement(SortTh, { label: "Manager", col: "mgr" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Asset", col: "assetType" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Status", col: "status" }), canEditLocs && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Edit")), filtered.map((s, i) => {
       const ss = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
@@ -6407,10 +6519,10 @@
         /* @__PURE__ */ React.createElement(
           "a",
           {
-            href: `https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`,
+            href: `https://mail.google.com/mail/?view=cm&to=${s.pc}@peoplecapitalgroup.com`,
             target: "_blank",
             rel: "noopener noreferrer",
-            title: `Email ${s.pc}@PeopleCapitalGroup.com`,
+            title: `Email ${s.pc}@peoplecapitalgroup.com`,
             style: { fontSize: "0.85rem", fontWeight: 700, color: O, textDecoration: "none", display: "flex", alignItems: "center", gap: "0.188rem", cursor: "pointer" },
             onMouseEnter: (e) => e.currentTarget.style.textDecoration = "underline",
             onMouseLeave: (e) => e.currentTarget.style.textDecoration = "none"
@@ -6450,7 +6562,7 @@
         ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "0.1rem" } }, s.city && s.city + ", ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip && " " + s.zip)),
         /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, fontSize: "0.78rem" } }, Object.keys(foodLicenses).length === 0 ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontStyle: "italic" } }, "Not loaded") : !foodLicenses[s.pc] ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "None on file") : /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: new Date(foodLicenses[s.pc]) < /* @__PURE__ */ new Date() ? "#ef4444" : th.text } }, (/* @__PURE__ */ new Date(foodLicenses[s.pc] + "T12:00:00")).toLocaleDateString())),
         !isDM && /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.dmName || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, districtLabel(s.district))),
-        isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 } }, mgrOf2(s) || "\u2014"),
+        isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 } }, mgrOf2(s) || "Unassigned"),
         s.mgrPhone ? /* @__PURE__ */ React.createElement(
           "a",
           {
@@ -6467,8 +6579,8 @@
             }
           },
           "\u{1F4DE} ",
-          mgrOf2(s) || "\u2014"
-        ) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", minWidth: 0 } }, mgrOf2(s) || "\u2014"),
+          mgrOf2(s) || "Unassigned"
+        ) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", minWidth: 0 } }, mgrOf2(s) || "Unassigned"),
         /* @__PURE__ */ React.createElement("span", { title: s.baseAsset, style: { fontSize: "0.8rem", fontWeight: 600, color: nxt ? "#b197fc" : th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 } }, assetLabel(s.baseAsset)),
         /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "1rem", background: ss.bg, color: ss.color, fontWeight: 600, whiteSpace: "nowrap" } }, s.status),
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", alignItems: "center", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement(
@@ -6580,16 +6692,16 @@
       } }, "Edit"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.375rem 0.75rem", fontSize: "0.75rem", background: th.card3, color: th.muted }), onClick: () => setExpandedDist(isExpanded ? null : dist.num) }, isExpanded ? "\u25B2 Hide" : `\u25BC Stores`), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.375rem 0.625rem", fontSize: "0.75rem", background: "#ff444418", color: "#ff6666" }), onClick: () => removeDistrict(dist.num) }, "\u2715"))), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, distStores.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1.25rem 1.5rem", color: th.muted, fontSize: "0.812rem" } }, "No stores assigned to this district."), distStores.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: s.id, style: { display: "grid", gridTemplateColumns: "70px 1fr 1.2fr 1fr auto auto", gap: "0.625rem", padding: "0.688rem 1.25rem", borderBottom: i < distStores.length - 1 ? `1px solid ${th.cardBorder}` : "none", alignItems: "center", background: i % 2 === 0 ? th.card2 + "88" : "transparent" } }, /* @__PURE__ */ React.createElement(
         "a",
         {
-          href: `https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`,
+          href: `https://mail.google.com/mail/?view=cm&to=${s.pc}@peoplecapitalgroup.com`,
           target: "_blank",
           rel: "noopener noreferrer",
-          title: `Email ${s.pc}@PeopleCapitalGroup.com`,
+          title: `Email ${s.pc}@peoplecapitalgroup.com`,
           style: { fontSize: "0.85rem", fontWeight: 700, color: O, textDecoration: "none", display: "flex", alignItems: "center", gap: "0.188rem", cursor: "pointer" },
           onMouseEnter: (e) => e.currentTarget.style.textDecoration = "underline",
           onMouseLeave: (e) => e.currentTarget.style.textDecoration = "none"
         },
         s.pc
-      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8125rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name || s.address), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.address), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, mgrOf(s) || "\u2014"), moveStore?.storeId === s.id ? /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), fontSize: "0.75rem", padding: "0.312rem 0.5rem" }, defaultValue: "", onChange: (e) => {
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8125rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name || s.address), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.address), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, mgrOf(s) || "Unassigned"), moveStore?.storeId === s.id ? /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), fontSize: "0.75rem", padding: "0.312rem 0.5rem" }, defaultValue: "", onChange: (e) => {
         if (e.target.value) reassignStore(s.id, +e.target.value);
       } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Move to..."), distList.filter((d) => d.num !== dist.num).map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))) : /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.25rem 0.625rem", fontSize: "0.6875rem", background: th.card3, color: th.muted }), onClick: () => setMoveStore({ storeId: s.id }) }, "Move"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.25rem 0.5rem", fontSize: "0.6875rem", background: "#ff444418", color: "#ff6666" }), onClick: () => unassignStore(s.id), title: "Remove from district" }, "\u2715"))), unassignedStores.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1.25rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Assign store:"), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), maxWidth: 280, fontSize: "0.75rem" }, defaultValue: "", onChange: (e) => {
         if (e.target.value) reassignStore(+e.target.value, dist.num);
@@ -22220,7 +22332,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.79";
+  var APP_VERSION = "v20.86";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -27000,7 +27112,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [expandedDay, setExpandedDay] = useState(null);
     const [empHourAdj, setEmpHourAdj] = useState({});
     const storeInfo = stores.find((s) => s.pc === store.pc) || {};
-    const mgrName = storeMgrName(storeInfo, users) || "\u2014";
+    const mgrName = storeMgrName(storeInfo, users) || "Unassigned";
     const todayStr = localDateStr(/* @__PURE__ */ new Date());
     const weekStartStr = (() => {
       const d = /* @__PURE__ */ new Date();
@@ -35909,12 +36021,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.dailyReports || [];
     });
-    const DEFAULT_GLOBAL_NOTIFY = ["Mike@PeopleCapitalGroup.com", "Bill@Raogroupinc.com", "Sam@rgi.life", "Casey@rgi.life"];
+    const DEFAULT_GLOBAL_NOTIFY = ["Mike@peoplecapitalgroup.com", "Bill@Raogroupinc.com", "Sam@peoplecapitalgroup.com", "Casey@peoplecapitalgroup.com"];
     const [globalNotifyEmails, setGlobalNotifyEmails] = useState(() => {
       const s = loadFromStorage();
       return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY;
     });
-    const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter((e) => e.toLowerCase() !== "sam@rgi.life");
+    const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter((e) => e.toLowerCase() !== "sam@peoplecapitalgroup.com");
     const [ticketNotifyEmails, setTicketNotifyEmails] = useState(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY;
@@ -36763,14 +36875,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudStoresLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
           setStores((local) => {
-            const cloudMap = new Map(data.map((s) => [s.pc || s.id, s]));
-            const localMap = new Map(local.map((s) => [s.pc || s.id, s]));
-            const merged = [...data];
-            local.forEach((s) => {
-              const k = s.pc || s.id;
-              if (!cloudMap.has(k)) merged.push(s);
-            });
-            return merged;
+            const merged = /* @__PURE__ */ new Map();
+            local.forEach((s) => merged.set(s.pc || s.id, s));
+            data.forEach((s) => merged.set(s.pc || s.id, s));
+            return Array.from(merged.values());
           });
         }
       }).catch(() => {
@@ -38570,7 +38678,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         /* @__PURE__ */ React.createElement(OrionIcon, { size: 40 })
       ),
       document.body
-    ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" || tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
+    ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
     }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {

@@ -712,13 +712,16 @@ const getManagerStore = (stores, user) => {
   }
   return stores.find(s => isManagersStore(s, user)) || null;
 };
-// Live manager name for a store. User accounts are the source of truth — the manager
-// USER assigned to this store (by storePC) wins; the static store.mgr config is only a
-// fallback for stores with no assigned user (it goes stale when a GM is replaced).
+// Live manager name for a store. User accounts are the sole source of truth —
+// deliberately no fallback to the static store.mgr string: that field goes
+// stale the moment a manager's account is deleted or deactivated, silently
+// keeping their name on display as if they still ran the store (confirmed as
+// unwanted behavior 2026-09-16 — "if a user is deleted... it should also be
+// changed in the location part too"). Callers show "Unassigned" for "".
 const storeMgrName = (store, users) => {
   if (!store) return "";
   const u = (users || []).find(x => x.userType === "manager" && String(x.storePC) === String(store.pc) && x.active !== false);
-  return u?.name || store.mgr || "";
+  return u?.name || "";
 };
 const isDistrictManagersStore = (store, user) => {
   if (user?.userType !== "dm") return false;
@@ -3245,61 +3248,68 @@ const DISTRICT_WEATHER_COORDS = {
 const WEATHER_EMOJI = { clear:'☀️', cloudy:'⛅', fog:'🌫️', rain:'🌧️', snow:'❄️', storm:'⛈️' };
 
 const STORES_SEED = [
-  { id:1, pc:"339616", paycor:"193919", legal:"KJ Donuts Inc.", name:"Wadsworth", address:"1630 W Wadsworth Ave", city:"Philadelphia", state:"PA", zip:"19150", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Clarence Jackson", mgrPhone:"", email:"339616@rgi.life", district:1, dmName:"Taylor Cormier", status:"Open", employees:0, sales:0 },
-  { id:2, pc:"340794", paycor:"193904", legal:"PCG 6 LLC", name:"Front", address:"6190 North Front Street", city:"Philadelphia", state:"PA", zip:"19120", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Siani Lopez", mgrPhone:"", email:"340794@peoplecapitalgroup.com", district:1, dmName:"Taylor Cormier", status:"Open", employees:0, sales:0 },
-  { id:3, pc:"351099", paycor:"193900", legal:"Rao 12 Inc.", name:"Sonic", address:"15 Bustleton Pike", city:"Feasterville", state:"PA", zip:"19053", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Sefali Patel", mgrPhone:"", email:"351099@rgi.life", district:2, dmName:"Jay Patel", status:"Open", employees:0, sales:0 },
-  { id:4, pc:"351259", paycor:"193892", legal:"Rosemore Donuts Inc", name:"Rosemore", address:"1069 W County Line Rd", city:"Warminster", state:"PA", zip:"18974", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"351259@rgi.life", district:2, dmName:"Jay Patel", status:"Open", employees:0, sales:0 },
-  { id:5, pc:"302642", paycor:"193914", legal:"Rao 11 Donuts Inc.", name:"County Line", address:"2112 County Line Rd", city:"Huntingdon Valley", state:"PA", zip:"19006", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Muska Mahboobi", mgrPhone:"", email:"302642@rgi.life", district:2, dmName:"Jay Patel", status:"Open", employees:0, sales:0 },
-  { id:6, pc:"352894", paycor:"193890", legal:"Mahaprabhuji Inc.", name:"Street Rd", address:"110 E Street Rd", city:"Feasterville", state:"PA", zip:"19053", isNextGen:true, baseAsset:"DT", isBaskin:true, isBridge:true, mgr:"MD Obaid", mgrPhone:"", email:"352894@rgi.life", district:2, dmName:"Jay Patel", status:"Open", employees:0, sales:0 },
-  { id:7, pc:"341350", paycor:"193920", legal:"1050 Yardley Hospitality LLC", name:"Yardley", address:"1050 Stony Hill Rd", city:"Yardley", state:"PA", zip:"19067", isNextGen:true, baseAsset:"IL", isBaskin:false, isBridge:false, mgr:"Sara Elhagar", mgrPhone:"", email:"341350@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", status:"Open", employees:0, sales:0 },
-  { id:8, pc:"337839", paycor:"193888", legal:"334 Warrington Hospitality LLC", name:"Warrington", address:"334 Easton Rd", city:"Warrington", state:"PA", zip:"18976", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Kirtida Singh", mgrPhone:"", email:"337839@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", status:"Open", employees:0, sales:0 },
-  { id:9, pc:"330338", paycor:"193887", legal:"Chester Holding LLC", name:"Drexel Hill", address:"5060 Township Line Rd", city:"Drexel Hill", state:"PA", zip:"19026", isNextGen:false, baseAsset:"IL", isBaskin:false, isBridge:false, mgr:"Satpal Kaur", mgrPhone:"", email:"330338@rgi.life", district:3, dmName:"Sonia Khalique", status:"Remodel", employees:0, sales:0 },
-  { id:10, pc:"337063", paycor:"193902", legal:"Chester Holding Three LLC", name:"Sharon Hill", address:"1100 Chester Pike", city:"Sharon Hill", state:"PA", zip:"19079", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Mosammat Akhtar", mgrPhone:"", email:"337063@rgi.life", district:3, dmName:"Sonia Khalique", status:"Open", employees:0, sales:0 },
-  { id:11, pc:"343832", paycor:"193876", legal:"Chester Holdings Two LLC", name:"Lansdowne", address:"23 E. Baltimore Avenue", city:"Lansdowne", state:"PA", zip:"19050", isNextGen:false, baseAsset:"FS", isBaskin:false, isBridge:false, mgr:"Mahfuja Tajrin", mgrPhone:"", email:"343832@rgi.life", district:3, dmName:"Sonia Khalique", status:"Open", employees:0, sales:0 },
-  { id:12, pc:"304669", paycor:"193894", legal:"Chester Holdings One LLC", name:"Collingdale", address:"5 Macdade Boulevard", city:"Collingdale", state:"PA", zip:"19023", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Ijaz Ali", mgrPhone:"", email:"304669@rgi.life", district:3, dmName:"Sonia Khalique", status:"Open", employees:0, sales:0 },
-  { id:13, pc:"355146", paycor:"193895", legal:"Philadelphia Restaurant Holdings LLC", name:"Gallery", address:"901 Market Street", city:"Philadelphia", state:"PA", zip:"19107", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Moslima Akhter", mgrPhone:"", email:"355146@rgi.life", district:3, dmName:"Sonia Khalique", status:"Open", employees:0, sales:0 },
-  { id:14, pc:"300496", paycor:"193906", legal:"Creek Capital Partners LLC", name:"Cobbs Creek", address:"7000 Chester Ave", city:"Philadelphia", state:"PA", zip:"19142", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Mosammat Akter", mgrPhone:"", email:"300496@rgi.life", district:3, dmName:"Sonia Khalique", status:"Open", employees:0, sales:0 },
-  { id:15, pc:"304863", paycor:"193885", legal:"PCG 01 LLC", name:"18th St", address:"2654 S. 18th St", city:"Philadelphia", state:"PA", zip:"19145", isNextGen:false, baseAsset:"FS", isBaskin:false, isBridge:false, mgr:"Mahmuda Akter", mgrPhone:"", email:"304863@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", status:"Open", employees:0, sales:0 },
-  { id:16, pc:"354561", paycor:"193910", legal:"PCG 3 LLC", name:"Carlisle", address:"2640 S. Carlisle St", city:"Philadelphia", state:"PA", zip:"19145", isNextGen:false, baseAsset:"FS", isBaskin:false, isBridge:false, mgr:"Thai Banh", mgrPhone:"", email:"354561@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", status:"Open", employees:0, sales:0 },
-  { id:17, pc:"332393", paycor:"193907", legal:"PCG 4 LLC", name:"Lindbergh", address:"7601 Lindbergh Blvd", city:"Philadelphia", state:"PA", zip:"19153", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Rajiv Kumar", mgrPhone:"", email:"332393@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", status:"Open", employees:0, sales:0 },
-  { id:18, pc:"341167", paycor:"193893", legal:"Om Ganabandhave Namah LLC", name:"5th Street", address:"4017 N 5th St", city:"Philadelphia", state:"PA", zip:"19140", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:true, mgr:"Norberto Rodriguez", mgrPhone:"", email:"341167@rgi.life", district:4, dmName:"Yolicet Grin-Martinez", status:"Open", employees:0, sales:0 },
-  { id:19, pc:"340870", paycor:"193912", legal:"Om Ganesvaraya Namah LLC.", name:"Hunting Park", address:"221 W Hunting Park Ave", city:"Philadelphia", state:"PA", zip:"19140", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Paulina Sierra", mgrPhone:"", email:"340870@rgi.life", district:4, dmName:"Yolicet Grin-Martinez", status:"Open", employees:0, sales:0 },
-  { id:20, pc:"335981", paycor:"193873", legal:"Om Ganatratre Namah LLC", name:"Lehigh", address:"532 W Lehigh Ave", city:"Philadelphia", state:"PA", zip:"19133", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Chris Brown", mgrPhone:"", email:"335981@rgi.life", district:4, dmName:"Yolicet Grin-Martinez", status:"Open", employees:0, sales:0 },
-  { id:21, pc:"353150", paycor:"193903", legal:"Bakers Square Inc.", name:"Bakers Square", address:"2749 W Hunting Park Ave", city:"Philadelphia", state:"PA", zip:"19129", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Edmonds Brandy", mgrPhone:"", email:"353150@rgi.life", district:4, dmName:"Yolicet Grin-Martinez", status:"Open", employees:0, sales:0 },
-  { id:22, pc:"351050", paycor:"193877", legal:"Allegheny Donuts Inc.", name:"Allegheny", address:"2145 W Allegheny Ave", city:"Philadelphia", state:"PA", zip:"19132", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Torres Katiuska", mgrPhone:"", email:"351050@rgi.life", district:4, dmName:"Yolicet Grin-Martinez", status:"Open", employees:0, sales:0 },
-  { id:23, pc:"345985", paycor:"193916", legal:"9271 Philadelphia Holdings LLC", name:"Wissahickon", address:"5051 Wissahickon Ave", city:"Philadelphia", state:"PA", zip:"19144", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"Jessica Garcia", mgrPhone:"", email:"345985@peoplecapitalgroup.com", district:4, dmName:"Yolicet Grin-Martinez", status:"Open", employees:0, sales:0 },
-  { id:24, pc:"356374", paycor:"193898", legal:"Montgomeryville Donuts LLC", name:"Montgomeryville", address:"738 Bethlehem Pike", city:"Montgomeryville", state:"PA", zip:"18936", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Radha Rao", mgrPhone:"", email:"356374@rgi.life", district:5, dmName:"Shreyes Mehta", status:"Open", employees:0, sales:0 },
-  { id:25, pc:"353843", paycor:"193891", legal:"Quakertown Donuts Inc", name:"Tollgate", address:"1110 West End Blvd", city:"Quakertown", state:"PA", zip:"18951", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Syncere Myer", mgrPhone:"", email:"353843@rgi.life", district:5, dmName:"Shreyes Mehta", status:"Open", employees:0, sales:0 },
-  { id:26, pc:"353047", paycor:"193875", legal:"Doylestown Retail Foods LLC", name:"Silverdale", address:"103 South Baringer Ave", city:"Silverdale", state:"PA", zip:"18962", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Joseph Allen", mgrPhone:"", email:"353047@rgi.life", district:5, dmName:"Shreyes Mehta", status:"Open", employees:0, sales:0 },
-  { id:27, pc:"340538", paycor:"193879", legal:"Om Ganajite Namah LLC", name:"Easton", address:"4460 Easton Ave", city:"Bethlehem", state:"PA", zip:"18020", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Vinit Patel", mgrPhone:"", email:"340538@rgi.life", district:5, dmName:"Shreyes Mehta", status:"Open", employees:0, sales:0 },
-  { id:28, pc:"343079", paycor:"193901", legal:"Om Ganabhuje Namah LLC", name:"Downingtown", address:"376 W. Uwchlan Ave", city:"Downingtown", state:"PA", zip:"19335", isNextGen:false, baseAsset:"DT", isBaskin:true, isBridge:false, mgr:"", mgrPhone:"", email:"343079@rgi.life", district:6, dmName:"Mohamed", status:"Open", employees:0, sales:0 },
-  { id:29, pc:"342144", paycor:"193908", legal:"Om Ganacaraya Namah LLC", name:"Westchester", address:"750 Miles Rd", city:"West Chester", state:"PA", zip:"19380", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"342144@rgi.life", district:6, dmName:"Mohamed", status:"Open", employees:0, sales:0 },
-  { id:30, pc:"364295", paycor:"193881", legal:"Lionville LLC", name:"Lionville", address:"80 E Uwchlan Ave", city:"Exton", state:"PA", zip:"19341", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"364295@peoplecapitalgroup.com", district:6, dmName:"Mohamed", status:"Open", employees:0, sales:0 },
-  { id:31, pc:"365361", paycor:"194373", legal:"Welsh Hospitality LLC", name:"Little Welsh", address:"2301 Welsh Rd", city:"Philadelphia", state:"PA", zip:"19114", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Ashley DiNardo", mgrPhone:"", email:"365361@poeplecapitalgroup.com", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:32, pc:"310382", paycor:"193899", legal:"Rao 7 Inc.", name:"Grant", address:"1619 Grant Ave", city:"Philadelphia", state:"PA", zip:"19115", isNextGen:false, baseAsset:"IL", isBaskin:false, isBridge:false, mgr:"Safiya Eshag", mgrPhone:"", email:"310382@rgi.life", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:33, pc:"332941", paycor:"193884", legal:"Bustleton Retail Business LLC", name:"Bustleton", address:"9834 Bustleton Ave", city:"Philadelphia", state:"PA", zip:"19114", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Franyi Leiva", mgrPhone:"", email:"332941@rgi.life", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:34, pc:"343497", paycor:"193874", legal:"Aum Shreeji LLC", name:"Red Lion", address:"842 Red Lion Rd", city:"Philadelphia", state:"PA", zip:"19115", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Olivia Lilley", mgrPhone:"", email:"343497@rgi.life", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:35, pc:"302446", paycor:"193878", legal:"10500 Philadelphia Hospitality LLC", name:"Little Red Lion", address:"10050 Roosevelt Blvd", city:"Philadelphia", state:"PA", zip:"19116", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Nurani Chowdhury", mgrPhone:"", email:"302446@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:36, pc:"337079", paycor:"193911", legal:"Rao 11 Inc.", name:"Holme Circle", address:"2998 A Welsh Rd", city:"Philadelphia", state:"PA", zip:"19152", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Andrea Robison", mgrPhone:"", email:"337079@rgi.life", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:37, pc:"345986", paycor:"193896", legal:"Rao 4 Inc.", name:"Willits", address:"3170 Willits Rd", city:"Philadelphia", state:"PA", zip:"19136", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"345986@rgi.life", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:38, pc:"364412", paycor:"193905", legal:"One Hospitality Opco", name:"8200", address:"8200 Roosevelt Boulevard", city:"Philadelphia", state:"PA", zip:"19152", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Tejal Soni", mgrPhone:"", email:"364412@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:39, pc:"345489", paycor:"193880", legal:"8200 Philadelphia Hospitality LLC", name:"Oxford", address:"5801 Oxford Ave", city:"Philadelphia", state:"PA", zip:"19149", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"Iqbal Komal", mgrPhone:"", email:"345489@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:40, pc:"336372", paycor:"193897", legal:"Sai Shraddha Inc.", name:"Elkins Park", address:"2 Township Line Rd", city:"Elkins Park", state:"PA", zip:"19027", isNextGen:false, baseAsset:"FS", isBaskin:false, isBridge:false, mgr:"Dilara Begum", mgrPhone:"", email:"336372@rgi.life", district:7, dmName:"Sharmin Akter", status:"Open", employees:0, sales:0 },
-  { id:41, pc:"358933", paycor:"193886", legal:"PCG 2 LLC", name:"Brace Rd", address:"1402 Brace Rd", city:"Cherry Hill", state:"NJ", zip:"08034", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Nitin Patel", mgrPhone:"", email:"358933@peoplecapitalgroup.com", district:8, dmName:"Mike", status:"Open", employees:0, sales:0 },
-  { id:42, pc:"354865", paycor:"193915", legal:"Quakertown Food Operations LLC.", name:"Quakertown", address:"224 W Broad Street", city:"Quakertown", state:"PA", zip:"18951", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Kenny / Robin Fontano", mgrPhone:"", email:"354865@rgi.life", district:8, dmName:"Mike", status:"Open", employees:0, sales:0 },
-  { id:43, pc:"353689", paycor:"193883", legal:"Fort Washington Retail Foods LLC", name:"Fort Washington", address:"520 Pennsylvania Ave", city:"Fort Washington", state:"PA", zip:"19034", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Kenny (Kintan) Patel", mgrPhone:"", email:"353689@rgi.life", district:8, dmName:"Mike", status:"Open", employees:0, sales:0 },
-  { id:44, pc:"342184", paycor:"193917", legal:"Rao 1 Inc.", name:"Lansdale", address:"549 Doylestown Rd", city:"Lansdale", state:"PA", zip:"19445", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"Cheri Patel", mgrPhone:"", email:"342184@rgi.life", district:8, dmName:"Mike", status:"Open", employees:0, sales:0 },
-  { id:45, pc:"356316", paycor:"193889", legal:"Star Alliance Capital LLC", name:"BJ's", address:"2054 Red Lion Rd", city:"Philadelphia", state:"PA", zip:"19115", isNextGen:false, baseAsset:"APOD", isBaskin:false, isBridge:false, mgr:"Perry Patel", mgrPhone:"", email:"356316@rgi.life", district:8, dmName:"Mike", status:"Open", employees:0, sales:0 },
+  { id:1, pc:"339616", paycor:"193919", legal:"KJ Donuts Inc.", name:"Wadsworth", address:"1630 W Wadsworth Ave", city:"Philadelphia", state:"PA", zip:"19150", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Clarence Jackson", mgrPhone:"", email:"339616@peoplecapitalgroup.com", district:1, dmName:"Taylor Cormier", dmEmail:"taylor@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:2, pc:"340794", paycor:"193904", legal:"PCG 6 LLC", name:"Front", address:"6190 North Front Street", city:"Philadelphia", state:"PA", zip:"19120", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Siani Lopez", mgrPhone:"", email:"340794@peoplecapitalgroup.com", district:1, dmName:"Taylor Cormier", dmEmail:"taylor@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:3, pc:"351099", paycor:"193900", legal:"Rao 12 Inc.", name:"Sonic", address:"15 Bustleton Pike", city:"Feasterville", state:"PA", zip:"19053", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Sefali Patel", mgrPhone:"", email:"351099@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", dmEmail:"jay@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:4, pc:"351259", paycor:"193892", legal:"Rosemore Donuts Inc", name:"Rosemore", address:"1069 W County Line Rd", city:"Warminster", state:"PA", zip:"18974", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"351259@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", dmEmail:"jay@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:5, pc:"302642", paycor:"193914", legal:"Rao 11 Donuts Inc.", name:"County Line", address:"2112 County Line Rd", city:"Huntingdon Valley", state:"PA", zip:"19006", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Muska Mahboobi", mgrPhone:"", email:"302642@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", dmEmail:"jay@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:6, pc:"352894", paycor:"193890", legal:"Mahaprabhuji Inc.", name:"Street Rd", address:"110 E Street Rd", city:"Feasterville", state:"PA", zip:"19053", isNextGen:true, baseAsset:"DT", isBaskin:true, isBridge:true, mgr:"MD Obaid", mgrPhone:"", email:"352894@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", dmEmail:"jay@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:7, pc:"341350", paycor:"193920", legal:"1050 Yardley Hospitality LLC", name:"Yardley", address:"1050 Stony Hill Rd", city:"Yardley", state:"PA", zip:"19067", isNextGen:true, baseAsset:"IL", isBaskin:false, isBridge:false, mgr:"Sara Elhagar", mgrPhone:"", email:"341350@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", dmEmail:"jay@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:8, pc:"337839", paycor:"193888", legal:"334 Warrington Hospitality LLC", name:"Warrington", address:"334 Easton Rd", city:"Warrington", state:"PA", zip:"18976", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Kirtida Singh", mgrPhone:"", email:"337839@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", dmEmail:"jay@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:9, pc:"330338", paycor:"193887", legal:"Chester Holding LLC", name:"Drexel Hill", address:"5060 Township Line Rd", city:"Drexel Hill", state:"PA", zip:"19026", isNextGen:false, baseAsset:"IL", isBaskin:false, isBridge:false, mgr:"Satpal Kaur", mgrPhone:"", email:"330338@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Remodel", employees:0, sales:0 },
+  { id:10, pc:"337063", paycor:"193902", legal:"Chester Holding Three LLC", name:"Sharon Hill", address:"1100 Chester Pike", city:"Sharon Hill", state:"PA", zip:"19079", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Mosammat Akhtar", mgrPhone:"", email:"337063@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:11, pc:"343832", paycor:"193876", legal:"Chester Holdings Two LLC", name:"Lansdowne", address:"23 E. Baltimore Avenue", city:"Lansdowne", state:"PA", zip:"19050", isNextGen:false, baseAsset:"FS", isBaskin:false, isBridge:false, mgr:"Mahfuja Tajrin", mgrPhone:"", email:"343832@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:12, pc:"304669", paycor:"193894", legal:"Chester Holdings One LLC", name:"Collingdale", address:"5 Macdade Boulevard", city:"Collingdale", state:"PA", zip:"19023", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Ijaz Ali", mgrPhone:"", email:"304669@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:13, pc:"355146", paycor:"193895", legal:"Philadelphia Restaurant Holdings LLC", name:"Gallery", address:"901 Market Street", city:"Philadelphia", state:"PA", zip:"19107", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Moslima Akhter", mgrPhone:"", email:"355146@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:14, pc:"300496", paycor:"193906", legal:"Creek Capital Partners LLC", name:"Cobbs Creek", address:"7000 Chester Ave", city:"Philadelphia", state:"PA", zip:"19142", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Mosammat Akter", mgrPhone:"", email:"300496@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:15, pc:"304863", paycor:"193885", legal:"PCG 01 LLC", name:"18th St", address:"2654 S. 18th St", city:"Philadelphia", state:"PA", zip:"19145", isNextGen:false, baseAsset:"FS", isBaskin:false, isBridge:false, mgr:"Mahmuda Akter", mgrPhone:"", email:"304863@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:16, pc:"354561", paycor:"193910", legal:"PCG 3 LLC", name:"Carlisle", address:"2640 S. Carlisle St", city:"Philadelphia", state:"PA", zip:"19145", isNextGen:false, baseAsset:"FS", isBaskin:false, isBridge:false, mgr:"Thai Banh", mgrPhone:"", email:"354561@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:17, pc:"332393", paycor:"193907", legal:"PCG 4 LLC", name:"Lindbergh", address:"7601 Lindbergh Blvd", city:"Philadelphia", state:"PA", zip:"19153", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Rajiv Kumar", mgrPhone:"", email:"332393@peoplecapitalgroup.com", district:3, dmName:"Sonia Khalique", dmEmail:"sonia@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:18, pc:"341167", paycor:"193893", legal:"Om Ganabandhave Namah LLC", name:"5th Street", address:"4017 N 5th St", city:"Philadelphia", state:"PA", zip:"19140", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:true, mgr:"Norberto Rodriguez", mgrPhone:"", email:"341167@peoplecapitalgroup.com", district:4, dmName:"Yolicet Grin-Martinez", dmEmail:"yolicet@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:19, pc:"340870", paycor:"193912", legal:"Om Ganesvaraya Namah LLC.", name:"Hunting Park", address:"221 W Hunting Park Ave", city:"Philadelphia", state:"PA", zip:"19140", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Paulina Sierra", mgrPhone:"", email:"340870@peoplecapitalgroup.com", district:4, dmName:"Yolicet Grin-Martinez", dmEmail:"yolicet@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:20, pc:"335981", paycor:"193873", legal:"Om Ganatratre Namah LLC", name:"Lehigh", address:"532 W Lehigh Ave", city:"Philadelphia", state:"PA", zip:"19133", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Chris Brown", mgrPhone:"", email:"335981@peoplecapitalgroup.com", district:4, dmName:"Yolicet Grin-Martinez", dmEmail:"yolicet@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:21, pc:"353150", paycor:"193903", legal:"Bakers Square Inc.", name:"Bakers Square", address:"2749 W Hunting Park Ave", city:"Philadelphia", state:"PA", zip:"19129", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Edmonds Brandy", mgrPhone:"", email:"353150@peoplecapitalgroup.com", district:4, dmName:"Yolicet Grin-Martinez", dmEmail:"yolicet@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:22, pc:"351050", paycor:"193877", legal:"Allegheny Donuts Inc.", name:"Allegheny", address:"2145 W Allegheny Ave", city:"Philadelphia", state:"PA", zip:"19132", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Torres Katiuska", mgrPhone:"", email:"351050@peoplecapitalgroup.com", district:4, dmName:"Yolicet Grin-Martinez", dmEmail:"yolicet@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:23, pc:"345985", paycor:"193916", legal:"9271 Philadelphia Holdings LLC", name:"Wissahickon", address:"5051 Wissahickon Ave", city:"Philadelphia", state:"PA", zip:"19144", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"Jessica Garcia", mgrPhone:"", email:"345985@peoplecapitalgroup.com", district:4, dmName:"Yolicet Grin-Martinez", dmEmail:"yolicet@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:24, pc:"356374", paycor:"193898", legal:"Montgomeryville Donuts LLC", name:"Montgomeryville", address:"738 Bethlehem Pike", city:"Montgomeryville", state:"PA", zip:"18936", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Radha Rao", mgrPhone:"", email:"356374@peoplecapitalgroup.com", district:5, dmName:"Shreyes Mehta", dmEmail:"sunny@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:25, pc:"353843", paycor:"193891", legal:"Quakertown Donuts Inc", name:"Tollgate", address:"1110 West End Blvd", city:"Quakertown", state:"PA", zip:"18951", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Syncere Myer", mgrPhone:"", email:"353843@peoplecapitalgroup.com", district:5, dmName:"Shreyes Mehta", dmEmail:"sunny@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:26, pc:"353047", paycor:"193875", legal:"Doylestown Retail Foods LLC", name:"Silverdale", address:"103 South Baringer Ave", city:"Silverdale", state:"PA", zip:"18962", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Joseph Allen", mgrPhone:"", email:"353047@peoplecapitalgroup.com", district:5, dmName:"Shreyes Mehta", dmEmail:"sunny@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:27, pc:"340538", paycor:"193879", legal:"Om Ganajite Namah LLC", name:"Easton", address:"4460 Easton Ave", city:"Bethlehem", state:"PA", zip:"18020", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Vinit Patel", mgrPhone:"", email:"340538@peoplecapitalgroup.com", district:5, dmName:"Shreyes Mehta", dmEmail:"sunny@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:28, pc:"343079", paycor:"193901", legal:"Om Ganabhuje Namah LLC", name:"Downingtown", address:"376 W. Uwchlan Ave", city:"Downingtown", state:"PA", zip:"19335", isNextGen:false, baseAsset:"DT", isBaskin:true, isBridge:false, mgr:"", mgrPhone:"", email:"343079@peoplecapitalgroup.com", district:6, dmName:"Mohamed", dmEmail:"mohamed@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:29, pc:"342144", paycor:"193908", legal:"Om Ganacaraya Namah LLC", name:"Westchester", address:"750 Miles Rd", city:"West Chester", state:"PA", zip:"19380", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"342144@peoplecapitalgroup.com", district:6, dmName:"Mohamed", dmEmail:"mohamed@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:30, pc:"364295", paycor:"193881", legal:"Lionville LLC", name:"Lionville", address:"80 E Uwchlan Ave", city:"Exton", state:"PA", zip:"19341", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"364295@peoplecapitalgroup.com", district:6, dmName:"Mohamed", dmEmail:"mohamed@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:31, pc:"365361", paycor:"194373", legal:"Welsh Hospitality LLC", name:"Little Welsh", address:"2301 Welsh Rd", city:"Philadelphia", state:"PA", zip:"19114", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Ashley DiNardo", mgrPhone:"", email:"365361@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:32, pc:"310382", paycor:"193899", legal:"Rao 7 Inc.", name:"Grant", address:"1619 Grant Ave", city:"Philadelphia", state:"PA", zip:"19115", isNextGen:false, baseAsset:"IL", isBaskin:false, isBridge:false, mgr:"Safiya Eshag", mgrPhone:"", email:"310382@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:33, pc:"332941", paycor:"193884", legal:"Bustleton Retail Business LLC", name:"Bustleton", address:"9834 Bustleton Ave", city:"Philadelphia", state:"PA", zip:"19114", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Franyi Leiva", mgrPhone:"", email:"332941@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:34, pc:"343497", paycor:"193874", legal:"Aum Shreeji LLC", name:"Red Lion", address:"842 Red Lion Rd", city:"Philadelphia", state:"PA", zip:"19115", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Olivia Lilley", mgrPhone:"", email:"343497@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:35, pc:"302446", paycor:"193878", legal:"10500 Philadelphia Hospitality LLC", name:"Little Red Lion", address:"10050 Roosevelt Blvd", city:"Philadelphia", state:"PA", zip:"19116", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Nurani Chowdhury", mgrPhone:"", email:"302446@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:36, pc:"337079", paycor:"193911", legal:"Rao 11 Inc.", name:"Holme Circle", address:"2998 A Welsh Rd", city:"Philadelphia", state:"PA", zip:"19152", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Andrea Robison", mgrPhone:"", email:"337079@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:37, pc:"345986", paycor:"193896", legal:"Rao 4 Inc.", name:"Willits", address:"3170 Willits Rd", city:"Philadelphia", state:"PA", zip:"19136", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"345986@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Permanently Closed", closedDate:"2026-08-30", employees:0, sales:0 },
+  { id:38, pc:"364412", paycor:"193905", legal:"One Hospitality Opco", name:"8200", address:"8200 Roosevelt Boulevard", city:"Philadelphia", state:"PA", zip:"19152", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Tejal Soni", mgrPhone:"", email:"364412@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:39, pc:"345489", paycor:"193880", legal:"8200 Philadelphia Hospitality LLC", name:"Oxford", address:"5801 Oxford Ave", city:"Philadelphia", state:"PA", zip:"19149", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"Iqbal Komal", mgrPhone:"", email:"345489@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:40, pc:"336372", paycor:"193897", legal:"Sai Shraddha Inc.", name:"Elkins Park", address:"2 Township Line Rd", city:"Elkins Park", state:"PA", zip:"19027", isNextGen:false, baseAsset:"FS", isBaskin:false, isBridge:false, mgr:"Dilara Begum", mgrPhone:"", email:"336372@peoplecapitalgroup.com", district:7, dmName:"Sharmin Akter", dmEmail:"sharmin@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:41, pc:"358933", paycor:"193886", legal:"PCG 2 LLC", name:"Brace Rd", address:"1402 Brace Rd", city:"Cherry Hill", state:"NJ", zip:"08034", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Nitin Patel", mgrPhone:"", email:"358933@peoplecapitalgroup.com", district:8, dmName:"Mike", dmEmail:"mike@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:42, pc:"354865", paycor:"193915", legal:"Quakertown Food Operations LLC.", name:"Quakertown", address:"224 W Broad Street", city:"Quakertown", state:"PA", zip:"18951", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Kenny / Robin Fontano", mgrPhone:"", email:"354865@peoplecapitalgroup.com", district:8, dmName:"Mike", dmEmail:"mike@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:43, pc:"353689", paycor:"193883", legal:"Fort Washington Retail Foods LLC", name:"Fort Washington", address:"520 Pennsylvania Ave", city:"Fort Washington", state:"PA", zip:"19034", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Kenny (Kintan) Patel", mgrPhone:"", email:"353689@peoplecapitalgroup.com", district:8, dmName:"Mike", dmEmail:"mike@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:44, pc:"342184", paycor:"193917", legal:"Rao 1 Inc.", name:"Lansdale", address:"549 Doylestown Rd", city:"Lansdale", state:"PA", zip:"19445", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"Cheri Patel", mgrPhone:"", email:"342184@peoplecapitalgroup.com", district:8, dmName:"Mike", dmEmail:"mike@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:45, pc:"356316", paycor:"193889", legal:"Star Alliance Capital LLC", name:"BJ's", address:"2054 Red Lion Rd", city:"Philadelphia", state:"PA", zip:"19115", isNextGen:false, baseAsset:"APOD", isBaskin:false, isBridge:false, mgr:"Perry Patel", mgrPhone:"", email:"356316@peoplecapitalgroup.com", district:8, dmName:"Mike", dmEmail:"mike@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  { id:46, pc:"365953", paycor:"200540", legal:"256 Hatboro Hospitality LLC", name:"Hatboro", address:"256 South York Road", city:"Hatboro", state:"PA", zip:"19040", isNextGen:true, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"Justin", mgrPhone:"", email:"365953@peoplecapitalgroup.com", district:2, dmName:"Jay Patel", dmEmail:"jay@peoplecapitalgroup.com", status:"Open", employees:0, sales:0 },
+  // id 47, not 46 — 46 was already taken in production by the Hatboro store
+  // above (added via the UI before this store ever existed in this seed
+  // array). Reusing it collided as a React list key and caused rendering
+  // artifacts (phantom duplicate rows) confirmed live 2026-09-16, even
+  // though the underlying data was never actually duplicated.
+  { id:47, pc:"345222", paycor:"", legal:"Om Ganadevaya Namah LLC", name:"Allentown GS", address:"3655 Route 378", city:"Bethlehem", state:"PA", zip:"18015", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"345222@peoplecapitalgroup.com", district:null, dmName:"", dmEmail:"", status:"Permanently Closed", closedDate:"2025-11-26", employees:0, sales:0 },
 ];
 
 const DISTRICTS_SEED = {
   1: { num:1, name:"Taylor Cormier", email:"taylor@peoplecapitalgroup.com" },
   2: { num:2, name:"Jay Patel", email:"jay@peoplecapitalgroup.com" },
-  3: { num:3, name:"Sonia Khalique", email:"sonia@rgi.life" },
-  4: { num:4, name:"Yolicet Grin-Martinez", email:"yolicet@rgi.life" },
-  5: { num:5, name:"Shreyes Mehta", email:"sunny@rgi.life" },
-  6: { num:6, name:"Mohamed", email:"Mohamed@rgi.life" },
-  7: { num:7, name:"Sharmin Akter", email:"sharmin@rgi.life" },
+  3: { num:3, name:"Sonia Khalique", email:"sonia@peoplecapitalgroup.com" },
+  4: { num:4, name:"Yolicet Grin-Martinez", email:"yolicet@peoplecapitalgroup.com" },
+  5: { num:5, name:"Shreyes Mehta", email:"sunny@peoplecapitalgroup.com" },
+  6: { num:6, name:"Mohamed", email:"Mohamed@peoplecapitalgroup.com" },
+  7: { num:7, name:"Sharmin Akter", email:"sharmin@peoplecapitalgroup.com" },
   8: { num:8, name:"Mike", email:"" },
 };
 
@@ -3940,7 +3950,31 @@ const STATUS_STYLES = {
   "Remodel":     { color:"#ffa94d", bg:"#ffa94d18" },
   "Temp Closed":  { color:"#ff6b6b", bg:"#ff6b6b18" },
   "Coming Soon":  { color:"#b197fc", bg:"#b197fc18" },
+  "Permanently Closed": { color:"#adb5bd", bg:"#00000030" },
 };
+
+// District header colors for the Directory view — matched to the company's
+// own district-color-coded roster sheet, so the on-screen grouping reads the
+// same way that reference sheet does at a glance.
+const DISTRICT_COLORS = {
+  1: { bg:"#4dd8e8", text:"#063338" },
+  2: { bg:"#7fd88a", text:"#0a3312" },
+  3: { bg:"#e8c96a", text:"#3a2e05" },
+  4: { bg:"#f0954a", text:"#3a1c04" },
+  5: { bg:"#6fa8dc", text:"#04203a" },
+  6: { bg:"#3fa79a", text:"#04302a" },
+  7: { bg:"#a3b859", text:"#2a3305" },
+  8: { bg:"#e0559f", text:"#3a0524" },
+};
+// A pale tint of a district's header color, for banding every row in that
+// district (not just the header) — matches the reference spreadsheet, where
+// each district's whole block carries a light wash of its color, not a
+// single colored header sitting over otherwise-identical rows.
+function districtTint(hex, alpha = 0.16) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0,2), 16), g = parseInt(h.slice(2,4), 16), b = parseInt(h.slice(4,6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 
 // Get first name of DM from DISTRICTS_SEED for a district number
@@ -4930,7 +4964,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
     }
   };
 
-  const emptyStore = { pc:"", paycor:"", legal:"", name:"", address:"", city:"", state:"PA", zip:"", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"", district:"", dmName:"", status:"Coming Soon", employees:0, sales:0 };
+  const emptyStore = { pc:"", paycor:"", legal:"", name:"", address:"", city:"", state:"PA", zip:"", isNextGen:false, baseAsset:"DT", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"", district:"", dmName:"", dmEmail:"", status:"Coming Soon", closedDate:"", employees:0, sales:0 };
   const [newStore, setNewStore] = useState(emptyStore);
 
   const isAdmin      = isFullAdmin(user);
@@ -4980,6 +5014,90 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
   const totalEmp   = baseStores.reduce((a,s)=>a+s.employees,0);
   const openCount  = baseStores.filter(s=>s.status==="Open").length;
   const totalSales = baseStores.filter(s=>s.status==="Open").reduce((a,s)=>a+s.sales,0);
+
+  // Directory view + PDF export share this exact grouping so the download
+  // always matches whatever's on screen — computed once here rather than
+  // duplicated inside the render branch and the export handler separately.
+  const directoryQ = search.trim().toLowerCase();
+  const dirStores = baseStores.filter(s => {
+    if (!directoryQ) return true;
+    return [s.pc, s.name, s.address, s.mgr, s.dmName, s.paycor, s.legal, s.baseAsset, s.email].some(v => (v||"").toString().toLowerCase().includes(directoryQ));
+  });
+  const dirActive = dirStores.filter(s => s.status !== "Permanently Closed");
+  const dirClosed = dirStores.filter(s => s.status === "Permanently Closed");
+  const dirByDistrict = {};
+  dirActive.forEach(s => { const d = s.district || 0; (dirByDistrict[d] ||= []).push(s); });
+  const dirDistrictNums = Object.keys(dirByDistrict).map(Number).sort((a,b)=>a-b);
+  const dirAssetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "—"}`;
+  const dirFmtClosedDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString() : "—";
+
+  // Builds a self-contained, forced-light-mode HTML string (not the live
+  // themed DOM) so the PDF is always readable regardless of dark/light mode —
+  // same approach the Knowledge Base PDF export already uses in this file.
+  const exportDirectoryPdf = () => {
+    // Tight, print-density spacing (2px/8px vs. the on-screen view's larger
+    // padding) so the full 45+ store roster fits in ~2 landscape pages
+    // instead of sprawling across many — matches the "download as PDF"
+    // request's point of a compact, printable reference sheet.
+    const cell = "padding:2px 6px;font-size:8.5px;color:#1a1a1a;border-bottom:0.5px solid #ddd;";
+    const rowsHtml = (list, bg) => list.map(s => `
+      <tr style="background:${bg};">
+        <td style="${cell}font-weight:700;color:#c2540c;">${s.pc}</td>
+        <td style="${cell}">${s.paycor || "—"}</td>
+        <td style="${cell}">${s.legal || "—"}</td>
+        <td style="${cell}font-weight:700;">${s.name || "—"}</td>
+        <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+        <td style="${cell}">${dirAssetCombined(s)}</td>
+        <td style="${cell}">${mgrOf(s) || "Unassigned"}</td>
+        <td style="${cell}">${s.email || "—"}</td>
+      </tr>`).join("");
+    const districtsHtml = dirDistrictNums.map(dNum => {
+      const rows = dirByDistrict[dNum];
+      const dc = DISTRICT_COLORS[dNum] || { bg:"#e5e7eb", text:"#111" };
+      const dmName = rows[0]?.dmName || "";
+      const dmEmail = rows[0]?.dmEmail || "";
+      return `
+        <tr style="background:${dc.bg};">
+          <td colspan="6" style="padding:3px 6px;font-size:9.5px;font-weight:800;color:${dc.text};">${dNum ? `District #${dNum}${dmName ? " " + dmName : ""}` : "Unassigned"}</td>
+          <td colspan="2" style="padding:3px 6px;font-size:8.5px;font-weight:700;color:${dc.text};text-align:right;">${dmEmail}</td>
+        </tr>
+        ${rowsHtml(rows, districtTint(dc.bg))}`;
+    }).join("");
+    const closedHtml = dirClosed.length === 0 ? "" : `
+      <tr style="background:#111318;">
+        <td colspan="8" style="padding:3px 6px;font-size:9.5px;font-weight:800;color:#fff;letter-spacing:0.4px;">PERMANENTLY CLOSED</td>
+      </tr>
+      <tr style="background:#e5e7eb;">
+        ${["PC#","Legal Name","Property Name","Address","Asset Type","Closed Date","",""].map(h => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join("")}
+      </tr>
+      ${dirClosed.map(s => `
+        <tr style="opacity:0.85;">
+          <td style="${cell}font-weight:700;">${s.pc}</td>
+          <td style="${cell}">${s.legal || "—"}</td>
+          <td style="${cell}font-weight:700;">${s.name || "—"}</td>
+          <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+          <td style="${cell}">${dirAssetCombined(s)}</td>
+          <td style="${cell}">${dirFmtClosedDate(s.closedDate)}</td>
+          <td style="${cell}"></td>
+          <td style="${cell}"></td>
+        </tr>`).join("")}`;
+    const el = document.createElement('div');
+    el.innerHTML = `
+      <div style="font-family:'Source Sans 3',sans-serif;background:#fff;padding:2px;">
+        <div style="font-family:'Raleway',sans-serif;font-weight:800;font-size:14px;color:#1a1a1a;margin-bottom:1px;">People Capital Group — Store Directory</div>
+        <div style="font-size:8px;color:#888;margin-bottom:5px;">Generated ${new Date().toLocaleDateString()}</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#e5e7eb;">
+              ${["PC#","Paycor Client ID","Legal Name","Property Name","Address","Asset Type","Manager","Store Email"].map(h => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>${districtsHtml}${closedHtml}</tbody>
+        </table>
+      </div>`;
+    const dateStr = new Date().toISOString().slice(0,10);
+    html2pdf().set({ margin:0.15, filename:`PCG-Store-Directory-${dateStr}.pdf`, image:{ type:"jpeg", quality:0.98 }, html2canvas:{ scale:2 }, jsPDF:{ unit:"in", format:"letter", orientation:"landscape" }, pagebreak:{ mode:["css","legacy"] } }).from(el).save();
+  };
 
   const saveEdit = () => {
     setStores(ss => ss.map(s => s.id === editStore.id ? editStore : s));
@@ -5091,7 +5209,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
         {/* List/Map view toggle — same roles that used to see the standalone Map tab */}
         {(isAdmin || isOfficeStaff || isDM) && (
           <div style={{ display: "inline-flex", background: th.card2, padding: "0.2rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem" }}>
-            {[{ id: 'list', label: '☰ List' }, { id: 'map', label: '🗺 Map' }].map(v => (
+            {[{ id: 'list', label: '☰ List' }, { id: 'map', label: '🗺 Map' }, { id: 'directory', label: '📋 Directory' }].map(v => (
               <button key={v.id} onClick={() => setViewMode(v.id)} style={{
                 padding: "0.45rem 0.85rem", fontSize: "0.72rem", fontWeight: 800, fontFamily: "'Source Sans 3'",
                 background: viewMode === v.id ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
@@ -5100,40 +5218,6 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
             ))}
           </div>
         )}
-        {/* Food License column — one lightweight query, loads on demand */}
-        <button onClick={loadFoodLicenses} disabled={foodLicensesLoading}
-          style={{ ...btn(th, { padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 800, opacity: foodLicensesLoading ? 0.6 : 1 }) }}>
-          {foodLicensesLoading ? 'Loading…' : '🍔 Load Food Licenses'}
-        </button>
-        {/* Tools dropdown (extensible: LOCATION_TOOLS) */}
-        <div style={{ position: "relative" }}>
-          <button onClick={() => setToolsOpen(o => !o)} style={{
-            ...btn(th), padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 800,
-            display: "inline-flex", alignItems: "center", gap: "0.35rem",
-          }}>🧰 Tools <span style={{ fontSize: "0.6rem" }}>▾</span></button>
-          {toolsOpen && (
-            <>
-              <div onClick={() => setToolsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-              <div style={{
-                position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 41,
-                background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem",
-                boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: 220, overflow: "hidden",
-              }}>
-                {LOCATION_TOOLS.map(t => (
-                  <button key={t.id} onClick={() => { setActiveTool(t.id); setToolsOpen(false); }}
-                    onMouseEnter={e => e.currentTarget.style.background = th.card2}
-                    onMouseLeave={e => e.currentTarget.style.background = "none"}
-                    style={{
-                      display: "flex", alignItems: "center", gap: "0.55rem", width: "100%",
-                      padding: "0.7rem 0.9rem", background: "none", border: "none", cursor: "pointer",
-                      color: th.text, fontFamily: "'Source Sans 3'", fontSize: "0.82rem", textAlign: "left",
-                    }}><span>{t.icon}</span> {t.label}</button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        {activeTool === 'closest' && <ClosestToFinder th={th} onClose={() => setActiveTool(null)} />}
         {/* State pills */}
         {!isDM && !isManager && (
           <div style={{
@@ -5148,9 +5232,9 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                   padding: "0.45rem 0.85rem",
                   fontSize: "0.7rem", fontWeight: 800, fontFamily: "'Source Sans 3'",
                   textTransform: "uppercase", letterSpacing: 0.6,
-                  background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
+                  background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : th.card,
                   color: active ? "#fff" : th.muted,
-                  border: "none", borderRadius: "0.4rem",
+                  border: `1px solid ${active ? "transparent" : th.cardBorder}`, borderRadius: "0.4rem",
                   cursor: "pointer", transition: "all .2s",
                   boxShadow: active ? `0 4px 12px ${O}55` : "none",
                 }}>{s}</button>
@@ -5158,23 +5242,24 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
             })}
           </div>
         )}
-        {/* Status pills */}
+        {/* Status pills — visible border even when inactive, so they read as tappable
+            chips rather than plain wrapping text once there are more than a couple
+            (confirmed a real problem on mobile once "Permanently Closed" was added). */}
         <div style={{
-          display: "inline-flex", gap: "0.2rem",
-          background: th.card2, padding: "0.25rem",
-          border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem",
+          display: "inline-flex", gap: "0.3rem",
+          padding: "0.25rem",
           flexWrap: "wrap",
         }}>
-          {["All", "Open", "Remodel", "Temp Closed", "Coming Soon"].map(s => {
+          {["All", "Open", "Remodel", "Temp Closed", "Coming Soon", "Permanently Closed"].map(s => {
             const active = filterStatus === s;
             return (
               <button key={s} onClick={() => setFilterStatus(s)} style={{
                 padding: "0.45rem 0.85rem",
                 fontSize: "0.68rem", fontWeight: 800, fontFamily: "'Source Sans 3'",
                 textTransform: "uppercase", letterSpacing: 0.6,
-                background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
+                background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : th.card,
                 color: active ? "#fff" : th.muted,
-                border: "none", borderRadius: "0.4rem",
+                border: `1px solid ${active ? "transparent" : th.cardBorder}`, borderRadius: "0.4rem",
                 cursor: "pointer", transition: "all .2s",
                 boxShadow: active ? `0 4px 12px ${O}55` : "none",
                 whiteSpace: "nowrap",
@@ -5220,6 +5305,41 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
             <div style={{ width: 1, height: 28, background: th.cardBorder, margin: "0 0.4rem" }} />
           </>
         )}
+        {/* Secondary tools — outlined, not solid brand-orange, so they read as
+            occasional actions rather than competing with +Add Location (the
+            one actual primary CTA on this screen) or the filters above. */}
+        <button onClick={loadFoodLicenses} disabled={foodLicensesLoading}
+          style={{ ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 700, opacity: foodLicensesLoading ? 0.6 : 1 }) }}>
+          {foodLicensesLoading ? 'Loading…' : '🍔 Load Food Licenses'}
+        </button>
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setToolsOpen(o => !o)} style={{
+            ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), padding: "0.55rem 0.9rem", fontSize: "0.78rem", fontWeight: 700,
+            display: "inline-flex", alignItems: "center", gap: "0.35rem",
+          }}>🧰 Tools <span style={{ fontSize: "0.6rem" }}>▾</span></button>
+          {toolsOpen && (
+            <>
+              <div onClick={() => setToolsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 41,
+                background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: 220, overflow: "hidden",
+              }}>
+                {LOCATION_TOOLS.map(t => (
+                  <button key={t.id} onClick={() => { setActiveTool(t.id); setToolsOpen(false); }}
+                    onMouseEnter={e => e.currentTarget.style.background = th.card2}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}
+                    style={{
+                      display: "flex", alignItems: "center", gap: "0.55rem", width: "100%",
+                      padding: "0.7rem 0.9rem", background: "none", border: "none", cursor: "pointer",
+                      color: th.text, fontFamily: "'Source Sans 3'", fontSize: "0.82rem", textAlign: "left",
+                    }}><span>{t.icon}</span> {t.label}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        {activeTool === 'closest' && <ClosestToFinder th={th} onClose={() => setActiveTool(null)} />}
         <button
           onClick={() => { setFilterNxt(v => !v); setFilterBaskin(false); }}
           style={{
@@ -5296,7 +5416,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
               {Object.values(districts||DISTRICTS_SEED).sort((a,b)=>a.num-b.num).map(d=>(<option key={d.num} value={d.num}>{districtLabel(d.num)}</option>))}
             </select>
             <select style={inp(th)} value={newStore.status} onChange={e=>setNewStore(s=>({...s,status:e.target.value}))}>
-              <option>Coming Soon</option><option>Open</option><option>Remodel</option><option>Temp Closed</option>
+              <option>Coming Soon</option><option>Open</option><option>Remodel</option><option>Temp Closed</option><option>Permanently Closed</option>
             </select>
           </div>
           <button style={btn(th)} onClick={addLocation}>Add Location</button>
@@ -5357,6 +5477,12 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                     </select>)}
                   </div>
 
+                  {/* Row 6.5: District Lead name + email */}
+                  <div style={row2}>
+                    {fld("District Lead", <input style={inp(th)} value={editStore.dmName||""} onChange={e=>setEditStore(s=>({...s,dmName:e.target.value}))} />)}
+                    {fld("District Lead Email", <input style={inp(th)} value={editStore.dmEmail||""} onChange={e=>setEditStore(s=>({...s,dmEmail:e.target.value}))} />)}
+                  </div>
+
                   {/* Row 7: Flags full width */}
                   <div>
                     <div style={lbl}>Flags</div>
@@ -5387,9 +5513,14 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                     {fld("Store Email", <input style={inp(th)} value={editStore.email||""} onChange={e=>setEditStore(s=>({...s,email:e.target.value}))} />)}
                     {fld("Employees", <input style={inp(th)} type="number" min="0" value={editStore.employees||0} onChange={e=>setEditStore(s=>({...s,employees:+e.target.value}))} />)}
                     {fld("Status", <select style={inp(th)} value={editStore.status} onChange={e=>setEditStore(s=>({...s,status:e.target.value}))}>
-                      <option>Open</option><option>Remodel</option><option>Temp Closed</option><option>Coming Soon</option>
+                      <option>Open</option><option>Remodel</option><option>Temp Closed</option><option>Coming Soon</option><option>Permanently Closed</option>
                     </select>)}
                   </div>
+
+                  {/* Row 10: Closed Date — only relevant once a store is marked Permanently Closed */}
+                  {editStore.status === "Permanently Closed" && (
+                    fld("Closed Date", <input type="date" style={inp(th)} value={editStore.closedDate||""} onChange={e=>setEditStore(s=>({...s,closedDate:e.target.value}))} />)
+                  )}
 
                 </div>
               );
@@ -5408,7 +5539,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
         const s = selectedStore;
         const nxt = s.isNextGen;
         const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((s.address||"")+" "+(s.city||"")+" "+(s.state||"")+" "+(s.zip||""))}`;
-        const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`;
+        const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${s.pc}@peoplecapitalgroup.com`;
         const ss = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
         return (
           <div onClick={e => { if (e.target === e.currentTarget) setSelectedStore(null); }}
@@ -5522,10 +5653,10 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                       title={`Call ${mgrOf(s)}`}
                       onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"}
                       onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}>
-                      📞 {mgrOf(s)||"—"}
+                      📞 {mgrOf(s)||"Unassigned"}
                     </a>
                   ) : (
-                    <div style={{ fontSize:"0.8125rem", color:th.text }}>{mgrOf(s)||"—"}</div>
+                    <div style={{ fontSize:"0.8125rem", color:th.text }}>{mgrOf(s)||"Unassigned"}</div>
                   )}
                   {s.mgrPhone && <div style={{ fontSize:"0.6875rem", color:th.muted, marginTop:"0.125rem" }}>{s.mgrPhone}</div>}
                 </div>
@@ -5740,7 +5871,85 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
       })()}
 
       <div className="loc-scroll">
-      {viewMode === 'map' ? (
+      {viewMode === 'directory' ? (() => {
+        // Forced light/print palette regardless of app theme — this view is
+        // meant to read as the reference spreadsheet, not adapt to dark mode.
+        const thStyle = { textAlign:"left", padding:"0.3rem 0.5rem", fontSize:"0.58rem", fontWeight:800, textTransform:"uppercase", letterSpacing:0.4, whiteSpace:"nowrap" };
+        const tdStyle = { padding:"0.3rem 0.5rem", fontSize:"0.68rem", color:"#1a1a1a", borderBottom:"1px solid #e5e7eb" };
+        return (
+          <div>
+            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"0.6rem" }}>
+              <button onClick={exportDirectoryPdf} style={{ ...btn(th, { fontSize:"0.78rem", fontWeight:800 }) }}>⬇ Download as PDF</button>
+            </div>
+            <div style={{ overflowX:"auto", background:"#fff", borderRadius:"0.5rem", padding:"0.5rem" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
+              <thead>
+                <tr style={{ background:"#e5e7eb" }}>
+                  {["PC#","Paycor Client ID","Legal Name","Property Name","Address","Asset Type","Manager","Store Email"].map(h => (
+                    <th key={h} style={{ ...thStyle, color:"#555" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dirDistrictNums.map(dNum => {
+                  const rows = dirByDistrict[dNum];
+                  const dc = DISTRICT_COLORS[dNum] || { bg: "#e5e7eb", text: "#1a1a1a" };
+                  const rowBg = districtTint(dc.bg);
+                  const dmName = rows[0]?.dmName || "";
+                  const dmEmail = rows[0]?.dmEmail || "";
+                  return (
+                    <React.Fragment key={dNum}>
+                      <tr style={{ background:dc.bg }}>
+                        <td colSpan={6} style={{ padding:"0.3rem 0.5rem", fontSize:"0.7rem", fontWeight:800, color:dc.text }}>
+                          {dNum ? `District #${dNum}${dmName ? " " + dmName : ""}` : "Unassigned"}
+                        </td>
+                        <td colSpan={2} style={{ padding:"0.3rem 0.5rem", fontSize:"0.66rem", fontWeight:700, color:dc.text, textAlign:"right" }}>{dmEmail}</td>
+                      </tr>
+                      {rows.map(s => (
+                        <tr key={s.id} onClick={()=>{setCityData(null);setSelectedStore(s);}} style={{ cursor:"pointer", background:rowBg }}>
+                          <td style={{ ...tdStyle, color:O, fontWeight:700 }}>{s.pc}</td>
+                          <td style={tdStyle}>{s.paycor || "—"}</td>
+                          <td style={tdStyle}>{s.legal || "—"}</td>
+                          <td style={{ ...tdStyle, fontWeight:700 }}>{s.name || "—"}</td>
+                          <td style={tdStyle}>{[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+                          <td style={tdStyle}>{dirAssetCombined(s)}</td>
+                          <td style={tdStyle}>{mgrOf(s) || "Unassigned"}</td>
+                          <td style={tdStyle}>{s.email || "—"}</td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
+                {dirClosed.length > 0 && (
+                  <>
+                    <tr style={{ background:"#111318" }}>
+                      <td colSpan={8} style={{ padding:"0.3rem 0.5rem", fontSize:"0.7rem", fontWeight:800, color:"#fff", letterSpacing:0.4 }}>PERMANENTLY CLOSED</td>
+                    </tr>
+                    <tr style={{ background:"#e5e7eb" }}>
+                      {["PC#","Legal Name","Property Name","Address","Asset Type","Closed Date","",""].map(h => (
+                        <th key={h} style={{ ...thStyle, color:"#555" }}>{h}</th>
+                      ))}
+                    </tr>
+                    {dirClosed.map(s => (
+                      <tr key={s.id} onClick={()=>{setCityData(null);setSelectedStore(s);}} style={{ cursor:"pointer", opacity:0.75 }}>
+                        <td style={{ ...tdStyle, fontWeight:700 }}>{s.pc}</td>
+                        <td style={tdStyle}>{s.legal || "—"}</td>
+                        <td style={{ ...tdStyle, fontWeight:700 }}>{s.name || "—"}</td>
+                        <td style={tdStyle}>{[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+                        <td style={tdStyle}>{dirAssetCombined(s)}</td>
+                        <td style={tdStyle}>{dirFmtClosedDate(s.closedDate)}</td>
+                        <td style={tdStyle}></td>
+                        <td style={tdStyle}></td>
+                      </tr>
+                    ))}
+                  </>
+                )}
+              </tbody>
+            </table>
+            </div>
+          </div>
+        );
+      })() : viewMode === 'map' ? (
         <StoreMap stores={filtered} th={th} setTab={setTab} users={users} height="100%" />
       ) : isNarrow ? (
       /* ── Mobile: stacked store cards (the wide table is unreadable on phones) ── */
@@ -5759,7 +5968,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
             <div key={s.id} style={{ ...card(th), padding:"0.85rem 0.95rem", display:"flex", flexDirection:"column", gap:"0.6rem" }}>
               {/* PC# + status */}
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:"0.5rem" }}>
-                <a href={`https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`} target="_blank" rel="noopener noreferrer"
+                <a href={`https://mail.google.com/mail/?view=cm&to=${s.pc}@peoplecapitalgroup.com`} target="_blank" rel="noopener noreferrer"
                   style={{ fontSize:"0.8rem", fontWeight:800, color:O, textDecoration:"none" }}>#{s.pc}</a>
                 <span style={{ fontSize:"0.68rem", padding:"0.2rem 0.6rem", borderRadius:"1rem", background:ss.bg, color:ss.color, fontWeight:700, whiteSpace:"nowrap" }}>{s.status}</span>
               </div>
@@ -5780,8 +5989,8 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.55rem 0.85rem", paddingTop:"0.55rem", borderTop:`1px solid ${th.cardBorder}` }}>
                 {meta("District", s.district ? districtLabel(s.district, { short:true }) : "—")}
                 {meta("Manager", s.mgrPhone
-                  ? <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`} style={{ color:"#69db7c", textDecoration:"none" }}>📞 {mgrOf(s)||"—"}</a>
-                  : (mgrOf(s)||"—"))}
+                  ? <a href={`tel:${s.mgrPhone.replace(/\D/g,"")}`} style={{ color:"#69db7c", textDecoration:"none" }}>📞 {mgrOf(s)||"Unassigned"}</a>
+                  : (mgrOf(s)||"Unassigned"))}
                 {meta("Asset", assetLabel(s.baseAsset))}
               </div>
               {/* Actions */}
@@ -5824,9 +6033,9 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
 
               {/* PC # */}
               <a
-                href={`https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`}
+                href={`https://mail.google.com/mail/?view=cm&to=${s.pc}@peoplecapitalgroup.com`}
                 target="_blank" rel="noopener noreferrer"
-                title={`Email ${s.pc}@PeopleCapitalGroup.com`}
+                title={`Email ${s.pc}@peoplecapitalgroup.com`}
                 style={{ fontSize:"0.85rem", fontWeight:700, color:O, textDecoration:"none", display:"flex", alignItems:"center", gap:"0.188rem", cursor:"pointer" }}
                 onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"}
                 onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}
@@ -5889,7 +6098,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                 </div>
               )}
               {isDM && (
-                <span style={{ fontSize:"0.85rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>{mgrOf(s)||"—"}</span>
+                <span style={{ fontSize:"0.85rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>{mgrOf(s)||"Unassigned"}</span>
               )}
 
               {/* Store Manager — click to call */}
@@ -5899,10 +6108,10 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                   title={`Call ${mgrOf(s)}: ${s.mgrPhone}`}
                   onMouseEnter={e=>{e.currentTarget.style.color="#69db7c";e.currentTarget.style.textDecoration="underline";}}
                   onMouseLeave={e=>{e.currentTarget.style.color=th.text;e.currentTarget.style.textDecoration="none";}}>
-                  📞 {mgrOf(s)||"—"}
+                  📞 {mgrOf(s)||"Unassigned"}
                 </a>
               ) : (
-                <span style={{ fontSize:"0.8rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block", minWidth:0 }}>{mgrOf(s)||"—"}</span>
+                <span style={{ fontSize:"0.8rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block", minWidth:0 }}>{mgrOf(s)||"Unassigned"}</span>
               )}
 
               {/* Asset Type */}
@@ -6100,9 +6309,9 @@ function AdminDistricts({ districts, setDistricts, stores, setStores, users, th 
                   {distStores.map((s, i) => (
                     <div key={s.id} style={{ display:"grid", gridTemplateColumns:"70px 1fr 1.2fr 1fr auto auto", gap:"0.625rem", padding:"0.688rem 1.25rem", borderBottom: i<distStores.length-1?`1px solid ${th.cardBorder}`:"none", alignItems:"center", background: i%2===0?th.card2+"88":"transparent" }}>
                       <a
-                href={`https://mail.google.com/mail/?view=cm&to=${s.pc}@PeopleCapitalGroup.com`}
+                href={`https://mail.google.com/mail/?view=cm&to=${s.pc}@peoplecapitalgroup.com`}
                 target="_blank" rel="noopener noreferrer"
-                title={`Email ${s.pc}@PeopleCapitalGroup.com`}
+                title={`Email ${s.pc}@peoplecapitalgroup.com`}
                 style={{ fontSize:"0.85rem", fontWeight:700, color:O, textDecoration:"none", display:"flex", alignItems:"center", gap:"0.188rem", cursor:"pointer" }}
                 onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"}
                 onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}
@@ -6111,7 +6320,7 @@ function AdminDistricts({ districts, setDistricts, stores, setStores, users, th 
               </a>
                       <span style={{ fontSize:"0.8125rem", color:th.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name||s.address}</span>
                       <span style={{ fontSize:"0.75rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.address}</span>
-                      <span style={{ fontSize:"0.75rem", color:th.muted }}>{mgrOf(s)||"—"}</span>
+                      <span style={{ fontSize:"0.75rem", color:th.muted }}>{mgrOf(s)||"Unassigned"}</span>
                       {/* Reassign dropdown */}
                       {moveStore?.storeId === s.id ? (
                         <select style={{...inp(th), fontSize:"0.75rem", padding:"0.312rem 0.5rem"}} defaultValue="" onChange={e=>{ if(e.target.value) reassignStore(s.id, +e.target.value); }}>
@@ -27468,7 +27677,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.79";
+const APP_VERSION = "v20.86";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -34895,7 +35104,7 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
   const [empHourAdj, setEmpHourAdj] = useState({});          // { 'dateStr_empId': adjustedHours }
 
   const storeInfo = stores.find(s => s.pc === store.pc) || {};
-  const mgrName = storeMgrName(storeInfo, users) || '—';
+  const mgrName = storeMgrName(storeInfo, users) || 'Unassigned';
 
   // Date helpers
   const todayStr = localDateStr(new Date());
@@ -47781,9 +47990,9 @@ function PCGPortal() {
   const [projects, setProjects] = useState(() => { const s=loadFromStorage(); const p = s?.projects; return (p && p.length > 0) ? p : PROJECTS_SEED; });
   const [notifications, setNotifications] = useState(() => { const s=loadFromStorage(); return s?.notifications || []; });
   const [dailyReports, setDailyReports] = useState(() => { const s=loadFromStorage(); return s?.dailyReports || []; });
-  const DEFAULT_GLOBAL_NOTIFY = ["Mike@PeopleCapitalGroup.com","Bill@Raogroupinc.com","Sam@rgi.life","Casey@rgi.life"];
+  const DEFAULT_GLOBAL_NOTIFY = ["Mike@peoplecapitalgroup.com","Bill@Raogroupinc.com","Sam@peoplecapitalgroup.com","Casey@peoplecapitalgroup.com"];
   const [globalNotifyEmails, setGlobalNotifyEmails] = useState(() => { const s=loadFromStorage(); return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY; });
-  const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter(e => e.toLowerCase() !== "sam@rgi.life");
+  const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter(e => e.toLowerCase() !== "sam@peoplecapitalgroup.com");
   const [ticketNotifyEmails, setTicketNotifyEmails] = useState(() => { const s=loadFromStorage(); return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY; });
   const [ticketNotifyPhones, setTicketNotifyPhones] = useState(() => { const s=loadFromStorage(); return s?.ticketNotifyPhones || []; });
   // Parallel arrays: which entries above were added via "add by name" (holds
@@ -48694,16 +48903,26 @@ function PCGPortal() {
   }, [dailyReports]);
 
   // Cloud sync stores
+  // Merge is a Map keyed by pc/id, not an array concat with an "already
+  // present" check against only the incoming cloud snapshot — that older
+  // version re-appended every local-only store (e.g. one just added to
+  // STORES_SEED but not yet cloud-saved) on EVERY run of this effect, since
+  // cloudMap never reflected what earlier runs had already merged in. Each
+  // re-run's duplicate then got persisted straight back to the shared cloud
+  // blob by the save effect below, compounding across page loads/re-mounts —
+  // confirmed live 2026-09-16: one new seed store reached 5 duplicate rows
+  // in production data after a handful of reloads. A Map-based merge is
+  // idempotent regardless of how many times it runs: re-merging the same
+  // cloud snapshot into an already-deduped local array changes nothing.
   useEffect(() => {
     cloudLoad('pcg_stores_v1').then(data => {
       cloudStoresLoaded.current = true;
       if (data && Array.isArray(data) && data.length > 0) {
         setStores(local => {
-          const cloudMap = new Map(data.map(s => [s.pc || s.id, s]));
-          const localMap = new Map(local.map(s => [s.pc || s.id, s]));
-          const merged = [...data];
-          local.forEach(s => { const k = s.pc || s.id; if (!cloudMap.has(k)) merged.push(s); });
-          return merged;
+          const merged = new Map();
+          local.forEach(s => merged.set(s.pc || s.id, s));
+          data.forEach(s => merged.set(s.pc || s.id, s));
+          return Array.from(merged.values());
         });
       }
     }).catch(() => { cloudStoresLoaded.current = true; });
@@ -50549,7 +50768,7 @@ function PCGPortal() {
           document.body
         )}
 
-        <div className="main-content-padding" style={{ padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : (tab === "locations" || tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
+        <div className="main-content-padding" style={{ padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : (tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
           {/* App-wide error boundary: any tab that throws during render shows a fallback
               instead of white-screening the whole app. key={tab} remounts it on tab change
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
