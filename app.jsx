@@ -6183,6 +6183,41 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
       .finally(() => setLoading(false));
   }, [activeStores]);
 
+  const [saving, setSaving] = React.useState(false);
+  const [showAddDm, setShowAddDm] = React.useState(null); // district number the "add DM" form is open for, or null
+  const [newDmName, setNewDmName] = React.useState('');
+  const [newDmEmail, setNewDmEmail] = React.useState('');
+
+  const callAction = (body) => {
+    setSaving(true);
+    return fetch('/.netlify/functions/district-alignment', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (!j?.ok) { setError(j?.error || 'That action failed — please try again.'); return; }
+        setDraft(j.draft);
+        setError('');
+      })
+      .catch(() => setError('Network error — please try again.'))
+      .finally(() => setSaving(false));
+  };
+
+  const reassignStore = (pc, district) => callAction({ action: 'reassignStore', pc, district });
+  const addDm = (district) => {
+    if (!newDmName.trim()) return;
+    callAction({ action: 'addDm', name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
+      setShowAddDm(null); setNewDmName(''); setNewDmEmail('');
+    });
+  };
+  const removeDm = (dmId) => { if (window.confirm('Remove this DM from the draft? Their stores will show as Unassigned until reassigned.')) callAction({ action: 'removeDm', dmId }); };
+  const resetToLive = () => {
+    if (!window.confirm('Reset the draft to match the real Locations data? Any unsaved sandbox changes will be lost.')) return;
+    callAction({ action: 'reset', liveStores: activeStores });
+  };
+
   React.useEffect(() => { loadDraft(); }, [loadDraft]);
 
   React.useEffect(() => {
@@ -6250,6 +6285,11 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
         <div style={{ fontSize: '0.78rem', color: th.muted }}>
           Draft seeded {draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : '—'}. Editing here never changes the real Locations data.
         </div>
+        {isAdmin && (
+          <button onClick={resetToLive} disabled={saving} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
+            ↺ Reset to live data
+          </button>
+        )}
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
@@ -6271,6 +6311,26 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
                   <tr style={{ background: dc.bg }}>
                     <td colSpan={8} style={{ padding: '0.4rem 0.6rem', fontSize: '0.78rem', fontWeight: 800, color: dc.text }}>
                       {dNum ? `District #${dNum}${dm ? ' ' + dm.name : ' — Unassigned'}` : 'Unassigned'}
+                      {isAdmin && dm && (
+                        <button onClick={() => removeDm(dm.id)} disabled={saving} title="Remove this DM from the draft"
+                          style={{ marginLeft: '0.5rem', fontSize: '0.65rem', background: 'none', border: 'none', color: dc.text, opacity: 0.7, cursor: 'pointer', textDecoration: 'underline' }}>
+                          remove DM
+                        </button>
+                      )}
+                      {isAdmin && !dm && dNum > 0 && (
+                        showAddDm === dNum ? (
+                          <span style={{ marginLeft: '0.5rem', display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
+                            <input placeholder="Name" value={newDmName} onChange={e => setNewDmName(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: 'none' }} />
+                            <input placeholder="Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: 'none' }} />
+                            <button onClick={() => addDm(dNum)} disabled={saving} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Save</button>
+                            <button onClick={() => setShowAddDm(null)} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Cancel</button>
+                          </span>
+                        ) : (
+                          <button onClick={() => setShowAddDm(dNum)} style={{ marginLeft: '0.5rem', fontSize: '0.65rem', background: 'none', border: 'none', color: dc.text, opacity: 0.7, cursor: 'pointer', textDecoration: 'underline' }}>
+                            + add DM
+                          </button>
+                        )
+                      )}
                     </td>
                     <td colSpan={3} style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem', fontWeight: 700, color: dc.text, textAlign: 'right' }}>
                       {spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : ''}
@@ -6287,7 +6347,15 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
                         <td style={{ ...tdStyle, color: O, fontWeight: 700 }}>{pc}</td>
                         <td style={tdStyle}>{s.paycor || '—'}</td>
                         <td style={tdStyle}>{s.legal || '—'}</td>
-                        <td style={{ ...tdStyle, fontWeight: 700 }}>{s.name || '—'}</td>
+                        <td style={{ ...tdStyle, fontWeight: 700 }}>
+                          {s.name || '—'}
+                          {isAdmin && (
+                            <select value={dNum} disabled={saving} onChange={e => reassignStore(pc, Number(e.target.value))}
+                              style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.68rem', padding: '0.1rem 0.3rem' }}>
+                              {districtNums.map(n => <option key={n} value={n}>{n ? `District ${n}` : 'Unassigned'}</option>)}
+                            </select>
+                          )}
+                        </td>
                         <td style={tdStyle}>{[s.address, s.city, s.state].filter(Boolean).join(', ')}</td>
                         <td style={tdStyle}>{assetCombined(s)}</td>
                         <td style={tdStyle}>{storeMgrName(s, users) || 'Unassigned'}</td>
@@ -27874,7 +27942,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.93";
+const APP_VERSION = "v20.94";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

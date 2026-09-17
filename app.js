@@ -6631,6 +6631,42 @@
         setDraft(j.draft);
       }).catch(() => setError("Network error \u2014 please try again.")).finally(() => setLoading(false));
     }, [activeStores]);
+    const [saving, setSaving] = React.useState(false);
+    const [showAddDm, setShowAddDm] = React.useState(null);
+    const [newDmName, setNewDmName] = React.useState("");
+    const [newDmEmail, setNewDmEmail] = React.useState("");
+    const callAction = (body) => {
+      setSaving(true);
+      return fetch("/.netlify/functions/district-alignment", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify(body)
+      }).then((r) => r.json()).then((j) => {
+        if (!j?.ok) {
+          setError(j?.error || "That action failed \u2014 please try again.");
+          return;
+        }
+        setDraft(j.draft);
+        setError("");
+      }).catch(() => setError("Network error \u2014 please try again.")).finally(() => setSaving(false));
+    };
+    const reassignStore = (pc, district) => callAction({ action: "reassignStore", pc, district });
+    const addDm = (district) => {
+      if (!newDmName.trim()) return;
+      callAction({ action: "addDm", name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
+        setShowAddDm(null);
+        setNewDmName("");
+        setNewDmEmail("");
+      });
+    };
+    const removeDm = (dmId) => {
+      if (window.confirm("Remove this DM from the draft? Their stores will show as Unassigned until reassigned.")) callAction({ action: "removeDm", dmId });
+    };
+    const resetToLive = () => {
+      if (!window.confirm("Reset the draft to match the real Locations data? Any unsaved sandbox changes will be lost.")) return;
+      callAction({ action: "reset", liveStores: activeStores });
+    };
     React.useEffect(() => {
       loadDraft();
     }, [loadDraft]);
@@ -6690,18 +6726,36 @@
     const assetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "\u2014"}`;
     const thStyle = { textAlign: "left", padding: "0.4rem 0.6rem", fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", color: th.muted };
     const tdStyle = { padding: "0.4rem 0.6rem", fontSize: "0.76rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: "top" };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data.")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, districtNums.map((dNum) => {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data."), isAdmin && /* @__PURE__ */ React.createElement("button", { onClick: resetToLive, disabled: saving, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) } }, "\u21BA Reset to live data")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, districtNums.map((dNum) => {
       const pcs = byDistrict[dNum];
       const dm = draft.dms.find((d) => d.district === dNum);
       const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
       const spread = districtSpread(pcs);
-      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: { background: dc.bg } }, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { padding: "0.4rem 0.6rem", fontSize: "0.78rem", fontWeight: 800, color: dc.text } }, dNum ? `District #${dNum}${dm ? " " + dm.name : " \u2014 Unassigned"}` : "Unassigned"), /* @__PURE__ */ React.createElement("td", { colSpan: 3, style: { padding: "0.4rem 0.6rem", fontSize: "0.7rem", fontWeight: 700, color: dc.text, textAlign: "right" } }, spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : "")), pcs.map((pc) => {
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: { background: dc.bg } }, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { padding: "0.4rem 0.6rem", fontSize: "0.78rem", fontWeight: 800, color: dc.text } }, dNum ? `District #${dNum}${dm ? " " + dm.name : " \u2014 Unassigned"}` : "Unassigned", isAdmin && dm && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => removeDm(dm.id),
+          disabled: saving,
+          title: "Remove this DM from the draft",
+          style: { marginLeft: "0.5rem", fontSize: "0.65rem", background: "none", border: "none", color: dc.text, opacity: 0.7, cursor: "pointer", textDecoration: "underline" }
+        },
+        "remove DM"
+      ), isAdmin && !dm && dNum > 0 && (showAddDm === dNum ? /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.5rem", display: "inline-flex", gap: "0.3rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { placeholder: "Name", value: newDmName, onChange: (e) => setNewDmName(e.target.value), style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: "none" } }), /* @__PURE__ */ React.createElement("input", { placeholder: "Email", value: newDmEmail, onChange: (e) => setNewDmEmail(e.target.value), style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: "none" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => addDm(dNum), disabled: saving, style: { fontSize: "0.65rem", cursor: "pointer" } }, "Save"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddDm(null), style: { fontSize: "0.65rem", cursor: "pointer" } }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddDm(dNum), style: { marginLeft: "0.5rem", fontSize: "0.65rem", background: "none", border: "none", color: dc.text, opacity: 0.7, cursor: "pointer", textDecoration: "underline" } }, "+ add DM"))), /* @__PURE__ */ React.createElement("td", { colSpan: 3, style: { padding: "0.4rem 0.6rem", fontSize: "0.7rem", fontWeight: 700, color: dc.text, textAlign: "right" } }, spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : "")), pcs.map((pc) => {
         const s = storeByPc[pc];
         if (!s) return null;
         const m = metrics[pc] || {};
         const nearest = nearestSiblingMiles(pc, pcs);
         const maxAvg = Math.max(1, ...(m.hourlyAvg || []).map((h) => h.avgSales));
-        return /* @__PURE__ */ React.createElement("tr", { key: pc, style: { background: districtTint(dc.bg) } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, pc), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, assetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, storeMgrName(s, users) || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, fmtMoney(m.netSales), m.netSalesDate && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, m.netSalesDate)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 1, height: 28 } }, (m.hourlyAvg || []).map((h) => /* @__PURE__ */ React.createElement(
+        return /* @__PURE__ */ React.createElement("tr", { key: pc, style: { background: districtTint(dc.bg) } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, pc), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014", isAdmin && /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: dNum,
+            disabled: saving,
+            onChange: (e) => reassignStore(pc, Number(e.target.value)),
+            style: { display: "block", marginTop: "0.25rem", fontSize: "0.68rem", padding: "0.1rem 0.3rem" }
+          },
+          districtNums.map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n }, n ? `District ${n}` : "Unassigned"))
+        )), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, assetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, storeMgrName(s, users) || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, fmtMoney(m.netSales), m.netSalesDate && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, m.netSalesDate)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 1, height: 28 } }, (m.hourlyAvg || []).map((h) => /* @__PURE__ */ React.createElement(
           "div",
           {
             key: h.h,
@@ -22464,7 +22518,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.93";
+  var APP_VERSION = "v20.94";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
