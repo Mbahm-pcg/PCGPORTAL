@@ -7,6 +7,7 @@ import { neon } from '@neondatabase/serverless';
 import { getStore } from '@netlify/blobs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { buildSeedFromLive } from './district-alignment-lib/seed.mjs';
+import { applyReassignStore, applyAddDm, applyRemoveDm } from './district-alignment-lib/reducers.mjs';
 
 const BLOB_KEY = 'pcg_district_alignment_v1';
 
@@ -81,6 +82,44 @@ export default async (request) => {
       const draft = buildSeedFromLive(payload.liveStores);
       await saveDraft(draft);
       return json(200, { ok: true, draft });
+    }
+
+    if (action === 'reassignStore') {
+      if (!isFullAdminClaims(claims)) return json(403, { error: 'Exec/IT only' });
+      const { pc, district } = payload;
+      if (!pc || !Number.isFinite(Number(district))) return json(400, { error: 'Missing pc or district' });
+      const draft = await loadDraft();
+      if (!draft) return json(404, { error: 'No draft exists yet — call action:get first' });
+      const next = applyReassignStore(draft, String(pc), Number(district));
+      await saveDraft(next);
+      return json(200, { ok: true, draft: next });
+    }
+
+    if (action === 'addDm') {
+      if (!isFullAdminClaims(claims)) return json(403, { error: 'Exec/IT only' });
+      const { name, email, district } = payload;
+      if (!name || !Number.isFinite(Number(district))) return json(400, { error: 'Missing name or district' });
+      const draft = await loadDraft();
+      if (!draft) return json(404, { error: 'No draft exists yet — call action:get first' });
+      let next;
+      try {
+        next = applyAddDm(draft, { name, email: email || '', district: Number(district) });
+      } catch (e) {
+        return json(409, { error: e.message });
+      }
+      await saveDraft(next);
+      return json(200, { ok: true, draft: next });
+    }
+
+    if (action === 'removeDm') {
+      if (!isFullAdminClaims(claims)) return json(403, { error: 'Exec/IT only' });
+      const { dmId } = payload;
+      if (!dmId) return json(400, { error: 'Missing dmId' });
+      const draft = await loadDraft();
+      if (!draft) return json(404, { error: 'No draft exists yet — call action:get first' });
+      const next = applyRemoveDm(draft, dmId);
+      await saveDraft(next);
+      return json(200, { ok: true, draft: next });
     }
 
     return json(400, { error: `Unknown action: ${action}` });
