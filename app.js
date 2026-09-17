@@ -6610,6 +6610,7 @@
     const [metrics, setMetrics] = React.useState({});
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState("");
+    const [actionError, setActionError] = React.useState("");
     const isAdmin = isFullAdmin(user);
     const activeStores = React.useMemo(
       () => (stores || []).filter((s) => s.status !== "Permanently Closed"),
@@ -6644,12 +6645,12 @@
         body: JSON.stringify(body)
       }).then((r) => r.json()).then((j) => {
         if (!j?.ok) {
-          setError(j?.error || "That action failed \u2014 please try again.");
+          setActionError(j?.error || "That action failed \u2014 please try again.");
           return;
         }
         setDraft(j.draft);
-        setError("");
-      }).catch(() => setError("Network error \u2014 please try again.")).finally(() => setSaving(false));
+        setActionError("");
+      }).catch(() => setActionError("Network error \u2014 please try again.")).finally(() => setSaving(false));
     };
     const reassignStore = (pc, district) => callAction({ action: "reassignStore", pc, district });
     const addDm = (district) => {
@@ -6699,7 +6700,7 @@
       districtPcs.forEach((otherPc) => {
         if (otherPc === pc) return;
         const d = haversineMiles(coord, STORE_COORDS[otherPc]);
-        if (d != null && (min == null || d < min)) min = d;
+        if (Number.isFinite(d) && (min == null || d < min)) min = d;
       });
       return min;
     };
@@ -6726,7 +6727,7 @@
     const assetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "\u2014"}`;
     const thStyle = { textAlign: "left", padding: "0.4rem 0.6rem", fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", color: th.muted };
     const tdStyle = { padding: "0.4rem 0.6rem", fontSize: "0.76rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: "top" };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data."), isAdmin && /* @__PURE__ */ React.createElement("button", { onClick: resetToLive, disabled: saving, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) } }, "\u21BA Reset to live data")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, districtNums.map((dNum) => {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data."), isAdmin && /* @__PURE__ */ React.createElement("button", { onClick: resetToLive, disabled: saving, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) } }, "\u21BA Reset to live data")), actionError && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", marginBottom: "0.6rem", borderRadius: 6, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", fontSize: "0.78rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, actionError), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionError(""), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, districtNums.map((dNum) => {
       const pcs = byDistrict[dNum];
       const dm = draft.dms.find((d) => d.district === dNum);
       const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
@@ -21509,7 +21510,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const ut = user.userType;
     if (ut === "executive" || ut === "it") return [
       ...BASE_TABS,
-      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
@@ -21538,7 +21539,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ];
     if (ut === "office_staff") return [
       ...BASE_TABS,
-      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
@@ -21562,7 +21563,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ];
     if (ut === "auditor") return [
       ...BASE_TABS,
-      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -21570,7 +21571,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ];
     if (ut === "dm") return [
       ...BASE_TABS,
-      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -21591,7 +21592,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       // store managers — only DM and above. Every other role still gets it
       // via the plain ...BASE_TABS spread elsewhere in this function.
       ...BASE_TABS.filter((t) => t.id !== "expenses"),
-      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -21604,7 +21605,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ];
     if (ut === "construction") return [
       ...BASE_TABS,
-      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
@@ -21612,14 +21613,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ];
     if (ut === "vendor") return [
       { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
-      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "chat", label: "Chat", icon: (c) => ICONS.chat(c) }
     ];
     if (ut === "maintenance") return [
       ...BASE_TABS,
-      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+      { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) }
@@ -22518,7 +22519,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.94";
+  var APP_VERSION = "v20.95";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -38414,7 +38415,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         );
       }));
     })(), user?.userType === "manager" && (() => {
-      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const roleTabs = tabsForUser(user);
+      const tabIds = new Set(roleTabs.map((t) => t.id));
+      const hubDupeIds = /* @__PURE__ */ new Set();
+      ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
+        if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
+      });
+      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
       const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_manager"] || secTabs.some((t) => t.id === tab);
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,
@@ -38443,7 +38450,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       )));
     })(), user?.userType === "auditor" && (() => {
-      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const roleTabs = tabsForUser(user);
+      const tabIds = new Set(roleTabs.map((t) => t.id));
+      const hubDupeIds = /* @__PURE__ */ new Set();
+      ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
+        if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
+      });
+      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
       const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_auditor"] || secTabs.some((t) => t.id === tab);
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,
@@ -38471,7 +38484,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       )));
     })(), user?.userType === "construction" && (() => {
-      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const roleTabs = tabsForUser(user);
+      const tabIds = new Set(roleTabs.map((t) => t.id));
+      const hubDupeIds = /* @__PURE__ */ new Set();
+      ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
+        if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
+      });
+      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
       const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_construction"] || secTabs.some((t) => t.id === tab);
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,
@@ -38499,7 +38518,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       )));
     })(), user?.userType === "maintenance" && (() => {
-      const secTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+      const roleTabs = tabsForUser(user);
+      const tabIds = new Set(roleTabs.map((t) => t.id));
+      const hubDupeIds = /* @__PURE__ */ new Set();
+      ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
+        if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
+      });
+      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
       const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_maintenance"] || secTabs.some((t) => t.id === tab);
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,
@@ -38939,7 +38964,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     })(), tab === "tools-hub" && (() => {
       const TOOLS = "#2F6FA8";
       const toolsTiles = [
-        { id: "district-alignment", name: "District Alignment", sub: "Draft district/DM groupings, sales snapshots, and store spacing \u2014 a sandbox that never touches real Locations data.", show: true, icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10", r: "2.5" })) }
+        { id: "district-alignment", name: "District Alignment", sub: "Draft district/DM groupings, sales snapshots, and store spacing \u2014 a sandbox that never touches real Locations data.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "district-alignment"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7", rx: "1" })) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
     })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));

@@ -81,6 +81,7 @@ export default async (request) => {
     if (action === 'metrics') {
       const pcs = Array.isArray(payload.pcs) ? payload.pcs.map(String) : [];
       if (pcs.length === 0) return json(400, { error: 'Missing pcs array' });
+      if (pcs.length > 200) return json(400, { error: 'Too many pcs requested' });
       const results = await Promise.all(pcs.map(async pc => {
         const history = await cacheLoad(`pcg_hourly_history_${pc}`);
         return [pc, computeStoreMetrics(history)];

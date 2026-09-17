@@ -6159,6 +6159,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
   const [metrics, setMetrics] = React.useState({});
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
+  const [actionError, setActionError] = React.useState('');
   const isAdmin = isFullAdmin(user);
 
   const activeStores = React.useMemo(
@@ -6197,11 +6198,11 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
     })
       .then(r => r.json())
       .then(j => {
-        if (!j?.ok) { setError(j?.error || 'That action failed — please try again.'); return; }
+        if (!j?.ok) { setActionError(j?.error || 'That action failed — please try again.'); return; }
         setDraft(j.draft);
-        setError('');
+        setActionError('');
       })
-      .catch(() => setError('Network error — please try again.'))
+      .catch(() => setActionError('Network error — please try again.'))
       .finally(() => setSaving(false));
   };
 
@@ -6251,7 +6252,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
     districtPcs.forEach(otherPc => {
       if (otherPc === pc) return;
       const d = haversineMiles(coord, STORE_COORDS[otherPc]);
-      if (d != null && (min == null || d < min)) min = d;
+      if (Number.isFinite(d) && (min == null || d < min)) min = d;
     });
     return min;
   };
@@ -6291,6 +6292,12 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
           </button>
         )}
       </div>
+      {actionError && (
+        <div style={{ padding: '0.5rem 0.75rem', marginBottom: '0.6rem', borderRadius: 6, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+          <span>{actionError}</span>
+          <button onClick={() => setActionError('')} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }} aria-label="Dismiss">×</button>
+        </div>
+      )}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
           <thead>
@@ -26512,7 +26519,7 @@ const computeRoleTabs = (user) => {
   // Executive & IT → full admin suite
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
-    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
@@ -26542,7 +26549,7 @@ const computeRoleTabs = (user) => {
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
     ...BASE_TABS,
-    { id: "tools-hub", label: "Tools",     icon: (c) => ICONS.tools(c) },
+    { id: "tools-hub", label: "Tools",     icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
@@ -26567,7 +26574,7 @@ const computeRoleTabs = (user) => {
   // Field Operations Auditor → base workspace + audits (conduct/review) + pulse/map. Tickets is in BASE_TABS.
   if (ut === "auditor") return [
     ...BASE_TABS,
-    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -26576,7 +26583,7 @@ const computeRoleTabs = (user) => {
   // District Managers → base + their locations + their district analytics + projects (view-only)
   if (ut === "dm") return [
     ...BASE_TABS,
-    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -26598,7 +26605,7 @@ const computeRoleTabs = (user) => {
     // store managers — only DM and above. Every other role still gets it
     // via the plain ...BASE_TABS spread elsewhere in this function.
     ...BASE_TABS.filter(t => t.id !== "expenses"),
-    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -26612,7 +26619,7 @@ const computeRoleTabs = (user) => {
   // Construction & Development → base + locations + projects (no analytics/pulse)
   if (ut === "construction") return [
     ...BASE_TABS,
-    { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+    { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
@@ -26621,7 +26628,7 @@ const computeRoleTabs = (user) => {
   // Vendor → projects + chat
   if (ut === "vendor") return [
     { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
-    { id: "tools-hub", label: "Tools",    icon: (c) => ICONS.tools(c) },
+    { id: "tools-hub", label: "Tools",    icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
     { id: "chat",     label: "Chat",     icon: (c) => ICONS.chat(c) },
@@ -26632,7 +26639,7 @@ const computeRoleTabs = (user) => {
   // tab-access guard bounces you to the dashboard if you navigate to a tab you don't have.
   if (ut === "maintenance") return [
     ...BASE_TABS,
-    { id: "tools-hub",  label: "Tools",      icon: (c) => ICONS.tools(c) },
+    { id: "tools-hub",  label: "Tools",      icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "locations",  label: "Locations",  icon: (c) => ICONS.locations(c) },
     { id: "projects",   label: "Projects",   icon: (c) => ICONS.projects(c) },
@@ -27942,7 +27949,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.94";
+const APP_VERSION = "v20.95";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -50459,7 +50466,13 @@ function PCGPortal() {
 
         {/* Manager section */}
         {user?.userType === "manager" && (() => {
-          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const roleTabs = tabsForUser(user);
+          const tabIds = new Set(roleTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_manager'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -50484,7 +50497,13 @@ function PCGPortal() {
 
         {/* Field Operations Auditor section */}
         {user?.userType === "auditor" && (() => {
-          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const roleTabs = tabsForUser(user);
+          const tabIds = new Set(roleTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_auditor'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -50508,7 +50527,13 @@ function PCGPortal() {
 
         {/* Construction section */}
         {user?.userType === "construction" && (() => {
-          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const roleTabs = tabsForUser(user);
+          const tabIds = new Set(roleTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_construction'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -50532,7 +50557,13 @@ function PCGPortal() {
 
         {/* Maintenance section */}
         {user?.userType === "maintenance" && (() => {
-          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const roleTabs = tabsForUser(user);
+          const tabIds = new Set(roleTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_maintenance'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -51148,7 +51179,7 @@ function PCGPortal() {
             // scaffolded ahead of the first actual tool landing here.
             const TOOLS = '#2F6FA8';
             const toolsTiles = [
-              { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: true, icon: <><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></> },
+              { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'district-alignment'), icon: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></> },
             ].filter(t => t.show);
             return (
               <div>
