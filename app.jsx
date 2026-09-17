@@ -6154,6 +6154,170 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
   );
 }
 
+function DistrictAlignmentTool({ user, th, stores, users }) {
+  const [draft, setDraft] = React.useState(null);
+  const [metrics, setMetrics] = React.useState({});
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+  const isAdmin = isFullAdmin(user);
+
+  const activeStores = React.useMemo(
+    () => (stores || []).filter(s => s.status !== 'Permanently Closed'),
+    [stores]
+  );
+
+  const loadDraft = React.useCallback(() => {
+    setLoading(true);
+    setError('');
+    fetch('/.netlify/functions/district-alignment', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'get', liveStores: activeStores }),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (!j?.ok) { setError(j?.error || 'Could not load District Alignment.'); return; }
+        setDraft(j.draft);
+      })
+      .catch(() => setError('Network error — please try again.'))
+      .finally(() => setLoading(false));
+  }, [activeStores]);
+
+  React.useEffect(() => { loadDraft(); }, [loadDraft]);
+
+  React.useEffect(() => {
+    if (activeStores.length === 0) return;
+    fetch('/.netlify/functions/district-alignment', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'metrics', pcs: activeStores.map(s => s.pc) }),
+    })
+      .then(r => r.json())
+      .then(j => { if (j?.ok) setMetrics(j.metrics); })
+      .catch(() => {});
+  }, [activeStores]);
+
+  if (loading) return <div style={{ padding: '2rem', color: th.muted }}>Loading District Alignment…</div>;
+  if (error) return <div style={{ padding: '2rem', color: '#ef4444' }}>{error}</div>;
+  if (!draft) return null;
+
+  const storeByPc = Object.fromEntries(activeStores.map(s => [s.pc, s]));
+  const byDistrict = {};
+  Object.entries(draft.stores).forEach(([pc, { district }]) => {
+    const d = district ?? 0;
+    (byDistrict[d] ||= []).push(pc);
+  });
+  const districtNums = Object.keys(byDistrict).map(Number).sort((a, b) => a - b);
+
+  const nearestSiblingMiles = (pc, districtPcs) => {
+    const coord = STORE_COORDS[pc];
+    if (!coord) return null;
+    let min = null;
+    districtPcs.forEach(otherPc => {
+      if (otherPc === pc) return;
+      const d = haversineMiles(coord, STORE_COORDS[otherPc]);
+      if (d != null && (min == null || d < min)) min = d;
+    });
+    return min;
+  };
+
+  const districtSpread = (districtPcs) => {
+    const coords = districtPcs.map(pc => STORE_COORDS[pc]).filter(Boolean);
+    if (coords.length < 2) return { avg: null, max: null };
+    let total = 0, count = 0, max = 0;
+    for (let i = 0; i < coords.length; i++) {
+      for (let j = i + 1; j < coords.length; j++) {
+        const d = haversineMiles(coords[i], coords[j]);
+        total += d; count++; if (d > max) max = d;
+      }
+    }
+    return { avg: Math.round((total / count) * 10) / 10, max: Math.round(max * 10) / 10 };
+  };
+
+  const fmtMoney = n => n == null ? '—' : `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const fmtHour = h => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toLocaleTimeString(undefined, { hour: 'numeric' }); };
+  const assetCombined = s => `${s.isNextGen ? 'NXT-' : ''}${s.baseAsset || '—'}`;
+
+  const thStyle = { textAlign: 'left', padding: '0.4rem 0.6rem', fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap', color: th.muted };
+  const tdStyle = { padding: '0.4rem 0.6rem', fontSize: '0.76rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'top' };
+
+  // 11 columns total: 8 identity/contact columns (matching the Directory
+  // view's own layout exactly, per spec) + 3 new metrics columns. The
+  // district header row spans 8 + 3 to stay aligned under both blocks.
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div style={{ fontSize: '0.78rem', color: th.muted }}>
+          Draft seeded {draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : '—'}. Editing here never changes the real Locations data.
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
+          <thead>
+            <tr style={{ background: th.card2 }}>
+              {['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Net Sales', 'Busiest Hours', 'Nearest Sibling'].map(h => (
+                <th key={h} style={thStyle}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {districtNums.map(dNum => {
+              const pcs = byDistrict[dNum];
+              const dm = draft.dms.find(d => d.district === dNum);
+              const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
+              const spread = districtSpread(pcs);
+              return (
+                <React.Fragment key={dNum}>
+                  <tr style={{ background: dc.bg }}>
+                    <td colSpan={8} style={{ padding: '0.4rem 0.6rem', fontSize: '0.78rem', fontWeight: 800, color: dc.text }}>
+                      {dNum ? `District #${dNum}${dm ? ' ' + dm.name : ' — Unassigned'}` : 'Unassigned'}
+                    </td>
+                    <td colSpan={3} style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem', fontWeight: 700, color: dc.text, textAlign: 'right' }}>
+                      {spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : ''}
+                    </td>
+                  </tr>
+                  {pcs.map(pc => {
+                    const s = storeByPc[pc];
+                    if (!s) return null;
+                    const m = metrics[pc] || {};
+                    const nearest = nearestSiblingMiles(pc, pcs);
+                    const maxAvg = Math.max(1, ...((m.hourlyAvg || []).map(h => h.avgSales)));
+                    return (
+                      <tr key={pc} style={{ background: districtTint(dc.bg) }}>
+                        <td style={{ ...tdStyle, color: O, fontWeight: 700 }}>{pc}</td>
+                        <td style={tdStyle}>{s.paycor || '—'}</td>
+                        <td style={tdStyle}>{s.legal || '—'}</td>
+                        <td style={{ ...tdStyle, fontWeight: 700 }}>{s.name || '—'}</td>
+                        <td style={tdStyle}>{[s.address, s.city, s.state].filter(Boolean).join(', ')}</td>
+                        <td style={tdStyle}>{assetCombined(s)}</td>
+                        <td style={tdStyle}>{storeMgrName(s, users) || 'Unassigned'}</td>
+                        <td style={tdStyle}>{s.email || '—'}</td>
+                        <td style={tdStyle}>
+                          {fmtMoney(m.netSales)}
+                          {m.netSalesDate && <div style={{ fontSize: '0.62rem', color: th.muted }}>{m.netSalesDate}</div>}
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 28 }}>
+                            {(m.hourlyAvg || []).map(h => (
+                              <div key={h.h} title={`${fmtHour(h.h)}: ${fmtMoney(h.avgSales)}`}
+                                style={{ width: 5, height: Math.max(2, (h.avgSales / maxAvg) * 28), background: O, borderRadius: 1 }} />
+                            ))}
+                          </div>
+                        </td>
+                        <td style={tdStyle}>{nearest != null ? `${Math.round(nearest * 10) / 10} mi` : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 
 
 // ─── Admin: Districts Management ─────────────────────────────────────────────
@@ -27710,7 +27874,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.92";
+const APP_VERSION = "v20.93";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

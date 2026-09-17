@@ -6605,6 +6605,113 @@
       );
     }), filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: th.muted } }, "No stores match filters.")))))));
   }
+  function DistrictAlignmentTool({ user, th, stores, users }) {
+    const [draft, setDraft] = React.useState(null);
+    const [metrics, setMetrics] = React.useState({});
+    const [loading, setLoading] = React.useState(true);
+    const [error, setError] = React.useState("");
+    const isAdmin = isFullAdmin(user);
+    const activeStores = React.useMemo(
+      () => (stores || []).filter((s) => s.status !== "Permanently Closed"),
+      [stores]
+    );
+    const loadDraft = React.useCallback(() => {
+      setLoading(true);
+      setError("");
+      fetch("/.netlify/functions/district-alignment", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "get", liveStores: activeStores })
+      }).then((r) => r.json()).then((j) => {
+        if (!j?.ok) {
+          setError(j?.error || "Could not load District Alignment.");
+          return;
+        }
+        setDraft(j.draft);
+      }).catch(() => setError("Network error \u2014 please try again.")).finally(() => setLoading(false));
+    }, [activeStores]);
+    React.useEffect(() => {
+      loadDraft();
+    }, [loadDraft]);
+    React.useEffect(() => {
+      if (activeStores.length === 0) return;
+      fetch("/.netlify/functions/district-alignment", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "metrics", pcs: activeStores.map((s) => s.pc) })
+      }).then((r) => r.json()).then((j) => {
+        if (j?.ok) setMetrics(j.metrics);
+      }).catch(() => {
+      });
+    }, [activeStores]);
+    if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: th.muted } }, "Loading District Alignment\u2026");
+    if (error) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: "#ef4444" } }, error);
+    if (!draft) return null;
+    const storeByPc = Object.fromEntries(activeStores.map((s) => [s.pc, s]));
+    const byDistrict = {};
+    Object.entries(draft.stores).forEach(([pc, { district }]) => {
+      const d = district ?? 0;
+      (byDistrict[d] ||= []).push(pc);
+    });
+    const districtNums = Object.keys(byDistrict).map(Number).sort((a, b) => a - b);
+    const nearestSiblingMiles = (pc, districtPcs) => {
+      const coord = STORE_COORDS[pc];
+      if (!coord) return null;
+      let min = null;
+      districtPcs.forEach((otherPc) => {
+        if (otherPc === pc) return;
+        const d = haversineMiles(coord, STORE_COORDS[otherPc]);
+        if (d != null && (min == null || d < min)) min = d;
+      });
+      return min;
+    };
+    const districtSpread = (districtPcs) => {
+      const coords = districtPcs.map((pc) => STORE_COORDS[pc]).filter(Boolean);
+      if (coords.length < 2) return { avg: null, max: null };
+      let total = 0, count = 0, max = 0;
+      for (let i = 0; i < coords.length; i++) {
+        for (let j = i + 1; j < coords.length; j++) {
+          const d = haversineMiles(coords[i], coords[j]);
+          total += d;
+          count++;
+          if (d > max) max = d;
+        }
+      }
+      return { avg: Math.round(total / count * 10) / 10, max: Math.round(max * 10) / 10 };
+    };
+    const fmtMoney = (n) => n == null ? "\u2014" : `$${n.toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
+    const fmtHour = (h) => {
+      const d = /* @__PURE__ */ new Date();
+      d.setHours(h, 0, 0, 0);
+      return d.toLocaleTimeString(void 0, { hour: "numeric" });
+    };
+    const assetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "\u2014"}`;
+    const thStyle = { textAlign: "left", padding: "0.4rem 0.6rem", fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", color: th.muted };
+    const tdStyle = { padding: "0.4rem 0.6rem", fontSize: "0.76rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: "top" };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data.")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, districtNums.map((dNum) => {
+      const pcs = byDistrict[dNum];
+      const dm = draft.dms.find((d) => d.district === dNum);
+      const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
+      const spread = districtSpread(pcs);
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: { background: dc.bg } }, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { padding: "0.4rem 0.6rem", fontSize: "0.78rem", fontWeight: 800, color: dc.text } }, dNum ? `District #${dNum}${dm ? " " + dm.name : " \u2014 Unassigned"}` : "Unassigned"), /* @__PURE__ */ React.createElement("td", { colSpan: 3, style: { padding: "0.4rem 0.6rem", fontSize: "0.7rem", fontWeight: 700, color: dc.text, textAlign: "right" } }, spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : "")), pcs.map((pc) => {
+        const s = storeByPc[pc];
+        if (!s) return null;
+        const m = metrics[pc] || {};
+        const nearest = nearestSiblingMiles(pc, pcs);
+        const maxAvg = Math.max(1, ...(m.hourlyAvg || []).map((h) => h.avgSales));
+        return /* @__PURE__ */ React.createElement("tr", { key: pc, style: { background: districtTint(dc.bg) } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, pc), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, assetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, storeMgrName(s, users) || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, fmtMoney(m.netSales), m.netSalesDate && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, m.netSalesDate)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 1, height: 28 } }, (m.hourlyAvg || []).map((h) => /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            key: h.h,
+            title: `${fmtHour(h.h)}: ${fmtMoney(h.avgSales)}`,
+            style: { width: 5, height: Math.max(2, h.avgSales / maxAvg * 28), background: O, borderRadius: 1 }
+          }
+        )))), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, nearest != null ? `${Math.round(nearest * 10) / 10} mi` : "\u2014"));
+      }));
+    })))));
+  }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
     const [editDist, setEditDist] = useState(null);
     const [distForm, setDistForm] = useState({});
@@ -22357,7 +22464,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.92";
+  var APP_VERSION = "v20.93";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
