@@ -12893,7 +12893,11 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   totals.avgCheck = totals.guests > 0 ? totals.netSales / totals.guests : 0;
 
   const allRows = stores
-    .filter(s => distFilter === 0 || s.district === distFilter)
+    // Permanently closed stores never sell again — showing them here as a row
+    // of dashes and 0.0% reads as "this store is open but doing nothing,"
+    // which is misleading. Drop them from Pulse entirely rather than display
+    // a store that will never generate sales data again.
+    .filter(s => s.status !== 'Permanently Closed' && (distFilter === 0 || s.district === distFilter))
     .map(s => ({
       ...s,
       live: viewMode === 'week'
@@ -13187,12 +13191,17 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
       {(() => {
         const onDMDistrict = isDMUser && pulseView?.level === "district" && pulseView.num === dmDistrict;
         if (pulseView !== "network" && !onDMDistrict) return null;
-        const nonOpen = stores.filter(s => s.status !== 'Open' && (!isDMUser || Number(s.district) === dmDistrict));
+        // Remodel only — a store mid-remodel is still expected to sell something,
+        // just at reduced capacity, so the "totals may be lower" framing actually
+        // applies. Permanently Closed/Temp Closed/Coming Soon stores aren't
+        // operating at all, so they don't belong in a "may be lower" caveat —
+        // they're excluded from totals entirely, not partially depressed.
+        const nonOpen = stores.filter(s => s.status === 'Remodel' && (!isDMUser || Number(s.district) === dmDistrict));
         if (!nonOpen.length) return null;
         return (
           <div style={{ marginBottom:'0.75rem', padding:'0.6rem 0.85rem', background:'#fd7e1418', borderLeft:`3px solid #fd7e14`, borderRadius:'0.375rem', fontSize:'0.78rem', color:th.muted, lineHeight:1.5 }}>
             <span style={{ fontWeight:700, color:'#fd7e14' }}>Note:</span>{' '}
-            {nonOpen.map(s => <span key={s.pc}><strong style={{color:th.text}}>{s.name}</strong> <span style={{ fontSize:'0.68rem', padding:'1px 4px', borderRadius:3, fontWeight:600, color:'#fff', background: s.status === 'Remodel' ? '#fd7e14' : s.status === 'Temp Closed' ? '#dc3545' : '#6c757d' }}>{s.status}</span></span>).reduce((a, b) => [a, ', ', b])}
+            {nonOpen.map(s => <span key={s.pc}><strong style={{color:th.text}}>{s.name}</strong> <span style={{ fontSize:'0.68rem', padding:'1px 4px', borderRadius:3, fontWeight:600, color:'#fff', background:'#fd7e14' }}>{s.status}</span></span>).reduce((a, b) => [a, ', ', b])}
             {' — '}totals may be lower due to {nonOpen.length === 1 ? 'this store' : 'these stores'} not operating at full capacity.
           </div>
         );
@@ -20378,15 +20387,18 @@ const HUB_SUBITEMS = {
   'ops-hub': [
     { id: 'tasks', label: 'Tasks' },
     { id: 'pulse', label: 'Pulse' },
+    { id: 'schedule', label: 'Schedule' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'anomalies', label: 'Anomalies' },
     { id: 'scorecard', label: 'DM Scorecard' },
     { id: 'audits', label: 'Audits' },
+    { id: 'network-complaints', label: 'Complaints' },
   ],
   'team-hub': [
     { id: 'locations', label: 'Locations' },
     { id: 'impact', label: 'Impact Radar' },
     { id: 'projects', label: 'Projects' },
+    { id: 'project-gallery', label: 'Project Gallery' },
     { id: 'deals', label: 'Deal Pipeline' },
     { id: 'users', label: 'Users' },
   ],
@@ -20394,6 +20406,7 @@ const HUB_SUBITEMS = {
     { id: 'admin', label: 'Admin' },
     { id: 'email', label: 'Email' },
     { id: 'reports', label: 'Reports' },
+    { id: 'system-health', label: 'System Health' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -26263,6 +26276,7 @@ const computeRoleTabs = (user) => {
   // Executive & IT → full admin suite
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
@@ -26291,6 +26305,7 @@ const computeRoleTabs = (user) => {
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools",     icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -26314,6 +26329,7 @@ const computeRoleTabs = (user) => {
   // Field Operations Auditor → base workspace + audits (conduct/review) + pulse/map. Tickets is in BASE_TABS.
   if (ut === "auditor") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
@@ -26321,6 +26337,7 @@ const computeRoleTabs = (user) => {
   // District Managers → base + their locations + their district analytics + projects (view-only)
   if (ut === "dm") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
@@ -26341,6 +26358,7 @@ const computeRoleTabs = (user) => {
     // store managers — only DM and above. Every other role still gets it
     // via the plain ...BASE_TABS spread elsewhere in this function.
     ...BASE_TABS.filter(t => t.id !== "expenses"),
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -26353,6 +26371,7 @@ const computeRoleTabs = (user) => {
   // Construction & Development → base + locations + projects (no analytics/pulse)
   if (ut === "construction") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
@@ -26360,6 +26379,7 @@ const computeRoleTabs = (user) => {
   // Vendor → projects + chat
   if (ut === "vendor") return [
     { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
+    { id: "tools-hub", label: "Tools",    icon: (c) => ICONS.tools(c) },
     { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
     { id: "chat",     label: "Chat",     icon: (c) => ICONS.chat(c) },
   ];
@@ -26369,6 +26389,7 @@ const computeRoleTabs = (user) => {
   // tab-access guard bounces you to the dashboard if you navigate to a tab you don't have.
   if (ut === "maintenance") return [
     ...BASE_TABS,
+    { id: "tools-hub",  label: "Tools",      icon: (c) => ICONS.tools(c) },
     { id: "locations",  label: "Locations",  icon: (c) => ICONS.locations(c) },
     { id: "projects",   label: "Projects",   icon: (c) => ICONS.projects(c) },
   ];
@@ -27677,7 +27698,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.86";
+const APP_VERSION = "v20.91";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -40600,8 +40621,27 @@ function LauncherSection({ th, title, tiles, pinnedNavIds, togglePinNav, onNavig
 // mirrors the sidebar's old Admin/Operations accordion grouping.
 const LAUNCHER_ADMIN_IDS = new Set(['admin', 'users', 'ops-hub', 'team-hub', 'system-hub', 'reports', 'audits', 'analytics', 'anomalies', 'scorecard', 'finance', 'impact', 'email']);
 function MobileAppLauncher({ user, th, dark, tabs, onNavigate, pinnedNavIds, togglePinNav, navBadge, onOpenProfile, onToggleTheme, onLogout }) {
+  // A tab like "Audits" or "Analytics" is also one of the tiles inside the
+  // "Operations" hub (see HUB_SUBITEMS/opsTiles) — whenever a role has both
+  // the hub AND that individual id in its tab list, the flat launcher grid
+  // showed it twice: once as its own tile, once again inside Operations.
+  // Only drop it here if the containing hub is actually present for this
+  // user — a role like Auditor or Manager has "Audits" with no "ops-hub" at
+  // all, so it stays as their only path to it. Pinned items are exempt: a
+  // deliberate pin to Quick Access should show regardless of this dedup.
+  // Only the three tile-grid hubs — "finance" isn't one: its HUB_SUBITEMS
+  // entries (pnl/ndcp/cash/recon/expenses/tips) are AdminFinance's own
+  // internal rail-nav keys, not real top-level tab ids. "expenses" in
+  // particular already means something else as a real tab: the personal
+  // receipt log every base role gets — conflating the two would wrongly
+  // hide that tab for every role that also has Finance.
+  const tabIds = new Set(tabs.map(t => t.id));
+  const hubDupeIds = new Set();
+  ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+    if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+  });
   const pinned = tabs.filter(t => pinnedNavIds?.includes(t.id));
-  const rest = tabs.filter(t => !pinnedNavIds?.includes(t.id));
+  const rest = tabs.filter(t => !pinnedNavIds?.includes(t.id) && !hubDupeIds.has(t.id));
   const workspace = rest.filter(t => !LAUNCHER_ADMIN_IDS.has(t.id));
   const adminGroup = rest.filter(t => LAUNCHER_ADMIN_IDS.has(t.id));
   return (
@@ -50115,6 +50155,33 @@ function PCGPortal() {
           );
         })()}
 
+        {/* Tools — its own section, not nested under Workspace, and rendered for
+            every role unconditionally (unlike Admin/DM/Maintenance below, which are
+            gated by userType). Currently just the one entry; more can join it later. */}
+        {(() => {
+          const toolsTabDef = TABS.find(t => t.id === 'tools-hub');
+          if (!toolsTabDef || pinnedNavIds.includes('tools-hub')) return null;
+          const sectionOpen = collapsed || tab === 'tools-hub' || !!sidebarSectionsOpen['sec_tools'];
+          return (
+            <>
+              <SectionHeader label="Tools" accent={O} collapsed={collapsed}
+                open={sectionOpen} onToggle={() => toggleSidebarSection('sec_tools')} />
+              {sectionOpen && (
+                <NavButton
+                  tabDef={toolsTabDef}
+                  accent={O}
+                  isActive={tab === 'tools-hub'}
+                  collapsed={collapsed}
+                  badge={navBadge(toolsTabDef)}
+                  pinned={false}
+                  onTogglePin={togglePinNav}
+                  onClick={() => { setTab('tools-hub'); onNav && onNav(); }}
+                />
+              )}
+            </>
+          );
+        })()}
+
         {/* DM section — grouped accordion */}
         {user?.userType === "dm" && (() => {
           const dmTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
@@ -50412,6 +50479,7 @@ function PCGPortal() {
                 {tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place."}
                 {tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place."}
                 {tab === "system-hub" && "Admin, Email, and Reports in one place."}
+                {tab === "tools-hub" && "Handy tools, available to everyone."}
                 {tab === "system-health" && "Pipeline health, feed freshness, and outage alerts."}
                 {tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion."}
                 {tab === "audits" && "Field operations audits — conduct on-site, scored automatically, critical failures cap the result."}
@@ -50829,6 +50897,23 @@ function PCGPortal() {
               { id: 'system-health', name: 'System Health', sub: 'Feed freshness, cron monitoring, and outage alerts.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'system-hub', 'system-health'), icon: <>{ICONS.folder(SYS)}</> },
             ].filter(t => t.show);
             return <TileGrid title="System" tiles={sysTiles} color={SYS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
+          })()}
+          {tab === "tools-hub" && (() => {
+            // Open to every role (it's a Workspace base tab, not gated by userType) —
+            // scaffolded ahead of the first actual tool landing here.
+            const TOOLS = '#2F6FA8';
+            const toolsTiles = [
+            ].filter(t => t.show);
+            return (
+              <div>
+                <TileGrid title="Tools" tiles={toolsTiles} color={TOOLS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />
+                {toolsTiles.length === 0 && (
+                  <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                    Nothing here yet — tools will show up in this section as they're added.
+                  </div>
+                )}
+              </div>
+            );
           })()}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
