@@ -20409,6 +20409,9 @@ const HUB_SUBITEMS = {
     { id: 'reports', label: 'Reports' },
     { id: 'system-health', label: 'System Health' },
   ],
+  'tools-hub': [
+    { id: 'district-alignment', label: 'District Alignment' },
+  ],
   finance: [
     { id: 'pnl', label: 'P&L' },
     { id: 'ndcp', label: 'NDCP Orders' },
@@ -26278,6 +26281,7 @@ const computeRoleTabs = (user) => {
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
@@ -26307,6 +26311,7 @@ const computeRoleTabs = (user) => {
   if (ut === "office_staff") return [
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools",     icon: (c) => ICONS.tools(c) },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -26331,6 +26336,7 @@ const computeRoleTabs = (user) => {
   if (ut === "auditor") return [
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
@@ -26339,6 +26345,7 @@ const computeRoleTabs = (user) => {
   if (ut === "dm") return [
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
@@ -26360,6 +26367,7 @@ const computeRoleTabs = (user) => {
     // via the plain ...BASE_TABS spread elsewhere in this function.
     ...BASE_TABS.filter(t => t.id !== "expenses"),
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c) },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -26373,6 +26381,7 @@ const computeRoleTabs = (user) => {
   if (ut === "construction") return [
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c) },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
@@ -26381,6 +26390,7 @@ const computeRoleTabs = (user) => {
   if (ut === "vendor") return [
     { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
     { id: "tools-hub", label: "Tools",    icon: (c) => ICONS.tools(c) },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
     { id: "chat",     label: "Chat",     icon: (c) => ICONS.chat(c) },
   ];
@@ -26391,6 +26401,7 @@ const computeRoleTabs = (user) => {
   if (ut === "maintenance") return [
     ...BASE_TABS,
     { id: "tools-hub",  label: "Tools",      icon: (c) => ICONS.tools(c) },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "locations",  label: "Locations",  icon: (c) => ICONS.locations(c) },
     { id: "projects",   label: "Projects",   icon: (c) => ICONS.projects(c) },
   ];
@@ -27699,7 +27710,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.91";
+const APP_VERSION = "v20.92";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -50481,6 +50492,7 @@ function PCGPortal() {
                 {tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place."}
                 {tab === "system-hub" && "Admin, Email, and Reports in one place."}
                 {tab === "tools-hub" && "Handy tools, available to everyone."}
+                {tab === "district-alignment" && "A sandbox for planning district groupings — separate from the real Locations data."}
                 {tab === "system-health" && "Pipeline health, feed freshness, and outage alerts."}
                 {tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion."}
                 {tab === "audits" && "Field operations audits — conduct on-site, scored automatically, critical failures cap the result."}
@@ -50904,6 +50916,7 @@ function PCGPortal() {
             // scaffolded ahead of the first actual tool landing here.
             const TOOLS = '#2F6FA8';
             const toolsTiles = [
+              { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: true, icon: <><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></> },
             ].filter(t => t.show);
             return (
               <div>
@@ -50916,6 +50929,7 @@ function PCGPortal() {
               </div>
             );
           })()}
+          {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={stores} users={users} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
           {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={stores} th={th} user={user} />}
