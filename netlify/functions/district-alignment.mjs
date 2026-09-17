@@ -8,6 +8,8 @@ import { getStore } from '@netlify/blobs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { buildSeedFromLive } from './district-alignment-lib/seed.mjs';
 import { applyReassignStore, applyAddDm, applyRemoveDm } from './district-alignment-lib/reducers.mjs';
+import { cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { computeStoreMetrics } from './district-alignment-lib/metrics.mjs';
 
 const BLOB_KEY = 'pcg_district_alignment_v1';
 
@@ -74,6 +76,16 @@ export default async (request) => {
         await saveDraft(draft);
       }
       return json(200, { ok: true, draft });
+    }
+
+    if (action === 'metrics') {
+      const pcs = Array.isArray(payload.pcs) ? payload.pcs.map(String) : [];
+      if (pcs.length === 0) return json(400, { error: 'Missing pcs array' });
+      const results = await Promise.all(pcs.map(async pc => {
+        const history = await cacheLoad(`pcg_hourly_history_${pc}`);
+        return [pc, computeStoreMetrics(history)];
+      }));
+      return json(200, { ok: true, metrics: Object.fromEntries(results) });
     }
 
     if (action === 'reset') {
