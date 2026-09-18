@@ -3193,10 +3193,10 @@ const STORE_COORDS = {
   "345986":{ lat:40.056869,  lng:-75.014123 },
   "340794":{ lat:40.044790,  lng:-75.118878 },
   "345489":{ lat:40.032469,  lng:-75.085374 },
-  "351099":{ lat:40.149309,  lng:-74.999263 },
+  "351099":{ lat:40.135338290513,  lng:-75.008340706571 },
   "351259":{ lat:40.189415,  lng:-75.102678 },
   "302642":{ lat:40.170849,  lng:-75.071724 },
-  "352894":{ lat:40.149306,  lng:-74.999243 },
+  "352894":{ lat:40.154635404663,  lng:-75.009302500269 },
   "341350":{ lat:40.232895,  lng:-74.884906 },
   "337839":{ lat:40.222060,  lng:-75.140448 },
   "330338":{ lat:39.953809,  lng:-75.322703 },
@@ -3233,6 +3233,7 @@ const STORE_COORDS = {
   "342184":{ lat:40.265063,  lng:-75.228189 },
   "356316":{ lat:40.099647,  lng:-75.023782 },
   "364412":{ lat:40.060199,  lng:-75.045759 },
+  "365953":{ lat:40.173656942934,  lng:-75.107546231434 },
 };
 
 const DISTRICT_WEATHER_COORDS = {
@@ -6149,6 +6150,386 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
         </div>{/* /loc-scroll */}
         </div>{/* /loc-right */}
       </div>{/* /loc-body */}
+    </div>
+  );
+}
+
+function DistrictAlignmentTool({ user, th, stores, users }) {
+  const [draft, setDraft] = React.useState(null);
+  const [metrics, setMetrics] = React.useState({});
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+  const [actionError, setActionError] = React.useState('');
+  const isAdmin = isFullAdmin(user);
+
+  const activeStores = React.useMemo(
+    () => (stores || []).filter(s => s.status !== 'Permanently Closed'),
+    [stores]
+  );
+
+  const loadDraft = React.useCallback(() => {
+    setLoading(true);
+    setError('');
+    fetch('/.netlify/functions/district-alignment', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'get', liveStores: activeStores }),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (!j?.ok) { setError(j?.error || 'Could not load District Alignment.'); return; }
+        setDraft(j.draft);
+      })
+      .catch(() => setError('Network error — please try again.'))
+      .finally(() => setLoading(false));
+  }, [activeStores]);
+
+  const [saving, setSaving] = React.useState(false);
+  const [showAddDm, setShowAddDm] = React.useState(null); // district number the "add DM" form is open for, or null
+  const [showNewDistrict, setShowNewDistrict] = React.useState(false); // creating a brand-new district number
+  const [newDistrictNum, setNewDistrictNum] = React.useState('');
+  const [newDmName, setNewDmName] = React.useState('');
+  const [newDmEmail, setNewDmEmail] = React.useState('');
+
+  const callAction = (body) => {
+    setSaving(true);
+    return fetch('/.netlify/functions/district-alignment', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (!j?.ok) { setActionError(j?.error || 'That action failed — please try again.'); return; }
+        setDraft(j.draft);
+        setActionError('');
+      })
+      .catch(() => setActionError('Network error — please try again.'))
+      .finally(() => setSaving(false));
+  };
+
+  const reassignStore = (pc, district) => callAction({ action: 'reassignStore', pc, district });
+  const addDm = (district) => {
+    if (!newDmName.trim() || !Number.isFinite(district) || district <= 0) return;
+    callAction({ action: 'addDm', name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
+      setShowAddDm(null); setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail('');
+    });
+  };
+  const [confirmAction, setConfirmAction] = React.useState(null); // { title, message, confirmLabel, run } or null
+  const removeDm = (dmId) => setConfirmAction({
+    title: 'Remove this DM?',
+    message: 'Their stores will show as Unassigned until reassigned.',
+    confirmLabel: 'Remove',
+    run: () => callAction({ action: 'removeDm', dmId }),
+  });
+  const resetToLive = () => setConfirmAction({
+    title: 'Reset to live data?',
+    message: 'This overwrites the draft with a fresh copy of the real Locations data. Any unsaved sandbox changes will be lost.',
+    confirmLabel: 'Reset',
+    run: () => callAction({ action: 'reset', liveStores: activeStores }),
+  });
+
+  React.useEffect(() => { loadDraft(); }, [loadDraft]);
+
+  React.useEffect(() => {
+    if (activeStores.length === 0) return;
+    fetch('/.netlify/functions/district-alignment', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'metrics', pcs: activeStores.map(s => s.pc) }),
+    })
+      .then(r => r.json())
+      .then(j => { if (j?.ok) setMetrics(j.metrics); })
+      .catch(() => {});
+  }, [activeStores]);
+
+  if (loading) return <div style={{ padding: '2rem', color: th.muted }}>Loading District Alignment…</div>;
+  if (error) return <div style={{ padding: '2rem', color: '#ef4444' }}>{error}</div>;
+  if (!draft) return null;
+
+  const storeByPc = Object.fromEntries(activeStores.map(s => [s.pc, s]));
+  const byDistrict = {};
+  Object.entries(draft.stores).forEach(([pc, { district }]) => {
+    const d = district ?? 0;
+    (byDistrict[d] ||= []).push(pc);
+  });
+  const districtNums = Object.keys(byDistrict).map(Number).sort((a, b) => a - b);
+  // Includes districts that exist only as a DM entry with zero stores yet
+  // (freshly created via "+ New District"), so they're selectable in the
+  // reassign dropdown even before any store has been moved into them.
+  const selectableDistrictNums = Array.from(new Set([...districtNums, ...draft.dms.map(d => d.district)])).sort((a, b) => a - b);
+
+  const nearestSiblingMiles = (pc, districtPcs) => {
+    const coord = STORE_COORDS[pc];
+    if (!coord) return null;
+    let min = null;
+    districtPcs.forEach(otherPc => {
+      if (otherPc === pc) return;
+      const d = haversineMiles(coord, STORE_COORDS[otherPc]);
+      if (Number.isFinite(d) && (min == null || d < min)) min = d;
+    });
+    return min;
+  };
+
+  const districtSpread = (districtPcs) => {
+    const coords = districtPcs.map(pc => STORE_COORDS[pc]).filter(Boolean);
+    if (coords.length < 2) return { avg: null, max: null };
+    let total = 0, count = 0, max = 0;
+    for (let i = 0; i < coords.length; i++) {
+      for (let j = i + 1; j < coords.length; j++) {
+        const d = haversineMiles(coords[i], coords[j]);
+        total += d; count++; if (d > max) max = d;
+      }
+    }
+    return { avg: Math.round((total / count) * 10) / 10, max: Math.round(max * 10) / 10 };
+  };
+
+  const fmtMoney = n => n == null ? '—' : `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const fmtHour = h => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toLocaleTimeString(undefined, { hour: 'numeric' }); };
+  const assetCombined = s => `${s.isNextGen ? 'NXT-' : ''}${s.baseAsset || '—'}`;
+
+  // Builds a self-contained, forced-light-mode HTML string (not the live
+  // themed DOM) so the PDF is always readable regardless of dark/light mode —
+  // same approach the Store Directory PDF export already uses in this file.
+  const exportDistrictAlignmentPdf = () => {
+    const cell = "padding:2px 6px;font-size:8.5px;color:#1a1a1a;border-bottom:0.5px solid #ddd;";
+    const rowsHtml = (pcs, bg) => pcs.map(pc => {
+      const s = storeByPc[pc];
+      if (!s) return '';
+      const m = metrics[pc] || {};
+      const nearest = nearestSiblingMiles(pc, pcs);
+      const maxAvg = Math.max(1, ...((m.hourlyAvg || []).map(h => h.avgSales)));
+      const barsHtml = (m.hourlyAvg || []).map(h => `<div style="display:inline-block;width:3px;height:${Math.max(1, Math.round((h.avgSales / maxAvg) * 16))}px;background:${O};margin-right:1px;vertical-align:bottom;"></div>`).join('');
+      return `
+        <tr style="background:${bg};">
+          <td style="${cell}font-weight:700;color:#c2540c;">${s.pc}</td>
+          <td style="${cell}">${s.paycor || "—"}</td>
+          <td style="${cell}">${s.legal || "—"}</td>
+          <td style="${cell}font-weight:700;">${s.name || "—"}</td>
+          <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+          <td style="${cell}">${assetCombined(s)}</td>
+          <td style="${cell}">${storeMgrName(s, users) || "Unassigned"}</td>
+          <td style="${cell}">${s.email || "—"}</td>
+          <td style="${cell}">${fmtMoney(m.netSales)}${m.netSalesDate ? `<div style="font-size:6.5px;color:#888;">${m.netSalesDate}</div>` : ''}</td>
+          <td style="${cell}white-space:nowrap;height:16px;">${barsHtml}</td>
+          <td style="${cell}">${nearest != null ? `${Math.round(nearest * 10) / 10} mi` : '—'}</td>
+        </tr>`;
+    }).join('');
+    const districtsHtml = selectableDistrictNums.map(dNum => {
+      const pcs = byDistrict[dNum] || [];
+      const dm = draft.dms.find(d => d.district === dNum);
+      const dc = DISTRICT_COLORS[dNum] || { bg: '#e5e7eb', text: '#111' };
+      const spread = districtSpread(pcs);
+      return `
+        <tr style="background:${dc.bg};">
+          <td colspan="8" style="padding:3px 6px;font-size:9.5px;font-weight:800;color:${dc.text};">${dNum ? `District #${dNum}${dm ? " " + dm.name : " — Unassigned"}` : "Unassigned"}</td>
+          <td colspan="3" style="padding:3px 6px;font-size:8.5px;font-weight:700;color:${dc.text};text-align:right;">${spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : ''}</td>
+        </tr>
+        ${pcs.length === 0 ? `<tr><td colspan="11" style="${cell}font-style:italic;color:#888;">No stores assigned yet</td></tr>` : rowsHtml(pcs, districtTint(dc.bg))}`;
+    }).join('');
+    const el = document.createElement('div');
+    el.innerHTML = `
+      <div style="font-family:'Source Sans 3',sans-serif;background:#fff;padding:2px;">
+        <div style="font-family:'Raleway',sans-serif;font-weight:800;font-size:14px;color:#1a1a1a;margin-bottom:1px;">People Capital Group — District Alignment (Draft)</div>
+        <div style="font-size:8px;color:#888;margin-bottom:5px;">Generated ${new Date().toLocaleDateString()} — sandbox draft only; never reflects or affects the real Locations data.</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#e5e7eb;">
+              ${['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Net Sales', 'Busiest Hours', 'Nearest Sibling'].map(h => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>${districtsHtml}</tbody>
+        </table>
+      </div>`;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    html2pdf().set({ margin: 0.15, filename: `PCG-District-Alignment-Draft-${dateStr}.pdf`, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: "in", format: "letter", orientation: "landscape" }, pagebreak: { mode: ["css", "legacy"] } }).from(el).save();
+  };
+
+  const thStyle = { position: 'sticky', top: 0, zIndex: 2, textAlign: 'left', padding: '0.55rem 0.6rem', fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap', color: th.muted, background: th.card2, boxShadow: `0 1px 0 ${th.cardBorder}` };
+  const tdStyle = { padding: '0.55rem 0.6rem', fontSize: '0.76rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'top', transition: 'background 0.15s ease' };
+  const metricDivider = { borderLeft: `2px solid ${O}26` };
+  const pillBtn = (color) => ({ display: 'inline-block', marginLeft: '0.5rem', fontSize: '0.65rem', fontWeight: 700, whiteSpace: 'nowrap', background: color + '1a', border: `1px solid ${color}40`, borderRadius: 999, padding: '0.15rem 0.55rem', color, cursor: 'pointer', transition: 'transform 0.12s ease, background 0.15s ease' });
+
+  // 11 columns total: 8 identity/contact columns (matching the Directory
+  // view's own layout exactly, per spec) + 3 new metrics columns. A subtle
+  // accent divider (metricDivider) marks where the metrics group starts. The
+  // district header row spans 8 + 3 to stay aligned under both blocks.
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.6rem' }}>
+        <div style={{ fontSize: '0.78rem', color: th.muted }}>
+          Draft seeded {draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : '—'}. Editing here never changes the real Locations data.
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="da-btn" onClick={exportDistrictAlignmentPdf} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem' }) }}>
+            ⬇ Download as PDF
+          </button>
+          {isAdmin && (
+            <>
+            {showNewDistrict ? (
+              <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', background: th.card2, padding: '0.3rem 0.5rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, animation: 'daPopIn 0.18s ease-out both' }}>
+                <input type="number" placeholder="District #" value={newDistrictNum} onChange={e => setNewDistrictNum(e.target.value)}
+                  style={{ width: 64, fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
+                <input placeholder="DM Name" value={newDmName} onChange={e => setNewDmName(e.target.value)}
+                  style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
+                <input placeholder="DM Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)}
+                  style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
+                <button className="da-btn" onClick={() => addDm(Number(newDistrictNum))} disabled={saving || !newDistrictNum || !newDmName.trim()} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Save</button>
+                <button className="da-btn" onClick={() => { setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail(''); }} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Cancel</button>
+              </span>
+            ) : (
+              <button className="da-btn"
+                onClick={() => { setNewDistrictNum(String(Math.max(0, ...districtNums.filter(n => n > 0)) + 1)); setShowNewDistrict(true); }}
+                disabled={saving}
+                style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
+                + New District
+              </button>
+            )}
+            <button className="da-btn" onClick={resetToLive} disabled={saving} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
+              ↺ Reset to live data
+            </button>
+            </>
+          )}
+        </div>
+      </div>
+      {actionError && (
+        <div style={{ padding: '0.5rem 0.75rem', marginBottom: '0.6rem', borderRadius: 8, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', animation: 'daPopIn 0.2s ease-out both' }}>
+          <span>{actionError}</span>
+          <button onClick={() => setActionError('')} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }} aria-label="Dismiss">×</button>
+        </div>
+      )}
+      <div style={{ overflowX: 'auto', borderRadius: 10, border: `1px solid ${th.cardBorder}` }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
+          <thead>
+            <tr>
+              {['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Net Sales', 'Busiest Hours', 'Nearest Sibling'].map((h, i) => (
+                <th key={h} style={i === 8 ? { ...thStyle, ...metricDivider } : thStyle}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {selectableDistrictNums.map((dNum, dIdx) => {
+              const pcs = byDistrict[dNum] || [];
+              const dm = draft.dms.find(d => d.district === dNum);
+              const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
+              const spread = districtSpread(pcs);
+              const rowEnterStyle = (extra) => ({ ...extra, animation: `daRowIn 0.35s ease-out both`, animationDelay: `${Math.min(dIdx, 10) * 40}ms` });
+              return (
+                <React.Fragment key={dNum}>
+                  <tr style={rowEnterStyle({ background: dc.bg })}>
+                    <td colSpan={8} style={{ padding: '0.5rem 0.6rem', fontSize: '0.78rem', fontWeight: 800, color: dc.text, whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: dc.text, marginRight: '0.5rem', verticalAlign: 'middle', boxShadow: `0 0 0 3px ${dc.text}22` }} />
+                      {dNum ? `District #${dNum}` : 'Unassigned'}
+                      <span style={{ marginLeft: '0.4rem', fontWeight: 600, opacity: 0.85 }}>{dm ? dm.name : (dNum ? '— Unassigned' : '')}</span>
+                      {isAdmin && dm && (
+                        <button className="da-btn" onClick={() => removeDm(dm.id)} disabled={saving} title="Remove this DM from the draft" style={pillBtn(dc.text)}>
+                          remove DM
+                        </button>
+                      )}
+                      {isAdmin && !dm && dNum > 0 && (
+                        showAddDm === dNum ? (
+                          <span style={{ marginLeft: '0.5rem', display: 'inline-flex', gap: '0.3rem', alignItems: 'center', animation: 'daPopIn 0.18s ease-out both' }}>
+                            <input placeholder="Name" value={newDmName} onChange={e => setNewDmName(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: 'none' }} />
+                            <input placeholder="Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: 'none' }} />
+                            <button className="da-btn" onClick={() => addDm(dNum)} disabled={saving} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Save</button>
+                            <button className="da-btn" onClick={() => setShowAddDm(null)} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Cancel</button>
+                          </span>
+                        ) : (
+                          <button className="da-btn" onClick={() => setShowAddDm(dNum)} style={pillBtn(dc.text)}>
+                            + add DM
+                          </button>
+                        )
+                      )}
+                    </td>
+                    <td colSpan={3} style={{ padding: '0.5rem 0.6rem', textAlign: 'right' }}>
+                      {spread.avg != null && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: dc.text, background: 'rgba(255,255,255,0.35)', borderRadius: 999, padding: '0.2rem 0.6rem', whiteSpace: 'nowrap' }}>
+                          spread: {spread.avg} mi avg · {spread.max} mi max
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                  {pcs.length === 0 && (
+                    <tr style={rowEnterStyle({ background: districtTint(dc.bg) })}>
+                      <td colSpan={11} style={{ padding: '0.75rem 0.6rem' }}>
+                        <div style={{ border: `1.5px dashed ${dc.text}55`, borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: '0.72rem', color: th.muted, textAlign: 'center' }}>
+                          No stores assigned yet — use a store's district dropdown below to move one here.
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {pcs.map((pc, pIdx) => {
+                    const s = storeByPc[pc];
+                    if (!s) return null;
+                    const m = metrics[pc] || {};
+                    const nearest = nearestSiblingMiles(pc, pcs);
+                    const maxAvg = Math.max(1, ...((m.hourlyAvg || []).map(h => h.avgSales)));
+                    const baseBg = districtTint(dc.bg, pIdx % 2 ? 0.22 : 0.14);
+                    return (
+                      <tr key={pc}
+                        style={rowEnterStyle({ background: baseBg })}
+                        onMouseEnter={e => e.currentTarget.style.background = (O + '14')}
+                        onMouseLeave={e => e.currentTarget.style.background = baseBg}>
+                        <td style={{ ...tdStyle, color: O, fontWeight: 700 }}>{pc}</td>
+                        <td style={tdStyle}>{s.paycor || '—'}</td>
+                        <td style={tdStyle}>{s.legal || '—'}</td>
+                        <td style={{ ...tdStyle, fontWeight: 700 }}>
+                          {s.name || '—'}
+                          {isAdmin && (
+                            <select value={dNum} disabled={saving} onChange={e => reassignStore(pc, Number(e.target.value))}
+                              style={{ ...inp(th, { fontSize: '0.68rem', padding: '0.25rem 0.5rem', borderRadius: 6 }), display: 'block', marginTop: '0.35rem', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, transition: 'border-color 0.15s ease, box-shadow 0.15s ease' }}>
+                              {selectableDistrictNums.map(n => <option key={n} value={n}>{n ? `District ${n}` : 'Unassigned'}</option>)}
+                            </select>
+                          )}
+                        </td>
+                        <td style={tdStyle}>{[s.address, s.city, s.state].filter(Boolean).join(', ')}</td>
+                        <td style={tdStyle}>{assetCombined(s)}</td>
+                        <td style={tdStyle}>{storeMgrName(s, users) || 'Unassigned'}</td>
+                        <td style={tdStyle}>{s.email || '—'}</td>
+                        <td style={{ ...tdStyle, ...metricDivider }}>
+                          {fmtMoney(m.netSales)}
+                          {m.netSalesDate && <div style={{ fontSize: '0.62rem', color: th.muted }}>{m.netSalesDate}</div>}
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 28 }}>
+                            {(m.hourlyAvg || []).map((h, hIdx) => (
+                              <div key={h.h} title={`${fmtHour(h.h)}: ${fmtMoney(h.avgSales)}`}
+                                style={{
+                                  width: 5, height: Math.max(2, (h.avgSales / maxAvg) * 28), background: O, borderRadius: 1.5,
+                                  transformOrigin: 'bottom', animation: 'daBarGrow 0.4s ease-out both', animationDelay: `${hIdx * 12}ms`,
+                                }} />
+                            ))}
+                          </div>
+                        </td>
+                        <td style={tdStyle}>{nearest != null ? `${Math.round(nearest * 10) / 10} mi` : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <style>{`
+        .da-btn { transition: transform 0.12s ease, box-shadow 0.15s ease; }
+        .da-btn:hover:not(:disabled) { box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+        .da-btn:active:not(:disabled) { transform: scale(0.95); }
+        @keyframes daRowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes daPopIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        @keyframes daBarGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+        @media (prefers-reduced-motion: reduce) {
+          .da-btn, .da-btn:active:not(:disabled) { transition: none !important; transform: none !important; }
+        }
+      `}</style>
+      {confirmAction && (
+        <PortalConfirmModal th={th}
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          onConfirm={() => { confirmAction.run(); setConfirmAction(null); }}
+          onCancel={() => setConfirmAction(null)} />
+      )}
     </div>
   );
 }
@@ -12893,7 +13274,11 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   totals.avgCheck = totals.guests > 0 ? totals.netSales / totals.guests : 0;
 
   const allRows = stores
-    .filter(s => distFilter === 0 || s.district === distFilter)
+    // Permanently closed stores never sell again — showing them here as a row
+    // of dashes and 0.0% reads as "this store is open but doing nothing,"
+    // which is misleading. Drop them from Pulse entirely rather than display
+    // a store that will never generate sales data again.
+    .filter(s => s.status !== 'Permanently Closed' && (distFilter === 0 || s.district === distFilter))
     .map(s => ({
       ...s,
       live: viewMode === 'week'
@@ -13187,12 +13572,17 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
       {(() => {
         const onDMDistrict = isDMUser && pulseView?.level === "district" && pulseView.num === dmDistrict;
         if (pulseView !== "network" && !onDMDistrict) return null;
-        const nonOpen = stores.filter(s => s.status !== 'Open' && (!isDMUser || Number(s.district) === dmDistrict));
+        // Remodel only — a store mid-remodel is still expected to sell something,
+        // just at reduced capacity, so the "totals may be lower" framing actually
+        // applies. Permanently Closed/Temp Closed/Coming Soon stores aren't
+        // operating at all, so they don't belong in a "may be lower" caveat —
+        // they're excluded from totals entirely, not partially depressed.
+        const nonOpen = stores.filter(s => s.status === 'Remodel' && (!isDMUser || Number(s.district) === dmDistrict));
         if (!nonOpen.length) return null;
         return (
           <div style={{ marginBottom:'0.75rem', padding:'0.6rem 0.85rem', background:'#fd7e1418', borderLeft:`3px solid #fd7e14`, borderRadius:'0.375rem', fontSize:'0.78rem', color:th.muted, lineHeight:1.5 }}>
             <span style={{ fontWeight:700, color:'#fd7e14' }}>Note:</span>{' '}
-            {nonOpen.map(s => <span key={s.pc}><strong style={{color:th.text}}>{s.name}</strong> <span style={{ fontSize:'0.68rem', padding:'1px 4px', borderRadius:3, fontWeight:600, color:'#fff', background: s.status === 'Remodel' ? '#fd7e14' : s.status === 'Temp Closed' ? '#dc3545' : '#6c757d' }}>{s.status}</span></span>).reduce((a, b) => [a, ', ', b])}
+            {nonOpen.map(s => <span key={s.pc}><strong style={{color:th.text}}>{s.name}</strong> <span style={{ fontSize:'0.68rem', padding:'1px 4px', borderRadius:3, fontWeight:600, color:'#fff', background:'#fd7e14' }}>{s.status}</span></span>).reduce((a, b) => [a, ', ', b])}
             {' — '}totals may be lower due to {nonOpen.length === 1 ? 'this store' : 'these stores'} not operating at full capacity.
           </div>
         );
@@ -20378,15 +20768,18 @@ const HUB_SUBITEMS = {
   'ops-hub': [
     { id: 'tasks', label: 'Tasks' },
     { id: 'pulse', label: 'Pulse' },
+    { id: 'schedule', label: 'Schedule' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'anomalies', label: 'Anomalies' },
     { id: 'scorecard', label: 'DM Scorecard' },
     { id: 'audits', label: 'Audits' },
+    { id: 'network-complaints', label: 'Complaints' },
   ],
   'team-hub': [
     { id: 'locations', label: 'Locations' },
     { id: 'impact', label: 'Impact Radar' },
     { id: 'projects', label: 'Projects' },
+    { id: 'project-gallery', label: 'Project Gallery' },
     { id: 'deals', label: 'Deal Pipeline' },
     { id: 'users', label: 'Users' },
   ],
@@ -20394,6 +20787,10 @@ const HUB_SUBITEMS = {
     { id: 'admin', label: 'Admin' },
     { id: 'email', label: 'Email' },
     { id: 'reports', label: 'Reports' },
+    { id: 'system-health', label: 'System Health' },
+  ],
+  'tools-hub': [
+    { id: 'district-alignment', label: 'District Alignment' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -20480,10 +20877,26 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
           const seen = new Set();
           // Store Tablet bypasses getTabs/the sidebar entirely (fixed StoreTabletView),
           // so surface its Tickets + Tasks as locked, informational chips instead.
-          const tabs = rt === 'store_tablet'
+          const rawTabs = rt === 'store_tablet'
             ? [{ id: 'tickets', label: 'Tickets' }, { id: 'tasks', label: 'Tasks' }]
             : (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: '000000' }))
                 .filter(t => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+          // A tab id that's also nested inside an expandable hub's own
+          // HUB_SUBITEMS (e.g. district-alignment under tools-hub) would
+          // otherwise render twice — once as its own top-level chip, once
+          // again under the hub's "▾" expansion — same class of duplicate
+          // this app's sidebar/launcher already guard against. "finance" is
+          // deliberately excluded here too: its HUB_SUBITEMS entries
+          // (pnl/ndcp/cash/recon/expenses/tips) are AdminFinance's own
+          // internal rail-nav keys, not real top-level tab ids, and
+          // "expenses" in particular already means the real personal-
+          // receipt-log tab every base role gets.
+          const rawIds = new Set(rawTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (rawIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const tabs = rawTabs.filter(t => !hubDupeIds.has(t.id));
           const visibleN = tabs.filter(t => isOn(rt, t.id)).length;
           return (
             <div key={rt} style={card(th, { padding: '1rem 1.15rem' })}>
@@ -26263,6 +26676,8 @@ const computeRoleTabs = (user) => {
   // Executive & IT → full admin suite
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
@@ -26291,6 +26706,8 @@ const computeRoleTabs = (user) => {
   // Office Staff → all tabs but no admin destructive powers
   if (ut === "office_staff") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools",     icon: (c) => ICONS.tools(c), noPinToggle: true },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -26314,6 +26731,8 @@ const computeRoleTabs = (user) => {
   // Field Operations Auditor → base workspace + audits (conduct/review) + pulse/map. Tickets is in BASE_TABS.
   if (ut === "auditor") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
@@ -26321,6 +26740,8 @@ const computeRoleTabs = (user) => {
   // District Managers → base + their locations + their district analytics + projects (view-only)
   if (ut === "dm") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
@@ -26341,6 +26762,8 @@ const computeRoleTabs = (user) => {
     // store managers — only DM and above. Every other role still gets it
     // via the plain ...BASE_TABS spread elsewhere in this function.
     ...BASE_TABS.filter(t => t.id !== "expenses"),
+    { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -26353,6 +26776,8 @@ const computeRoleTabs = (user) => {
   // Construction & Development → base + locations + projects (no analytics/pulse)
   if (ut === "construction") return [
     ...BASE_TABS,
+    { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
@@ -26360,6 +26785,8 @@ const computeRoleTabs = (user) => {
   // Vendor → projects + chat
   if (ut === "vendor") return [
     { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
+    { id: "tools-hub", label: "Tools",    icon: (c) => ICONS.tools(c), noPinToggle: true },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
     { id: "chat",     label: "Chat",     icon: (c) => ICONS.chat(c) },
   ];
@@ -26369,6 +26796,8 @@ const computeRoleTabs = (user) => {
   // tab-access guard bounces you to the dashboard if you navigate to a tab you don't have.
   if (ut === "maintenance") return [
     ...BASE_TABS,
+    { id: "tools-hub",  label: "Tools",      icon: (c) => ICONS.tools(c), noPinToggle: true },
+    { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "locations",  label: "Locations",  icon: (c) => ICONS.locations(c) },
     { id: "projects",   label: "Projects",   icon: (c) => ICONS.projects(c) },
   ];
@@ -27677,7 +28106,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.86";
+const APP_VERSION = "v21.02";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -40600,8 +41029,27 @@ function LauncherSection({ th, title, tiles, pinnedNavIds, togglePinNav, onNavig
 // mirrors the sidebar's old Admin/Operations accordion grouping.
 const LAUNCHER_ADMIN_IDS = new Set(['admin', 'users', 'ops-hub', 'team-hub', 'system-hub', 'reports', 'audits', 'analytics', 'anomalies', 'scorecard', 'finance', 'impact', 'email']);
 function MobileAppLauncher({ user, th, dark, tabs, onNavigate, pinnedNavIds, togglePinNav, navBadge, onOpenProfile, onToggleTheme, onLogout }) {
+  // A tab like "Audits" or "Analytics" is also one of the tiles inside the
+  // "Operations" hub (see HUB_SUBITEMS/opsTiles) — whenever a role has both
+  // the hub AND that individual id in its tab list, the flat launcher grid
+  // showed it twice: once as its own tile, once again inside Operations.
+  // Only drop it here if the containing hub is actually present for this
+  // user — a role like Auditor or Manager has "Audits" with no "ops-hub" at
+  // all, so it stays as their only path to it. Pinned items are exempt: a
+  // deliberate pin to Quick Access should show regardless of this dedup.
+  // Only the three tile-grid hubs — "finance" isn't one: its HUB_SUBITEMS
+  // entries (pnl/ndcp/cash/recon/expenses/tips) are AdminFinance's own
+  // internal rail-nav keys, not real top-level tab ids. "expenses" in
+  // particular already means something else as a real tab: the personal
+  // receipt log every base role gets — conflating the two would wrongly
+  // hide that tab for every role that also has Finance.
+  const tabIds = new Set(tabs.map(t => t.id));
+  const hubDupeIds = new Set();
+  ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+    if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+  });
   const pinned = tabs.filter(t => pinnedNavIds?.includes(t.id));
-  const rest = tabs.filter(t => !pinnedNavIds?.includes(t.id));
+  const rest = tabs.filter(t => !pinnedNavIds?.includes(t.id) && !hubDupeIds.has(t.id));
   const workspace = rest.filter(t => !LAUNCHER_ADMIN_IDS.has(t.id));
   const adminGroup = rest.filter(t => LAUNCHER_ADMIN_IDS.has(t.id));
   return (
@@ -50115,6 +50563,33 @@ function PCGPortal() {
           );
         })()}
 
+        {/* Tools — its own section, not nested under Workspace, and rendered for
+            every role unconditionally (unlike Admin/DM/Maintenance below, which are
+            gated by userType). Currently just the one entry; more can join it later. */}
+        {(() => {
+          const toolsTabDef = TABS.find(t => t.id === 'tools-hub');
+          if (!toolsTabDef || pinnedNavIds.includes('tools-hub')) return null;
+          const sectionOpen = collapsed || tab === 'tools-hub' || !!sidebarSectionsOpen['sec_tools'];
+          return (
+            <>
+              <SectionHeader label="Tools" accent={O} collapsed={collapsed}
+                open={sectionOpen} onToggle={() => toggleSidebarSection('sec_tools')} />
+              {sectionOpen && (
+                <NavButton
+                  tabDef={toolsTabDef}
+                  accent={O}
+                  isActive={tab === 'tools-hub'}
+                  collapsed={collapsed}
+                  badge={navBadge(toolsTabDef)}
+                  pinned={false}
+                  onTogglePin={togglePinNav}
+                  onClick={() => { setTab('tools-hub'); onNav && onNav(); }}
+                />
+              )}
+            </>
+          );
+        })()}
+
         {/* DM section — grouped accordion */}
         {user?.userType === "dm" && (() => {
           const dmTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
@@ -50148,7 +50623,13 @@ function PCGPortal() {
 
         {/* Manager section */}
         {user?.userType === "manager" && (() => {
-          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const roleTabs = tabsForUser(user);
+          const tabIds = new Set(roleTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_manager'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -50173,7 +50654,13 @@ function PCGPortal() {
 
         {/* Field Operations Auditor section */}
         {user?.userType === "auditor" && (() => {
-          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const roleTabs = tabsForUser(user);
+          const tabIds = new Set(roleTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_auditor'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -50197,7 +50684,13 @@ function PCGPortal() {
 
         {/* Construction section */}
         {user?.userType === "construction" && (() => {
-          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const roleTabs = tabsForUser(user);
+          const tabIds = new Set(roleTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_construction'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -50221,7 +50714,13 @@ function PCGPortal() {
 
         {/* Maintenance section */}
         {user?.userType === "maintenance" && (() => {
-          const secTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id));
+          const roleTabs = tabsForUser(user);
+          const tabIds = new Set(roleTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_maintenance'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -50412,6 +50911,8 @@ function PCGPortal() {
                 {tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place."}
                 {tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place."}
                 {tab === "system-hub" && "Admin, Email, and Reports in one place."}
+                {tab === "tools-hub" && "Handy tools, available to everyone."}
+                {tab === "district-alignment" && "A sandbox for planning district groupings — separate from the real Locations data."}
                 {tab === "system-health" && "Pipeline health, feed freshness, and outage alerts."}
                 {tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion."}
                 {tab === "audits" && "Field operations audits — conduct on-site, scored automatically, critical failures cap the result."}
@@ -50768,7 +51269,7 @@ function PCGPortal() {
           document.body
         )}
 
-        <div className="main-content-padding" style={{ padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : (tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
+        <div className="main-content-padding" style={{ padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : (tab === "district-alignment" || tab === "tools-hub") ? "1.5rem 1.25rem 1rem" : (tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
           {/* App-wide error boundary: any tab that throws during render shows a fallback
               instead of white-screening the whole app. key={tab} remounts it on tab change
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
@@ -50830,6 +51331,25 @@ function PCGPortal() {
             ].filter(t => t.show);
             return <TileGrid title="System" tiles={sysTiles} color={SYS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}
+          {tab === "tools-hub" && (() => {
+            // Open to every role (it's a Workspace base tab, not gated by userType) —
+            // scaffolded ahead of the first actual tool landing here.
+            const TOOLS = '#2F6FA8';
+            const toolsTiles = [
+              { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'district-alignment'), icon: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></> },
+            ].filter(t => t.show);
+            return (
+              <div>
+                <TileGrid title="Tools" tiles={toolsTiles} color={TOOLS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />
+                {toolsTiles.length === 0 && (
+                  <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                    Nothing here yet — tools will show up in this section as they're added.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={stores} users={users} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
           {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={stores} th={th} user={user} />}
