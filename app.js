@@ -6730,9 +6730,11 @@
       return d.toLocaleTimeString(void 0, { hour: "numeric" });
     };
     const assetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "\u2014"}`;
-    const thStyle = { textAlign: "left", padding: "0.4rem 0.6rem", fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", color: th.muted };
-    const tdStyle = { padding: "0.4rem 0.6rem", fontSize: "0.76rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: "top" };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data."), isAdmin && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" } }, showNewDistrict ? /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.3rem", alignItems: "center", background: th.card2, padding: "0.3rem 0.5rem", borderRadius: 6, border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement(
+    const thStyle = { position: "sticky", top: 0, zIndex: 2, textAlign: "left", padding: "0.55rem 0.6rem", fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", color: th.muted, background: th.card2, boxShadow: `0 1px 0 ${th.cardBorder}` };
+    const tdStyle = { padding: "0.55rem 0.6rem", fontSize: "0.76rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: "top", transition: "background 0.15s ease" };
+    const metricDivider = { borderLeft: `2px solid ${O}26` };
+    const pillBtn = (color) => ({ marginLeft: "0.5rem", fontSize: "0.65rem", fontWeight: 700, background: color + "1a", border: `1px solid ${color}40`, borderRadius: 999, padding: "0.15rem 0.55rem", color, cursor: "pointer", transition: "transform 0.12s ease, background 0.15s ease" });
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data."), isAdmin && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" } }, showNewDistrict ? /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.3rem", alignItems: "center", background: th.card2, padding: "0.3rem 0.5rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, animation: "daPopIn 0.18s ease-out both" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "number",
@@ -6757,7 +6759,7 @@
         onChange: (e) => setNewDmEmail(e.target.value),
         style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: `1px solid ${th.cardBorder}` }
       }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: () => addDm(Number(newDistrictNum)), disabled: saving || !newDistrictNum || !newDmName.trim(), style: { fontSize: "0.7rem", cursor: "pointer" } }, "Save"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    ), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => addDm(Number(newDistrictNum)), disabled: saving || !newDistrictNum || !newDmName.trim(), style: { fontSize: "0.7rem", cursor: "pointer" } }, "Save"), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
       setShowNewDistrict(false);
       setNewDistrictNum("");
       setNewDmName("");
@@ -6765,6 +6767,7 @@
     }, style: { fontSize: "0.7rem", cursor: "pointer" } }, "Cancel")) : /* @__PURE__ */ React.createElement(
       "button",
       {
+        className: "da-btn",
         onClick: () => {
           setNewDistrictNum(String(Math.max(0, ...districtNums.filter((n) => n > 0)) + 1));
           setShowNewDistrict(true);
@@ -6773,45 +6776,75 @@
         style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) }
       },
       "+ New District"
-    ), /* @__PURE__ */ React.createElement("button", { onClick: resetToLive, disabled: saving, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) } }, "\u21BA Reset to live data"))), actionError && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", marginBottom: "0.6rem", borderRadius: 6, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", fontSize: "0.78rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, actionError), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionError(""), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, selectableDistrictNums.map((dNum) => {
+    ), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: resetToLive, disabled: saving, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) } }, "\u21BA Reset to live data"))), actionError && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", marginBottom: "0.6rem", borderRadius: 8, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", fontSize: "0.78rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", animation: "daPopIn 0.2s ease-out both" } }, /* @__PURE__ */ React.createElement("span", null, actionError), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionError(""), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", maxHeight: "75vh", borderRadius: 10, border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h, i) => /* @__PURE__ */ React.createElement("th", { key: h, style: i === 8 ? { ...thStyle, ...metricDivider } : thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, selectableDistrictNums.map((dNum, dIdx) => {
       const pcs = byDistrict[dNum] || [];
       const dm = draft.dms.find((d) => d.district === dNum);
       const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
       const spread = districtSpread(pcs);
-      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: { background: dc.bg } }, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { padding: "0.4rem 0.6rem", fontSize: "0.78rem", fontWeight: 800, color: dc.text } }, dNum ? `District #${dNum}${dm ? " " + dm.name : " \u2014 Unassigned"}` : "Unassigned", isAdmin && dm && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => removeDm(dm.id),
-          disabled: saving,
-          title: "Remove this DM from the draft",
-          style: { marginLeft: "0.5rem", fontSize: "0.65rem", background: "none", border: "none", color: dc.text, opacity: 0.7, cursor: "pointer", textDecoration: "underline" }
-        },
-        "remove DM"
-      ), isAdmin && !dm && dNum > 0 && (showAddDm === dNum ? /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.5rem", display: "inline-flex", gap: "0.3rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { placeholder: "Name", value: newDmName, onChange: (e) => setNewDmName(e.target.value), style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: "none" } }), /* @__PURE__ */ React.createElement("input", { placeholder: "Email", value: newDmEmail, onChange: (e) => setNewDmEmail(e.target.value), style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: "none" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => addDm(dNum), disabled: saving, style: { fontSize: "0.65rem", cursor: "pointer" } }, "Save"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddDm(null), style: { fontSize: "0.65rem", cursor: "pointer" } }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddDm(dNum), style: { marginLeft: "0.5rem", fontSize: "0.65rem", background: "none", border: "none", color: dc.text, opacity: 0.7, cursor: "pointer", textDecoration: "underline" } }, "+ add DM"))), /* @__PURE__ */ React.createElement("td", { colSpan: 3, style: { padding: "0.4rem 0.6rem", fontSize: "0.7rem", fontWeight: 700, color: dc.text, textAlign: "right" } }, spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : "")), pcs.length === 0 && /* @__PURE__ */ React.createElement("tr", { style: { background: districtTint(dc.bg) } }, /* @__PURE__ */ React.createElement("td", { colSpan: 11, style: { padding: "0.5rem 0.6rem", fontSize: "0.72rem", color: th.muted, fontStyle: "italic" } }, "No stores assigned yet \u2014 use a store's district dropdown below to move one here.")), pcs.map((pc) => {
+      const rowEnterStyle = (extra) => ({ ...extra, animation: `daRowIn 0.35s ease-out both`, animationDelay: `${Math.min(dIdx, 10) * 40}ms` });
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: rowEnterStyle({ background: dc.bg }) }, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { padding: "0.5rem 0.6rem", fontSize: "0.78rem", fontWeight: 800, color: dc.text, display: "flex", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: dc.text, marginRight: "0.5rem", flexShrink: 0, boxShadow: `0 0 0 3px ${dc.text}22` } }), dNum ? `District #${dNum}` : "Unassigned", /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.4rem", fontWeight: 600, opacity: 0.85 } }, dm ? dm.name : dNum ? "\u2014 Unassigned" : ""), isAdmin && dm && /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => removeDm(dm.id), disabled: saving, title: "Remove this DM from the draft", style: pillBtn(dc.text) }, "remove DM"), isAdmin && !dm && dNum > 0 && (showAddDm === dNum ? /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.5rem", display: "inline-flex", gap: "0.3rem", alignItems: "center", animation: "daPopIn 0.18s ease-out both" } }, /* @__PURE__ */ React.createElement("input", { placeholder: "Name", value: newDmName, onChange: (e) => setNewDmName(e.target.value), style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: "none" } }), /* @__PURE__ */ React.createElement("input", { placeholder: "Email", value: newDmEmail, onChange: (e) => setNewDmEmail(e.target.value), style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: "none" } }), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => addDm(dNum), disabled: saving, style: { fontSize: "0.65rem", cursor: "pointer" } }, "Save"), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => setShowAddDm(null), style: { fontSize: "0.65rem", cursor: "pointer" } }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => setShowAddDm(dNum), style: pillBtn(dc.text) }, "+ add DM"))), /* @__PURE__ */ React.createElement("td", { colSpan: 3, style: { padding: "0.5rem 0.6rem", textAlign: "right" } }, spread.avg != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, color: dc.text, background: "rgba(255,255,255,0.35)", borderRadius: 999, padding: "0.2rem 0.6rem", whiteSpace: "nowrap" } }, "spread: ", spread.avg, " mi avg \xB7 ", spread.max, " mi max"))), pcs.length === 0 && /* @__PURE__ */ React.createElement("tr", { style: rowEnterStyle({ background: districtTint(dc.bg) }) }, /* @__PURE__ */ React.createElement("td", { colSpan: 11, style: { padding: "0.75rem 0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { border: `1.5px dashed ${dc.text}55`, borderRadius: 8, padding: "0.6rem 0.75rem", fontSize: "0.72rem", color: th.muted, textAlign: "center" } }, "No stores assigned yet \u2014 use a store's district dropdown below to move one here."))), pcs.map((pc, pIdx) => {
         const s = storeByPc[pc];
         if (!s) return null;
         const m = metrics[pc] || {};
         const nearest = nearestSiblingMiles(pc, pcs);
         const maxAvg = Math.max(1, ...(m.hourlyAvg || []).map((h) => h.avgSales));
-        return /* @__PURE__ */ React.createElement("tr", { key: pc, style: { background: districtTint(dc.bg) } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, pc), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014", isAdmin && /* @__PURE__ */ React.createElement(
-          "select",
+        const baseBg = districtTint(dc.bg, pIdx % 2 ? 0.22 : 0.14);
+        return /* @__PURE__ */ React.createElement(
+          "tr",
           {
-            value: dNum,
-            disabled: saving,
-            onChange: (e) => reassignStore(pc, Number(e.target.value)),
-            style: { display: "block", marginTop: "0.25rem", fontSize: "0.68rem", padding: "0.1rem 0.3rem" }
+            key: pc,
+            style: rowEnterStyle({ background: baseBg }),
+            onMouseEnter: (e) => e.currentTarget.style.background = O + "14",
+            onMouseLeave: (e) => e.currentTarget.style.background = baseBg
           },
-          selectableDistrictNums.map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n }, n ? `District ${n}` : "Unassigned"))
-        )), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, assetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, storeMgrName(s, users) || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, fmtMoney(m.netSales), m.netSalesDate && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, m.netSalesDate)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 1, height: 28 } }, (m.hourlyAvg || []).map((h) => /* @__PURE__ */ React.createElement(
-          "div",
-          {
-            key: h.h,
-            title: `${fmtHour(h.h)}: ${fmtMoney(h.avgSales)}`,
-            style: { width: 5, height: Math.max(2, h.avgSales / maxAvg * 28), background: O, borderRadius: 1 }
-          }
-        )))), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, nearest != null ? `${Math.round(nearest * 10) / 10} mi` : "\u2014"));
+          /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, pc),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014", isAdmin && /* @__PURE__ */ React.createElement(
+            "select",
+            {
+              value: dNum,
+              disabled: saving,
+              onChange: (e) => reassignStore(pc, Number(e.target.value)),
+              style: { display: "block", marginTop: "0.3rem", fontSize: "0.68rem", padding: "0.15rem 0.3rem", borderRadius: 4, border: `1px solid ${th.cardBorder}` }
+            },
+            selectableDistrictNums.map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n }, n ? `District ${n}` : "Unassigned"))
+          )),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, assetCombined(s)),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, storeMgrName(s, users) || "Unassigned"),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, ...metricDivider } }, fmtMoney(m.netSales), m.netSalesDate && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, m.netSalesDate)),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 1, height: 28 } }, (m.hourlyAvg || []).map((h, hIdx) => /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              key: h.h,
+              title: `${fmtHour(h.h)}: ${fmtMoney(h.avgSales)}`,
+              style: {
+                width: 5,
+                height: Math.max(2, h.avgSales / maxAvg * 28),
+                background: O,
+                borderRadius: 1.5,
+                transformOrigin: "bottom",
+                animation: "daBarGrow 0.4s ease-out both",
+                animationDelay: `${hIdx * 12}ms`
+              }
+            }
+          )))),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, nearest != null ? `${Math.round(nearest * 10) / 10} mi` : "\u2014")
+        );
       }));
-    })))));
+    })))), /* @__PURE__ */ React.createElement("style", null, `
+        .da-btn { transition: transform 0.12s ease, box-shadow 0.15s ease; }
+        .da-btn:hover:not(:disabled) { box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+        .da-btn:active:not(:disabled) { transform: scale(0.95); }
+        @keyframes daRowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes daPopIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        @keyframes daBarGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+        @media (prefers-reduced-motion: reduce) {
+          .da-btn, .da-btn:active:not(:disabled) { transition: none !important; transform: none !important; }
+        }
+      `));
   }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
     const [editDist, setEditDist] = useState(null);
@@ -17366,7 +17399,13 @@ ${t2.slice(0, 300)}`);
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#0ea5e9", { padding: "0.85rem 1rem", marginBottom: "1.1rem", display: "flex", gap: "0.6rem", alignItems: "flex-start" }) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, "\u{1F510}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, "Tap any section chip to ", /* @__PURE__ */ React.createElement("strong", null, "show / hide"), " it for that role. Changes save automatically and apply to everyone in that role network-wide. Hidden sections (", /* @__PURE__ */ React.createElement("span", { style: { textDecoration: "line-through", opacity: 0.6 } }, "dimmed"), ") disappear from their sidebar on next refresh. Universal tabs (Dashboard, Chat, Notes\u2026) are always available and aren't listed here.", hiddenCount > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " ", /* @__PURE__ */ React.createElement("strong", null, hiddenCount, " section", hiddenCount !== 1 ? "s" : "", " currently hidden.")))), canManagePnlAccess(user) && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement(PnlAccessPanel, { th, user, users, showAlert: showAlert2 })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.85rem" } }, roles.map((rt) => {
       const meta = ROLE_META[rt];
       const seen = /* @__PURE__ */ new Set();
-      const tabs = rt === "store_tablet" ? [{ id: "tickets", label: "Tickets" }, { id: "tasks", label: "Tasks" }] : (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: "000000" })).filter((t) => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+      const rawTabs = rt === "store_tablet" ? [{ id: "tickets", label: "Tickets" }, { id: "tasks", label: "Tasks" }] : (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: "000000" })).filter((t) => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+      const rawIds = new Set(rawTabs.map((t) => t.id));
+      const hubDupeIds = /* @__PURE__ */ new Set();
+      ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
+        if (rawIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
+      });
+      const tabs = rawTabs.filter((t) => !hubDupeIds.has(t.id));
       const visibleN = tabs.filter((t) => isOn(rt, t.id)).length;
       return /* @__PURE__ */ React.createElement("div", { key: rt, style: card(th, { padding: "1rem 1.15rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { ...sectionTitle(th) } }, meta.label), meta.admin && /* @__PURE__ */ React.createElement("span", { style: pill("#ef4444") }, "ADMIN"), /* @__PURE__ */ React.createElement("span", { style: pill("#94a3b8") }, userCounts[rt] || 0, " user", (userCounts[rt] || 0) !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.7rem", color: th.muted } }, KIOSK.has(rt) ? "\u2014" : `${visibleN}/${tabs.length} visible`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginBottom: tabs.length ? "0.6rem" : 0 } }, meta.scope), tabs.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.35rem" } }, tabs.map((t) => {
         const on = isOn(rt, t.id);
@@ -22565,7 +22604,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.98";
+  var APP_VERSION = "v20.99";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

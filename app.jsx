@@ -6280,111 +6280,126 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
   const fmtHour = h => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toLocaleTimeString(undefined, { hour: 'numeric' }); };
   const assetCombined = s => `${s.isNextGen ? 'NXT-' : ''}${s.baseAsset || '—'}`;
 
-  const thStyle = { textAlign: 'left', padding: '0.4rem 0.6rem', fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap', color: th.muted };
-  const tdStyle = { padding: '0.4rem 0.6rem', fontSize: '0.76rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'top' };
+  const thStyle = { position: 'sticky', top: 0, zIndex: 2, textAlign: 'left', padding: '0.55rem 0.6rem', fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap', color: th.muted, background: th.card2, boxShadow: `0 1px 0 ${th.cardBorder}` };
+  const tdStyle = { padding: '0.55rem 0.6rem', fontSize: '0.76rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'top', transition: 'background 0.15s ease' };
+  const metricDivider = { borderLeft: `2px solid ${O}26` };
+  const pillBtn = (color) => ({ marginLeft: '0.5rem', fontSize: '0.65rem', fontWeight: 700, background: color + '1a', border: `1px solid ${color}40`, borderRadius: 999, padding: '0.15rem 0.55rem', color, cursor: 'pointer', transition: 'transform 0.12s ease, background 0.15s ease' });
 
   // 11 columns total: 8 identity/contact columns (matching the Directory
-  // view's own layout exactly, per spec) + 3 new metrics columns. The
+  // view's own layout exactly, per spec) + 3 new metrics columns. A subtle
+  // accent divider (metricDivider) marks where the metrics group starts. The
   // district header row spans 8 + 3 to stay aligned under both blocks.
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.6rem' }}>
         <div style={{ fontSize: '0.78rem', color: th.muted }}>
           Draft seeded {draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : '—'}. Editing here never changes the real Locations data.
         </div>
         {isAdmin && (
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
             {showNewDistrict ? (
-              <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', background: th.card2, padding: '0.3rem 0.5rem', borderRadius: 6, border: `1px solid ${th.cardBorder}` }}>
+              <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', background: th.card2, padding: '0.3rem 0.5rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, animation: 'daPopIn 0.18s ease-out both' }}>
                 <input type="number" placeholder="District #" value={newDistrictNum} onChange={e => setNewDistrictNum(e.target.value)}
                   style={{ width: 64, fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
                 <input placeholder="DM Name" value={newDmName} onChange={e => setNewDmName(e.target.value)}
                   style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
                 <input placeholder="DM Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)}
                   style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
-                <button onClick={() => addDm(Number(newDistrictNum))} disabled={saving || !newDistrictNum || !newDmName.trim()} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Save</button>
-                <button onClick={() => { setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail(''); }} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Cancel</button>
+                <button className="da-btn" onClick={() => addDm(Number(newDistrictNum))} disabled={saving || !newDistrictNum || !newDmName.trim()} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Save</button>
+                <button className="da-btn" onClick={() => { setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail(''); }} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Cancel</button>
               </span>
             ) : (
-              <button
+              <button className="da-btn"
                 onClick={() => { setNewDistrictNum(String(Math.max(0, ...districtNums.filter(n => n > 0)) + 1)); setShowNewDistrict(true); }}
                 disabled={saving}
                 style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
                 + New District
               </button>
             )}
-            <button onClick={resetToLive} disabled={saving} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
+            <button className="da-btn" onClick={resetToLive} disabled={saving} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
               ↺ Reset to live data
             </button>
           </div>
         )}
       </div>
       {actionError && (
-        <div style={{ padding: '0.5rem 0.75rem', marginBottom: '0.6rem', borderRadius: 6, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ padding: '0.5rem 0.75rem', marginBottom: '0.6rem', borderRadius: 8, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', animation: 'daPopIn 0.2s ease-out both' }}>
           <span>{actionError}</span>
           <button onClick={() => setActionError('')} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }} aria-label="Dismiss">×</button>
         </div>
       )}
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{ overflowX: 'auto', maxHeight: '75vh', borderRadius: 10, border: `1px solid ${th.cardBorder}` }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
           <thead>
-            <tr style={{ background: th.card2 }}>
-              {['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Net Sales', 'Busiest Hours', 'Nearest Sibling'].map(h => (
-                <th key={h} style={thStyle}>{h}</th>
+            <tr>
+              {['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Net Sales', 'Busiest Hours', 'Nearest Sibling'].map((h, i) => (
+                <th key={h} style={i === 8 ? { ...thStyle, ...metricDivider } : thStyle}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {selectableDistrictNums.map(dNum => {
+            {selectableDistrictNums.map((dNum, dIdx) => {
               const pcs = byDistrict[dNum] || [];
               const dm = draft.dms.find(d => d.district === dNum);
               const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
               const spread = districtSpread(pcs);
+              const rowEnterStyle = (extra) => ({ ...extra, animation: `daRowIn 0.35s ease-out both`, animationDelay: `${Math.min(dIdx, 10) * 40}ms` });
               return (
                 <React.Fragment key={dNum}>
-                  <tr style={{ background: dc.bg }}>
-                    <td colSpan={8} style={{ padding: '0.4rem 0.6rem', fontSize: '0.78rem', fontWeight: 800, color: dc.text }}>
-                      {dNum ? `District #${dNum}${dm ? ' ' + dm.name : ' — Unassigned'}` : 'Unassigned'}
+                  <tr style={rowEnterStyle({ background: dc.bg })}>
+                    <td colSpan={8} style={{ padding: '0.5rem 0.6rem', fontSize: '0.78rem', fontWeight: 800, color: dc.text, display: 'flex', alignItems: 'center' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: dc.text, marginRight: '0.5rem', flexShrink: 0, boxShadow: `0 0 0 3px ${dc.text}22` }} />
+                      {dNum ? `District #${dNum}` : 'Unassigned'}
+                      <span style={{ marginLeft: '0.4rem', fontWeight: 600, opacity: 0.85 }}>{dm ? dm.name : (dNum ? '— Unassigned' : '')}</span>
                       {isAdmin && dm && (
-                        <button onClick={() => removeDm(dm.id)} disabled={saving} title="Remove this DM from the draft"
-                          style={{ marginLeft: '0.5rem', fontSize: '0.65rem', background: 'none', border: 'none', color: dc.text, opacity: 0.7, cursor: 'pointer', textDecoration: 'underline' }}>
+                        <button className="da-btn" onClick={() => removeDm(dm.id)} disabled={saving} title="Remove this DM from the draft" style={pillBtn(dc.text)}>
                           remove DM
                         </button>
                       )}
                       {isAdmin && !dm && dNum > 0 && (
                         showAddDm === dNum ? (
-                          <span style={{ marginLeft: '0.5rem', display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
+                          <span style={{ marginLeft: '0.5rem', display: 'inline-flex', gap: '0.3rem', alignItems: 'center', animation: 'daPopIn 0.18s ease-out both' }}>
                             <input placeholder="Name" value={newDmName} onChange={e => setNewDmName(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: 'none' }} />
                             <input placeholder="Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: 'none' }} />
-                            <button onClick={() => addDm(dNum)} disabled={saving} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Save</button>
-                            <button onClick={() => setShowAddDm(null)} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Cancel</button>
+                            <button className="da-btn" onClick={() => addDm(dNum)} disabled={saving} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Save</button>
+                            <button className="da-btn" onClick={() => setShowAddDm(null)} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Cancel</button>
                           </span>
                         ) : (
-                          <button onClick={() => setShowAddDm(dNum)} style={{ marginLeft: '0.5rem', fontSize: '0.65rem', background: 'none', border: 'none', color: dc.text, opacity: 0.7, cursor: 'pointer', textDecoration: 'underline' }}>
+                          <button className="da-btn" onClick={() => setShowAddDm(dNum)} style={pillBtn(dc.text)}>
                             + add DM
                           </button>
                         )
                       )}
                     </td>
-                    <td colSpan={3} style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem', fontWeight: 700, color: dc.text, textAlign: 'right' }}>
-                      {spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : ''}
+                    <td colSpan={3} style={{ padding: '0.5rem 0.6rem', textAlign: 'right' }}>
+                      {spread.avg != null && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: dc.text, background: 'rgba(255,255,255,0.35)', borderRadius: 999, padding: '0.2rem 0.6rem', whiteSpace: 'nowrap' }}>
+                          spread: {spread.avg} mi avg · {spread.max} mi max
+                        </span>
+                      )}
                     </td>
                   </tr>
                   {pcs.length === 0 && (
-                    <tr style={{ background: districtTint(dc.bg) }}>
-                      <td colSpan={11} style={{ padding: '0.5rem 0.6rem', fontSize: '0.72rem', color: th.muted, fontStyle: 'italic' }}>
-                        No stores assigned yet — use a store's district dropdown below to move one here.
+                    <tr style={rowEnterStyle({ background: districtTint(dc.bg) })}>
+                      <td colSpan={11} style={{ padding: '0.75rem 0.6rem' }}>
+                        <div style={{ border: `1.5px dashed ${dc.text}55`, borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: '0.72rem', color: th.muted, textAlign: 'center' }}>
+                          No stores assigned yet — use a store's district dropdown below to move one here.
+                        </div>
                       </td>
                     </tr>
                   )}
-                  {pcs.map(pc => {
+                  {pcs.map((pc, pIdx) => {
                     const s = storeByPc[pc];
                     if (!s) return null;
                     const m = metrics[pc] || {};
                     const nearest = nearestSiblingMiles(pc, pcs);
                     const maxAvg = Math.max(1, ...((m.hourlyAvg || []).map(h => h.avgSales)));
+                    const baseBg = districtTint(dc.bg, pIdx % 2 ? 0.22 : 0.14);
                     return (
-                      <tr key={pc} style={{ background: districtTint(dc.bg) }}>
+                      <tr key={pc}
+                        style={rowEnterStyle({ background: baseBg })}
+                        onMouseEnter={e => e.currentTarget.style.background = (O + '14')}
+                        onMouseLeave={e => e.currentTarget.style.background = baseBg}>
                         <td style={{ ...tdStyle, color: O, fontWeight: 700 }}>{pc}</td>
                         <td style={tdStyle}>{s.paycor || '—'}</td>
                         <td style={tdStyle}>{s.legal || '—'}</td>
@@ -6392,7 +6407,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
                           {s.name || '—'}
                           {isAdmin && (
                             <select value={dNum} disabled={saving} onChange={e => reassignStore(pc, Number(e.target.value))}
-                              style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.68rem', padding: '0.1rem 0.3rem' }}>
+                              style={{ display: 'block', marginTop: '0.3rem', fontSize: '0.68rem', padding: '0.15rem 0.3rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }}>
                               {selectableDistrictNums.map(n => <option key={n} value={n}>{n ? `District ${n}` : 'Unassigned'}</option>)}
                             </select>
                           )}
@@ -6401,15 +6416,18 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
                         <td style={tdStyle}>{assetCombined(s)}</td>
                         <td style={tdStyle}>{storeMgrName(s, users) || 'Unassigned'}</td>
                         <td style={tdStyle}>{s.email || '—'}</td>
-                        <td style={tdStyle}>
+                        <td style={{ ...tdStyle, ...metricDivider }}>
                           {fmtMoney(m.netSales)}
                           {m.netSalesDate && <div style={{ fontSize: '0.62rem', color: th.muted }}>{m.netSalesDate}</div>}
                         </td>
                         <td style={tdStyle}>
                           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 28 }}>
-                            {(m.hourlyAvg || []).map(h => (
+                            {(m.hourlyAvg || []).map((h, hIdx) => (
                               <div key={h.h} title={`${fmtHour(h.h)}: ${fmtMoney(h.avgSales)}`}
-                                style={{ width: 5, height: Math.max(2, (h.avgSales / maxAvg) * 28), background: O, borderRadius: 1 }} />
+                                style={{
+                                  width: 5, height: Math.max(2, (h.avgSales / maxAvg) * 28), background: O, borderRadius: 1.5,
+                                  transformOrigin: 'bottom', animation: 'daBarGrow 0.4s ease-out both', animationDelay: `${hIdx * 12}ms`,
+                                }} />
                             ))}
                           </div>
                         </td>
@@ -6423,6 +6441,17 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
           </tbody>
         </table>
       </div>
+      <style>{`
+        .da-btn { transition: transform 0.12s ease, box-shadow 0.15s ease; }
+        .da-btn:hover:not(:disabled) { box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+        .da-btn:active:not(:disabled) { transform: scale(0.95); }
+        @keyframes daRowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes daPopIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        @keyframes daBarGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+        @media (prefers-reduced-motion: reduce) {
+          .da-btn, .da-btn:active:not(:disabled) { transition: none !important; transform: none !important; }
+        }
+      `}</style>
     </div>
   );
 }
@@ -20770,10 +20799,26 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
           const seen = new Set();
           // Store Tablet bypasses getTabs/the sidebar entirely (fixed StoreTabletView),
           // so surface its Tickets + Tasks as locked, informational chips instead.
-          const tabs = rt === 'store_tablet'
+          const rawTabs = rt === 'store_tablet'
             ? [{ id: 'tickets', label: 'Tickets' }, { id: 'tasks', label: 'Tasks' }]
             : (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: '000000' }))
                 .filter(t => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+          // A tab id that's also nested inside an expandable hub's own
+          // HUB_SUBITEMS (e.g. district-alignment under tools-hub) would
+          // otherwise render twice — once as its own top-level chip, once
+          // again under the hub's "▾" expansion — same class of duplicate
+          // this app's sidebar/launcher already guard against. "finance" is
+          // deliberately excluded here too: its HUB_SUBITEMS entries
+          // (pnl/ndcp/cash/recon/expenses/tips) are AdminFinance's own
+          // internal rail-nav keys, not real top-level tab ids, and
+          // "expenses" in particular already means the real personal-
+          // receipt-log tab every base role gets.
+          const rawIds = new Set(rawTabs.map(t => t.id));
+          const hubDupeIds = new Set();
+          ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
+            if (rawIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
+          });
+          const tabs = rawTabs.filter(t => !hubDupeIds.has(t.id));
           const visibleN = tabs.filter(t => isOn(rt, t.id)).length;
           return (
             <div key={rt} style={card(th, { padding: '1rem 1.15rem' })}>
@@ -27983,7 +28028,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.98";
+const APP_VERSION = "v20.99";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
