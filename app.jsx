@@ -6215,11 +6215,19 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
       setShowAddDm(null); setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail('');
     });
   };
-  const removeDm = (dmId) => { if (window.confirm('Remove this DM from the draft? Their stores will show as Unassigned until reassigned.')) callAction({ action: 'removeDm', dmId }); };
-  const resetToLive = () => {
-    if (!window.confirm('Reset the draft to match the real Locations data? Any unsaved sandbox changes will be lost.')) return;
-    callAction({ action: 'reset', liveStores: activeStores });
-  };
+  const [confirmAction, setConfirmAction] = React.useState(null); // { title, message, confirmLabel, run } or null
+  const removeDm = (dmId) => setConfirmAction({
+    title: 'Remove this DM?',
+    message: 'Their stores will show as Unassigned until reassigned.',
+    confirmLabel: 'Remove',
+    run: () => callAction({ action: 'removeDm', dmId }),
+  });
+  const resetToLive = () => setConfirmAction({
+    title: 'Reset to live data?',
+    message: 'This overwrites the draft with a fresh copy of the real Locations data. Any unsaved sandbox changes will be lost.',
+    confirmLabel: 'Reset',
+    run: () => callAction({ action: 'reset', liveStores: activeStores }),
+  });
 
   React.useEffect(() => { loadDraft(); }, [loadDraft]);
 
@@ -6407,7 +6415,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
                           {s.name || '—'}
                           {isAdmin && (
                             <select value={dNum} disabled={saving} onChange={e => reassignStore(pc, Number(e.target.value))}
-                              style={{ display: 'block', marginTop: '0.3rem', fontSize: '0.68rem', padding: '0.15rem 0.3rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }}>
+                              style={{ ...inp(th, { fontSize: '0.68rem', padding: '0.25rem 0.5rem', borderRadius: 6 }), display: 'block', marginTop: '0.35rem', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, transition: 'border-color 0.15s ease, box-shadow 0.15s ease' }}>
                               {selectableDistrictNums.map(n => <option key={n} value={n}>{n ? `District ${n}` : 'Unassigned'}</option>)}
                             </select>
                           )}
@@ -6452,6 +6460,14 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
           .da-btn, .da-btn:active:not(:disabled) { transition: none !important; transform: none !important; }
         }
       `}</style>
+      {confirmAction && (
+        <PortalConfirmModal th={th}
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          onConfirm={() => { confirmAction.run(); setConfirmAction(null); }}
+          onCancel={() => setConfirmAction(null)} />
+      )}
     </div>
   );
 }
@@ -28028,7 +28044,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.00";
+const APP_VERSION = "v21.01";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -51191,7 +51207,7 @@ function PCGPortal() {
           document.body
         )}
 
-        <div className="main-content-padding" style={{ padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : (tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
+        <div className="main-content-padding" style={{ padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : (tab === "district-alignment" || tab === "tools-hub") ? "1.5rem 1.25rem 1rem" : (tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
           {/* App-wide error boundary: any tab that throws during render shows a fallback
               instead of white-screening the whole app. key={tab} remounts it on tab change
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
