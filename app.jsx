@@ -6186,6 +6186,8 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
 
   const [saving, setSaving] = React.useState(false);
   const [showAddDm, setShowAddDm] = React.useState(null); // district number the "add DM" form is open for, or null
+  const [showNewDistrict, setShowNewDistrict] = React.useState(false); // creating a brand-new district number
+  const [newDistrictNum, setNewDistrictNum] = React.useState('');
   const [newDmName, setNewDmName] = React.useState('');
   const [newDmEmail, setNewDmEmail] = React.useState('');
 
@@ -6208,9 +6210,9 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
 
   const reassignStore = (pc, district) => callAction({ action: 'reassignStore', pc, district });
   const addDm = (district) => {
-    if (!newDmName.trim()) return;
+    if (!newDmName.trim() || !Number.isFinite(district) || district <= 0) return;
     callAction({ action: 'addDm', name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
-      setShowAddDm(null); setNewDmName(''); setNewDmEmail('');
+      setShowAddDm(null); setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail('');
     });
   };
   const removeDm = (dmId) => { if (window.confirm('Remove this DM from the draft? Their stores will show as Unassigned until reassigned.')) callAction({ action: 'removeDm', dmId }); };
@@ -6244,6 +6246,10 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
     (byDistrict[d] ||= []).push(pc);
   });
   const districtNums = Object.keys(byDistrict).map(Number).sort((a, b) => a - b);
+  // Includes districts that exist only as a DM entry with zero stores yet
+  // (freshly created via "+ New District"), so they're selectable in the
+  // reassign dropdown even before any store has been moved into them.
+  const selectableDistrictNums = Array.from(new Set([...districtNums, ...draft.dms.map(d => d.district)])).sort((a, b) => a - b);
 
   const nearestSiblingMiles = (pc, districtPcs) => {
     const coord = STORE_COORDS[pc];
@@ -6287,9 +6293,30 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
           Draft seeded {draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : '—'}. Editing here never changes the real Locations data.
         </div>
         {isAdmin && (
-          <button onClick={resetToLive} disabled={saving} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
-            ↺ Reset to live data
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {showNewDistrict ? (
+              <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', background: th.card2, padding: '0.3rem 0.5rem', borderRadius: 6, border: `1px solid ${th.cardBorder}` }}>
+                <input type="number" placeholder="District #" value={newDistrictNum} onChange={e => setNewDistrictNum(e.target.value)}
+                  style={{ width: 64, fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
+                <input placeholder="DM Name" value={newDmName} onChange={e => setNewDmName(e.target.value)}
+                  style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
+                <input placeholder="DM Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)}
+                  style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
+                <button onClick={() => addDm(Number(newDistrictNum))} disabled={saving || !newDistrictNum || !newDmName.trim()} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Save</button>
+                <button onClick={() => { setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail(''); }} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Cancel</button>
+              </span>
+            ) : (
+              <button
+                onClick={() => { setNewDistrictNum(String(Math.max(0, ...districtNums.filter(n => n > 0)) + 1)); setShowNewDistrict(true); }}
+                disabled={saving}
+                style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
+                + New District
+              </button>
+            )}
+            <button onClick={resetToLive} disabled={saving} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
+              ↺ Reset to live data
+            </button>
+          </div>
         )}
       </div>
       {actionError && (
@@ -6359,7 +6386,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
                           {isAdmin && (
                             <select value={dNum} disabled={saving} onChange={e => reassignStore(pc, Number(e.target.value))}
                               style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.68rem', padding: '0.1rem 0.3rem' }}>
-                              {districtNums.map(n => <option key={n} value={n}>{n ? `District ${n}` : 'Unassigned'}</option>)}
+                              {selectableDistrictNums.map(n => <option key={n} value={n}>{n ? `District ${n}` : 'Unassigned'}</option>)}
                             </select>
                           )}
                         </td>
@@ -27949,7 +27976,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.95";
+const APP_VERSION = "v20.96";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

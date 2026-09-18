@@ -6634,6 +6634,8 @@
     }, [activeStores]);
     const [saving, setSaving] = React.useState(false);
     const [showAddDm, setShowAddDm] = React.useState(null);
+    const [showNewDistrict, setShowNewDistrict] = React.useState(false);
+    const [newDistrictNum, setNewDistrictNum] = React.useState("");
     const [newDmName, setNewDmName] = React.useState("");
     const [newDmEmail, setNewDmEmail] = React.useState("");
     const callAction = (body) => {
@@ -6654,9 +6656,11 @@
     };
     const reassignStore = (pc, district) => callAction({ action: "reassignStore", pc, district });
     const addDm = (district) => {
-      if (!newDmName.trim()) return;
+      if (!newDmName.trim() || !Number.isFinite(district) || district <= 0) return;
       callAction({ action: "addDm", name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
         setShowAddDm(null);
+        setShowNewDistrict(false);
+        setNewDistrictNum("");
         setNewDmName("");
         setNewDmEmail("");
       });
@@ -6693,6 +6697,7 @@
       (byDistrict[d] ||= []).push(pc);
     });
     const districtNums = Object.keys(byDistrict).map(Number).sort((a, b) => a - b);
+    const selectableDistrictNums = Array.from(/* @__PURE__ */ new Set([...districtNums, ...draft.dms.map((d) => d.district)])).sort((a, b) => a - b);
     const nearestSiblingMiles = (pc, districtPcs) => {
       const coord = STORE_COORDS[pc];
       if (!coord) return null;
@@ -6727,7 +6732,48 @@
     const assetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "\u2014"}`;
     const thStyle = { textAlign: "left", padding: "0.4rem 0.6rem", fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", color: th.muted };
     const tdStyle = { padding: "0.4rem 0.6rem", fontSize: "0.76rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: "top" };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data."), isAdmin && /* @__PURE__ */ React.createElement("button", { onClick: resetToLive, disabled: saving, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) } }, "\u21BA Reset to live data")), actionError && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", marginBottom: "0.6rem", borderRadius: 6, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", fontSize: "0.78rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, actionError), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionError(""), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, districtNums.map((dNum) => {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Draft seeded ", draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : "\u2014", ". Editing here never changes the real Locations data."), isAdmin && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" } }, showNewDistrict ? /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.3rem", alignItems: "center", background: th.card2, padding: "0.3rem 0.5rem", borderRadius: 6, border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "number",
+        placeholder: "District #",
+        value: newDistrictNum,
+        onChange: (e) => setNewDistrictNum(e.target.value),
+        style: { width: 64, fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: `1px solid ${th.cardBorder}` }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        placeholder: "DM Name",
+        value: newDmName,
+        onChange: (e) => setNewDmName(e.target.value),
+        style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: `1px solid ${th.cardBorder}` }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        placeholder: "DM Email",
+        value: newDmEmail,
+        onChange: (e) => setNewDmEmail(e.target.value),
+        style: { fontSize: "0.7rem", padding: "0.15rem 0.4rem", borderRadius: 4, border: `1px solid ${th.cardBorder}` }
+      }
+    ), /* @__PURE__ */ React.createElement("button", { onClick: () => addDm(Number(newDistrictNum)), disabled: saving || !newDistrictNum || !newDmName.trim(), style: { fontSize: "0.7rem", cursor: "pointer" } }, "Save"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      setShowNewDistrict(false);
+      setNewDistrictNum("");
+      setNewDmName("");
+      setNewDmEmail("");
+    }, style: { fontSize: "0.7rem", cursor: "pointer" } }, "Cancel")) : /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => {
+          setNewDistrictNum(String(Math.max(0, ...districtNums.filter((n) => n > 0)) + 1));
+          setShowNewDistrict(true);
+        },
+        disabled: saving,
+        style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) }
+      },
+      "+ New District"
+    ), /* @__PURE__ */ React.createElement("button", { onClick: resetToLive, disabled: saving, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.72rem", opacity: saving ? 0.6 : 1 }) } }, "\u21BA Reset to live data"))), actionError && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", marginBottom: "0.6rem", borderRadius: 6, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", fontSize: "0.78rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, actionError), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionError(""), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 1400 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Net Sales", "Busiest Hours", "Nearest Sibling"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, districtNums.map((dNum) => {
       const pcs = byDistrict[dNum];
       const dm = draft.dms.find((d) => d.district === dNum);
       const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
@@ -6755,7 +6801,7 @@
             onChange: (e) => reassignStore(pc, Number(e.target.value)),
             style: { display: "block", marginTop: "0.25rem", fontSize: "0.68rem", padding: "0.1rem 0.3rem" }
           },
-          districtNums.map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n }, n ? `District ${n}` : "Unassigned"))
+          selectableDistrictNums.map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n }, n ? `District ${n}` : "Unassigned"))
         )), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, assetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, storeMgrName(s, users) || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, fmtMoney(m.netSales), m.netSalesDate && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, m.netSalesDate)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 1, height: 28 } }, (m.hourlyAvg || []).map((h) => /* @__PURE__ */ React.createElement(
           "div",
           {
@@ -22519,7 +22565,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v20.95";
+  var APP_VERSION = "v20.96";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
