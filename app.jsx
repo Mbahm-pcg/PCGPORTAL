@@ -6335,8 +6335,8 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
             </tr>
           </thead>
           <tbody>
-            {districtNums.map(dNum => {
-              const pcs = byDistrict[dNum];
+            {selectableDistrictNums.map(dNum => {
+              const pcs = byDistrict[dNum] || [];
               const dm = draft.dms.find(d => d.district === dNum);
               const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
               const spread = districtSpread(pcs);
@@ -6370,6 +6370,13 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
                       {spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : ''}
                     </td>
                   </tr>
+                  {pcs.length === 0 && (
+                    <tr style={{ background: districtTint(dc.bg) }}>
+                      <td colSpan={11} style={{ padding: '0.5rem 0.6rem', fontSize: '0.72rem', color: th.muted, fontStyle: 'italic' }}>
+                        No stores assigned yet — use a store's district dropdown below to move one here.
+                      </td>
+                    </tr>
+                  )}
                   {pcs.map(pc => {
                     const s = storeByPc[pc];
                     if (!s) return null;
@@ -27976,7 +27983,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.96";
+const APP_VERSION = "v20.97";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
