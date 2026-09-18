@@ -6283,7 +6283,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
   const thStyle = { position: 'sticky', top: 0, zIndex: 2, textAlign: 'left', padding: '0.55rem 0.6rem', fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap', color: th.muted, background: th.card2, boxShadow: `0 1px 0 ${th.cardBorder}` };
   const tdStyle = { padding: '0.55rem 0.6rem', fontSize: '0.76rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'top', transition: 'background 0.15s ease' };
   const metricDivider = { borderLeft: `2px solid ${O}26` };
-  const pillBtn = (color) => ({ marginLeft: '0.5rem', fontSize: '0.65rem', fontWeight: 700, background: color + '1a', border: `1px solid ${color}40`, borderRadius: 999, padding: '0.15rem 0.55rem', color, cursor: 'pointer', transition: 'transform 0.12s ease, background 0.15s ease' });
+  const pillBtn = (color) => ({ display: 'inline-block', marginLeft: '0.5rem', fontSize: '0.65rem', fontWeight: 700, whiteSpace: 'nowrap', background: color + '1a', border: `1px solid ${color}40`, borderRadius: 999, padding: '0.15rem 0.55rem', color, cursor: 'pointer', transition: 'transform 0.12s ease, background 0.15s ease' });
 
   // 11 columns total: 8 identity/contact columns (matching the Directory
   // view's own layout exactly, per spec) + 3 new metrics columns. A subtle
@@ -6328,7 +6328,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
           <button onClick={() => setActionError('')} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }} aria-label="Dismiss">×</button>
         </div>
       )}
-      <div style={{ overflowX: 'auto', maxHeight: '75vh', borderRadius: 10, border: `1px solid ${th.cardBorder}` }}>
+      <div style={{ overflowX: 'auto', borderRadius: 10, border: `1px solid ${th.cardBorder}` }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
           <thead>
             <tr>
@@ -6347,8 +6347,8 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
               return (
                 <React.Fragment key={dNum}>
                   <tr style={rowEnterStyle({ background: dc.bg })}>
-                    <td colSpan={8} style={{ padding: '0.5rem 0.6rem', fontSize: '0.78rem', fontWeight: 800, color: dc.text, display: 'flex', alignItems: 'center' }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: dc.text, marginRight: '0.5rem', flexShrink: 0, boxShadow: `0 0 0 3px ${dc.text}22` }} />
+                    <td colSpan={8} style={{ padding: '0.5rem 0.6rem', fontSize: '0.78rem', fontWeight: 800, color: dc.text, whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: dc.text, marginRight: '0.5rem', verticalAlign: 'middle', boxShadow: `0 0 0 3px ${dc.text}22` }} />
                       {dNum ? `District #${dNum}` : 'Unassigned'}
                       <span style={{ marginLeft: '0.4rem', fontWeight: 600, opacity: 0.85 }}>{dm ? dm.name : (dNum ? '— Unassigned' : '')}</span>
                       {isAdmin && dm && (
@@ -28028,7 +28028,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v20.99";
+const APP_VERSION = "v21.00";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
