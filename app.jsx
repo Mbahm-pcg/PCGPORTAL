@@ -6288,6 +6288,63 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
   const fmtHour = h => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toLocaleTimeString(undefined, { hour: 'numeric' }); };
   const assetCombined = s => `${s.isNextGen ? 'NXT-' : ''}${s.baseAsset || '—'}`;
 
+  // Builds a self-contained, forced-light-mode HTML string (not the live
+  // themed DOM) so the PDF is always readable regardless of dark/light mode —
+  // same approach the Store Directory PDF export already uses in this file.
+  const exportDistrictAlignmentPdf = () => {
+    const cell = "padding:2px 6px;font-size:8.5px;color:#1a1a1a;border-bottom:0.5px solid #ddd;";
+    const rowsHtml = (pcs, bg) => pcs.map(pc => {
+      const s = storeByPc[pc];
+      if (!s) return '';
+      const m = metrics[pc] || {};
+      const nearest = nearestSiblingMiles(pc, pcs);
+      const maxAvg = Math.max(1, ...((m.hourlyAvg || []).map(h => h.avgSales)));
+      const barsHtml = (m.hourlyAvg || []).map(h => `<div style="display:inline-block;width:3px;height:${Math.max(1, Math.round((h.avgSales / maxAvg) * 16))}px;background:${O};margin-right:1px;vertical-align:bottom;"></div>`).join('');
+      return `
+        <tr style="background:${bg};">
+          <td style="${cell}font-weight:700;color:#c2540c;">${s.pc}</td>
+          <td style="${cell}">${s.paycor || "—"}</td>
+          <td style="${cell}">${s.legal || "—"}</td>
+          <td style="${cell}font-weight:700;">${s.name || "—"}</td>
+          <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+          <td style="${cell}">${assetCombined(s)}</td>
+          <td style="${cell}">${storeMgrName(s, users) || "Unassigned"}</td>
+          <td style="${cell}">${s.email || "—"}</td>
+          <td style="${cell}">${fmtMoney(m.netSales)}${m.netSalesDate ? `<div style="font-size:6.5px;color:#888;">${m.netSalesDate}</div>` : ''}</td>
+          <td style="${cell}white-space:nowrap;height:16px;">${barsHtml}</td>
+          <td style="${cell}">${nearest != null ? `${Math.round(nearest * 10) / 10} mi` : '—'}</td>
+        </tr>`;
+    }).join('');
+    const districtsHtml = selectableDistrictNums.map(dNum => {
+      const pcs = byDistrict[dNum] || [];
+      const dm = draft.dms.find(d => d.district === dNum);
+      const dc = DISTRICT_COLORS[dNum] || { bg: '#e5e7eb', text: '#111' };
+      const spread = districtSpread(pcs);
+      return `
+        <tr style="background:${dc.bg};">
+          <td colspan="8" style="padding:3px 6px;font-size:9.5px;font-weight:800;color:${dc.text};">${dNum ? `District #${dNum}${dm ? " " + dm.name : " — Unassigned"}` : "Unassigned"}</td>
+          <td colspan="3" style="padding:3px 6px;font-size:8.5px;font-weight:700;color:${dc.text};text-align:right;">${spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : ''}</td>
+        </tr>
+        ${pcs.length === 0 ? `<tr><td colspan="11" style="${cell}font-style:italic;color:#888;">No stores assigned yet</td></tr>` : rowsHtml(pcs, districtTint(dc.bg))}`;
+    }).join('');
+    const el = document.createElement('div');
+    el.innerHTML = `
+      <div style="font-family:'Source Sans 3',sans-serif;background:#fff;padding:2px;">
+        <div style="font-family:'Raleway',sans-serif;font-weight:800;font-size:14px;color:#1a1a1a;margin-bottom:1px;">People Capital Group — District Alignment (Draft)</div>
+        <div style="font-size:8px;color:#888;margin-bottom:5px;">Generated ${new Date().toLocaleDateString()} — sandbox draft only; never reflects or affects the real Locations data.</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#e5e7eb;">
+              ${['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Net Sales', 'Busiest Hours', 'Nearest Sibling'].map(h => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>${districtsHtml}</tbody>
+        </table>
+      </div>`;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    html2pdf().set({ margin: 0.15, filename: `PCG-District-Alignment-Draft-${dateStr}.pdf`, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: "in", format: "letter", orientation: "landscape" }, pagebreak: { mode: ["css", "legacy"] } }).from(el).save();
+  };
+
   const thStyle = { position: 'sticky', top: 0, zIndex: 2, textAlign: 'left', padding: '0.55rem 0.6rem', fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap', color: th.muted, background: th.card2, boxShadow: `0 1px 0 ${th.cardBorder}` };
   const tdStyle = { padding: '0.55rem 0.6rem', fontSize: '0.76rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'top', transition: 'background 0.15s ease' };
   const metricDivider = { borderLeft: `2px solid ${O}26` };
@@ -6303,8 +6360,12 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
         <div style={{ fontSize: '0.78rem', color: th.muted }}>
           Draft seeded {draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : '—'}. Editing here never changes the real Locations data.
         </div>
-        {isAdmin && (
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="da-btn" onClick={exportDistrictAlignmentPdf} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem' }) }}>
+            ⬇ Download as PDF
+          </button>
+          {isAdmin && (
+            <>
             {showNewDistrict ? (
               <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', background: th.card2, padding: '0.3rem 0.5rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, animation: 'daPopIn 0.18s ease-out both' }}>
                 <input type="number" placeholder="District #" value={newDistrictNum} onChange={e => setNewDistrictNum(e.target.value)}
@@ -6327,8 +6388,9 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
             <button className="da-btn" onClick={resetToLive} disabled={saving} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
               ↺ Reset to live data
             </button>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
       {actionError && (
         <div style={{ padding: '0.5rem 0.75rem', marginBottom: '0.6rem', borderRadius: 8, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', animation: 'daPopIn 0.2s ease-out both' }}>
@@ -28044,7 +28106,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.01";
+const APP_VERSION = "v21.02";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
