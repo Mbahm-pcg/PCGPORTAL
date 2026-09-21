@@ -246,7 +246,7 @@ async function getAccessToken() {
 }
 
 /** Call the Paycor REST API. Retries once on 401. */
-async function callPaycor(path, method = 'GET', _retried = false) {
+export async function callPaycor(path, method = 'GET', _retried = false) {
   const token = await getAccessToken();
   const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
 
@@ -405,7 +405,7 @@ async function fetchPunches(legalEntityId, startDate, endDate) {
  * Fetch scheduling shifts for a legal entity for a date range (Paycor Scheduling system).
  * Returns array of shift objects with employeeId, employeeName, startDateTime, endDateTime, etc.
  */
-async function fetchSchedulingShifts(legalEntityId, startDate, endDate) {
+export async function fetchSchedulingShifts(legalEntityId, startDate, endDate) {
   try {
     let allShifts = [];
     let path = `/legalentities/${legalEntityId}/schedulingShifts?startDate=${startDate}&endDate=${endDate}`;

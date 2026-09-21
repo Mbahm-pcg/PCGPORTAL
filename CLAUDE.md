@@ -70,6 +70,7 @@ netlify/functions/
   labor-cron-background.js    — Background wrapper for manual refresh (15-min timeout)
   labor-cron-warmup.js        — Saturday pre-warm
   schedule-alerts.js          — Labor schedule risk alerts (≥26% projected → DM/mgr push+email)
+  no-clockin-cron.mjs         — No clock-in alerts: 30 min → manager, 60 min → absent to manager + DM (SMS + push + email)
   # ── Orion Analyst (AI) ──
   analyst.js                  — Analyst entry
   analyst-cron.js             — Scheduled analyst runs (DM briefs, anomaly scans, exec reports)
@@ -131,6 +132,7 @@ npx netlify status           # Check auth + site link
 | `pulse-hourly-snapshot` | `30 2 * * *` | sales + weather snapshot |
 | `analyst-cron` | `0 11,14 * * *` | DM briefs + anomaly/exec reports |
 | `schedule-alerts` | `0 10 * * 1,4` | Mon/Thu 6am ET labor risk alerts |
+| `no-clockin-cron` | `*/15 * * * *` | log-only until `NO_CLOCKIN_LIVE=true`; scheduled shifts with no punch |
 | `reports-backup` | `59 4 * * *` | nightly rolling 7-day backup |
 | `kb-sync-background` | `0 10 * * 1` | Mon weekly Drive KB sync |
 | `reconciliation-cron` | `1 4 * * 0,2` | Sun snapshot / Tue compare |
@@ -303,6 +305,7 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
 | `GOOGLE_SHARED_MAILBOX` | Shared mailbox for email workspace |
 | `NOTIFY_FROM` / `PULSE_NOTIFY_EMAIL` / `SMTP_FROM_DOMAIN` | Email sender config |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | SMS |
+| `NO_CLOCKIN_LIVE` / `TEXTBELT_API_KEY` | `true` enables real sends for no-clockin-cron (unset = log-only); Textbelt SMS key (what sms.mjs / pulse-notify / no-clockin actually use) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL` / `VAPID_SUBJECT` | Web push |
 
 ---
