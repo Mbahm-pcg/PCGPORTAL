@@ -71,6 +71,8 @@ netlify/functions/
   labor-cron-warmup.js        — Saturday pre-warm
   schedule-alerts.js          — Labor schedule risk alerts (≥26% projected → DM/mgr push+email)
   no-clockin-cron.mjs         — No clock-in alerts: 30 min → manager, 60 min → absent to manager + DM (SMS + push + email)
+  no-clockin.mjs              — Manual exec/IT endpoint for it: dry run + `?sendTest=1` (scheduled fns can't be hit over HTTP — empty 403)
+  no-clockin-lib/run.mjs      — Shared engine used by both
   # ── Orion Analyst (AI) ──
   analyst.js                  — Analyst entry
   analyst-cron.js             — Scheduled analyst runs (DM briefs, anomaly scans, exec reports)

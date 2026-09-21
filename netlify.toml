@@ -55,6 +55,11 @@
 [functions.system-health-cron]
   schedule = "*/30 * * * *"
 
+# No clock-in alerts — every 15 min. Log-only until env NO_CLOCKIN_LIVE=true. Manual dry
+# run / test send: POST /.netlify/functions/no-clockin (exec/IT session).
+[functions.no-clockin-cron]
+  schedule = "*/15 * * * *"
+
 # Daily reports backup — 11:59 PM ET (4:59 AM UTC). Keeps 7 days of rolling backups.
 [functions.reports-backup]
   schedule = "59 4 * * *"
