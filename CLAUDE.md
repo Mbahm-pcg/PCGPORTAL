@@ -307,7 +307,7 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
 | `GOOGLE_SHARED_MAILBOX` | Shared mailbox for email workspace |
 | `NOTIFY_FROM` / `PULSE_NOTIFY_EMAIL` / `SMTP_FROM_DOMAIN` | Email sender config |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | SMS |
-| `NO_CLOCKIN_LIVE` / `TEXTBELT_API_KEY` | `true` enables real sends for no-clockin-cron (unset = log-only); Textbelt SMS key (what sms.mjs / pulse-notify / no-clockin actually use) |
+| `NO_CLOCKIN_LIVE` / `NO_CLOCKIN_SHADOW_USER` / `TEXTBELT_API_KEY` | no-clockin-cron mode: unset = log-only, `shadow` = alerts go ONLY to the username in `NO_CLOCKIN_SHADOW_USER` (labelled with who they'd reach), `true` = real managers/DMs; Textbelt SMS key (what sms.mjs / pulse-notify / no-clockin actually use) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL` / `VAPID_SUBJECT` | Web push |
 
 ---

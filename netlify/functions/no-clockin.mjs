@@ -18,7 +18,7 @@ export default async (request) => {
   const url = new URL(request.url);
   try {
     if (url.searchParams.get('sendTest') === '1') return json(await sendTestAlert(caller.sub));
-    return json({ dryRun: true, ...(await runNoClockin({ live: false })) });
+    return json({ dryRun: true, ...(await runNoClockin({ mode: 'off' })) });
   } catch (e) {
     return json({ error: e.message }, 500);
   }

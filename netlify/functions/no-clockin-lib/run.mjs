@@ -43,7 +43,7 @@ function contactsFor(role, store, users, storeRecord) {
     if (found.length) return found;
     // No account: fall back to the store record's phone and the store's own email address.
     return storeRecord && (storeRecord.mgrPhone || storeRecord.email)
-      ? [{ id: null, phone: storeRecord.mgrPhone || null, email: storeRecord.email || null }] : [];
+      ? [{ id: null, name: storeRecord.mgr ? `${storeRecord.mgr} (store email)` : 'store email', phone: storeRecord.mgrPhone || null, email: storeRecord.email || null }] : [];
   }
   if (role === 'dm') {
     return users.filter(u => u.user_type === 'dm' && Number(u.district) === Number(store.district));
@@ -74,13 +74,28 @@ export async function sendTestAlert(userId) {
 }
 
 /**
- * One full check. live=false computes and returns what WOULD be sent without sending
- * anything or writing state; live=true sends and records state.
+ * One full check. mode 'off' returns what WOULD be sent without sending anything or
+ * writing state; 'shadow' and 'live' send (see the mode notes below) and record state.
  */
-export async function runNoClockin({ live }) {
+export async function runNoClockin({ mode = 'off' }) {
   const started = Date.now();
   const bs = blobStore();
   const nowMs = Date.now();
+
+  // Modes: 'off' = compute + return only (nothing sent, no state written); 'shadow' = every
+  // alert goes ONLY to the user named in NO_CLOCKIN_SHADOW_USER, labelled with who it would
+  // have reached; 'live' = real recipients. Shadow keeps its own dedupe state so switching to
+  // live later doesn't suppress real alerts for shifts already seen in shadow.
+  let shadowUser = null;
+  if (mode === 'shadow') {
+    const uname = process.env.NO_CLOCKIN_SHADOW_USER;
+    try {
+      const rows = uname ? await sql()`SELECT id, name, email, phone FROM users WHERE username = ${uname} AND active = true` : [];
+      shadowUser = rows[0] || null;
+    } catch { shadowUser = null; }
+    if (!shadowUser) { console.warn('[no-clockin] shadow mode needs NO_CLOCKIN_SHADOW_USER to match an active user; falling back to off'); mode = 'off'; }
+  }
+  const stateKey = mode === 'shadow' ? `${STATE_KEY}_shadow` : STATE_KEY;
 
   // Operational stores only (same fail-open approach as system-health-cron).
   const storeRecords = {};
@@ -92,7 +107,7 @@ export async function runNoClockin({ live }) {
   }
   const stores = STORES.filter(s => !openPcs || openPcs.has(s.pc));
 
-  let state = (await loadJson(bs, STATE_KEY)) || {};
+  let state = (await loadJson(bs, stateKey)) || {};
   const from = etDate(nowMs, -1), to = etDate(nowMs, 1);
   const statusCounts = {};
   const allAlerts = [];
@@ -143,16 +158,26 @@ export async function runNoClockin({ live }) {
     }
   }
 
-  if (live) {
+  if (mode === 'live') {
     for (const m of messages) {
       if (!m.recipients.length) { console.warn('[no-clockin] no recipients for', m.stage, m.storeName); continue; }
       await deliver(bs, m.recipients, m.subject, m.text);
     }
-    await bs.setJSON(STATE_KEY, { savedAt: new Date().toISOString(), data: pruneState(state, nowMs) });
+  } else if (mode === 'shadow') {
+    const me = [{ id: shadowUser.id, email: shadowUser.email, phone: shadowUser.phone }];
+    for (const m of messages) {
+      const who = m.recipients.length
+        ? uniq(m.recipients.map(r => r.name || r.email || r.phone || 'store contact')).join(', ')
+        : 'nobody (no contact on file)';
+      await deliver(bs, me, `[SHADOW] ${m.subject}`, `[SHADOW] ${m.text} Would go to: ${who}.`);
+    }
+  }
+  if (mode !== 'off') {
+    await bs.setJSON(stateKey, { savedAt: new Date().toISOString(), data: pruneState(state, nowMs) });
   }
 
   return {
-    ok: true, live, truncated, stores: stores.length, candidates: candidateCount,
+    ok: true, mode, truncated, stores: stores.length, candidates: candidateCount,
     punchStatuses: statusCounts,
     messages: messages.map(m => ({ stage: m.stage, store: m.storeName, subject: m.subject, text: m.text, recipients: m.recipients.length })),
   };
