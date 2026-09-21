@@ -16091,7 +16091,7 @@ ${t2.slice(0, 300)}`);
       }
     );
   }
-  function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel }) {
+  function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel, seedUserTypes }) {
     const [emails, setEmails] = useState(null);
     const [phones, setPhones] = useState(null);
     const [emailOwners, setEmailOwners] = useState(null);
@@ -16103,6 +16103,14 @@ ${t2.slice(0, 300)}`);
     const [saving, setSaving] = useState(false);
     useEffect(() => {
       cloudLoad(blobKey).then((d) => {
+        if (!d?.updatedAt && seedUserTypes && (users || []).length) {
+          const seed = (users || []).filter((u) => u.active !== false && u.email && seedUserTypes.includes(u.userType));
+          setEmails(seed.map((u) => u.email));
+          setEmailOwners(seed.map((u) => u.id));
+          setPhones([]);
+          setPhoneOwners([]);
+          return;
+        }
         const nextEmails = Array.isArray(d?.emails) ? d.emails : [];
         const nextPhones = Array.isArray(d?.phones) ? d.phones : [];
         setEmails(nextEmails);
@@ -16115,7 +16123,7 @@ ${t2.slice(0, 300)}`);
         setEmailOwners([]);
         setPhoneOwners([]);
       });
-    }, [blobKey]);
+    }, [blobKey, (users || []).length > 0]);
     const persist = async (nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners) => {
       setSaving(true);
       const ok = await cloudSave(blobKey, { emails: nextEmails, phones: nextPhones, emailOwners: nextEmailOwners, phoneOwners: nextPhoneOwners, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), updatedBy: user?.username || user?.email || "unknown" });
@@ -16237,7 +16245,7 @@ ${t2.slice(0, 300)}`);
           if (e.key === "Enter") addEmail();
         }
       }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: addEmail, disabled: saving, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, formatPhone(phone))), /* @__PURE__ */ React.createElement("button", { onClick: () => removePhone(idx), disabled: saving, style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("button", { onClick: addEmail, disabled: saving, style: btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" }) }, "+ Add")), smsLabel && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" } }, "\u{1F4F1}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.875rem", color: th.text, fontWeight: 500 } }, formatPhone(phone))), /* @__PURE__ */ React.createElement("button", { onClick: () => removePhone(idx), disabled: saving, style: { background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 } }, "Remove")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         style: { ...inp(th), flex: 1 },
@@ -16446,7 +16454,8 @@ ${t2.slice(0, 300)}`);
       { id: "project", icon: "\u{1F4E7}", label: "Project", count: globalNotifyEmails.length },
       { id: "ticket", icon: "\u{1F3AB}", label: "Ticket", count: (ticketNotifyEmails || []).length },
       ...isFullAdmin(user) ? [{ id: "fleet", icon: "\u{1F697}", label: "Car", count: null }] : [],
-      ...isFullAdmin(user) ? [{ id: "foodLicense", icon: "\u{1F4CB}", label: "Food License", count: null }] : []
+      ...isFullAdmin(user) ? [{ id: "foodLicense", icon: "\u{1F4CB}", label: "Food License", count: null }] : [],
+      ...isFullAdmin(user) ? [{ id: "systemHealth", icon: "\u{1FA7A}", label: "System Health", count: null }] : []
     ].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -16536,6 +16545,17 @@ ${t2.slice(0, 300)}`);
         blobKey: "pcg_food_license_notify_v1",
         description: "These email addresses and phone numbers receive food license due-date reminders at 30/14/7 days out, for every store's food license on file.",
         smsLabel: "Food License SMS Numbers"
+      }
+    ), notifSubTab === "systemHealth" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_system_health_notify_v1",
+        seedUserTypes: ["executive", "it"],
+        description: "These email addresses receive System Health DOWN / recovered alerts (push goes to anyone added by name). By default that's every active VP and IT user \u2014 remove anyone here to stop their alerts; from your first change on, only this list gets them."
       }
     )), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
       "button",
@@ -22676,7 +22696,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.02";
+  var APP_VERSION = "v21.04";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

@@ -18580,7 +18580,7 @@ function FleetAlertAccessPanel({ th, user, users, showAlert }) {
 // Fleet, just a separate blob key. Generic version (not copy-pasted) since
 // this is now the second identical pattern; parameterized by blobKey/label
 // so a third one later doesn't need another near-duplicate component.
-function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, description, smsLabel }) {
+function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, description, smsLabel, seedUserTypes }) {
   const [emails, setEmails] = useState(null);
   const [phones, setPhones] = useState(null);
   // Parallel arrays: emailOwners[i]/phoneOwners[i] is the Portal user id that
@@ -18599,6 +18599,16 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
   useEffect(() => {
     cloudLoad(blobKey)
       .then(d => {
+        // Never-saved list + seedUserTypes: show the people who ALREADY receive this by
+        // default (e.g. System Health goes to all active VP/IT until configured), so the
+        // list matches reality and removing someone actually blocks them. Display only —
+        // nothing is written until the first add/remove.
+        if (!d?.updatedAt && seedUserTypes && (users || []).length) {
+          const seed = (users || []).filter(u => u.active !== false && u.email && seedUserTypes.includes(u.userType));
+          setEmails(seed.map(u => u.email)); setEmailOwners(seed.map(u => u.id));
+          setPhones([]); setPhoneOwners([]);
+          return;
+        }
         const nextEmails = Array.isArray(d?.emails) ? d.emails : [];
         const nextPhones = Array.isArray(d?.phones) ? d.phones : [];
         setEmails(nextEmails); setPhones(nextPhones);
@@ -18606,7 +18616,8 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
         setPhoneOwners(Array.isArray(d?.phoneOwners) && d.phoneOwners.length === nextPhones.length ? d.phoneOwners : nextPhones.map(() => null));
       })
       .catch(() => { setEmails([]); setPhones([]); setEmailOwners([]); setPhoneOwners([]); });
-  }, [blobKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blobKey, (users || []).length > 0]);
 
   const persist = async (nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners) => {
     setSaving(true);
@@ -18740,7 +18751,8 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
         <button onClick={addEmail} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
       </div>
 
-      <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
+      {/* SMS section omitted when no smsLabel is passed (e.g. System Health — email/push only) */}
+      {smsLabel && <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
           <span style={{ fontSize: "1.125rem" }}>📱</span>
           <span style={{ fontWeight: 700, fontSize: "0.95rem", color: th.text }}>{smsLabel}</span>
@@ -18765,7 +18777,7 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
             onKeyDown={e => { if (e.key === "Enter") addPhone(); }} />
           <button onClick={addPhone} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -18996,6 +19008,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             { id: 'ticket',  icon: '🎫', label: 'Ticket',  count: (ticketNotifyEmails || []).length },
             ...(isFullAdmin(user) ? [{ id: 'fleet', icon: '🚗', label: 'Car', count: null }] : []),
             ...(isFullAdmin(user) ? [{ id: 'foodLicense', icon: '📋', label: 'Food License', count: null }] : []),
+            ...(isFullAdmin(user) ? [{ id: 'systemHealth', icon: '🩺', label: 'System Health', count: null }] : []),
           ].map(t => (
             <button key={t.id} onClick={() => setNotifSubTab(t.id)}
               style={{
@@ -19128,6 +19141,12 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_food_license_notify_v1"
           description="These email addresses and phone numbers receive food license due-date reminders at 30/14/7 days out, for every store's food license on file."
           smsLabel="Food License SMS Numbers" />
+      )}
+
+      {/* System Health — full admins only */}
+      {notifSubTab === 'systemHealth' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_system_health_notify_v1" seedUserTypes={['executive', 'it']}
+          description="These email addresses receive System Health DOWN / recovered alerts (push goes to anyone added by name). By default that's every active VP and IT user — remove anyone here to stop their alerts; from your first change on, only this list gets them." />
       )}
       </div>
 
@@ -28106,7 +28125,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.02";
+const APP_VERSION = "v21.04";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
