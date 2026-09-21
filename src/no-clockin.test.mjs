@@ -22,9 +22,9 @@ describe('normalizeShift', () => {
 describe('candidateShifts', () => {
   test('29 min after start is too early', () => assert.strictEqual(candidateShifts([shift()], at(29)).length, 0));
   test('30 min after start is a candidate', () => assert.strictEqual(candidateShifts([shift()], at(30)).length, 1));
-  test('180 min is still a candidate, 181 is not', () => {
-    assert.strictEqual(candidateShifts([shift()], at(180)).length, 1);
-    assert.strictEqual(candidateShifts([shift()], at(181)).length, 0);
+  test('90 min is still a candidate, 91 is not', () => {
+    assert.strictEqual(candidateShifts([shift()], at(90)).length, 1);
+    assert.strictEqual(candidateShifts([shift()], at(91)).length, 0);
   });
   test('shift that already ended is skipped', () => {
     assert.strictEqual(candidateShifts([shift({ endDateTime: '2026-09-21T10:20:00Z' })], at(40)).length, 0);
@@ -127,6 +127,7 @@ describe('pruneState / helpers', () => {
   test('shortName', () => {
     assert.strictEqual(shortName('Jane Doe'), 'Jane D.');
     assert.strictEqual(shortName('William Isaac Feliciano'), 'William F.');
+    assert.strictEqual(shortName('Nathan c'), 'Nathan C.');
     assert.strictEqual(shortName('Prince'), 'Prince');
     assert.strictEqual(shortName(''), 'Employee');
   });

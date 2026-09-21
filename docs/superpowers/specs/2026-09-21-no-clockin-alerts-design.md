@@ -16,7 +16,7 @@ Managers often add hours by hand because employees forget to clock in, which hur
 
 - Scheduled `*/15 * * * *`. Store list comes from the `pcg_stores_v1` blob, `status === 'Open'` only (same approach as `system-health-cron.mjs`).
 - Each run:
-  1. Pre-filter using the saved `pcg_schedule_{pc}` blob: shifts that started 30 minutes to 3 hours ago.
+  1. Pre-filter using the saved `pcg_schedule_{pc}` blob: shifts that started 30 to 90 minutes ago (a shorter look-back also keeps the first live run from sending stale "absent" alerts for old shifts).
   2. For stores with candidates, re-fetch that store's live `schedulingShifts` from Paycor so a shift the manager removed or moved does not alert.
   3. For each remaining candidate, call `employeePunches`. The employee counts as clocked in if any punch exists from 60 minutes before the shift start until now (covers early clockers and split shifts).
 - Paycor calls are per employee for punches (the bulk punches endpoint only returns completed shifts), so only people whose shift already started and who have no punch on file are checked.

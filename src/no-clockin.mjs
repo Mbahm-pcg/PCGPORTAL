@@ -6,7 +6,7 @@
 const MIN = 60000;
 export const WARN_MIN = 30;
 export const ABSENT_MIN = 60;
-export const MAX_AGE_MIN = 180;   // stop considering a shift this long after it started
+export const MAX_AGE_MIN = 90;    // stop considering a shift this long after it started (keeps a fresh go-live from sending stale "absent" alerts)
 export const PRE_START_MIN = 60;  // a punch this early before start still counts as clocked in
 export const MASS_MISS = 3;       // this many missing at one store = probably a data problem
 export const STATE_TTL_DAYS = 14;
@@ -114,7 +114,7 @@ export function fmtEt(ms) {
 export function shortName(full) {
   const p = String(full || '').trim().split(/\s+/).filter(Boolean);
   if (!p.length) return 'Employee';
-  return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : p[0];
+  return p.length > 1 ? `${p[0]} ${p[p.length - 1][0].toUpperCase()}.` : p[0];
 }
 
 /** Turn a store's alerts into one message per stage, each with its audience. */

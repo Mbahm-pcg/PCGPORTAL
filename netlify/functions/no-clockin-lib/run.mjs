@@ -36,9 +36,14 @@ async function fetchPunches(employeeId, from, to, statusCounts) {
 
 function contactsFor(role, store, users, storeRecord) {
   if (role === 'manager') {
-    const found = users.filter(u => u.user_type === 'manager' && String(u.store_pc) === store.pc);
+    // A manager account linked to the store, or matching the store record's manager name.
+    const mgrName = String(storeRecord?.mgr || '').trim().toLowerCase();
+    const found = users.filter(u => u.user_type === 'manager'
+      && (String(u.store_pc) === store.pc || (mgrName && String(u.name || '').trim().toLowerCase() === mgrName)));
     if (found.length) return found;
-    return storeRecord && storeRecord.mgrPhone ? [{ id: null, phone: storeRecord.mgrPhone, email: storeRecord.email || null }] : [];
+    // No account: fall back to the store record's phone and the store's own email address.
+    return storeRecord && (storeRecord.mgrPhone || storeRecord.email)
+      ? [{ id: null, phone: storeRecord.mgrPhone || null, email: storeRecord.email || null }] : [];
   }
   if (role === 'dm') {
     return users.filter(u => u.user_type === 'dm' && Number(u.district) === Number(store.district));
@@ -130,7 +135,10 @@ export async function runNoClockin({ live }) {
     const record = storeRecords[store.pc];
     const districtStore = { ...store, district: record?.district ?? store.district };
     for (const m of buildMessages(forStore)) {
-      const recipients = m.audience.flatMap(role => contactsFor(role, districtStore, users, record));
+      // If a store has no manager contact at all, the DM gets the alert instead of nobody.
+      const mgr = m.audience.includes('manager') ? contactsFor('manager', districtStore, users, record) : [];
+      const dm = contactsFor('dm', districtStore, users, record);
+      const recipients = [...(mgr.length ? mgr : dm), ...(m.audience.includes('dm') ? dm : [])];
       messages.push({ ...m, recipients });
     }
   }
