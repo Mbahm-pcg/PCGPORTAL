@@ -12,13 +12,20 @@ export function isManagerTitle(title) {
   return t.includes('manager') && !t.includes('assistant');
 }
 
-/** Active employees (caller has already filtered to Active) whose title matches. */
+/** Active employees (caller has already filtered to Active) whose title matches.
+ *  Confirmed live 2026-09-22 against real Paycor data: /employees always returns a bare
+ *  top-level `jobTitle: null` — the real title lives at `positionData.jobTitle`. The old
+ *  `emp.jobTitle || emp.department` fallback picked up `department` (an object, not a
+ *  string) instead, which stringifies to "[object Object]" and can never contain "manager"
+ *  — this was the actual cause of a 0-matches-at-every-store result on the first live run,
+ *  not a real title-wording mismatch. `emp.jobTitle` is kept as a last-resort fallback in
+ *  case some record ever does carry it directly, but positionData is the real source. */
 export function managerMatches(employees) {
   const out = [];
   for (const emp of employees || []) {
     const employeeId = emp.id || emp.employeeId;
     if (!employeeId) continue;
-    const jobTitle = emp.jobTitle || emp.department || '';
+    const jobTitle = emp.positionData?.jobTitle || emp.jobTitle || '';
     if (!isManagerTitle(jobTitle)) continue;
     const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
     out.push({ employeeId, name, jobTitle });

@@ -24,20 +24,51 @@ describe('isManagerTitle', () => {
 });
 
 describe('managerMatches', () => {
-  test('keeps only manager-titled employees, normalizing id/name fields', () => {
+  // Paycor's /employees always returns a bare top-level jobTitle: null — real title data
+  // lives at positionData.jobTitle. Confirmed live 2026-09-22 against Elkins Park's real
+  // roster (39 employees): the store's actual manager, Dilara Begum, has top-level
+  // jobTitle: null and positionData.jobTitle: "Store Managers".
+  const realShapeEmp = (over) => ({
+    id: 'e1', firstName: 'Dilara', lastName: 'Begum',
+    jobTitle: null, // Paycor always returns this null — must not be the only field read
+    department: { id: 'guid-1234', url: '/v1/legalentities/1/departments/guid-1234' }, // an OBJECT, never a usable title string
+    positionData: { jobTitle: 'Store Managers', jobCode: null },
+    ...over,
+  });
+
+  test('reads the real title from positionData.jobTitle, not the always-null top-level field', () => {
+    const out = managerMatches([realShapeEmp()]);
+    assert.deepStrictEqual(out, [{ employeeId: 'e1', name: 'Dilara Begum', jobTitle: 'Store Managers' }]);
+  });
+  test('the department OBJECT is never mistaken for a title string (the original 0-matches-everywhere bug)', () => {
+    // Before the fix, `emp.jobTitle || emp.department` picked up this object and
+    // stringified it to "[object Object]" for every single employee at every store.
+    const out = managerMatches([realShapeEmp({ positionData: { jobTitle: null } })]);
+    assert.strictEqual(out.length, 0); // no positionData title at all -> correctly no match, never "[object Object]"
+  });
+  test('a real subordinate with a non-manager positionData title is excluded', () => {
+    // Irin Sultana, Elkins Park: positionData.jobTitle "Shift Leaders", reports to Dilara Begum.
+    const out = managerMatches([realShapeEmp({ id: 'e2', firstName: 'Irin', lastName: 'Sultana', positionData: { jobTitle: 'Shift Leaders' } })]);
+    assert.strictEqual(out.length, 0);
+  });
+  test('keeps only manager-titled employees, normalizing id/name fields, across several records', () => {
     const employees = [
-      { id: 'e1', firstName: 'Jane', lastName: 'Doe', jobTitle: 'Store Manager' },
-      { employeeId: 'e2', firstName: 'Bob', lastName: 'Smith', jobTitle: 'Assistant Manager' },
-      { id: 'e3', firstName: 'Ann', lastName: 'Lee', department: 'General Manager' },
-      { id: 'e4', firstName: 'Sam', lastName: 'Kim', jobTitle: 'Crew Member' },
+      realShapeEmp({ id: 'e1', firstName: 'Jane', lastName: 'Doe', positionData: { jobTitle: 'Store Manager' } }),
+      realShapeEmp({ id: 'e2', firstName: 'Bob', lastName: 'Smith', positionData: { jobTitle: 'Assistant Manager' } }),
+      realShapeEmp({ id: 'e3', firstName: 'Ann', lastName: 'Lee', positionData: { jobTitle: 'General Manager' } }),
+      realShapeEmp({ id: 'e4', firstName: 'Sam', lastName: 'Kim', positionData: { jobTitle: 'Crew Member' } }),
     ];
     const out = managerMatches(employees);
     assert.deepStrictEqual(out.map(m => m.employeeId), ['e1', 'e3']);
     assert.deepStrictEqual(out[0], { employeeId: 'e1', name: 'Jane Doe', jobTitle: 'Store Manager' });
     assert.deepStrictEqual(out[1], { employeeId: 'e3', name: 'Ann Lee', jobTitle: 'General Manager' });
   });
+  test('falls back to a top-level jobTitle if positionData has none (defensive, not the normal case)', () => {
+    const out = managerMatches([realShapeEmp({ jobTitle: 'Store Manager', positionData: { jobTitle: null } })]);
+    assert.strictEqual(out.length, 1);
+  });
   test('skips a record with no usable id', () => {
-    assert.strictEqual(managerMatches([{ firstName: 'No', lastName: 'Id', jobTitle: 'Store Manager' }]).length, 0);
+    assert.strictEqual(managerMatches([realShapeEmp({ id: undefined })]).length, 0);
   });
 });
 
