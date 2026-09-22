@@ -42,6 +42,17 @@ export default async (request) => {
     return json({ nameSearch, rows });
   }
 
+  // Confirmed root cause for Elkins Park: an active manager row (Dilara Begum) exists but
+  // store_pc is null, so runManagerSync's linkedByPc grouping never indexes her under any
+  // store — not a name-match miss, an unindexed account. Checking scope: is she the only
+  // active manager missing a store_pc, or is this a wider gap across other stores too?
+  const orphans = url.searchParams.get('orphanCheck');
+  if (orphans) {
+    const db = sql();
+    const rows = await db`SELECT id, name, username, store_pc, paycor_employee_id FROM users WHERE user_type = 'manager' AND active = true AND store_pc IS NULL`;
+    return json({ orphanedActiveManagers: rows });
+  }
+
   const pcFilter = url.searchParams.get('pc');
   const limit = Number(url.searchParams.get('limit') || 5);
   const targets = pcFilter ? STORES.filter(s => s.pc === pcFilter) : STORES.slice(0, limit);
