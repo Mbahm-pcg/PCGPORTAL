@@ -134,11 +134,16 @@ export function buildMessages(alerts) {
       text = `${storeName}: ${list[0].count} scheduled employees show no clock-in. Punch data may be unavailable — please verify.`;
     } else {
       const people = list.map(a => `${shortName(a.name)} (${fmtEt(a.startMs)})`).join(', ');
+      // Distinct shift times in this batch, e.g. "(10:00a)" or "(4:00a/4:30a)" — without this,
+      // a store's separate no-clock-in incidents hours apart all share the exact same subject
+      // ("No clock-in — Street Rd"), so an email client threads them into one conversation and
+      // a later, different incident can look like a repeat of the first and get skipped.
+      const times = [...new Set(list.map(a => fmtEt(a.startMs)))].join('/');
       if (stage === 'warn30') {
-        subject = `No clock-in — ${storeName}`;
+        subject = `No clock-in — ${storeName} (${times})`;
         text = `${storeName}: no clock-in yet — ${people}. Shift started 30+ min ago.`;
       } else {
-        subject = `Absent — ${storeName}`;
+        subject = `Absent — ${storeName} (${times})`;
         text = `${storeName}: marked ABSENT (no clock-in after 60 min) — ${people}.`;
       }
     }

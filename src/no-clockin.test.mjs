@@ -145,6 +145,23 @@ describe('buildMessages', () => {
     assert.match(m.text, /4 scheduled employees/);
     assert.match(m.text, /verify/i);
   });
+  // Confirmed live 2026-09-22: two genuinely different incidents hours apart at the same
+  // store shared the exact subject "No clock-in — Street Rd", so Gmail threaded them into one
+  // conversation and the newer one read as a repeat of the older. The subject must include a
+  // shift time so different incidents at the same store never collide.
+  test('subject includes the shift time, so different incidents at one store never share a subject', () => {
+    const [warn] = buildMessages([mk('warn30', 'Jane Doe')]);
+    assert.strictEqual(warn.subject, 'No clock-in — Wadsworth (6:00a)');
+    const [absent] = buildMessages([mk('absent', 'Ann Lee')]);
+    assert.strictEqual(absent.subject, 'Absent — Wadsworth (6:00a)');
+  });
+  test('one batch spanning two shift times lists both, deduped, in the subject', () => {
+    const early = mk('warn30', 'Jane Doe');
+    const later = { ...mk('warn30', 'Bob Smith'), startMs: START_MS + 30 * 60000 }; // 6:30a
+    const sameTimeAsEarly = { ...mk('warn30', 'Ann Lee'), startMs: START_MS }; // 6:00a again
+    const [warn] = buildMessages([early, later, sameTimeAsEarly]);
+    assert.strictEqual(warn.subject, 'No clock-in — Wadsworth (6:00a/6:30a)');
+  });
 });
 
 describe('pruneState / helpers', () => {
