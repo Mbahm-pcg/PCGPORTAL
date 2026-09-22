@@ -38970,7 +38970,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         phase_change: { emoji: "\u{1F504}", tint: "#3b82f6" },
         deadline_approaching: { emoji: "\u23F0", tint: "#f59e0b" },
         overdue: { emoji: "\u{1F534}", tint: "#ef4444" },
-        new_ticket: { emoji: "\u{1F3AB}", tint: "#8b5cf6" }
+        new_ticket: { emoji: "\u{1F3AB}", tint: "#8b5cf6" },
+        manager_change_pending: { emoji: "\u{1F464}", tint: "#f59e0b" }
       };
       const relTime = (iso) => {
         const t = iso ? new Date(iso).getTime() : NaN;
@@ -38994,6 +38995,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
                 txnDeepLinkRef.current = { date: n.date, chkNum: n.chkNums && n.chkNums.length === 1 ? n.chkNums[0] : null };
                 setDrillInStore(n.storePC);
                 setTab("pulse");
+              } else if (n.type === "manager_change_pending") {
+                setTab("users");
               } else {
                 setTab(n.type === "new_ticket" ? "tickets" : "projects");
               }

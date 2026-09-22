@@ -51093,6 +51093,7 @@ function PCGPortal() {
                     deadline_approaching: { emoji: "⏰", tint: "#f59e0b" },
                     overdue:              { emoji: "🔴", tint: "#ef4444" },
                     new_ticket:           { emoji: "🎫", tint: "#8b5cf6" },
+                    manager_change_pending: { emoji: "👤", tint: "#f59e0b" },
                   };
                   const relTime = (iso) => {
                     const t = iso ? new Date(iso).getTime() : NaN;
@@ -51136,6 +51137,8 @@ function PCGPortal() {
                             txnDeepLinkRef.current = { date: n.date, chkNum: (n.chkNums && n.chkNums.length === 1) ? n.chkNums[0] : null };
                             setDrillInStore(n.storePC);
                             setTab("pulse");
+                          } else if (n.type === "manager_change_pending") {
+                            setTab("users");
                           } else {
                             setTab(n.type === "new_ticket" ? "tickets" : "projects");
                           }
