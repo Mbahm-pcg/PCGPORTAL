@@ -4874,6 +4874,13 @@ function ClosestToFinder({ th, onClose }) {
 function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
   // Manager name from the assigned user account (falls back to store.mgr config).
   const mgrOf = (s) => storeMgrName(s, users);
+  // Live active-employee count — labor-cron already pulls every store's full Paycor
+  // roster hourly for payroll and filters it to Active, so this costs no extra Paycor
+  // call; pcg_labor_v1.stores[pc].today.employees is that count. store.employees (the
+  // static seed field below) is always 0 and is never a live source of truth.
+  const [laborData, setLaborData] = useState(null); // pcg_labor_v1 → { stores:{pc:{today:{employees}}} }
+  useEffect(() => { cloudLoad('pcg_labor_v1').then(d => { if (d?.stores) setLaborData(d.stores); }).catch(() => {}); }, []);
+  const employeeCountOf = (s) => laborData?.[s.pc]?.today?.employees;
   const [filterState,  setFilterState]  = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterDistrict, setFilterDistrict] = useState("All");
@@ -5512,7 +5519,11 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                   {/* Row 9: Email + Employees + Status */}
                   <div style={row3}>
                     {fld("Store Email", <input style={inp(th)} value={editStore.email||""} onChange={e=>setEditStore(s=>({...s,email:e.target.value}))} />)}
-                    {fld("Employees", <input style={inp(th)} type="number" min="0" value={editStore.employees||0} onChange={e=>setEditStore(s=>({...s,employees:+e.target.value}))} />)}
+                    {/* Read-only, like PC Number above — this is now the live Paycor count
+                        (same as the store card), not the old hand-typed seed field. Editing
+                        a number here used to do nothing visible once the card switched to
+                        the live source, so it's no longer an editable input. */}
+                    {fld("Employees", <input style={{...inp(th), background:th.card3, color:th.muted}} value={Number.isFinite(employeeCountOf(editStore)) ? employeeCountOf(editStore) : "—"} readOnly />)}
                     {fld("Status", <select style={inp(th)} value={editStore.status} onChange={e=>setEditStore(s=>({...s,status:e.target.value}))}>
                       <option>Open</option><option>Remodel</option><option>Temp Closed</option><option>Coming Soon</option><option>Permanently Closed</option>
                     </select>)}
@@ -5666,13 +5677,16 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
                   <div style={{ fontSize:"0.75rem", color:th.muted, wordBreak:"break-all" }}>{s.email||"—"}</div>
                 </div>
 
-                {/* Employees */}
-                {s.employees > 0 && (
-                  <div>
-                    <div style={{ fontSize:"0.625rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.188rem" }}>Employees</div>
-                    <div style={{ fontSize:"0.875rem", fontWeight:700, color:th.text }}>👥 {s.employees}</div>
+                {/* Employees — live count (see employeeCountOf above), always rendered like
+                    Store Email above it so the layout doesn't jump once labor-cron's blob
+                    loads; "—" while unknown (not loaded yet, or Paycor errored for this store
+                    on the last run — never shown as a misleading 0). */}
+                <div>
+                  <div style={{ fontSize:"0.625rem", fontWeight:700, color:th.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:"0.188rem" }}>Employees</div>
+                  <div style={{ fontSize:"0.875rem", fontWeight:700, color:th.text }}>
+                    {Number.isFinite(employeeCountOf(s)) ? `👥 ${employeeCountOf(s)}` : "—"}
                   </div>
-                )}
+                </div>
 
                 {/* ─── Philadelphia City Data ─── */}
                 {s.city === "Philadelphia" && (() => {
@@ -28125,7 +28139,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.04";
+const APP_VERSION = "v21.06";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
