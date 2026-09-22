@@ -29,9 +29,8 @@ export default async (request) => {
       const titles = records.map(e => ({
         name: `${e.firstName || ''} ${e.lastName || ''}`.trim(),
         jobTitle: e.jobTitle || null,
-        department: e.department || null,
+        positionData: e.positionData || null,
         status: e.statusData?.status || e.employeeStatus || e.status || null,
-        rawKeys: Object.keys(e),
       }));
       out.push({ pc: store.pc, paycorId: store.paycor, name: store.name, status: res.status, totalRecords: records.length, titles });
     } catch (e) {
