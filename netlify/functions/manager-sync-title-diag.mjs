@@ -31,6 +31,17 @@ export default async (request) => {
     });
   }
 
+  // rowsWithThisStorePc came back empty for Elkins Park (336372) — no row at all, active or
+  // not, carries that store_pc. Search by name instead: does an account for this store's
+  // known manager (per audits.mjs's separate hardcoded roster, mgr: 'Dilara Begum') exist
+  // ANYWHERE in the table, under a different/blank store_pc?
+  const nameSearch = url.searchParams.get('nameSearch');
+  if (nameSearch) {
+    const db = sql();
+    const rows = await db`SELECT id, name, username, store_pc, user_type, active, paycor_employee_id FROM users WHERE name ILIKE ${'%' + nameSearch + '%'}`;
+    return json({ nameSearch, rows });
+  }
+
   const pcFilter = url.searchParams.get('pc');
   const limit = Number(url.searchParams.get('limit') || 5);
   const targets = pcFilter ? STORES.filter(s => s.pc === pcFilter) : STORES.slice(0, limit);
