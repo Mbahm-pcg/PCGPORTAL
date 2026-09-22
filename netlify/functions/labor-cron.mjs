@@ -9,6 +9,8 @@ import { lookupUnitCost } from './analyst-lib/cost-lookup.mjs';
 import { computeStorePnL, DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
 import { recordHealth } from './health-lib/record-health.mjs';
 import { parsePaycorPunchMs } from '../../src/paycor-time.mjs';
+import { managerMatches, namesCorrespond, detectManagerCandidate, advanceVacantStreak } from '../../src/manager-sync.mjs';
+import { sql } from './_shared/db.mjs';
 
 export const config = { schedule: "0 9-23,0-3 * * *" };
 
@@ -875,6 +877,7 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
       laborPct:     Math.round(wtdLaborPct * 10) / 10,
     },
     employeeDetails,
+    managerCandidates: managerMatches(employees),
     liveClockInStatus,
     scheduleShifts: todayShifts.map(s => ({
       employeeId:    s.employeeId   || s.EmployeeId   || null,
@@ -1006,6 +1009,106 @@ function cogsPctFor(cfg, store) {
     ?? cfg.defaultCogsPct;
 }
 
+const MANAGER_PENDING_KEY = 'pcg_manager_pending_v1';
+
+// Runs once per labor-cron invocation, after all stores have been processed. Compares
+// each store's managerCandidates (from Step 1, no new Paycor call) against the currently
+// linked Portal manager, updates the pending-change blob, bootstrap-links an
+// already-correct pre-existing manager silently, and appends a bell notification for any
+// NEWLY-queued item. See docs/superpowers/specs/2026-09-22-manager-sync-design.md.
+async function runManagerSync(storeResults, blobStore, nowMs) {
+  let linkedByPc = {};
+  try {
+    const db = sql();
+    const rows = await db`SELECT id, name, store_pc, paycor_employee_id FROM users WHERE user_type = 'manager' AND active = true`;
+    for (const r of rows) linkedByPc[String(r.store_pc)] = { id: r.id, name: r.name, employeeId: r.paycor_employee_id };
+  } catch (e) {
+    console.warn('[manager-sync] linked-manager lookup failed, skipping this run:', e.message);
+    return;
+  }
+
+  let pending = {};
+  try {
+    const raw = await blobStore.get(MANAGER_PENDING_KEY, { type: 'json' });
+    pending = (raw && raw.data) ? raw.data : {};
+  } catch { pending = {}; }
+
+  const lastRunMs = nowMs - 60 * 60 * 1000; // labor-cron's own schedule cadence — good enough for the weeks-elapsed estimate
+  const newNotifs = [];
+
+  for (const r of storeResults) {
+    if (!r || !Array.isArray(r.managerCandidates)) continue;
+    const pc = r.pc;
+    const linked = linkedByPc[pc] || null;
+    const prevPending = pending[pc];
+
+    // Bootstrap linking: linked manager exists but has never been linked to a Paycor id yet.
+    if (linked && !linked.employeeId && r.managerCandidates.length === 1) {
+      const only = r.managerCandidates[0];
+      if (namesCorrespond(only.name, linked.name)) {
+        try {
+          const db = sql();
+          await db`UPDATE users SET paycor_employee_id = ${only.employeeId}, updated_at = now() WHERE id = ${linked.id}`;
+        } catch (e) { console.warn('[manager-sync] bootstrap link failed for', pc, ':', e.message); }
+        delete pending[pc];
+        continue; // silent — no notification, matches spec
+      }
+      // Names don't correspond → fall through to the normal replace detection below,
+      // treating this store as having no confirmed link (linkedEmployeeId stays null).
+    }
+
+    const linkedEmployeeId = linked?.employeeId || null;
+    const result = detectManagerCandidate({ matches: r.managerCandidates, linkedEmployeeId });
+
+    if (result.status === 'ok') { delete pending[pc]; continue; }
+
+    if (result.status === 'replace') {
+      if (prevPending?.kind === 'replace' && prevPending.candidate?.employeeId === result.candidate.employeeId) continue; // already queued, don't re-notify
+      const entry = {
+        kind: 'replace',
+        candidate: { employeeId: result.candidate.employeeId, name: result.candidate.name, jobTitle: result.candidate.jobTitle },
+        outgoingUserId: linked?.id || null,
+        outgoingName: linked?.name || null,
+        detectedAt: new Date(nowMs).toISOString(),
+      };
+      pending[pc] = entry;
+      newNotifs.push({ pc, storeName: r.name, kind: 'replace', text: `Detected: replace ${linked?.name || '(no manager on file)'} with ${entry.candidate.name} at ${r.name}` });
+      continue;
+    }
+
+    if (result.status === 'needsReview') {
+      if (prevPending?.kind === 'needsReview') continue;
+      pending[pc] = { kind: 'needsReview', candidates: result.candidates, detectedAt: new Date(nowMs).toISOString() };
+      newNotifs.push({ pc, storeName: r.name, kind: 'needsReview', text: `${r.name}: multiple active employees hold a manager title — needs a human decision` });
+      continue;
+    }
+
+    // zeroMatch
+    const prevWeeks = prevPending?.kind === 'vacant' ? prevPending.zeroMatchWeeks : 0;
+    const { weeks, shouldQueue } = advanceVacantStreak({ prevWeeks, zeroMatchThisRun: true, nowMs, lastRunMs });
+    if (weeks > 0) pending[pc] = { kind: 'vacant', zeroMatchWeeks: weeks, detectedAt: prevPending?.detectedAt || new Date(nowMs).toISOString() };
+    else delete pending[pc];
+    if (shouldQueue) newNotifs.push({ pc, storeName: r.name, kind: 'vacant', text: `${r.name}: no active employee has held a manager title for 3+ weeks` });
+  }
+
+  try { await blobStore.setJSON(MANAGER_PENDING_KEY, { savedAt: new Date().toISOString(), data: pending }); }
+  catch (e) { console.warn('[manager-sync] pending-blob write failed:', e.message); }
+
+  if (newNotifs.length) {
+    try {
+      const existing = await blobStore.get('pcg_notifications_v1', { type: 'json' });
+      const list = Array.isArray(existing) ? existing : (existing?.data || []);
+      const appended = newNotifs.map((n) => ({
+        id: `mgrsync_${n.pc}_${Date.now()}`,
+        type: 'manager_change_pending',
+        storePC: n.pc,
+        message: n.text,
+      }));
+      await blobStore.setJSON('pcg_notifications_v1', [...appended, ...list].slice(0, 500));
+    } catch (e) { console.warn('[manager-sync] notification write failed:', e.message); }
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export default async (request, context) => {
@@ -1103,6 +1206,9 @@ export default async (request, context) => {
     // Load P&L COGS config + process all stores in batches of 5
     const pnlConfig = await loadPnlConfig(blobStore);
     const storeResults = await processAllStores(busDt, 5, { skipSchedules: isManual, pnlConfig });
+
+    try { await runManagerSync(storeResults, blobStore, Date.now()); }
+    catch (e) { console.warn('[manager-sync] aggregation failed, skipping this run:', e.message); }
 
     // Build network summary
     const successStores = storeResults.filter(r => !r.error);
