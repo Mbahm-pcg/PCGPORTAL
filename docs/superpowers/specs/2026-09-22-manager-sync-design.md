@@ -74,7 +74,7 @@ One entry per store that currently has something to show:
 
 Nothing in the app currently auto-suggests a username or password; every user today is created by an admin typing both by hand. This feature introduces the first such generator, used only to seed the pre-filled form (the admin can edit either before clicking Create):
 
-- **Username:** first initial + last name, lowercased, alphanumeric only (e.g. "Jane Doe" → `jdoe`). On collision with an existing username, append `2`, `3`, ... until unique.
+- **Username:** first initial (uppercase) + "." + full last name (capitalized), alphanumeric only aside from the separating dot (e.g. "Jane Doe" → `J.Doe`, "MD Obaid Amin" → `M.Amin`). On collision with an existing username (compared case-insensitively — the server lowercases every username anyway), append `2`, `3`, ... until unique.
 - **Password:** a random string satisfying the app's own existing policy (`validatePasswordClient`, `app.jsx:559` — 12+ characters, at least one lowercase, one uppercase, one digit, one special character). Since it's a pre-fill the admin can change, it only needs to already pass validation, not be memorable.
 
 ## Safety rails

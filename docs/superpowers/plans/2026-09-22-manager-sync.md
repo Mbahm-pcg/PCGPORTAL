@@ -21,7 +21,7 @@
 - New account email: left blank in the pre-fill (Paycor's personal-email field is not used — dropped 2026-09-22 to avoid depending on an unverified field). The admin types one in when reviewing the pre-filled form, same as creating any other user today. Never the shared store inbox.
 - Outgoing account: deactivated (`active: false`), never hard-deleted.
 - Nothing beyond detection is automatic — creating the new account and deactivating the old one both require an explicit admin click.
-- Username suggestion: first initial + lowercased last name, alphanumeric only, `2`/`3`/... appended on collision.
+- Username suggestion: first initial (uppercase) + "." + full last name (capitalized), alphanumeric only aside from the dot, `2`/`3`/... appended on collision (compared case-insensitively). E.g. "Jane Doe" → `J.Doe`, "MD Obaid Amin" → `M.Amin`.
 - Password suggestion: random, must satisfy `validatePasswordClient` (`app.jsx:559` — 12+ chars, lowercase, uppercase, digit, special character).
 
 ---
@@ -217,18 +217,21 @@ describe('advanceVacantStreak', () => {
 });
 
 describe('suggestUsername', () => {
-  test('first initial + last name, lowercased', () => {
-    assert.strictEqual(suggestUsername('Jane Doe', []), 'jdoe');
+  test('first initial (uppercase) + dot + capitalized last name', () => {
+    assert.strictEqual(suggestUsername('Jane Doe', []), 'J.Doe');
   });
-  test('strips non-alphanumeric characters', () => {
-    assert.strictEqual(suggestUsername("MD Obaid-Amin", []), 'moamin' /* first initial M + lastname "Amin" but hyphen name has 3 tokens: use first + LAST token */);
+  test('a middle name is ignored — first token for the initial, last token for the surname', () => {
+    assert.strictEqual(suggestUsername('MD Obaid Amin', []), 'M.Amin');
   });
-  test('appends a number on collision', () => {
-    assert.strictEqual(suggestUsername('Jane Doe', ['jdoe']), 'jdoe2');
-    assert.strictEqual(suggestUsername('Jane Doe', ['jdoe', 'jdoe2']), 'jdoe3');
+  test('strips non-alphanumeric characters from the surname', () => {
+    assert.strictEqual(suggestUsername("MD Obaid-Amin", []), 'M.Obaidamin');
   });
-  test('single-word name falls back to the whole word', () => {
-    assert.strictEqual(suggestUsername('Prince', []), 'prince');
+  test('appends a number on collision (case-insensitive comparison)', () => {
+    assert.strictEqual(suggestUsername('Jane Doe', ['j.doe']), 'J.Doe2');
+    assert.strictEqual(suggestUsername('Jane Doe', ['J.Doe', 'j.doe2']), 'J.Doe3');
+  });
+  test('single-word name falls back to the whole word, capitalized', () => {
+    assert.strictEqual(suggestUsername('Prince', []), 'Prince');
   });
 });
 
@@ -320,18 +323,21 @@ export function advanceVacantStreak({ prevWeeks, zeroMatchThisRun, nowMs, lastRu
   return { weeks, shouldQueue: crossedNow };
 }
 
-/** "Jane Doe" -> "jdoe"; collisions get 2, 3, ... appended. */
+/** "Jane Doe" -> "J.Doe"; "MD Obaid Amin" -> "M.Amin" (first token's initial + last
+ *  token as the surname — a middle name is ignored); collisions get 2, 3, ... appended,
+ *  compared case-insensitively since the server lowercases every username anyway. */
 export function suggestUsername(name, existingUsernames) {
   const tokens = String(name || '').trim().split(/\s+/).filter(Boolean);
-  const alnum = (s) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const alnum = (s) => s.replace(/[^a-zA-Z0-9]/g, '');
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
   let base;
-  if (tokens.length === 0) base = 'user';
-  else if (tokens.length === 1) base = alnum(tokens[0]);
-  else base = alnum(tokens[0][0] + tokens[tokens.length - 1]);
-  const existing = new Set((existingUsernames || []).map((u) => String(u).toLowerCase()));
-  if (!existing.has(base)) return base;
+  if (tokens.length === 0) base = 'User';
+  else if (tokens.length === 1) base = cap(alnum(tokens[0]));
+  else base = `${alnum(tokens[0]).charAt(0).toUpperCase()}.${cap(alnum(tokens[tokens.length - 1]))}`;
+  const existingLower = new Set((existingUsernames || []).map((u) => String(u).toLowerCase()));
+  if (!existingLower.has(base.toLowerCase())) return base;
   let n = 2;
-  while (existing.has(`${base}${n}`)) n++;
+  while (existingLower.has(`${base}${n}`.toLowerCase())) n++;
   return `${base}${n}`;
 }
 
@@ -352,7 +358,7 @@ export function generatePassword() {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `node --test src/manager-sync.test.mjs`
-Expected: PASS, 0 failures. (Note: the `suggestUsername("MD Obaid-Amin", [])` test asserts `'moamin'` — first initial `M` + last token `Amin` lowercased+alnum'd = `mamin`, not `moamin`; if the test fails, fix the **test's expected value** to `'mamin'`, not the implementation — the implementation's "first initial + last token" rule is correct per spec, the test comment miscalculated the example by hand.)
+Expected: PASS, 0 failures.
 
 - [ ] **Step 5: Run the full suite to check nothing else broke**
 
