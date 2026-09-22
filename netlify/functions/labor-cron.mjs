@@ -1127,7 +1127,18 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
     }
 
     if (result.status === 'replace') {
-      if (prevPending?.kind === 'replace' && prevPending.candidate?.employeeId === result.candidate.employeeId) continue; // already queued, don't re-notify
+      const currentOutgoingId = linked?.id || null;
+      // Same-candidate dedup must also track outgoingUserId (like the ok+extraOutgoing
+      // branch above already does) — not just candidate.employeeId. Without this, a store
+      // whose outgoing account gets linked to its store_pc AFTER this candidate was first
+      // queued (e.g. the 2026-09-22 orphaned-manager-account fix) stays stuck showing
+      // outgoingUserId: null forever: the guard sees the same candidate already queued and
+      // skips recomputing, so the Deactivate button never appears even once the real
+      // outgoing account is known.
+      const alreadyKnown = prevPending?.kind === 'replace'
+        && prevPending.candidate?.employeeId === result.candidate.employeeId
+        && prevPending.outgoingUserId === currentOutgoingId;
+      if (alreadyKnown) continue;
       // Admin explicitly dismissed this exact candidate before — Paycor's underlying data
       // hasn't changed, so don't re-queue or re-notify (a genuinely different candidate,
       // i.e. a different employeeId, is NOT suppressed by this).
@@ -1135,12 +1146,21 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
       const entry = {
         kind: 'replace',
         candidate: { employeeId: result.candidate.employeeId, name: result.candidate.name, jobTitle: result.candidate.jobTitle },
-        outgoingUserId: linked?.id || null,
+        outgoingUserId: currentOutgoingId,
         outgoingName: linked?.name || null,
-        detectedAt: new Date(nowMs).toISOString(),
+        detectedAt: (prevPending?.kind === 'replace' && prevPending.candidate?.employeeId === result.candidate.employeeId)
+          ? prevPending.detectedAt // same candidate, only outgoingUserId caught up — keep the original detection time
+          : new Date(nowMs).toISOString(),
       };
       pending[pc] = entry;
-      newNotifs.push({ pc, storeName: r.name, kind: 'replace', text: `Detected: replace ${linked?.name || '(no manager on file)'} with ${entry.candidate.name} at ${r.name}` });
+      // Only push a bell notification for genuinely new information: a brand-new candidate,
+      // or the outgoing account just becoming known (the Deactivate button just became
+      // actionable) — not a no-op re-save of the same fully-known entry.
+      const isNewCandidate = !(prevPending?.kind === 'replace' && prevPending.candidate?.employeeId === result.candidate.employeeId);
+      const outgoingJustResolved = !isNewCandidate && prevPending.outgoingUserId == null && currentOutgoingId != null;
+      if (isNewCandidate || outgoingJustResolved) {
+        newNotifs.push({ pc, storeName: r.name, kind: 'replace', text: `Detected: replace ${linked?.name || '(no manager on file)'} with ${entry.candidate.name} at ${r.name}` });
+      }
       continue;
     }
 
