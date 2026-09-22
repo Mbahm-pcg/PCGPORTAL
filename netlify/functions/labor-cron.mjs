@@ -1033,7 +1033,6 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
     pending = (raw && raw.data) ? raw.data : {};
   } catch { pending = {}; }
 
-  const lastRunMs = nowMs - 60 * 60 * 1000; // labor-cron's own schedule cadence — good enough for the weeks-elapsed estimate
   const newNotifs = [];
 
   for (const r of storeResults) {
@@ -1077,18 +1076,43 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
     }
 
     if (result.status === 'needsReview') {
-      if (prevPending?.kind === 'needsReview') continue;
+      const newIds = result.candidates.map((c) => c.employeeId).sort().join(',');
+      const prevIds = (prevPending?.kind === 'needsReview' ? prevPending.candidates || [] : []).map((c) => c.employeeId).sort().join(',');
+      if (prevPending?.kind === 'needsReview' && newIds === prevIds) continue; // same candidate set already queued, don't re-notify
       pending[pc] = { kind: 'needsReview', candidates: result.candidates, detectedAt: new Date(nowMs).toISOString() };
       newNotifs.push({ pc, storeName: r.name, kind: 'needsReview', text: `${r.name}: multiple active employees hold a manager title — needs a human decision` });
       continue;
     }
 
-    // zeroMatch
+    // zeroMatch — lastRunMs is the timestamp of THIS store's previous vacant check (persisted
+    // below as lastCheckedAt), not a global constant, so advanceVacantStreak sees real elapsed
+    // time. First-ever zero-match run for a store has no prior vacant state, so fall back to
+    // nowMs itself (elapsed = 0), which correctly hits advanceVacantStreak's prevWeeks === 0
+    // special case (bump to week 1, don't queue yet).
     const prevWeeks = prevPending?.kind === 'vacant' ? prevPending.zeroMatchWeeks : 0;
+    const lastRunMs = (prevPending?.kind === 'vacant' && prevPending.lastCheckedAt) ? Date.parse(prevPending.lastCheckedAt) : nowMs;
     const { weeks, shouldQueue } = advanceVacantStreak({ prevWeeks, zeroMatchThisRun: true, nowMs, lastRunMs });
-    if (weeks > 0) pending[pc] = { kind: 'vacant', zeroMatchWeeks: weeks, detectedAt: prevPending?.detectedAt || new Date(nowMs).toISOString() };
+    // Only advance the persisted baseline (lastCheckedAt) when `weeks` actually changed this run.
+    // labor-cron runs many times a day, so if we reset the baseline to "now" on every single
+    // run regardless, the elapsed-time window advanceVacantStreak sees next time is always just
+    // the few hours between cron runs — never a real week — and the counter gets stuck at 1
+    // forever (the exact bug this fix addresses; verified against advanceVacantStreak with a
+    // multi-week hourly-cadence simulation before landing on this condition). Keeping the old
+    // baseline on every "no real week has elapsed yet" run lets elapsed real time actually
+    // accumulate across many runs until it crosses a week boundary.
+    const newLastCheckedAt = (weeks > prevWeeks) ? new Date(nowMs).toISOString() : (prevPending?.lastCheckedAt || new Date(nowMs).toISOString());
+    if (weeks > 0) pending[pc] = { kind: 'vacant', zeroMatchWeeks: weeks, detectedAt: prevPending?.detectedAt || new Date(nowMs).toISOString(), lastCheckedAt: newLastCheckedAt };
     else delete pending[pc];
     if (shouldQueue) newNotifs.push({ pc, storeName: r.name, kind: 'vacant', text: `${r.name}: no active employee has held a manager title for 3+ weeks` });
+  }
+
+  // Cleanup: drop pending entries for stores that are provably gone (no longer in the STORES
+  // config at all) rather than ones that merely errored/were skipped this particular run —
+  // those still appear in STORES and simply didn't reach the loop body above (managerCandidates
+  // missing), so their pending entries are left untouched.
+  const configuredPcs = new Set(STORES.map((s) => String(s.pc)));
+  for (const pc of Object.keys(pending)) {
+    if (!configuredPcs.has(String(pc))) delete pending[pc];
   }
 
   try { await blobStore.setJSON(MANAGER_PENDING_KEY, { savedAt: new Date().toISOString(), data: pending }); }
@@ -1103,8 +1127,9 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
         type: 'manager_change_pending',
         storePC: n.pc,
         message: n.text,
+        read: false, createdAt: new Date(nowMs).toISOString(),
       }));
-      await blobStore.setJSON('pcg_notifications_v1', [...appended, ...list].slice(0, 500));
+      await blobStore.setJSON('pcg_notifications_v1', { savedAt: new Date().toISOString(), data: [...appended, ...list].slice(0, 500) });
     } catch (e) { console.warn('[manager-sync] notification write failed:', e.message); }
   }
 }
