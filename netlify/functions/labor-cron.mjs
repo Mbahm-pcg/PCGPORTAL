@@ -8,6 +8,7 @@ import { getStore } from '@netlify/blobs';
 import { lookupUnitCost } from './analyst-lib/cost-lookup.mjs';
 import { computeStorePnL, DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
 import { recordHealth } from './health-lib/record-health.mjs';
+import { parsePaycorPunchMs } from '../../src/paycor-time.mjs';
 
 export const config = { schedule: "0 9-23,0-3 * * *" };
 
@@ -747,9 +748,14 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
           liveClockInStatus[empId] = clockIn || null;
           let hrs = 0;
           if (clockIn) {
-            const actualStart = new Date(clockIn);
-            if (!isNaN(actualStart.getTime())) {
-              hrs = (nowUTC - actualStart) / 3600000;
+            // clockIn is Paycor's raw punchDateTime — naive (no timezone) Eastern wall-clock
+            // time, not UTC (see src/paycor-time.mjs). A plain `new Date(clockIn)` here would
+            // misread it as ~4-5 hours earlier than it actually happened and overstate this
+            // employee's hours-worked-so-far (and live labor cost) by that same amount for
+            // every minute they're still clocked in.
+            const actualStartMs = parsePaycorPunchMs(clockIn);
+            if (Number.isFinite(actualStartMs)) {
+              hrs = (nowUTC - actualStartMs) / 3600000;
             }
           } else {
             const effectiveEnd = nowUTC < shiftEnd ? nowUTC : shiftEnd;

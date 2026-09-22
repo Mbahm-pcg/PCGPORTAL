@@ -6,6 +6,7 @@ import { getStore } from '@netlify/blobs';
 import webpush from 'web-push';
 import { sql } from './_shared/db.mjs';
 import { buildSnapshot, diffForAlerts, FEEDS } from '../../src/system-health.mjs';
+import { recipients } from './system-health-lib/recipients.mjs';
 
 export const config = { schedule: '*/30 * * * *' };
 
@@ -18,27 +19,9 @@ function healthStore() {
   return getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
 
-// ── recipient lookup ──
-// Default: all active exec/IT users (id for push, email for email). Once someone saves the
-// list in Admin > Notifications > System Health (pcg_system_health_notify_v1), that list
-// is used INSTEAD — even when emptied, so removing everyone silences the alerts. The
-// blob's updatedAt marks "explicitly configured" vs. never touched. Push goes to the
-// listed Portal users (emailOwners); manually typed addresses are email-only.
-export async function recipients(db) {
-  try {
-    const raw = await healthStore().get('pcg_system_health_notify_v1', { type: 'json' });
-    const cfg = raw && raw.data;
-    if (cfg && cfg.updatedAt) {
-      const emails = Array.isArray(cfg.emails) ? cfg.emails.filter(Boolean) : [];
-      const pushIds = (Array.isArray(cfg.emailOwners) ? cfg.emailOwners : []).filter(id => id != null).map(String);
-      return { pushIds, emails };
-    }
-  } catch { /* fall through to default recipients */ }
-  try {
-    const rows = await db`SELECT id, email FROM users WHERE user_type IN ('executive','it') AND active = true`;
-    return { pushIds: rows.map(r => String(r.id)), emails: rows.map(r => r.email).filter(Boolean) };
-  } catch { return { pushIds: [], emails: [] }; }
-}
+// ── recipient lookup: see system-health-lib/recipients.mjs (re-exported here so
+// system-health-diag.mjs's existing import keeps working) ──
+export { recipients };
 
 // ── email via Resend (copied from deal-alerts-cron.mjs:52-64) ──
 function sendEmail(to, subject, html) {
