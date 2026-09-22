@@ -62,6 +62,7 @@ function toClient(row) {
     locked:             row.locked,
     failedAttempts:     row.failed_attempts,
     auditsAccess:       row.audits_access ?? null,
+    paycorEmployeeId:   row.paycor_employee_id ?? null,
   };
 }
 
@@ -108,7 +109,7 @@ export default async (request) => {
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
-               audits_access
+               audits_access, paycor_employee_id
         FROM users ORDER BY id
       `;
       return reply(200, rows.map(toClient));
@@ -147,7 +148,8 @@ export default async (request) => {
         INSERT INTO users (
           username, name, email, phone, role, user_type, district, store_pc,
           active, dark_mode, initials, is_admin, must_setup, region,
-          password_hash, must_change, two_factor_required, audits_access, created_at, updated_at
+          password_hash, must_change, two_factor_required, audits_access,
+          paycor_employee_id, created_at, updated_at
         ) VALUES (
           ${username}, ${u.name}, ${lc(u.email) || null}, ${u.phone || null},
           ${u.role || null}, ${u.userType}, ${u.district ?? null},
@@ -155,7 +157,8 @@ export default async (request) => {
           ${u.active !== false}, ${u.darkMode || false},
           ${u.initials || null}, ${u.isAdmin || false}, ${forceSetup},
           ${u.region || 'PA'}, ${passwordHash}, ${forceSetup},
-          ${u.twoFactorRequired || false}, ${u.auditsAccess ?? null}, now(), now()
+          ${u.twoFactorRequired || false}, ${u.auditsAccess ?? null},
+          ${u.paycorEmployeeId || null}, now(), now()
         )
         ON CONFLICT (username) DO NOTHING
         RETURNING id
@@ -167,7 +170,7 @@ export default async (request) => {
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
-               audits_access
+               audits_access, paycor_employee_id
         FROM users WHERE id = ${row.id}
       `;
       return reply(201, { user: toClient(created) });
