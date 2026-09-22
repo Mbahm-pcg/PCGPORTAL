@@ -1191,6 +1191,52 @@
     return list.map((c) => c.employeeId === employeeId ? { ...c, shifts: [...c.shifts || [], shift] } : c);
   }
 
+  // src/manager-sync.mjs
+  var WEEK_MS = 7 * 864e5;
+  var PASSWORD_RULE = { minLength: 12 };
+  function suggestUsername(name, existingUsernames) {
+    const tokens = String(name || "").trim().split(/\s+/).filter(Boolean);
+    let base;
+    if (tokens.length === 0) {
+      base = "User";
+    } else if (tokens.length === 1) {
+      const alnum = tokens[0].replace(/[^a-zA-Z0-9]/g, "");
+      if (alnum.length === 0) {
+        base = "User";
+      } else {
+        base = alnum[0].toUpperCase() + alnum.slice(1).toLowerCase();
+      }
+    } else {
+      const firstTokenAlnum = tokens[0].replace(/[^a-zA-Z0-9]/g, "");
+      const lastTokenAlnum = tokens[tokens.length - 1].replace(/[^a-zA-Z0-9]/g, "");
+      if (lastTokenAlnum.length === 0 || firstTokenAlnum.length === 0) {
+        if (firstTokenAlnum.length === 0) {
+          base = "User";
+        } else {
+          base = firstTokenAlnum[0].toUpperCase() + firstTokenAlnum.slice(1).toLowerCase();
+        }
+      } else {
+        const firstInitial = firstTokenAlnum[0].toUpperCase();
+        const lastName = lastTokenAlnum[0].toUpperCase() + lastTokenAlnum.slice(1).toLowerCase();
+        base = firstInitial + "." + lastName;
+      }
+    }
+    const existing = new Set((existingUsernames || []).map((u) => String(u).toLowerCase()));
+    if (!existing.has(base.toLowerCase())) return base;
+    let n = 2;
+    while (existing.has(`${base}${n}`.toLowerCase())) n++;
+    return `${base}${n}`;
+  }
+  function generatePassword() {
+    const lower = "abcdefghijkmnpqrstuvwxyz", upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    const digits = "23456789", special = "!@#$%^&*-_=+";
+    const all = lower + upper + digits + special;
+    const pick = (set) => set[Math.floor(Math.random() * set.length)];
+    let pw = pick(lower) + pick(upper) + pick(digits) + pick(special);
+    while (pw.length < PASSWORD_RULE.minLength) pw += pick(all);
+    return pw.split("").sort(() => Math.random() - 0.5).join("");
+  }
+
   // app.jsx
   var { useState, useRef, useCallback, useEffect } = React;
   var Guard = class extends React.Component {
@@ -4652,6 +4698,18 @@
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
     const [emailAction, setEmailAction] = useState(null);
     const [revokeAction, setRevokeAction] = useState(null);
+    const [managerPending, setManagerPending] = useState({});
+    const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
+    });
+    useEffect(() => {
+      loadManagerPending();
+    }, []);
+    const dismissManagerPending = async (pc) => {
+      const next = { ...managerPending };
+      delete next[pc];
+      const ok = await cloudSave("pcg_manager_pending_v1", next);
+      if (ok) setManagerPending(next);
+    };
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
       if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
@@ -4930,7 +4988,7 @@
         /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, mgrEmail || (form.storePC ? "No manager email on file for this store" : "Synced to store manager's email"))
       );
     })() : /* @__PURE__ */ React.createElement("input", { style: inp(th), type: "email", placeholder: "Email address", value: form.email || "", onChange: (e) => setForm((f) => ({ ...f, email: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Phone number", value: form.phone || "", onChange: (e) => handlePhoneChange(e.target.value, setForm, "phone") })), welcomeSent && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", borderRadius: "0.375rem", marginBottom: "0.75rem", fontSize: "0.8rem", fontWeight: 600, background: welcomeSent === "success" ? "#00d08418" : "#ff444418", color: welcomeSent === "success" ? "#00d084" : "#ff6666" } }, welcomeSent === "success" ? "\u2705 Welcome email sent!" : "\u26A0\uFE0F Welcome email failed \u2014 user was still created."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end", paddingTop: "1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: "transparent", color: th.muted, padding: "0.65rem 1.4rem", border: `1px solid ${th.cardBorder}` }), onClick: closeEditPage }, "Cancel"), /* @__PURE__ */ React.createElement("button", { disabled: saveFlash, style: btn(th, { padding: "0.65rem 1.75rem", background: saveFlash ? "#22c55e" : `linear-gradient(135deg,${rc},${rc}bb)`, color: "#fff", boxShadow: saveFlash ? "0 4px 16px #22c55e55" : `0 4px 16px ${rc}55`, fontWeight: 700, transition: "background 0.2s, box-shadow 0.2s" }), onClick: save }, saveFlash ? "\u2713 Saved!" : editId ? "Save Changes" : "Create User"))))));
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in", ref: frameRef, style: { display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 360 } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "1rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "1 1 240px", maxWidth: 340 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), padding: "0.65rem 0.85rem 0.65rem 2.4rem", fontSize: "0.85rem", width: "100%" }, placeholder: "Search users...", value: search, onChange: (e) => setSearch(e.target.value) })), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), width: "auto", fontSize: "0.8rem", padding: "0.65rem 0.75rem" }, value: roleFilter, onChange: (e) => setRoleFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Roles"), USERTYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.85rem", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, fontSize: "0.68rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#22c55e" } }), users.filter((u) => u.active !== false).length, " Active"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), canManageUser(currentUser, { userType: "manager" }) && /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in", ref: frameRef, style: { display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 360 } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "1rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "1 1 240px", maxWidth: 340 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), padding: "0.65rem 0.85rem 0.65rem 2.4rem", fontSize: "0.85rem", width: "100%" }, placeholder: "Search users...", value: search, onChange: (e) => setSearch(e.target.value) })), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), width: "auto", fontSize: "0.8rem", padding: "0.65rem 0.75rem" }, value: roleFilter, onChange: (e) => setRoleFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Roles"), USERTYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.85rem", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, fontSize: "0.68rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#22c55e" } }), users.filter((u) => u.active !== false).length, " Active"), Object.keys(managerPending).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.85rem", background: "#f59e0b22", border: "1px solid #f59e0b55", borderRadius: 999, fontSize: "0.68rem", color: "#f59e0b", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#f59e0b" } }), Object.keys(managerPending).length, " Pending"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), canManageUser(currentUser, { userType: "manager" }) && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => openEditPage(null),
@@ -4959,7 +5017,28 @@
         }
       },
       "+ Add User"
-    ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, displayUsers.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" } }, "No users found."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobileUsers ? "1fr" : "repeat(2,1fr)", gap: "1rem" } }, displayUsers.map((u) => {
+    ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, Object.entries(managerPending).map(([pc, item]) => {
+      const store = stores.find((s) => String(s.pc) === pc);
+      const storeName = store?.name || pc;
+      if (item.kind === "replace") {
+        const alreadyLinked = users.some((u) => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
+        const oldDeactivated = item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId)?.active === false : true;
+        if (alreadyLinked && oldDeactivated) return null;
+        return /* @__PURE__ */ React.createElement("div", { key: pc, style: { ...card(th), padding: "0.85rem 1rem", marginBottom: "0.6rem", borderLeft: "3px solid #f59e0b" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("strong", null, storeName, ":"), " Paycor shows ", /* @__PURE__ */ React.createElement("strong", null, item.candidate.name), " (", item.candidate.jobTitle, ") now managing this store", item.outgoingName ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 was ", /* @__PURE__ */ React.createElement("strong", null, item.outgoingName)) : null, "."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, !alreadyLinked && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+          const existingUsernames = users.map((u) => u.username);
+          openEditPage({
+            name: item.candidate.name,
+            userType: "manager",
+            storePC: pc,
+            username: suggestUsername(item.candidate.name, existingUsernames),
+            password: generatePassword(),
+            paycorEmployeeId: item.candidate.employeeId
+          });
+        }, style: btn(th, { padding: "0.45rem 0.9rem", fontSize: "0.75rem" }) }, "Create Account"), item.outgoingUserId && !oldDeactivated && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(item.outgoingUserId), style: btn(th, { padding: "0.45rem 0.9rem", fontSize: "0.75rem", background: th.card3, color: th.text }) }, "Deactivate ", item.outgoingName), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissManagerPending(pc), style: { background: "none", border: "none", color: th.muted, fontSize: "0.75rem", cursor: "pointer" } }, "Dismiss")));
+      }
+      const text = item.kind === "needsReview" ? `${storeName}: multiple active employees hold a manager title \u2014 needs a human decision.` : `${storeName}: no active employee has held a manager title for 3+ weeks.`;
+      return /* @__PURE__ */ React.createElement("div", { key: pc, style: { ...card(th), padding: "0.85rem 1rem", marginBottom: "0.6rem", borderLeft: "3px solid #f59e0b" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, marginBottom: "0.5rem" } }, text), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissManagerPending(pc), style: { background: "none", border: "none", color: th.muted, fontSize: "0.75rem", cursor: "pointer" } }, "Dismiss"));
+    }), displayUsers.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" } }, "No users found."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobileUsers ? "1fr" : "repeat(2,1fr)", gap: "1rem" } }, displayUsers.map((u) => {
       const rc2 = roleColor(u.userType);
       const isInactive = u.active === false;
       const IconAction = ({ icon, label, onClick, color, disabled, badge, size = 36 }) => /* @__PURE__ */ React.createElement(
@@ -22704,7 +22783,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.06";
+  var APP_VERSION = "v21.07";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

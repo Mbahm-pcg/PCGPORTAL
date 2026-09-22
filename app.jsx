@@ -9,6 +9,7 @@ import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDead
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
 import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid.mjs';
+import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -3336,6 +3337,19 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const [emailAction, setEmailAction] = useState(null); // { userId, type, status }
   const [revokeAction, setRevokeAction] = useState(null); // { userId, status }
 
+  // Paycor-driven manager-change queue (see docs/superpowers/specs/2026-09-22-manager-sync-design.md).
+  // Read directly from the blob labor-cron.mjs writes — same pattern every other admin
+  // panel in this app already uses for its own config blob (no dedicated endpoint needed).
+  const [managerPending, setManagerPending] = useState({}); // pc -> { kind, candidate?, outgoingUserId?, outgoingName?, ... }
+  const loadManagerPending = () => cloudLoad('pcg_manager_pending_v1').then(d => setManagerPending(d && typeof d === 'object' ? d : {})).catch(() => {});
+  useEffect(() => { loadManagerPending(); }, []);
+  const dismissManagerPending = async (pc) => {
+    const next = { ...managerPending };
+    delete next[pc];
+    const ok = await cloudSave('pcg_manager_pending_v1', next);
+    if (ok) setManagerPending(next);
+  };
+
   // IT-only: force-logout every device for a user (lost/stolen device). Invalidates all
   // active sessions server-side and revokes trusted devices; takes effect within ~3 min
   // on any running session (the session re-validation poll picks it up).
@@ -3758,6 +3772,12 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
           <span style={{ width:6, height:6, borderRadius:"50%", background:"#22c55e" }} />
           {users.filter(u => u.active !== false).length} Active
         </div>
+        {Object.keys(managerPending).length > 0 && (
+          <div style={{ display:"inline-flex", alignItems:"center", gap:"0.45rem", padding:"0.5rem 0.85rem", background:"#f59e0b22", border:"1px solid #f59e0b55", borderRadius:999, fontSize:"0.68rem", color:"#f59e0b", fontWeight:800, textTransform:"uppercase", letterSpacing:0.7 }}>
+            <span style={{ width:6, height:6, borderRadius:"50%", background:"#f59e0b" }} />
+            {Object.keys(managerPending).length} Pending
+          </div>
+        )}
         <div style={{ flex:1 }} />
         {canManageUser(currentUser, { userType: "manager" }) && (
           <button onClick={() => openEditPage(null)} style={{
@@ -3780,6 +3800,57 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
 
       {/* ─── Section 2 — user cards (scrollable) ──────────────────── */}
       <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:4 }}>
+      {Object.entries(managerPending).map(([pc, item]) => {
+        const store = stores.find(s => String(s.pc) === pc);
+        const storeName = store?.name || pc;
+        if (item.kind === 'replace') {
+          const alreadyLinked = users.some(u => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
+          const oldDeactivated = item.outgoingUserId ? users.find(u => u.id === item.outgoingUserId)?.active === false : true;
+          if (alreadyLinked && oldDeactivated) return null; // resolved — next labor-cron run clears the blob itself
+          return (
+            <div key={pc} style={{ ...card(th), padding:"0.85rem 1rem", marginBottom:"0.6rem", borderLeft:"3px solid #f59e0b" }}>
+              <div style={{ fontSize:"0.85rem", color:th.text, marginBottom:"0.5rem" }}>
+                <strong>{storeName}:</strong> Paycor shows <strong>{item.candidate.name}</strong> ({item.candidate.jobTitle}) now managing this store{item.outgoingName ? <> — was <strong>{item.outgoingName}</strong></> : null}.
+              </div>
+              <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
+                {/* No email pre-fill — Paycor's personal-email field isn't used (dropped
+                    2026-09-22). The admin types one in on the form before saving, same as
+                    creating any other user today. */}
+                {!alreadyLinked && (
+                  <button onClick={() => {
+                    const existingUsernames = users.map(u => u.username);
+                    openEditPage({
+                      name: item.candidate.name,
+                      userType: 'manager',
+                      storePC: pc,
+                      username: suggestUsername(item.candidate.name, existingUsernames),
+                      password: generatePassword(),
+                      paycorEmployeeId: item.candidate.employeeId,
+                    });
+                  }} style={btn(th, { padding:"0.45rem 0.9rem", fontSize:"0.75rem" })}>
+                    Create Account
+                  </button>
+                )}
+                {item.outgoingUserId && !oldDeactivated && (
+                  <button onClick={() => toggleActive(item.outgoingUserId)} style={btn(th, { padding:"0.45rem 0.9rem", fontSize:"0.75rem", background:th.card3, color:th.text })}>
+                    Deactivate {item.outgoingName}
+                  </button>
+                )}
+                <button onClick={() => dismissManagerPending(pc)} style={{ background:"none", border:"none", color:th.muted, fontSize:"0.75rem", cursor:"pointer" }}>Dismiss</button>
+              </div>
+            </div>
+          );
+        }
+        const text = item.kind === 'needsReview'
+          ? `${storeName}: multiple active employees hold a manager title — needs a human decision.`
+          : `${storeName}: no active employee has held a manager title for 3+ weeks.`;
+        return (
+          <div key={pc} style={{ ...card(th), padding:"0.85rem 1rem", marginBottom:"0.6rem", borderLeft:"3px solid #f59e0b" }}>
+            <div style={{ fontSize:"0.85rem", color:th.text, marginBottom:"0.5rem" }}>{text}</div>
+            <button onClick={() => dismissManagerPending(pc)} style={{ background:"none", border:"none", color:th.muted, fontSize:"0.75rem", cursor:"pointer" }}>Dismiss</button>
+          </div>
+        );
+      })}
       {displayUsers.length === 0 && (
         <div style={{ ...card(th), padding:"3rem", textAlign:"center", color:th.muted, fontSize:"0.875rem" }}>No users found.</div>
       )}
@@ -28139,7 +28210,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.06";
+const APP_VERSION = "v21.07";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
