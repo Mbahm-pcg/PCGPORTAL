@@ -181,6 +181,7 @@ export default async (request) => {
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS initials VARCHAR(4)`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS paycor_employee_id TEXT`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_setup BOOLEAN NOT NULL DEFAULT false`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS region VARCHAR(10)`;
