@@ -76,19 +76,36 @@ export function advanceVacantStreak({ prevWeeks, zeroMatchThisRun, nowMs, lastRu
 export function suggestUsername(name, existingUsernames) {
   const tokens = String(name || '').trim().split(/\s+/).filter(Boolean);
   let base;
+
   if (tokens.length === 0) {
     base = 'User';
   } else if (tokens.length === 1) {
-    // Single word: capitalize it
-    const word = tokens[0];
-    base = word[0].toUpperCase() + word.slice(1).toLowerCase();
+    // Single word: sanitize, then capitalize
+    const alnum = tokens[0].replace(/[^a-zA-Z0-9]/g, '');
+    if (alnum.length === 0) {
+      base = 'User';  // fallback for all-punctuation names
+    } else {
+      base = alnum[0].toUpperCase() + alnum.slice(1).toLowerCase();
+    }
   } else {
-    // Multiple tokens: first initial + "." + last token (non-alphanumerics stripped, capitalized)
-    const firstInitial = tokens[0][0].toUpperCase();
-    const lastToken = tokens[tokens.length - 1].replace(/[^a-zA-Z0-9]/g, '');
-    const lastName = lastToken[0].toUpperCase() + lastToken.slice(1).toLowerCase();
-    base = firstInitial + '.' + lastName;
+    // Multiple tokens: first initial + "." + last token (both sanitized, capitalized)
+    const firstTokenAlnum = tokens[0].replace(/[^a-zA-Z0-9]/g, '');
+    const lastTokenAlnum = tokens[tokens.length - 1].replace(/[^a-zA-Z0-9]/g, '');
+
+    if (lastTokenAlnum.length === 0 || firstTokenAlnum.length === 0) {
+      // Fallback if either token is all-punctuation: use first token as whole base
+      if (firstTokenAlnum.length === 0) {
+        base = 'User';
+      } else {
+        base = firstTokenAlnum[0].toUpperCase() + firstTokenAlnum.slice(1).toLowerCase();
+      }
+    } else {
+      const firstInitial = firstTokenAlnum[0].toUpperCase();
+      const lastName = lastTokenAlnum[0].toUpperCase() + lastTokenAlnum.slice(1).toLowerCase();
+      base = firstInitial + '.' + lastName;
+    }
   }
+
   // Case-insensitive collision detection
   const existing = new Set((existingUsernames || []).map((u) => String(u).toLowerCase()));
   if (!existing.has(base.toLowerCase())) return base;

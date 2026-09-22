@@ -127,6 +127,19 @@ describe('suggestUsername', () => {
   test('single-word name returns capitalized without dot', () => {
     assert.strictEqual(suggestUsername('Prince', []), 'Prince');
   });
+  test('empty or null name falls back to "User"', () => {
+    assert.strictEqual(suggestUsername('', []), 'User');
+    assert.strictEqual(suggestUsername(null, []), 'User');
+    assert.strictEqual(suggestUsername(undefined, []), 'User');
+  });
+  test('all-punctuation single-word name falls back to "User"', () => {
+    assert.strictEqual(suggestUsername('--', []), 'User');
+    assert.strictEqual(suggestUsername('!!!', []), 'User');
+  });
+  test('last token that is all-punctuation falls back to first token as base', () => {
+    assert.strictEqual(suggestUsername('Jane -', []), 'Jane');
+    assert.strictEqual(suggestUsername('John !', []), 'John');
+  });
 });
 
 describe('generatePassword', () => {
