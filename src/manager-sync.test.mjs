@@ -114,18 +114,18 @@ describe('advanceVacantStreak', () => {
 });
 
 describe('suggestUsername', () => {
-  test('first initial + last name, lowercased', () => {
-    assert.strictEqual(suggestUsername('Jane Doe', []), 'jdoe');
+  test('first initial + "." + last name, capitalized', () => {
+    assert.strictEqual(suggestUsername('Jane Doe', []), 'J.Doe');
   });
-  test('strips non-alphanumeric characters', () => {
-    assert.strictEqual(suggestUsername("MD Obaid-Amin", []), 'mamin' /* first initial M + lastname "Amin" but hyphen name has 3 tokens: use first + LAST token */);
+  test('strips non-alphanumeric characters from last token', () => {
+    assert.strictEqual(suggestUsername("MD Obaid-Amin", []), 'M.Obaidamin' /* first initial M + last token "Obaid-Amin" with hyphen stripped and capitalized */);
   });
-  test('appends a number on collision', () => {
-    assert.strictEqual(suggestUsername('Jane Doe', ['jdoe']), 'jdoe2');
-    assert.strictEqual(suggestUsername('Jane Doe', ['jdoe', 'jdoe2']), 'jdoe3');
+  test('appends a number on collision (case-insensitive)', () => {
+    assert.strictEqual(suggestUsername('Jane Doe', ['j.doe']), 'J.Doe2');
+    assert.strictEqual(suggestUsername('Jane Doe', ['J.Doe', 'j.doe2']), 'J.Doe3');
   });
-  test('single-word name falls back to the whole word', () => {
-    assert.strictEqual(suggestUsername('Prince', []), 'prince');
+  test('single-word name returns capitalized without dot', () => {
+    assert.strictEqual(suggestUsername('Prince', []), 'Prince');
   });
 });
 

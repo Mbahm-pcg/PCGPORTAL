@@ -72,18 +72,28 @@ export function advanceVacantStreak({ prevWeeks, zeroMatchThisRun, nowMs, lastRu
   return { weeks, shouldQueue: crossedNow };
 }
 
-/** "Jane Doe" -> "jdoe"; collisions get 2, 3, ... appended. */
+/** "Jane Doe" -> "J.Doe"; collisions get 2, 3, ... appended (case-insensitive). */
 export function suggestUsername(name, existingUsernames) {
-  const tokens = String(name || '').trim().split(/[^a-zA-Z0-9]+/).filter(Boolean);
-  const alnum = (s) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const tokens = String(name || '').trim().split(/\s+/).filter(Boolean);
   let base;
-  if (tokens.length === 0) base = 'user';
-  else if (tokens.length === 1) base = alnum(tokens[0]);
-  else base = alnum(tokens[0][0] + tokens[tokens.length - 1]);
+  if (tokens.length === 0) {
+    base = 'User';
+  } else if (tokens.length === 1) {
+    // Single word: capitalize it
+    const word = tokens[0];
+    base = word[0].toUpperCase() + word.slice(1).toLowerCase();
+  } else {
+    // Multiple tokens: first initial + "." + last token (non-alphanumerics stripped, capitalized)
+    const firstInitial = tokens[0][0].toUpperCase();
+    const lastToken = tokens[tokens.length - 1].replace(/[^a-zA-Z0-9]/g, '');
+    const lastName = lastToken[0].toUpperCase() + lastToken.slice(1).toLowerCase();
+    base = firstInitial + '.' + lastName;
+  }
+  // Case-insensitive collision detection
   const existing = new Set((existingUsernames || []).map((u) => String(u).toLowerCase()));
-  if (!existing.has(base)) return base;
+  if (!existing.has(base.toLowerCase())) return base;
   let n = 2;
-  while (existing.has(`${base}${n}`)) n++;
+  while (existing.has(`${base}${n}`.toLowerCase())) n++;
   return `${base}${n}`;
 }
 
