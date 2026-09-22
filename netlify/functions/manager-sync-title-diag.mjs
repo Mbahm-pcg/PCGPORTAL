@@ -16,19 +16,24 @@ export default async (request) => {
     return json({ error: 'Exec/IT session required.' }, 403);
   }
   const url = new URL(request.url);
+  const pcFilter = url.searchParams.get('pc');
   const limit = Number(url.searchParams.get('limit') || 5);
+  const targets = pcFilter ? STORES.filter(s => s.pc === pcFilter) : STORES.slice(0, limit);
   const out = [];
-  for (const store of STORES.slice(0, limit)) {
+  for (const store of targets) {
     try {
       const res = await callPaycor(`/legalentities/${store.paycor}/employees?include=All`);
       const records = res.data?.records || res.data || [];
-      const active = records.filter(e => (e.statusData?.status || e.employeeStatus || e.status || '') === 'Active');
-      const titles = active.map(e => ({
+      // No status filter here — deliberately show EVERY record's raw status/title fields,
+      // so we can see exactly what the API returns vs. what the Active-only pipeline expects.
+      const titles = records.map(e => ({
         name: `${e.firstName || ''} ${e.lastName || ''}`.trim(),
         jobTitle: e.jobTitle || null,
         department: e.department || null,
+        status: e.statusData?.status || e.employeeStatus || e.status || null,
+        rawKeys: Object.keys(e),
       }));
-      out.push({ pc: store.pc, name: store.name, status: res.status, activeCount: active.length, titles });
+      out.push({ pc: store.pc, paycorId: store.paycor, name: store.name, status: res.status, totalRecords: records.length, titles });
     } catch (e) {
       out.push({ pc: store.pc, name: store.name, error: e.message });
     }
