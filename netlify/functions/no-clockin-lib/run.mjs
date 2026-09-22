@@ -63,6 +63,18 @@ async function deliver(bs, recipients, subject, text) {
   return { phones: phones.length, emails: emails.length, push: ids.length };
 }
 
+/**
+ * DIAGNOSTIC ONLY — raw Paycor punches for one employee across a date window. Reuses the
+ * same shared callPaycor()/getAccessToken() path already used by every other Paycor call in
+ * this app (no separate OAuth call, no risk to the shared refresh token). Used to check
+ * whether a punch that was missing during a run has since appeared (Paycor sync lag) or is
+ * genuinely absent, without guessing.
+ */
+export async function checkEmployeePunches(employeeId, date) {
+  const res = await callPaycor(`/employees/${employeeId}/employeePunches?startDate=${date}&endDate=${date}`);
+  return { status: res.status, records: res.data?.records || res.data || null };
+}
+
 /** Sample alert to one Portal user (by id) — confirms text + app notification + email all work. */
 export async function sendTestAlert(userId) {
   const bs = blobStore();

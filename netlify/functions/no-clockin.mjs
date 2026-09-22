@@ -6,7 +6,7 @@
 //   POST /.netlify/functions/no-clockin?sendTest=1 -> sends a sample alert to the caller only
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { runNoClockin, sendTestAlert } from './no-clockin-lib/run.mjs';
+import { runNoClockin, sendTestAlert, checkEmployeePunches } from './no-clockin-lib/run.mjs';
 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } });
 
@@ -17,6 +17,11 @@ export default async (request) => {
   }
   const url = new URL(request.url);
   try {
+    // Diagnostic: raw Paycor punches for one employee/date, to check a specific past alert
+    // against what Paycor shows NOW (e.g. a sync-lag punch that has since appeared).
+    const employeeId = url.searchParams.get('employeeId');
+    const date = url.searchParams.get('date');
+    if (employeeId && date) return json(await checkEmployeePunches(employeeId, date));
     if (url.searchParams.get('sendTest') === '1') return json(await sendTestAlert(caller.sub));
     return json({ dryRun: true, ...(await runNoClockin({ mode: 'off' })) });
   } catch (e) {
