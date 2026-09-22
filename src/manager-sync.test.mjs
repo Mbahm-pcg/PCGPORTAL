@@ -15,6 +15,16 @@ describe('isManagerTitle', () => {
     assert.strictEqual(isManagerTitle('Assistant Manager'), false);
     assert.strictEqual(isManagerTitle('Assistant General Manager'), false);
   });
+  test('excludes Paycor\'s real "Asst Managers" abbreviation (confirmed live 2026-09-22)', () => {
+    assert.strictEqual(isManagerTitle('Asst Managers'), false);
+    assert.strictEqual(isManagerTitle('Asst Manager'), false);
+    assert.strictEqual(isManagerTitle('ASST MANAGERS'), false);
+  });
+  test('does not over-match "asst" as a substring of something else', () => {
+    // \basst\b requires a word boundary — a title that merely CONTAINS "asst" glued to other
+    // letters (not a real case seen in practice, but guards the regex isn't overly broad).
+    assert.strictEqual(isManagerTitle('Bassist Manager'), true); // "bassist" is not the word "asst"
+  });
   test('non-manager titles and empty/missing titles are false', () => {
     assert.strictEqual(isManagerTitle('Crew Member'), false);
     assert.strictEqual(isManagerTitle(''), false);

@@ -6,10 +6,13 @@ const WEEK_MS = 7 * 86400000;
 export const VACANT_WEEKS_THRESHOLD = 3;
 export const PASSWORD_RULE = { minLength: 12 };
 
-/** Title contains "manager" but not "assistant" (case-insensitive). */
+/** Title contains "manager" but not "assistant" (case-insensitive). Confirmed live
+ *  2026-09-22: Paycor's real convention abbreviates to "Asst Managers", not the spelled-out
+ *  "Assistant Manager" originally assumed — checking only "assistant" let 5 of 6 real stores'
+ *  assistant managers slip through as false "needsReview" (paired against the real manager). */
 export function isManagerTitle(title) {
   const t = String(title || '').toLowerCase();
-  return t.includes('manager') && !t.includes('assistant');
+  return t.includes('manager') && !t.includes('assistant') && !/\basst\b/.test(t);
 }
 
 /** Active employees (caller has already filtered to Active) whose title matches.
