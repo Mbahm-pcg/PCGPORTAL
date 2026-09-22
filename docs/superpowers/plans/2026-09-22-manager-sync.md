@@ -600,16 +600,31 @@ In `toClient` (`netlify/functions/users.mjs:37-66`), add one line (right after `
     paycorEmployeeId:   row.paycor_employee_id ?? null,
 ```
 
-- [ ] **Step 3: Syntax-check**
+- [ ] **Step 3: Also add it to the `list` action's SELECT (Ruling — see plan pre-flight note)**
+
+`toClient` is shared between `create`'s response and `list`'s response, but `list` has its own separate `SELECT` (`netlify/functions/users.mjs:106-113`) that does not go through `create`'s query — it needs the column added too, or every user's `paycorEmployeeId` comes back `null` in the app's main `users` list regardless of the real stored value, which would silently break Task 5's "already linked" check for every user except one freshly created in the same browser session:
+
+```js
+      const rows = await db`
+        SELECT id, username, name, email, phone, role, user_type, district, store_pc,
+               active, dark_mode, avatar_url, google_id, last_login, created_at,
+               initials, is_admin, must_setup, region,
+               two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
+               audits_access, paycor_employee_id
+        FROM users ORDER BY id
+      `;
+```
+
+- [ ] **Step 4: Syntax-check**
 
 Run: `node --check netlify/functions/users.mjs`
 Expected: no output.
 
-- [ ] **Step 4: Manual verification**
+- [ ] **Step 5: Manual verification**
 
-There's no existing test harness for `users.mjs` (it's a thin HTTP handler over the DB, not a pure module) and adding one is out of scope for this task. Verify by hand once deployed: create a manager account through the Admin · Users "+ Add User" form as normal (no `paycorEmployeeId` in the payload from today's UI yet — Task 5 adds that), confirm the existing create flow still works exactly as before (this is a backward-compatible column addition; `u.paycorEmployeeId` is `undefined` from today's UI, so `u.paycorEmployeeId || null` correctly inserts `null`).
+There's no existing test harness for `users.mjs` (it's a thin HTTP handler over the DB, not a pure module) and adding one is out of scope for this task. Verify by hand once deployed: (1) create a manager account through the Admin · Users "+ Add User" form as normal (no `paycorEmployeeId` in the payload from today's UI yet — Task 5 adds that), confirm the existing create flow still works exactly as before (this is a backward-compatible column addition; `u.paycorEmployeeId` is `undefined` from today's UI, so `u.paycorEmployeeId || null` correctly inserts `null`); (2) confirm the main Users list still loads normally (the `list` action's added column is additive/backward-compatible).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add netlify/functions/users.mjs
