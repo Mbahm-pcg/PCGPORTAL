@@ -9,3 +9,4 @@ node_modules/
 paycor-search.md
 deno.lock
 index 2.html
+.worktrees/
