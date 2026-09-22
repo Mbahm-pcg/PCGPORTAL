@@ -32,6 +32,21 @@ async function ensureAuditsColumn(db) {
   }
 }
 
+// Same deploy-ordering guard, for the manager-sync `paycor_employee_id` column: a fresh
+// deploy of this function can land before db-migrate.mjs's matching ALTER is manually
+// triggered, and without this the `list`/`create` SELECTs below (which already name the
+// column) would 500 the whole users list instead of degrading gracefully.
+let _paycorEmployeeIdColumnEnsured = false;
+async function ensurePaycorEmployeeIdColumn(db) {
+  if (_paycorEmployeeIdColumnEnsured) return;
+  try {
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS paycor_employee_id text`;
+    _paycorEmployeeIdColumnEnsured = true;
+  } catch (err) {
+    console.warn('ensurePaycorEmployeeIdColumn failed (continuing):', err?.message || err);
+  }
+}
+
 // Map a DB row (snake_case) to a client-safe object (camelCase). Never includes
 // password_hash or two_factor_secret.
 function toClient(row) {
@@ -87,6 +102,7 @@ export default async (request) => {
   // names it — belt-and-suspenders with the identical ALTER in audits.mjs's
   // ensureTables(), since a fresh deploy could hit either function first.
   await ensureAuditsColumn(db);
+  await ensurePaycorEmployeeIdColumn(db);
   const url = new URL(request.url);
   // requireActiveUser (not plain requireUser) so a revoked/deactivated session can't perform
   // user CRUD until its token expires. null = unauthenticated (the public `list` is still allowed).

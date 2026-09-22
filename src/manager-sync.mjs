@@ -60,16 +60,23 @@ export function detectManagerCandidate({ matches, linkedEmployeeId }) {
   return { status: 'replace', candidate: only };
 }
 
-/** Track consecutive zero-match weeks for the "vacant" flag. Weeks are counted in whole
- *  WEEK_MS increments of elapsed time since the last run that had a match (or since the
- *  streak started); shouldQueue is true only on the run that first reaches the threshold,
- *  so the caller never re-queues an already-queued vacant item every subsequent run. */
-export function advanceVacantStreak({ prevWeeks, zeroMatchThisRun, nowMs, lastRunMs }) {
-  if (!zeroMatchThisRun) return { weeks: 0, shouldQueue: false };
-  const elapsedWeeks = Math.max(1, Math.round((nowMs - lastRunMs) / WEEK_MS) || 1);
-  const weeks = prevWeeks + (nowMs - lastRunMs >= WEEK_MS ? elapsedWeeks : (prevWeeks === 0 ? 1 : 0));
-  const crossedNow = prevWeeks < VACANT_WEEKS_THRESHOLD && weeks >= VACANT_WEEKS_THRESHOLD;
-  return { weeks, shouldQueue: crossedNow };
+/** Tracks a store's continuous zero-manager-match streak using a single persisted
+ *  "streak started" timestamp, rather than an incrementing counter — much simpler and
+ *  avoids the previous design's off-by-one. zeroSinceMs is the timestamp of the first
+ *  run that saw zero matches in the CURRENT streak (pass null if there's no prior
+ *  streak state, e.g. the first-ever zero-match run for this store, or after a match
+ *  most recently reset it). alreadyQueued is whether a vacant notification has already
+ *  fired for this same continuous streak (persisted by the caller; reset whenever the
+ *  streak resets). Returns the (possibly newly-established) zeroSinceMs to persist, the
+ *  current whole-weeks-elapsed count, shouldQueue (true exactly once, on the run that
+ *  first reaches the threshold and hasn't already queued), and queued (the value to
+ *  persist for alreadyQueued on the next call). */
+export function advanceVacantStreak({ zeroMatchThisRun, nowMs, zeroSinceMs, alreadyQueued }) {
+  if (!zeroMatchThisRun) return { zeroSinceMs: null, weeks: 0, shouldQueue: false, queued: false };
+  const since = zeroSinceMs == null ? nowMs : zeroSinceMs;
+  const weeks = Math.floor((nowMs - since) / WEEK_MS);
+  const shouldQueue = weeks >= VACANT_WEEKS_THRESHOLD && !alreadyQueued;
+  return { zeroSinceMs: since, weeks, shouldQueue, queued: alreadyQueued || shouldQueue };
 }
 
 /** "Jane Doe" -> "J.Doe"; collisions get 2, 3, ... appended (case-insensitive). */

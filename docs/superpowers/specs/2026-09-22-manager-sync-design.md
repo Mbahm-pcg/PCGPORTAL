@@ -30,7 +30,7 @@ This is Part B of the Locations manager/employee work; Part A (live employee cou
 
 Every existing manager account starts with `paycor_employee_id = null`. Without special handling, the very first hourly run after this ships would see 45 stores' worth of "current manager has no link" and misreport every one of them as a `replace` candidate — including the ones that are already correctly staffed. To avoid that:
 
-- When a store has **exactly one** manager-title match and its currently-linked-by-`store_pc` Portal manager account (`storeMgrName`'s own lookup: active, `userType='manager'`, matching `store_pc`) has **no** `paycor_employee_id` yet, compare the Paycor candidate's name against that Portal account's `name` with a normalized, lenient comparison (case/whitespace/punctuation-insensitive, matching on first + last token — good enough to equate "MD Obaid" and "MD Obaid Amin", not a hard exact match).
+- When a store has **exactly one** manager-title match and its currently-linked-by-`store_pc` Portal manager account (`storeMgrName`'s own lookup: active, `userType='manager'`, matching `store_pc`) has **no** `paycor_employee_id` yet, compare the Paycor candidate's name against that Portal account's `name` with a normalized, lenient comparison (case/whitespace/punctuation-insensitive; the first token of the longer name must match the first token of the shorter one, and every token of the shorter name must then appear, in order, somewhere within the longer name's remaining tokens — an order-preserving subsequence match, not just first+last. Good enough to equate "MD Obaid" with "MD Obaid Amin", and — deliberately, so a Portal account stored under just a first name still bootstrap-links — "John" with "John Smith"; not a hard exact match).
   - **Names correspond** → silently set `paycor_employee_id` on the existing account. No notification, no admin action, nothing queued. This is the expected outcome for the large majority of stores on day one.
   - **Names don't correspond, or there's no current Portal manager at all** → this is a genuine `replace` candidate, queued exactly like any other detected replacement (even on day one — if Paycor already shows a real, different person, that's real information worth surfacing right away, not something to suppress).
 - This bootstrap check only ever runs for a store whose linked manager has no `paycor_employee_id`. Once a store has a link, every future check is the exact-ID comparison described above — this fuzzy pass never runs again for that store unless the account is later replaced and a new one goes through the same bootstrap step in turn.
@@ -54,7 +54,7 @@ One entry per store that currently has something to show:
     "outgoingUserId": 42,
     "detectedAt": "2026-09-22T14:00:00.000Z"
   },
-  "340794": { "kind": "vacant", "zeroMatchWeeks": 2, "lastSeenMatchAt": "2026-09-08T..." }
+  "340794": { "kind": "vacant", "zeroSinceMs": 1757289600000, "vacantQueued": false, "detectedAt": "2026-09-08T00:00:00.000Z" }
 }
 ```
 

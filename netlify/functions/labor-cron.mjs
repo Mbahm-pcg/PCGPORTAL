@@ -553,6 +553,12 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
   // it), and everything else already had its own try/catch returning a safe
   // default, so combining them in one Promise.all doesn't change what
   // happens when any one of them fails.
+  // Set (only) in the employees-fetch catch below. `employees` itself must stay an array
+  // (other, unrelated payroll/labor-cost code in this function already depends on that
+  // contract) — this separate flag lets Manager Sync specifically distinguish "Paycor
+  // fetch failed, unknown state" from "confirmed zero managers" without changing it.
+  let employeesFetchFailed = false;
+
   const [sales, existingBlob, employees, todayShifts, payRateCacheRaw, allPunches] = await Promise.all([
     // 1. POS sales for today from live API
     fetchPOSSales(pc, busDt),
@@ -579,6 +585,7 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
         });
       } catch (e) {
         console.warn(`[labor-cron] ${name}: fetchEmployees failed:`, e.message);
+        employeesFetchFailed = true;
         return [];
       }
     })(),
@@ -877,7 +884,11 @@ export async function processStore(store, busDt, { skipSchedules = false, pnlCon
       laborPct:     Math.round(wtdLaborPct * 10) / 10,
     },
     employeeDetails,
-    managerCandidates: managerMatches(employees),
+    // null (not []) when the employees fetch itself failed, so Manager Sync's aggregation
+    // step (which already skips a store with a non-array managerCandidates, same as a
+    // fully-errored processStore call) treats this as "unknown" rather than "confirmed
+    // zero managers" — a transient Paycor failure must never look like a vacant store.
+    managerCandidates: employeesFetchFailed ? null : managerMatches(employees),
     liveClockInStatus,
     scheduleShifts: todayShifts.map(s => ({
       employeeId:    s.employeeId   || s.EmployeeId   || null,
@@ -1017,11 +1028,19 @@ const MANAGER_PENDING_KEY = 'pcg_manager_pending_v1';
 // already-correct pre-existing manager silently, and appends a bell notification for any
 // NEWLY-queued item. See docs/superpowers/specs/2026-09-22-manager-sync-design.md.
 async function runManagerSync(storeResults, blobStore, nowMs) {
+  // pc -> array of ALL active manager rows for that store (normally 0 or 1; can briefly be
+  // >1 mid-transition — new account created+linked, old one not yet deactivated). Keeping
+  // the full array (not collapsing to the last row) is what Finding 4 of the final review
+  // fixed: a silent overwrite here used to lose track of whichever row didn't win, so it
+  // could never be flagged for deactivation.
   let linkedByPc = {};
   try {
     const db = sql();
     const rows = await db`SELECT id, name, store_pc, paycor_employee_id FROM users WHERE user_type = 'manager' AND active = true`;
-    for (const r of rows) linkedByPc[String(r.store_pc)] = { id: r.id, name: r.name, employeeId: r.paycor_employee_id };
+    for (const r of rows) {
+      const key = String(r.store_pc);
+      (linkedByPc[key] ||= []).push({ id: r.id, name: r.name, employeeId: r.paycor_employee_id });
+    }
   } catch (e) {
     console.warn('[manager-sync] linked-manager lookup failed, skipping this run:', e.message);
     return;
@@ -1038,8 +1057,27 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
   for (const r of storeResults) {
     if (!r || !Array.isArray(r.managerCandidates)) continue;
     const pc = r.pc;
-    const linked = linkedByPc[pc] || null;
+    const linkedRows = linkedByPc[pc] || [];
     const prevPending = pending[pc];
+
+    // Normally 0 or 1 active manager row per store. When there's more than one, try to
+    // cleanly resolve which row is "the" correctly-linked one (exactly one row's
+    // paycor_employee_id matches today's single Paycor candidate) and keep every other
+    // still-active row as a pending "still needs deactivation" outgoing account, rather
+    // than silently picking one and losing track of the rest.
+    let linked = linkedRows[0] || null;
+    let extraOutgoing = null; // an additional still-active row that needs deactivating
+    if (linkedRows.length > 1) {
+      const singleCandidate = r.managerCandidates.length === 1 ? r.managerCandidates[0] : null;
+      const matchingRows = singleCandidate ? linkedRows.filter((row) => row.employeeId && row.employeeId === singleCandidate.employeeId) : [];
+      const nonMatchingRows = linkedRows.filter((row) => !matchingRows.includes(row));
+      if (matchingRows.length === 1 && nonMatchingRows.length > 0) {
+        linked = matchingRows[0];
+        extraOutgoing = nonMatchingRows[0];
+      }
+      // else: ambiguous (no clean single match) — fall back to the first row, same as the
+      // pre-fix behavior, rather than leaving the store unhandled.
+    }
 
     // Bootstrap linking: linked manager exists but has never been linked to a Paycor id yet.
     if (linked && !linked.employeeId && r.managerCandidates.length === 1) {
@@ -1059,10 +1097,41 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
     const linkedEmployeeId = linked?.employeeId || null;
     const result = detectManagerCandidate({ matches: r.managerCandidates, linkedEmployeeId });
 
-    if (result.status === 'ok') { delete pending[pc]; continue; }
+    if (result.status === 'ok') {
+      if (extraOutgoing) {
+        // Half-resolved multi-manager state: the current single Paycor candidate is
+        // correctly linked (a new account already exists for it), but another active
+        // manager row for the same store hasn't been deactivated yet. Keep a `replace`
+        // pending entry alive — with outgoingUserId pointing at the still-active old
+        // row — so the Admin Users banner keeps showing its Deactivate button instead
+        // of the store silently looking fully resolved.
+        // Same dismissal scoping as the normal `replace` path below — an admin who
+        // dismissed this exact reminder must not have it reappear next run just because
+        // the underlying DB state hasn't changed.
+        if (prevPending?.kind === 'dismissed' && prevPending.dismissedCandidateEmployeeId === linkedEmployeeId) continue;
+        const alreadyKnown = prevPending?.kind === 'replace'
+          && prevPending.candidate?.employeeId === linkedEmployeeId
+          && prevPending.outgoingUserId === extraOutgoing.id;
+        pending[pc] = {
+          kind: 'replace',
+          candidate: { employeeId: linkedEmployeeId, name: linked.name, jobTitle: r.managerCandidates[0]?.jobTitle || '' },
+          outgoingUserId: extraOutgoing.id,
+          outgoingName: extraOutgoing.name,
+          detectedAt: prevPending?.detectedAt || new Date(nowMs).toISOString(),
+        };
+        if (!alreadyKnown) newNotifs.push({ pc, storeName: r.name, kind: 'replace', text: `${r.name}: ${extraOutgoing.name} is still active and needs to be deactivated now that ${linked.name} is the linked manager` });
+        continue;
+      }
+      delete pending[pc];
+      continue;
+    }
 
     if (result.status === 'replace') {
       if (prevPending?.kind === 'replace' && prevPending.candidate?.employeeId === result.candidate.employeeId) continue; // already queued, don't re-notify
+      // Admin explicitly dismissed this exact candidate before — Paycor's underlying data
+      // hasn't changed, so don't re-queue or re-notify (a genuinely different candidate,
+      // i.e. a different employeeId, is NOT suppressed by this).
+      if (prevPending?.kind === 'dismissed' && prevPending.dismissedCandidateEmployeeId === result.candidate.employeeId) continue;
       const entry = {
         kind: 'replace',
         candidate: { employeeId: result.candidate.employeeId, name: result.candidate.name, jobTitle: result.candidate.jobTitle },
@@ -1079,30 +1148,26 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
       const newIds = result.candidates.map((c) => c.employeeId).sort().join(',');
       const prevIds = (prevPending?.kind === 'needsReview' ? prevPending.candidates || [] : []).map((c) => c.employeeId).sort().join(',');
       if (prevPending?.kind === 'needsReview' && newIds === prevIds) continue; // same candidate set already queued, don't re-notify
+      // Same dismissal scoping as `replace`, keyed off the sorted candidate-id set instead
+      // of a single employeeId.
+      if (prevPending?.kind === 'dismissed' && prevPending.dismissedCandidateEmployeeId === newIds) continue;
       pending[pc] = { kind: 'needsReview', candidates: result.candidates, detectedAt: new Date(nowMs).toISOString() };
       newNotifs.push({ pc, storeName: r.name, kind: 'needsReview', text: `${r.name}: multiple active employees hold a manager title — needs a human decision` });
       continue;
     }
 
-    // zeroMatch — lastRunMs is the timestamp of THIS store's previous vacant check (persisted
-    // below as lastCheckedAt), not a global constant, so advanceVacantStreak sees real elapsed
-    // time. First-ever zero-match run for a store has no prior vacant state, so fall back to
-    // nowMs itself (elapsed = 0), which correctly hits advanceVacantStreak's prevWeeks === 0
-    // special case (bump to week 1, don't queue yet).
-    const prevWeeks = prevPending?.kind === 'vacant' ? prevPending.zeroMatchWeeks : 0;
-    const lastRunMs = (prevPending?.kind === 'vacant' && prevPending.lastCheckedAt) ? Date.parse(prevPending.lastCheckedAt) : nowMs;
-    const { weeks, shouldQueue } = advanceVacantStreak({ prevWeeks, zeroMatchThisRun: true, nowMs, lastRunMs });
-    // Only advance the persisted baseline (lastCheckedAt) when `weeks` actually changed this run.
-    // labor-cron runs many times a day, so if we reset the baseline to "now" on every single
-    // run regardless, the elapsed-time window advanceVacantStreak sees next time is always just
-    // the few hours between cron runs — never a real week — and the counter gets stuck at 1
-    // forever (the exact bug this fix addresses; verified against advanceVacantStreak with a
-    // multi-week hourly-cadence simulation before landing on this condition). Keeping the old
-    // baseline on every "no real week has elapsed yet" run lets elapsed real time actually
-    // accumulate across many runs until it crosses a week boundary.
-    const newLastCheckedAt = (weeks > prevWeeks) ? new Date(nowMs).toISOString() : (prevPending?.lastCheckedAt || new Date(nowMs).toISOString());
-    if (weeks > 0) pending[pc] = { kind: 'vacant', zeroMatchWeeks: weeks, detectedAt: prevPending?.detectedAt || new Date(nowMs).toISOString(), lastCheckedAt: newLastCheckedAt };
-    else delete pending[pc];
+    // zeroMatch — single persisted "streak started" timestamp (zeroSinceMs) + a
+    // "already queued this streak" flag (vacantQueued), rather than an incrementing
+    // week counter. Replaces the old {zeroMatchWeeks, lastCheckedAt} design, which
+    // started the counter at week 1 with zero elapsed time and so crossed the
+    // "3 weeks" threshold after only 14 real days. See advanceVacantStreak in
+    // src/manager-sync.mjs for the (independently verified) math.
+    const prevZeroSinceMs = prevPending?.kind === 'vacant' ? (prevPending.zeroSinceMs ?? null) : null;
+    const prevAlreadyQueued = prevPending?.kind === 'vacant' ? !!prevPending.vacantQueued : false;
+    const { zeroSinceMs, shouldQueue, queued } = advanceVacantStreak({
+      zeroMatchThisRun: true, nowMs, zeroSinceMs: prevZeroSinceMs, alreadyQueued: prevAlreadyQueued,
+    });
+    pending[pc] = { kind: 'vacant', zeroSinceMs, vacantQueued: queued, detectedAt: new Date(zeroSinceMs).toISOString() };
     if (shouldQueue) newNotifs.push({ pc, storeName: r.name, kind: 'vacant', text: `${r.name}: no active employee has held a manager title for 3+ weeks` });
   }
 
@@ -1232,9 +1297,6 @@ export default async (request, context) => {
     const pnlConfig = await loadPnlConfig(blobStore);
     const storeResults = await processAllStores(busDt, 5, { skipSchedules: isManual, pnlConfig });
 
-    try { await runManagerSync(storeResults, blobStore, Date.now()); }
-    catch (e) { console.warn('[manager-sync] aggregation failed, skipping this run:', e.message); }
-
     // Build network summary
     const successStores = storeResults.filter(r => !r.error);
     const networkLaborDollars   = successStores.reduce((s, r) => s + r.today.laborDollars, 0);
@@ -1340,6 +1402,12 @@ export default async (request, context) => {
       }));
     }
     console.log('[labor-cron] Wrote per-store blobs for', storeResults.length, 'stores');
+
+    // Manager Sync detection is not on the critical path (payroll/labor-cost data) — run
+    // it after the network + per-store blob writes above, not before, so a scheduled
+    // function's timeout budget always favors the critical work first.
+    try { await runManagerSync(storeResults, blobStore, Date.now()); }
+    catch (e) { console.warn('[manager-sync] aggregation failed, skipping this run:', e.message); }
 
     // ── P&L live snapshot + per-store history ────────────────────────────────
     try {

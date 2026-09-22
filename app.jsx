@@ -3343,12 +3343,45 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const [managerPending, setManagerPending] = useState({}); // pc -> { kind, candidate?, outgoingUserId?, outgoingName?, ... }
   const loadManagerPending = () => cloudLoad('pcg_manager_pending_v1').then(d => setManagerPending(d && typeof d === 'object' ? d : {})).catch(() => {});
   useEffect(() => { loadManagerPending(); }, []);
+  // Dismissing a `replace`/`needsReview` item must persist and be respected by the next
+  // labor-cron run (Paycor's underlying data hasn't changed, so without this the very next
+  // hourly run just re-detects the identical situation and re-queues/re-notifies forever).
+  // We write a `dismissed` marker scoped to the SPECIFIC candidate(s) dismissed — not the
+  // store in general — so a genuinely new candidate later is never suppressed by an old
+  // dismissal for a different situation. `vacant` items keep the simpler "just clear it"
+  // behavior (which resets the streak) — judged an acceptable, much-less-harmful outcome.
   const dismissManagerPending = async (pc) => {
+    const item = managerPending[pc];
     const next = { ...managerPending };
-    delete next[pc];
+    if (item?.kind === 'replace') {
+      next[pc] = { kind: 'dismissed', dismissedCandidateEmployeeId: item.candidate.employeeId, dismissedAt: new Date().toISOString() };
+    } else if (item?.kind === 'needsReview') {
+      const candidateIds = (item.candidates || []).map(c => c.employeeId).sort().join(',');
+      next[pc] = { kind: 'dismissed', dismissedCandidateEmployeeId: candidateIds, dismissedAt: new Date().toISOString() };
+    } else {
+      delete next[pc];
+    }
     const ok = await cloudSave('pcg_manager_pending_v1', next);
     if (ok) setManagerPending(next);
   };
+
+  // A managerPending entry is "actionable" — i.e. it renders a banner row below and should
+  // count toward the "N Pending" pill — except: (a) a `replace` item that's fully resolved
+  // (new account exists AND the outgoing one is deactivated; labor-cron only clears the
+  // blob entry itself on its next run, so this is what keeps the pill and the banner list
+  // in sync with what's actually visible in the meantime), or (b) a `dismissed` marker,
+  // kept purely so labor-cron's next run knows not to re-queue the exact candidate(s)
+  // already dismissed — it renders nothing and isn't a "pending" item from here.
+  const managerPendingIsActionable = (item) => {
+    if (!item || item.kind === 'dismissed') return false;
+    if (item.kind === 'replace') {
+      const alreadyLinked = users.some(u => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
+      const oldDeactivated = item.outgoingUserId ? users.find(u => u.id === item.outgoingUserId)?.active === false : true;
+      return !(alreadyLinked && oldDeactivated);
+    }
+    return true; // needsReview, vacant
+  };
+  const managerPendingCount = Object.values(managerPending).filter(managerPendingIsActionable).length;
 
   // IT-only: force-logout every device for a user (lost/stolen device). Invalidates all
   // active sessions server-side and revokes trusted devices; takes effect within ~3 min
@@ -3772,10 +3805,10 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
           <span style={{ width:6, height:6, borderRadius:"50%", background:"#22c55e" }} />
           {users.filter(u => u.active !== false).length} Active
         </div>
-        {Object.keys(managerPending).length > 0 && (
+        {managerPendingCount > 0 && (
           <div style={{ display:"inline-flex", alignItems:"center", gap:"0.45rem", padding:"0.5rem 0.85rem", background:"#f59e0b22", border:"1px solid #f59e0b55", borderRadius:999, fontSize:"0.68rem", color:"#f59e0b", fontWeight:800, textTransform:"uppercase", letterSpacing:0.7 }}>
             <span style={{ width:6, height:6, borderRadius:"50%", background:"#f59e0b" }} />
-            {Object.keys(managerPending).length} Pending
+            {managerPendingCount} Pending
           </div>
         )}
         <div style={{ flex:1 }} />
@@ -3801,12 +3834,12 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
       {/* ─── Section 2 — user cards (scrollable) ──────────────────── */}
       <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:4 }}>
       {Object.entries(managerPending).map(([pc, item]) => {
+        if (!managerPendingIsActionable(item)) return null; // resolved, or a dismissal marker — nothing to show
         const store = stores.find(s => String(s.pc) === pc);
         const storeName = store?.name || pc;
         if (item.kind === 'replace') {
           const alreadyLinked = users.some(u => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
           const oldDeactivated = item.outgoingUserId ? users.find(u => u.id === item.outgoingUserId)?.active === false : true;
-          if (alreadyLinked && oldDeactivated) return null; // resolved — next labor-cron run clears the blob itself
           return (
             <div key={pc} style={{ ...card(th), padding:"0.85rem 1rem", marginBottom:"0.6rem", borderLeft:"3px solid #f59e0b" }}>
               <div style={{ fontSize:"0.85rem", color:th.text, marginBottom:"0.5rem" }}>
@@ -3826,6 +3859,9 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
                       username: suggestUsername(item.candidate.name, existingUsernames),
                       password: generatePassword(),
                       paycorEmployeeId: item.candidate.employeeId,
+                      region: 'PA',
+                      active: true,
+                      role: item.candidate.jobTitle,
                     });
                   }} style={btn(th, { padding:"0.45rem 0.9rem", fontSize:"0.75rem" })}>
                     Create Account
@@ -26910,13 +26946,21 @@ const computeRoleTabs = (user) => {
 // helper: can this user fully administer system (add/edit/delete any user)?
 const isFullAdmin = (u) => u && (u.userType === "executive" || u.userType === "it");
 
+// Notification types that only exec/IT/office_staff should ever see, regardless of
+// storePC/district metadata — e.g. manager_change_pending, which names the OUTGOING
+// manager being replaced (they must never see their own replacement notice) and has no
+// district field (which would otherwise mean "show to every DM", not just the relevant
+// one — see filterNotifsByRole's `!n.district` backward-compat rule below).
+const ADMIN_ONLY_NOTIF_TYPES = new Set(['manager_change_pending']);
+
 // Filter notifications to only those relevant to the current user's role.
 // Notifications without storePC metadata are shown to everyone (backward compat).
 const filterNotifsByRole = (notifs, user) => {
   if (!user || user.userType === 'executive' || user.userType === 'it' || user.userType === 'office_staff') return notifs;
-  if (user.userType === 'dm') return notifs.filter(n => !n.district || Number(n.district) === Number(user.district));
-  if (user.userType === 'manager') return notifs.filter(n => !n.storePC || String(n.storePC) === String(user.storePC));
-  return notifs;
+  const visible = notifs.filter(n => !ADMIN_ONLY_NOTIF_TYPES.has(n.type));
+  if (user.userType === 'dm') return visible.filter(n => !n.district || Number(n.district) === Number(user.district));
+  if (user.userType === 'manager') return visible.filter(n => !n.storePC || String(n.storePC) === String(user.storePC));
+  return visible;
 };
 
 // Baseline sales forecast card — projects tomorrow's sales for one store (by
@@ -28210,7 +28254,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.07";
+const APP_VERSION = "v21.08";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

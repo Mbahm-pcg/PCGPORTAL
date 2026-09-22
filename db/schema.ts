@@ -14,7 +14,7 @@ export const users = pgTable("users", {
   active: boolean("active").notNull().default(true),
   darkMode: boolean("dark_mode").default(false),
   avatarUrl: text("avatar_url"),
-  paycorEmployeeId: varchar("paycor_employee_id", { length: 64 }),
+  paycorEmployeeId: text("paycor_employee_id"), // matches db-migrate.mjs's `ALTER ... ADD COLUMN ... TEXT` (no length cap)
   googleId: varchar("google_id", { length: 255 }),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),

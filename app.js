@@ -4705,11 +4705,29 @@
       loadManagerPending();
     }, []);
     const dismissManagerPending = async (pc) => {
+      const item = managerPending[pc];
       const next = { ...managerPending };
-      delete next[pc];
+      if (item?.kind === "replace") {
+        next[pc] = { kind: "dismissed", dismissedCandidateEmployeeId: item.candidate.employeeId, dismissedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      } else if (item?.kind === "needsReview") {
+        const candidateIds = (item.candidates || []).map((c) => c.employeeId).sort().join(",");
+        next[pc] = { kind: "dismissed", dismissedCandidateEmployeeId: candidateIds, dismissedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      } else {
+        delete next[pc];
+      }
       const ok = await cloudSave("pcg_manager_pending_v1", next);
       if (ok) setManagerPending(next);
     };
+    const managerPendingIsActionable = (item) => {
+      if (!item || item.kind === "dismissed") return false;
+      if (item.kind === "replace") {
+        const alreadyLinked = users.some((u) => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
+        const oldDeactivated = item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId)?.active === false : true;
+        return !(alreadyLinked && oldDeactivated);
+      }
+      return true;
+    };
+    const managerPendingCount = Object.values(managerPending).filter(managerPendingIsActionable).length;
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
       if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
@@ -4988,7 +5006,7 @@
         /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, mgrEmail || (form.storePC ? "No manager email on file for this store" : "Synced to store manager's email"))
       );
     })() : /* @__PURE__ */ React.createElement("input", { style: inp(th), type: "email", placeholder: "Email address", value: form.email || "", onChange: (e) => setForm((f) => ({ ...f, email: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Phone number", value: form.phone || "", onChange: (e) => handlePhoneChange(e.target.value, setForm, "phone") })), welcomeSent && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", borderRadius: "0.375rem", marginBottom: "0.75rem", fontSize: "0.8rem", fontWeight: 600, background: welcomeSent === "success" ? "#00d08418" : "#ff444418", color: welcomeSent === "success" ? "#00d084" : "#ff6666" } }, welcomeSent === "success" ? "\u2705 Welcome email sent!" : "\u26A0\uFE0F Welcome email failed \u2014 user was still created."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end", paddingTop: "1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: "transparent", color: th.muted, padding: "0.65rem 1.4rem", border: `1px solid ${th.cardBorder}` }), onClick: closeEditPage }, "Cancel"), /* @__PURE__ */ React.createElement("button", { disabled: saveFlash, style: btn(th, { padding: "0.65rem 1.75rem", background: saveFlash ? "#22c55e" : `linear-gradient(135deg,${rc},${rc}bb)`, color: "#fff", boxShadow: saveFlash ? "0 4px 16px #22c55e55" : `0 4px 16px ${rc}55`, fontWeight: 700, transition: "background 0.2s, box-shadow 0.2s" }), onClick: save }, saveFlash ? "\u2713 Saved!" : editId ? "Save Changes" : "Create User"))))));
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in", ref: frameRef, style: { display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 360 } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "1rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "1 1 240px", maxWidth: 340 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), padding: "0.65rem 0.85rem 0.65rem 2.4rem", fontSize: "0.85rem", width: "100%" }, placeholder: "Search users...", value: search, onChange: (e) => setSearch(e.target.value) })), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), width: "auto", fontSize: "0.8rem", padding: "0.65rem 0.75rem" }, value: roleFilter, onChange: (e) => setRoleFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Roles"), USERTYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.85rem", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, fontSize: "0.68rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#22c55e" } }), users.filter((u) => u.active !== false).length, " Active"), Object.keys(managerPending).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.85rem", background: "#f59e0b22", border: "1px solid #f59e0b55", borderRadius: 999, fontSize: "0.68rem", color: "#f59e0b", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#f59e0b" } }), Object.keys(managerPending).length, " Pending"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), canManageUser(currentUser, { userType: "manager" }) && /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in", ref: frameRef, style: { display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 360 } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "1rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "1 1 240px", maxWidth: 340 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.82rem", color: th.muted, pointerEvents: "none" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), padding: "0.65rem 0.85rem 0.65rem 2.4rem", fontSize: "0.85rem", width: "100%" }, placeholder: "Search users...", value: search, onChange: (e) => setSearch(e.target.value) })), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), width: "auto", fontSize: "0.8rem", padding: "0.65rem 0.75rem" }, value: roleFilter, onChange: (e) => setRoleFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Roles"), USERTYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.85rem", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, fontSize: "0.68rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#22c55e" } }), users.filter((u) => u.active !== false).length, " Active"), managerPendingCount > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.85rem", background: "#f59e0b22", border: "1px solid #f59e0b55", borderRadius: 999, fontSize: "0.68rem", color: "#f59e0b", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#f59e0b" } }), managerPendingCount, " Pending"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), canManageUser(currentUser, { userType: "manager" }) && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => openEditPage(null),
@@ -5018,12 +5036,12 @@
       },
       "+ Add User"
     ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, Object.entries(managerPending).map(([pc, item]) => {
+      if (!managerPendingIsActionable(item)) return null;
       const store = stores.find((s) => String(s.pc) === pc);
       const storeName = store?.name || pc;
       if (item.kind === "replace") {
         const alreadyLinked = users.some((u) => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
         const oldDeactivated = item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId)?.active === false : true;
-        if (alreadyLinked && oldDeactivated) return null;
         return /* @__PURE__ */ React.createElement("div", { key: pc, style: { ...card(th), padding: "0.85rem 1rem", marginBottom: "0.6rem", borderLeft: "3px solid #f59e0b" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("strong", null, storeName, ":"), " Paycor shows ", /* @__PURE__ */ React.createElement("strong", null, item.candidate.name), " (", item.candidate.jobTitle, ") now managing this store", item.outgoingName ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 was ", /* @__PURE__ */ React.createElement("strong", null, item.outgoingName)) : null, "."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, !alreadyLinked && /* @__PURE__ */ React.createElement("button", { onClick: () => {
           const existingUsernames = users.map((u) => u.username);
           openEditPage({
@@ -5032,7 +5050,10 @@
             storePC: pc,
             username: suggestUsername(item.candidate.name, existingUsernames),
             password: generatePassword(),
-            paycorEmployeeId: item.candidate.employeeId
+            paycorEmployeeId: item.candidate.employeeId,
+            region: "PA",
+            active: true,
+            role: item.candidate.jobTitle
           });
         }, style: btn(th, { padding: "0.45rem 0.9rem", fontSize: "0.75rem" }) }, "Create Account"), item.outgoingUserId && !oldDeactivated && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(item.outgoingUserId), style: btn(th, { padding: "0.45rem 0.9rem", fontSize: "0.75rem", background: th.card3, color: th.text }) }, "Deactivate ", item.outgoingName), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissManagerPending(pc), style: { background: "none", border: "none", color: th.muted, fontSize: "0.75rem", cursor: "pointer" } }, "Dismiss")));
       }
@@ -21892,11 +21913,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return BASE_TABS;
   };
   var isFullAdmin = (u) => u && (u.userType === "executive" || u.userType === "it");
+  var ADMIN_ONLY_NOTIF_TYPES = /* @__PURE__ */ new Set(["manager_change_pending"]);
   var filterNotifsByRole = (notifs, user) => {
     if (!user || user.userType === "executive" || user.userType === "it" || user.userType === "office_staff") return notifs;
-    if (user.userType === "dm") return notifs.filter((n) => !n.district || Number(n.district) === Number(user.district));
-    if (user.userType === "manager") return notifs.filter((n) => !n.storePC || String(n.storePC) === String(user.storePC));
-    return notifs;
+    const visible = notifs.filter((n) => !ADMIN_ONLY_NOTIF_TYPES.has(n.type));
+    if (user.userType === "dm") return visible.filter((n) => !n.district || Number(n.district) === Number(user.district));
+    if (user.userType === "manager") return visible.filter((n) => !n.storePC || String(n.storePC) === String(user.storePC));
+    return visible;
   };
   function ManagerOrionBrief({ pc, storeName, th }) {
     const [brief, setBrief] = useState(null);
@@ -22783,7 +22806,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.07";
+  var APP_VERSION = "v21.08";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

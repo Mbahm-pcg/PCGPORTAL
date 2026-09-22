@@ -54,6 +54,18 @@ describe('namesCorrespond (bootstrap linking only)', () => {
     assert.strictEqual(namesCorrespond('', 'Jane Doe'), false);
     assert.strictEqual(namesCorrespond('Jane Doe', null), false);
   });
+  // Pinned: the comparison is a deliberate order-preserving-subsequence match, more
+  // lenient than "first + last token" — a Portal account stored under just a first
+  // name still bootstrap-links to the fuller Paycor name. See the design spec's
+  // "Bootstrap linking" section (updated 2026-09-22 to describe this accurately).
+  // Do NOT "fix" this to require an exact first+last match — it would break intended,
+  // working behavior for accounts stored under a first name only.
+  test('a first-name-only Portal account corresponds to the fuller Paycor name (subsequence, not first+last)', () => {
+    assert.strictEqual(namesCorrespond('John Smith', 'John'), true);
+  });
+  test('subsequence match also works with a middle name in between', () => {
+    assert.strictEqual(namesCorrespond('John Michael Smith', 'John Smith'), true);
+  });
 });
 
 describe('detectManagerCandidate', () => {
@@ -94,22 +106,52 @@ describe('detectManagerCandidate', () => {
 
 describe('advanceVacantStreak', () => {
   const WEEK = 7 * 86400000;
-  test('first zero-match run starts the streak at 1 week, does not queue yet', () => {
-    const r = advanceVacantStreak({ prevWeeks: 0, zeroMatchThisRun: true, nowMs: WEEK, lastRunMs: 0 });
-    assert.strictEqual(r.weeks, 1);
-    assert.strictEqual(r.shouldQueue, false);
-  });
-  test('crossing 3 weeks queues exactly once', () => {
-    const r2 = advanceVacantStreak({ prevWeeks: 2, zeroMatchThisRun: true, nowMs: 3 * WEEK, lastRunMs: 2 * WEEK });
-    assert.strictEqual(r2.weeks, 3);
-    assert.strictEqual(r2.shouldQueue, true);
-    const r3 = advanceVacantStreak({ prevWeeks: 3, zeroMatchThisRun: true, nowMs: 4 * WEEK, lastRunMs: 3 * WEEK });
-    assert.strictEqual(r3.shouldQueue, false); // already queued, don't re-queue every run after
-  });
-  test('a match resets the streak to 0', () => {
-    const r = advanceVacantStreak({ prevWeeks: 2, zeroMatchThisRun: false, nowMs: 3 * WEEK, lastRunMs: 2 * WEEK });
+  const HOUR = 3600000;
+
+  test('first zero-match run (no prior state) establishes zeroSinceMs and does not queue', () => {
+    const r = advanceVacantStreak({ zeroMatchThisRun: true, nowMs: 1000, zeroSinceMs: null, alreadyQueued: false });
+    assert.strictEqual(r.zeroSinceMs, 1000);
     assert.strictEqual(r.weeks, 0);
     assert.strictEqual(r.shouldQueue, false);
+    assert.strictEqual(r.queued, false);
+  });
+
+  test('the streak holds flat across many hourly-cadence calls short of a week (realistic labor-cron calling pattern)', () => {
+    let state = { zeroSinceMs: null, alreadyQueued: false };
+    for (let hour = 0; hour * HOUR < 6 * 24 * HOUR; hour++) { // ~6 days, hourly checks
+      const nowMs = hour * HOUR;
+      const r = advanceVacantStreak({ zeroMatchThisRun: true, nowMs, zeroSinceMs: state.zeroSinceMs, alreadyQueued: state.alreadyQueued });
+      assert.strictEqual(r.shouldQueue, false);
+      assert.ok(r.weeks < 1);
+      state = { zeroSinceMs: r.zeroSinceMs, alreadyQueued: r.queued };
+    }
+    assert.strictEqual(state.zeroSinceMs, 0); // streak start, once established, never moves
+  });
+
+  test('crossing exactly 3 weeks queues exactly once, and not again on a later call with alreadyQueued: true', () => {
+    const zeroSinceMs = 0;
+    const justUnder = advanceVacantStreak({ zeroMatchThisRun: true, nowMs: 3 * WEEK - HOUR, zeroSinceMs, alreadyQueued: false });
+    assert.strictEqual(justUnder.weeks, 2);
+    assert.strictEqual(justUnder.shouldQueue, false);
+
+    const crossing = advanceVacantStreak({ zeroMatchThisRun: true, nowMs: 3 * WEEK, zeroSinceMs, alreadyQueued: false });
+    assert.strictEqual(crossing.weeks, 3);
+    assert.strictEqual(crossing.shouldQueue, true);
+    assert.strictEqual(crossing.queued, true);
+
+    // A later hourly-cadence run of the SAME streak, with alreadyQueued now persisted true
+    // (as the caller would persist crossing.queued) — must never re-queue.
+    const later = advanceVacantStreak({ zeroMatchThisRun: true, nowMs: 3 * WEEK + HOUR, zeroSinceMs, alreadyQueued: true });
+    assert.strictEqual(later.shouldQueue, false);
+    assert.strictEqual(later.queued, true);
+  });
+
+  test('a match reappearing resets zeroSinceMs to null (and un-queues)', () => {
+    const r = advanceVacantStreak({ zeroMatchThisRun: false, nowMs: 3 * WEEK, zeroSinceMs: 0, alreadyQueued: true });
+    assert.strictEqual(r.zeroSinceMs, null);
+    assert.strictEqual(r.weeks, 0);
+    assert.strictEqual(r.shouldQueue, false);
+    assert.strictEqual(r.queued, false);
   });
 });
 
