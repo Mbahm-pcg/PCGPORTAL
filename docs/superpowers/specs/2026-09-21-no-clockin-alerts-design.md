@@ -51,6 +51,28 @@ Keyed by business date, then `pc|employeeId|shiftStart`:
 - Core logic is a pure function in `src/no-clockin.mjs` (same pattern as `src/system-health.mjs` and `src/pulse-sms.mjs`), taking shifts, punches and `now` and returning the messages to send. Unit tests cover: before 30 min, 30-59 min, 60+ min, punch exists, API error -> unknown, mass-miss guard, overnight shift, and dedupe against saved state.
 - A `dryRun` mode, restricted to exec/IT, returns what would be sent without sending anything.
 
+## Bug found and fixed during shadow-mode testing (2026-09-22)
+
+Shadow mode's opening-shift run produced a network-wide false "no clock-in" wave. Root cause:
+Paycor's `employeePunches` returns `punchDateTime` as a naive string with no timezone marker
+(e.g. `"2026-09-22T04:02:00"`), representing America/New_York wall-clock time — unlike
+`schedulingShifts`, whose `startDateTime`/`endDateTime` are true UTC (`...Z`). The punch-time
+parser treated both the same way, reading every real on-time punch as if it happened in UTC,
+~4-5 hours (EDT/EST) before it actually did — pushing it outside the detection window
+uniformly for every employee at every store. Fixed in `src/no-clockin.mjs`'s `punchTimeMs`:
+a timestamp with no zone suffix is now converted from America/New_York wall-clock time to UTC
+(DST-aware, not a fixed offset) before comparison; a timestamp that already carries a zone is
+parsed as-is. Confirmed against a real Paycor punch (Meghnaben Patel, Quakertown, `04:02:00`
+naive = 2 minutes after an 08:00Z/4:00a shift start) via a temporary read-only diagnostic
+lookup (`no-clockin.mjs?employeeId=&date=`, exec/IT only, reuses the existing shared
+`callPaycor` token path — no separate Paycor OAuth call).
+
+**Related, NOT fixed here:** `labor-cron.mjs`'s `fetchLiveClockIn` (used for the Labor
+dashboard's "hours worked so far" on currently-clocked-in employees) parses the same
+`employeePunches` field the same naive way. If that field is naive there too, live hours-so-far
+would be overestimated by the same ET/UTC offset for every actively-clocked-in employee. Out
+of scope for this feature; flagged for separate investigation.
+
 ## Out of scope for v1
 
 Reply buttons (Called off / Covered), a Portal page for absence history, approved time-off handling, and the tips/payroll integration.

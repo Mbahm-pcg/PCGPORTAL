@@ -1,3 +1,9 @@
+// Force UTC regardless of the machine running these tests. Netlify Functions run in UTC;
+// this dev box's own local TZ happens to be America/New_York, which would silently hide the
+// naive-punch-timezone bug these tests exist to catch (Date.parse on a naive/no-zone string
+// uses the process's local TZ — it must be pinned so the tests mean the same thing everywhere).
+process.env.TZ = 'UTC';
+
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
@@ -47,6 +53,33 @@ describe('hasClockedIn', () => {
   });
   test('accepts the punchIn field', () => {
     assert.strictEqual(hasClockedIn([{ punchIn: new Date(at(5)).toISOString() }], START_MS, at(40)), true);
+  });
+  // Confirmed live 2026-09-22: Paycor's employeePunches returns punchDateTime with NO
+  // timezone marker (e.g. "2026-09-22T04:02:00"), unlike schedulingShifts' UTC "...Z"
+  // times. That naive string is Eastern wall-clock time, not UTC — mis-parsing it as UTC
+  // shifts every real on-time punch ~4-5 hours "earlier" (EDT/EST), which is exactly what
+  // produced a network-wide false "no clock-in" wave in shadow-mode testing.
+  test('naive (no-zone) punch is read as Eastern wall-clock time, not UTC', () => {
+    // Shift starts 2026-09-22T08:00:00Z = 4:00a ET. A punch at "04:02:00" (naive) is really
+    // 4:02a ET = 08:02:00Z — 2 minutes after start, not ~4 hours before it.
+    const shiftStart = Date.parse('2026-09-22T08:00:00Z');
+    const now = Date.parse('2026-09-22T09:00:00Z'); // 60 min after start
+    assert.strictEqual(hasClockedIn([{ punchDateTime: '2026-09-22T04:02:00' }], shiftStart, now), true);
+  });
+  test('naive punch during EST (winter) is still read as Eastern time, not off by a fixed 4h', () => {
+    // Jan: ET is EST (UTC-5). Shift starts 2026-01-15T13:00:00Z = 8:00a ET. Naive punch
+    // "08:02:00" = 8:02a ET = 13:02:00Z — 2 minutes after start.
+    const shiftStart = Date.parse('2026-01-15T13:00:00Z');
+    const now = Date.parse('2026-01-15T14:00:00Z');
+    assert.strictEqual(hasClockedIn([{ punchDateTime: '2026-01-15T08:02:00' }], shiftStart, now), true);
+  });
+  test('a punch string that already carries "Z" or an offset is parsed as-is (unaffected)', () => {
+    assert.strictEqual(hasClockedIn([{ punchDateTime: '2026-09-22T08:02:00Z' }], Date.parse('2026-09-22T08:00:00Z'), Date.parse('2026-09-22T09:00:00Z')), true);
+    assert.strictEqual(hasClockedIn([{ punchDateTime: '2026-09-22T04:02:00-04:00' }], Date.parse('2026-09-22T08:00:00Z'), Date.parse('2026-09-22T09:00:00Z')), true);
+  });
+  test('a naive punch genuinely outside the window is still correctly rejected', () => {
+    // "01:00:00" naive = 1:00a ET = 05:00:00Z, well before the -60min window for an 08:00Z start.
+    assert.strictEqual(hasClockedIn([{ punchDateTime: '2026-09-22T01:00:00' }], Date.parse('2026-09-22T08:00:00Z'), Date.parse('2026-09-22T09:00:00Z')), false);
   });
 });
 

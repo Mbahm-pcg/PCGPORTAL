@@ -24,7 +24,7 @@ function healthStore() {
 // is used INSTEAD — even when emptied, so removing everyone silences the alerts. The
 // blob's updatedAt marks "explicitly configured" vs. never touched. Push goes to the
 // listed Portal users (emailOwners); manually typed addresses are email-only.
-async function recipients(db) {
+export async function recipients(db) {
   try {
     const raw = await healthStore().get('pcg_system_health_notify_v1', { type: 'json' });
     const cfg = raw && raw.data;
