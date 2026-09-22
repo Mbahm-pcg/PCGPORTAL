@@ -16,6 +16,21 @@ export default async (request) => {
     return json({ error: 'Exec/IT session required.' }, 403);
   }
   const url = new URL(request.url);
+
+  // Reproduces the EXACT query runManagerSync uses, to check why a real, existing manager
+  // account isn't being recognized as linked to its store.
+  const checkStorePc = url.searchParams.get('checkStorePc');
+  if (checkStorePc) {
+    const db = sql();
+    const rows = await db`SELECT id, name, store_pc, user_type, active, paycor_employee_id FROM users WHERE store_pc = ${checkStorePc}`;
+    const allManagerRows = await db`SELECT id, name, store_pc, user_type, active, paycor_employee_id FROM users WHERE user_type = 'manager' AND active = true`;
+    return json({
+      checkStorePc,
+      rowsWithThisStorePc: rows,
+      matchedByRunManagerSyncQuery: allManagerRows.filter(r => String(r.store_pc) === checkStorePc),
+    });
+  }
+
   const pcFilter = url.searchParams.get('pc');
   const limit = Number(url.searchParams.get('limit') || 5);
   const targets = pcFilter ? STORES.filter(s => s.pc === pcFilter) : STORES.slice(0, limit);
