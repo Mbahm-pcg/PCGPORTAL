@@ -69,8 +69,17 @@ add but wasn't asked for.
   — same principle `no-clockin-cron`'s Paycor calls already use (`fetchPunches` returns `null`
   on error, "unknown, never missing"). A Shelly API outage must never itself create a false
   ticket or warning, and must never silently clear a real in-progress episode either — an
-  unknown check simply doesn't move anything, in either direction, and doesn't advance the
-  2-hour clock either (an unknown check is time that didn't count, not time that passed safely).
+  unknown check simply doesn't move the state at all, on its own.
+  **Revised during implementation (2026-09-23):** real wall-clock time elapsed during an
+  unknown gap still counts toward the 30-min/2-hour thresholds once a real reading follows
+  (the episode's start time is never touched by an unknown check, so it's naturally included
+  in the next real reading's elapsed-time math). An earlier draft of this spec said the
+  opposite ("doesn't advance the clock") — corrected after writing the unit tests surfaced
+  the inconsistency: excluding that time would make a flaky sensor *slower* to escalate a
+  real problem, which is backwards for a food-safety system. A reading over-threshold both
+  before and after an outage gives no real reason to believe the cooler was ever fine during
+  the gap. What "unknown" actually guarantees is narrower and still holds: it never *itself*
+  fires a Warning or ticket, and never *itself* looks like a safe reset.
 - Every physical probe is monitored independently — the current test device (`70af09e522d0`)
   has two (`temperature:200`, `temperature:201`), confirmed real 2026-09-23 via
   `/device/all_status`; both get their own episode/state, whenever this device is actually
@@ -152,8 +161,10 @@ via a live DB check — kept as an input here (not looked up inside this functio
 decision, including the rule below, stays pure and unit-testable without a DB:
 
 - `tempC == null` (unknown/failed reading) → return `prevState` completely unchanged,
-  `shouldWarn: false`, `shouldTicket: false`. Doesn't advance the elapsed-time clock either —
-  an unknown check is time that didn't count, not time that passed safely.
+  `shouldWarn: false`, `shouldTicket: false`, and never touches `overSince` — so real
+  wall-clock time during the gap still counts once a real reading follows (see the note
+  above under Rules). What's actually guaranteed: an unknown check never *itself* triggers
+  or resets anything.
 - `tempC <= 5` → full reset: `{ overSince: null, warningNotified: false }`, nothing fires.
 - `tempC > 5`:
   - `overSince` becomes `prevState.overSince || nowMs` (starts the clock on first crossing).
@@ -253,23 +264,29 @@ Keyed by `deviceId|sensorId`:
 
 ## Testing
 
-Pure logic in `src/shelly-temp.mjs`: `advanceTempState({ tempC, prevState, nowMs })`. Unit
-tests cover: at/under 5°C fully resets; one over-5°C reading alone doesn't warn (needs the
-30-min sustain); 30+ min sustained between 5-7°C warns exactly once, not again on the next
-check; a reading over 7°C tickets immediately even with no prior warning at all (straight
-jump); once ticketed, further over-threshold checks don't re-fire `shouldTicket`; still
-between 5-7°C for 2+ hours tickets via `reason: 'prolonged-warning'` even though it never
-crossed 7°C; a straight jump to red-flag that skipped the Warning stage entirely still sets
-`warningNotified: true`, so a later dip back into the 5-7°C band (still no full reset) never
-fires a redundant Warning after the ticket's already out; an `unknown` (null) reading leaves
-`overSince`/`warningNotified` completely
-unchanged AND does not count toward either the 30-min or 2-hour elapsed clocks; and a full
-reset (drop to ≤5°C) then a fresh climb re-triggers both a new Warning and, if it goes far
-enough, a new ticket — a second full episode, not suppressed by the first one's history.
-Delivery-day suppression is tested separately (it's a skip decision made before
-`advanceTempState` is even called, not a parameter of it): a store with a matching
-`date_shipped` today leaves its state completely untouched across a run, whatever it was
-going in.
+**Shipped** (2026-09-23) as `src/shelly-temp.mjs` + `src/shelly-temp.test.mjs`, 15 tests, all
+passing. `advanceTempState({ tempC, prevState, nowMs, openTicketExists })`. Tests cover: at
+exactly 5°C and below is a full reset (not "over"); a null reading leaves state completely
+unchanged and never itself triggers or resets anything, though real wall-clock time during
+the gap still counts once a real reading follows (see the Rules section's note on this —
+corrected from an earlier, opposite draft during this same test-writing pass); one over-5°C
+reading alone doesn't warn (needs the 30-min sustain); 30+ min sustained warns exactly once,
+not again on the next check; a reading over 7°C tickets immediately with no prior warning
+needed (straight jump); once ticketed, further over-threshold checks don't re-fire
+`shouldTicket`; still between 5-7°C for 2+ hours tickets via `reason: 'prolonged-warning'`
+even though it never crossed 7°C, and that path is *also* suppressed by an existing open
+ticket, same as red-flag; a straight jump to red-flag that skipped the Warning stage
+entirely still sets `warningNotified: true`, so a later dip back into the 5-7°C band (ticket
+still open, no full reset) never fires a redundant Warning; a Warning suppressed by an
+already-open ticket is marked handled too, so it can't fire retroactively once that ticket
+later closes without a full reset in between; and a full reset (drop to ≤5°C) then a fresh
+climb re-triggers both a new Warning and, if it goes far enough, a new ticket — a second full
+episode, genuinely independent of the first one's history.
+
+Delivery-day suppression will be tested separately at the `run.mjs` integration level (it's
+a skip decision made before `advanceTempState` is even called, not a parameter of it): a
+store with a matching `date_shipped` today should leave its state completely untouched
+across a run, whatever it was going in — not yet implemented as of this spec revision.
 
 ## Out of scope (explicitly deferred, not silently dropped)
 
