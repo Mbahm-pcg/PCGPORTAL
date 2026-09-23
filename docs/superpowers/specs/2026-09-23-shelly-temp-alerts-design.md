@@ -12,6 +12,26 @@ same day — see `netlify/functions/shelly.mjs` and the Dashboard temp cards) on
 goal came out: automated detection, not just display. The display widget stays as-is; this
 spec covers the new automation layered on top of the same data source.
 
+## Delivery-day suppression (added during design review, 2026-09-23)
+
+Dunkin's DCP process has the cooler propped open for a stretch during a real delivery — a
+genuine, expected temp spike that must not create a false ticket. The Portal already has
+usable data for this: `ndcp_orders` (Postgres, populated from parsed National DCP
+order-confirmation emails — see `netlify/functions/ndcp-lib/`) carries a `date_shipped` per
+order, and `account == store pc` directly (verified 45/45 stores, `ndcp-lib/store-map.js`) —
+no fuzzy name-matching needed to join an order to a store.
+
+**Rule**: on any day a store has an `ndcp_orders` row with `date_shipped` matching today,
+that store's sensors are skipped entirely for the whole day — no breach-counter movement
+either direction, same as an `unknown`/failed reading. Monitoring resumes normally the next
+day regardless of where the counter was before the delivery day.
+
+**Known limitation, accepted**: `date_shipped` is date-only (no time-of-day in what NDCP's
+order emails expose), so this suppresses the *whole day*, not a tight arrival window — a
+real failure that happens to fall on a delivery day won't be caught until the following day's
+checks. Given delivery days are a small fraction of a month, this trade favors avoiding false
+tickets over slightly slower detection on those specific days.
+
 ## Rules (as agreed 2026-09-23)
 
 - Threshold: **> 5°C** on any monitored probe.
@@ -72,15 +92,18 @@ Scheduled `*/15 * * * *`, mirroring `no-clockin-cron.mjs`'s exact 3-layer split:
 
 Each run:
 1. Call Shelly's `/device/all_status` once (all devices/probes in one call, same as `shelly.mjs`).
-2. For each `(deviceId, sensorId)` pair with a `SHELLY_DEVICE_STORE` entry: run the pure
+2. Query `ndcp_orders` once for any row where `account` matches a mapped store's pc and
+   `date_shipped` is today — build a small set of "suppressed today" store pcs from the result.
+3. For each `(deviceId, sensorId)` pair with a `SHELLY_DEVICE_STORE` entry: if that device's
+   store is in today's suppressed set, skip it (state untouched). Otherwise run the pure
    `advanceBreachStreak` logic against the saved counter for that key.
-3. Where the logic says "should ticket" (counter just reached 2 and no open ticket exists for
+4. Where the logic says "should ticket" (counter just reached 2 and no open ticket exists for
    this sensor): create the ticket (direct `INSERT INTO maint_tickets`, same table
    `tickets.mjs` owns, matching its exact column shape so the frontend's existing `list`
    reconstruction picks it up with no changes there) and write one entry into the shared
    `pcg_notifications_v1` blob, `type: 'temp_alert'`, tagged with that store's `storePC` and
    `district`.
-4. Save the updated per-sensor counters back to state.
+5. Save the updated per-sensor counters back to state.
 
 ## Notification routing — reuses existing role filtering, no new code there
 
@@ -117,7 +140,10 @@ Pure logic in `src/shelly-temp.mjs`: `advanceBreachStreak({ tempC, prevCount })`
 doesn't trigger, two consecutive over-readings triggers, a third over-reading while already
 triggered doesn't re-trigger, `unknown` (null reading) leaves the count unchanged in both
 directions, and recovery-then-rebreach (count drops to 0, then climbs back to trigger again)
-producing a second `shouldTicket`.
+producing a second `shouldTicket`. Delivery-day suppression is tested separately (it's a
+skip decision made before `advanceBreachStreak` is even called, not a parameter of it): a
+store with a matching `date_shipped` today leaves its counter completely untouched across
+a run, whatever value it had going in.
 
 ## Out of scope (explicitly deferred, not silently dropped)
 
