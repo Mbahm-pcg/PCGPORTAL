@@ -60,6 +60,14 @@
 [functions.no-clockin-cron]
   schedule = "*/15 * * * *"
 
+# Walk-in cooler/freezer temp alerts — every 10 min (faster than most crons here: catches a
+# fast-worsening failure sooner; see the spec's "Check interval" section for why 10 not 15).
+# Warning (>5C, 30min sustained) -> manager only. Red-flag (>7C instant) or Prolonged-warning
+# (stuck 5-7C for 2hr) -> HIGH ticket + manager+DM. Unmapped devices (no store assigned yet
+# in shelly-temp-lib/device-map.mjs) route to the IT+exec test fallback instead.
+[functions.shelly-temp-cron]
+  schedule = "*/10 * * * *"
+
 # Daily reports backup — 11:59 PM ET (4:59 AM UTC). Keeps 7 days of rolling backups.
 [functions.reports-backup]
   schedule = "59 4 * * *"
