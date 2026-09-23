@@ -87,7 +87,12 @@ async function nextTicketNumber(db) {
 async function createTicket(db, { deviceId, sensorId, storePc, storeName, tempC, tempF, reason }) {
   const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   const number = await nextTicketNumber(db);
-  const readingText = `${tempF.toFixed(1)}°F / ${tempC.toFixed(1)}°C`;
+  // No "/" anywhere in reading text — Textbelt's SMS filter rejects any message
+  // containing one as a suspected URL, even something as innocuous as "78.0°F / 25.6°C"
+  // (confirmed 2026-09-23 via direct reproduction: identical message succeeds with the
+  // slash replaced by a comma, fails every time with it in). This value also ends up in
+  // the SMS text below, so it has to be slash-free here at the source, not just there.
+  const readingText = `${tempF.toFixed(1)}°F, ${tempC.toFixed(1)}°C`;
   const reasonText = reason === 'red-flag'
     ? `Reading crossed 7°C (${readingText}).`
     : `Stuck between 5-7°C for 2+ hours without recovering (currently ${readingText}).`;
@@ -196,7 +201,7 @@ export async function runShellyTempCheck({ dryRun = false } = {}) {
       if (dryRun) continue; // report-only above; no sends, no ticket, no bell entry, no state write
 
       if (shouldWarn) {
-        const text = `${storeName}: temp sensor reading ${tempF.toFixed(1)}°F / ${tempC.toFixed(1)}°C — above 5°C. Keep an eye on it.`;
+        const text = `${storeName}: temp sensor reading ${tempF.toFixed(1)}°F, ${tempC.toFixed(1)}°C — above 5°C. Keep an eye on it.`;
         try { resultEntry.delivery = await deliver(bs, manager, `Temp warning — ${storeName}`, text); }
         catch (e) { console.warn('[shelly-temp] warning delivery failed:', e.message); resultEntry.delivery = { error: e.message }; }
         if (isMapped) {
@@ -209,7 +214,7 @@ export async function runShellyTempCheck({ dryRun = false } = {}) {
         try { ticketInfo = await createTicket(db, { deviceId: device.deviceId, sensorId: sensor.sensorId, storePc, storeName: store?.name, tempC, tempF, reason }); }
         catch (e) { console.warn('[shelly-temp] ticket creation failed:', e.message); }
         resultEntry.ticket = ticketInfo;
-        const text = `${storeName}: walk-in over temp — ${tempF.toFixed(1)}°F / ${tempC.toFixed(1)}°C. ${ticketInfo ? `Ticket ${ticketInfo.number} opened.` : 'Ticket creation failed — check manually.'}`;
+        const text = `${storeName}: walk-in over temp — ${tempF.toFixed(1)}°F, ${tempC.toFixed(1)}°C. ${ticketInfo ? `Ticket ${ticketInfo.number} opened.` : 'Ticket creation failed — check manually.'}`;
         try { resultEntry.delivery = await deliver(bs, [...manager, ...dm], `HIGH: Temp alert — ${storeName}`, text); }
         catch (e) { console.warn('[shelly-temp] red-flag delivery failed:', e.message); resultEntry.delivery = { error: e.message }; }
         if (isMapped) {
