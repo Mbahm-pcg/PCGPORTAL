@@ -3317,7 +3317,7 @@ const DISTRICTS_SEED = {
 
 // ─── Admin: User Management ──────────────────────────────────────────────────
 
-function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
+function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, managerPendingCount }) {
   const [view, setView] = useState('list'); // 'list' | 'edit'
   const [editId, setEditId] = useState(null);
   const [showPw, setShowPw]   = useState(false);
@@ -3337,51 +3337,9 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
   const [emailAction, setEmailAction] = useState(null); // { userId, type, status }
   const [revokeAction, setRevokeAction] = useState(null); // { userId, status }
 
-  // Paycor-driven manager-change queue (see docs/superpowers/specs/2026-09-22-manager-sync-design.md).
-  // Read directly from the blob labor-cron.mjs writes — same pattern every other admin
-  // panel in this app already uses for its own config blob (no dedicated endpoint needed).
-  const [managerPending, setManagerPending] = useState({}); // pc -> { kind, candidate?, outgoingUserId?, outgoingName?, ... }
-  const loadManagerPending = () => cloudLoad('pcg_manager_pending_v1').then(d => setManagerPending(d && typeof d === 'object' ? d : {})).catch(() => {});
-  useEffect(() => { loadManagerPending(); }, []);
-  // Dismissing a `replace`/`needsReview` item must persist and be respected by the next
-  // labor-cron run (Paycor's underlying data hasn't changed, so without this the very next
-  // hourly run just re-detects the identical situation and re-queues/re-notifies forever).
-  // We write a `dismissed` marker scoped to the SPECIFIC candidate(s) dismissed — not the
-  // store in general — so a genuinely new candidate later is never suppressed by an old
-  // dismissal for a different situation. `vacant` items keep the simpler "just clear it"
-  // behavior (which resets the streak) — judged an acceptable, much-less-harmful outcome.
-  const dismissManagerPending = async (pc) => {
-    const item = managerPending[pc];
-    const next = { ...managerPending };
-    if (item?.kind === 'replace') {
-      next[pc] = { kind: 'dismissed', dismissedCandidateEmployeeId: item.candidate.employeeId, dismissedAt: new Date().toISOString() };
-    } else if (item?.kind === 'needsReview') {
-      const candidateIds = (item.candidates || []).map(c => c.employeeId).sort().join(',');
-      next[pc] = { kind: 'dismissed', dismissedCandidateEmployeeId: candidateIds, dismissedAt: new Date().toISOString() };
-    } else {
-      delete next[pc];
-    }
-    const ok = await cloudSave('pcg_manager_pending_v1', next);
-    if (ok) setManagerPending(next);
-  };
-
-  // A managerPending entry is "actionable" — i.e. it renders a banner row below and should
-  // count toward the "N Pending" pill — except: (a) a `replace` item that's fully resolved
-  // (new account exists AND the outgoing one is deactivated; labor-cron only clears the
-  // blob entry itself on its next run, so this is what keeps the pill and the banner list
-  // in sync with what's actually visible in the meantime), or (b) a `dismissed` marker,
-  // kept purely so labor-cron's next run knows not to re-queue the exact candidate(s)
-  // already dismissed — it renders nothing and isn't a "pending" item from here.
-  const managerPendingIsActionable = (item) => {
-    if (!item || item.kind === 'dismissed') return false;
-    if (item.kind === 'replace') {
-      const alreadyLinked = users.some(u => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
-      const oldDeactivated = item.outgoingUserId ? users.find(u => u.id === item.outgoingUserId)?.active === false : true;
-      return !(alreadyLinked && oldDeactivated);
-    }
-    return true; // needsReview, vacant
-  };
-  const managerPendingCount = Object.values(managerPending).filter(managerPendingIsActionable).length;
+  // Paycor-driven manager-change queue: state lives in PCGPortal now (2026-09-22) so the
+  // notification bell can review these from anywhere — this tab just gets the summary
+  // count as a prop. See docs/superpowers/specs/2026-09-22-manager-sync-design.md.
 
   // IT-only: force-logout every device for a user (lost/stolen device). Invalidates all
   // active sessions server-side and revokes trusted devices; takes effect within ~3 min
@@ -3833,60 +3791,9 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores }) {
 
       {/* ─── Section 2 — user cards (scrollable) ──────────────────── */}
       <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:4 }}>
-      {Object.entries(managerPending).map(([pc, item]) => {
-        if (!managerPendingIsActionable(item)) return null; // resolved, or a dismissal marker — nothing to show
-        const store = stores.find(s => String(s.pc) === pc);
-        const storeName = store?.name || pc;
-        if (item.kind === 'replace') {
-          const alreadyLinked = users.some(u => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
-          const oldDeactivated = item.outgoingUserId ? users.find(u => u.id === item.outgoingUserId)?.active === false : true;
-          return (
-            <div key={pc} style={{ ...card(th), padding:"0.85rem 1rem", marginBottom:"0.6rem", borderLeft:"3px solid #f59e0b" }}>
-              <div style={{ fontSize:"0.85rem", color:th.text, marginBottom:"0.5rem" }}>
-                <strong>{storeName}:</strong> Paycor shows <strong>{item.candidate.name}</strong> ({item.candidate.jobTitle}) now managing this store{item.outgoingName ? <> — was <strong>{item.outgoingName}</strong></> : null}.
-              </div>
-              <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
-                {/* No email pre-fill — Paycor's personal-email field isn't used (dropped
-                    2026-09-22). The admin types one in on the form before saving, same as
-                    creating any other user today. */}
-                {!alreadyLinked && (
-                  <button onClick={() => {
-                    const existingUsernames = users.map(u => u.username);
-                    openEditPage({
-                      name: item.candidate.name,
-                      userType: 'manager',
-                      storePC: pc,
-                      username: suggestUsername(item.candidate.name, existingUsernames),
-                      password: generatePassword(),
-                      paycorEmployeeId: item.candidate.employeeId,
-                      region: 'PA',
-                      active: true,
-                      role: item.candidate.jobTitle,
-                    });
-                  }} style={btn(th, { padding:"0.4rem 0.8rem", fontSize:"0.72rem" })}>
-                    Create Account
-                  </button>
-                )}
-                {item.outgoingUserId && !oldDeactivated && (
-                  <button onClick={() => toggleActive(item.outgoingUserId)} style={btn(th, { padding:"0.3rem 0.6rem", fontSize:"0.68rem", fontWeight:500, background:"transparent", border:"1px solid "+th.cardBorder, color:th.muted })}>
-                    Deactivate {item.outgoingName}
-                  </button>
-                )}
-                <button onClick={() => dismissManagerPending(pc)} style={{ background:"none", border:"none", color:th.muted, fontSize:"0.75rem", cursor:"pointer" }}>Dismiss</button>
-              </div>
-            </div>
-          );
-        }
-        const text = item.kind === 'needsReview'
-          ? `${storeName}: multiple active employees hold a manager title — needs a human decision.`
-          : `${storeName}: no active employee has held a manager title for 3+ weeks.`;
-        return (
-          <div key={pc} style={{ ...card(th), padding:"0.85rem 1rem", marginBottom:"0.6rem", borderLeft:"3px solid #f59e0b" }}>
-            <div style={{ fontSize:"0.85rem", color:th.text, marginBottom:"0.5rem" }}>{text}</div>
-            <button onClick={() => dismissManagerPending(pc)} style={{ background:"none", border:"none", color:th.muted, fontSize:"0.75rem", cursor:"pointer" }}>Dismiss</button>
-          </div>
-        );
-      })}
+      {/* Pending manager-sync items moved to the notification bell (2026-09-22) — see the
+          "Review" action there, which opens ManagerSyncReviewModal. This tab only shows the
+          summary count (Section 1's Pending pill) now, not the individual cards. */}
       {displayUsers.length === 0 && (
         <div style={{ ...card(th), padding:"3rem", textAlign:"center", color:th.muted, fontSize:"0.875rem" }}>No users found.</div>
       )}
@@ -48549,6 +48456,199 @@ function StoreTabletView({ user, users, stores, th, showAlert, dataAlert, ticket
   );
 }
 
+// Manager-sync "Review" modal (2026-09-22) — opened from the notification bell for a
+// pcg_manager_pending_v1 entry (replace / needsReview / vacant). Replaces the old stacked
+// banner-card list on the Users tab: this is a focused, self-contained create-account flow
+// that pre-fills from Paycor where there's data to pre-fill from, and folds "deactivate the
+// outgoing account" into the same save instead of being a separate button/step.
+function ManagerSyncReviewModal({ pc, item, stores, users, setUsers, currentUser, th, showAlert, onClose, onDismiss }) {
+  const store = (stores || []).find(s => String(s.pc) === String(pc));
+  const storeName = store?.name || pc;
+  const existingUsernames = users.map(u => u.username);
+
+  const [selectedCandidateId, setSelectedCandidateId] = useState(
+    item.kind === 'needsReview' ? null : (item.candidate?.employeeId || null)
+  );
+  const candidate = item.kind === 'needsReview'
+    ? (item.candidates || []).find(c => c.employeeId === selectedCandidateId) || null
+    : (item.kind === 'vacant' ? null : item.candidate);
+
+  // 'replace' already names the outgoing account directly; 'needsReview'/'vacant' don't
+  // carry one in the pending entry (ambiguous or nobody detected), so look it up the same
+  // way the old banner did — any still-active manager already tied to this store.
+  const existingAccount = item.kind === 'replace'
+    ? (item.outgoingUserId ? users.find(u => u.id === item.outgoingUserId) : null)
+    : users.find(u => u.userType === 'manager' && u.active !== false && String(u.storePC) === String(pc));
+  const oldAlreadyDeactivated = existingAccount ? existingAccount.active === false : true;
+  const [deactivateOld, setDeactivateOld] = useState(true);
+
+  const [form, setForm] = useState({
+    name: candidate?.name || '',
+    username: candidate ? suggestUsername(candidate.name, existingUsernames) : '',
+    password: generatePassword(),
+    email: `${pc}@peoplecapitalgroup.com`,
+    role: '',
+  });
+  const [showPw, setShowPw] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Re-prefill name/username when a needsReview candidate gets picked (or switched) — only
+  // fires on an actual candidate change, so it never clobbers something already typed.
+  const prevCandidateName = useRef(candidate?.name || null);
+  useEffect(() => {
+    if (!candidate || candidate.name === prevCandidateName.current) return;
+    prevCandidateName.current = candidate.name;
+    setForm(f => ({ ...f, name: candidate.name, username: suggestUsername(candidate.name, existingUsernames) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidate?.name]);
+
+  const canSubmit = form.name.trim() && form.username.trim() && form.password.trim() && !saving;
+
+  const handleCreate = async () => {
+    if (!canSubmit) return;
+    setSaving(true);
+    const pwErr = validatePasswordClient(form.password);
+    if (pwErr) { showAlert('error', pwErr); setSaving(false); return; }
+    try {
+      const payload = {
+        username: form.username.trim(),
+        password: form.password,
+        name: form.name.trim(),
+        role: form.role.trim(),
+        initials: form.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2),
+        isAdmin: false,
+        userType: 'manager',
+        region: 'PA',
+        active: true,
+        darkMode: false,
+        email: form.email.trim(),
+        phone: '',
+        twoFactorRequired: false,
+        auditsAccess: null,
+        storePC: pc,
+        paycorEmployeeId: candidate?.employeeId || null,
+        mustSetup: true,
+      };
+      const res = await fetch('/.netlify/functions/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'create', user: payload }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { showAlert('error', json.error || `Create failed (${res.status})`); setSaving(false); return; }
+      setUsers(us => [...us, json.user]);
+      logClientEvent(currentUser?.id, currentUser?.userType, 'user_created', { targetName: payload.name, targetRole: 'manager' });
+
+      if (existingAccount && !oldAlreadyDeactivated && deactivateOld) {
+        const dres = await fetch('/.netlify/functions/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ action: 'toggle-active', id: existingAccount.id }),
+        });
+        if (dres.ok) {
+          const djson = await dres.json();
+          setUsers(us => us.map(u => u.id === existingAccount.id ? { ...u, ...djson.user } : u));
+          logClientEvent(currentUser?.id, currentUser?.userType, 'user_deactivated', { targetName: existingAccount.name, targetRole: existingAccount.userType });
+        }
+      }
+
+      // Best-effort welcome email — mirrors AdminUsers' sendWelcomeEmail. Failure here
+      // doesn't undo the account; the admin can resend from the Users tab.
+      if (payload.email) {
+        const subject = `Welcome to the ${BRAND_CONFIG.portalName}!`;
+        const htmlBody = `
+          <h2 style="color:#333;margin-bottom:8px;">Welcome, ${payload.name}! 👋</h2>
+          <p style="color:#555;font-size:15px;">Your account has been created on the <strong>${BRAND_CONFIG.portalName}</strong>.</p>
+          <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin:16px 0;">
+            <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="${BRAND_CONFIG.portalUrl}/" style="color:${BRAND_CONFIG.primary};">${BRAND_CONFIG.portalUrl}/</a></p>
+            <p style="margin:4px 0;font-size:14px;"><strong>Username:</strong> ${payload.username}</p>
+            <p style="margin:4px 0;font-size:14px;"><strong>Password:</strong> ${payload.password}</p>
+          </div>
+          <p style="color:#555;font-size:14px;">On your first login, you'll be asked to change your password and set up your profile.</p>
+        `;
+        sendNotifyEmail([payload.email], subject, htmlBody).catch(() => {});
+      }
+
+      showAlert('success', `${payload.name}'s account created${(existingAccount && deactivateOld && !oldAlreadyDeactivated) ? ` — ${existingAccount.name} deactivated` : ''}.`);
+      onClose();
+    } catch (e) {
+      showAlert('error', 'Something went wrong creating the account.');
+    }
+    setSaving(false);
+  };
+
+  const situationText = item.kind === 'replace'
+    ? <>Paycor shows <strong>{item.candidate.name}</strong> ({item.candidate.jobTitle}) now managing this store{item.outgoingName ? <> — was <strong>{item.outgoingName}</strong></> : null}.</>
+    : item.kind === 'needsReview'
+    ? <>Multiple active employees hold a manager title at this store — pick which one is correct.</>
+    : <>No active employee has held a manager title here for 3+ weeks. Enter the manager's name manually.</>;
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 20px", overflowY: "auto" }}>
+      <div onClick={e => e.stopPropagation()} className="fade-in" style={{ position: "relative", width: "100%", maxWidth: 480 }}>
+        <div style={{ borderRadius: "1rem", overflow: "hidden", boxShadow: "0 30px 70px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column" }}>
+          <div style={{ background: `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`, padding: "1.1rem 1.4rem", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "1rem", fontWeight: 800, color: "#fff", lineHeight: 1.2 }}>{storeName}</div>
+              <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.85)", fontWeight: 600, marginTop: 2 }}>Manager-sync review</div>
+            </div>
+            <button onClick={onClose} style={{ background: "rgba(255,255,255,0.18)", border: "1.5px solid rgba(255,255,255,0.4)", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "1rem", cursor: "pointer", flexShrink: 0 }}>×</button>
+          </div>
+          <div style={{ ...card(th), borderRadius: 0, padding: "1.25rem 1.4rem", overflowY: "auto" }}>
+            <div style={{ fontSize: "0.82rem", color: th.text, lineHeight: 1.4, marginBottom: "1rem" }}>{situationText}</div>
+
+            {item.kind === 'needsReview' && !candidate && (<>
+              <div style={{ marginBottom: "1rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                {(item.candidates || []).map(c => (
+                  <label key={c.employeeId} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.6rem 0.75rem", background: th.inputBg, border: `1px solid ${th.inputBorder}`, borderRadius: "0.5rem", cursor: "pointer", fontSize: "0.82rem", color: th.text }}>
+                    <input type="radio" name="candidate" checked={selectedCandidateId === c.employeeId} onChange={() => setSelectedCandidateId(c.employeeId)} style={{ accentColor: O }} />
+                    <span><strong>{c.name}</strong> — {c.jobTitle}</span>
+                  </label>
+                ))}
+              </div>
+              {/* Dismissing the ambiguous situation itself doesn't require picking one first —
+                  it suppresses the whole candidate set from re-notifying, not a specific pick. */}
+              <button onClick={() => { onDismiss(); onClose(); }} style={{ background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600, padding: 0, marginBottom: "0.25rem" }}>Dismiss</button>
+            </>)}
+
+            {(candidate || item.kind === 'vacant') && (<>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                <input style={{ ...inp(th), gridColumn: "1 / -1" }} placeholder="Manager's name *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} autoFocus={item.kind === 'vacant'} />
+                <div style={{ position: "relative" }}>
+                  <input style={inp(th)} placeholder="Username *" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
+                  <button type="button" onClick={() => setForm(f => ({ ...f, username: suggestUsername(f.name, existingUsernames) }))} title="Suggest from name" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.68rem", fontWeight: 700 }}>Suggest</button>
+                </div>
+                <div style={{ position: "relative" }}>
+                  <input style={inp(th)} placeholder="Password *" type={showPw ? "text" : "password"} autoComplete="new-password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
+                  <button type="button" onClick={() => setShowPw(s => !s)} style={{ position: "absolute", right: 52, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.68rem", fontWeight: 700 }}>{showPw ? "Hide" : "Show"}</button>
+                  <button type="button" onClick={() => setForm(f => ({ ...f, password: generatePassword() }))} title="Regenerate" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.68rem", fontWeight: 700 }}>↻</button>
+                </div>
+                <input style={inp(th)} placeholder="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+                <input style={inp(th)} placeholder="Job title (e.g. Store Manager)" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} />
+              </div>
+              <div style={{ fontSize: "0.68rem", color: th.muted, marginBottom: "1rem" }}>Store: <strong>{storeName}</strong> (locked to this review)</div>
+
+              {existingAccount && !oldAlreadyDeactivated && (
+                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.8rem", color: th.text, padding: "0.6rem 0.75rem", background: th.inputBg, border: `1px solid ${th.inputBorder}`, borderRadius: "0.5rem", marginBottom: "1.1rem" }}>
+                  <input type="checkbox" checked={deactivateOld} onChange={e => setDeactivateOld(e.target.checked)} style={{ accentColor: O, width: 15, height: 15 }} />
+                  Also deactivate {existingAccount.name}'s account
+                </label>
+              )}
+
+              <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+                <button onClick={handleCreate} disabled={!canSubmit} style={btn(th, { flex: 1, opacity: canSubmit ? 1 : 0.6, cursor: canSubmit ? "pointer" : "not-allowed" })}>
+                  {saving ? "Creating…" : "Create Account"}
+                </button>
+                <button onClick={() => { onDismiss(); onClose(); }} style={{ background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>Dismiss</button>
+              </div>
+            </>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PCGPortal() {
   // Load persisted data on first render
   const [user, setUser]         = useState(null);
@@ -50186,6 +50286,60 @@ function PCGPortal() {
     setTimeout(() => setDataAlert(null), 3500);
   };
 
+  // Paycor-driven manager-change queue (see docs/superpowers/specs/2026-09-22-manager-sync-design.md).
+  // Lifted here from AdminUsers (2026-09-22) so the notification bell can surface a Review
+  // action from anywhere in the app, not just the Users tab — the old stacked-banner-card
+  // list on the Users page is gone; this is the single place these are actioned now.
+  const [managerPending, setManagerPending] = useState({}); // pc -> { kind, candidate?, outgoingUserId?, outgoingName?, ... }
+  const loadManagerPending = () => cloudLoad('pcg_manager_pending_v1').then(d => setManagerPending(d && typeof d === 'object' ? d : {})).catch(() => {});
+  useEffect(() => { loadManagerPending(); }, []);
+  // Dismissing a `replace`/`needsReview` item must persist and be respected by the next
+  // labor-cron run (Paycor's underlying data hasn't changed, so without this the very next
+  // hourly run just re-detects the identical situation and re-queues/re-notifies forever).
+  // We write a `dismissed` marker scoped to the SPECIFIC candidate(s) dismissed — not the
+  // store in general — so a genuinely new candidate later is never suppressed by an old
+  // dismissal for a different situation. `vacant` items keep the simpler "just clear it"
+  // behavior (which resets the streak) — judged an acceptable, much-less-harmful outcome.
+  const dismissManagerPending = async (pc) => {
+    const item = managerPending[pc];
+    const next = { ...managerPending };
+    if (item?.kind === 'replace') {
+      next[pc] = { kind: 'dismissed', dismissedCandidateEmployeeId: item.candidate.employeeId, dismissedAt: new Date().toISOString() };
+    } else if (item?.kind === 'needsReview') {
+      const candidateIds = (item.candidates || []).map(c => c.employeeId).sort().join(',');
+      next[pc] = { kind: 'dismissed', dismissedCandidateEmployeeId: candidateIds, dismissedAt: new Date().toISOString() };
+    } else {
+      delete next[pc];
+    }
+    const ok = await cloudSave('pcg_manager_pending_v1', next);
+    if (ok) setManagerPending(next);
+  };
+
+  // A managerPending entry is "actionable" — i.e. it counts toward the bell's Review affordance
+  // — except: (a) a `replace` item that's fully resolved (new account exists AND the outgoing
+  // one is deactivated; labor-cron only clears the blob entry itself on its next run, so this
+  // is what keeps the count in sync with what's actually true in the meantime), (b) a
+  // `needsReview` item where any one of its candidates has already become the active linked
+  // manager (same self-healing idea, extended to the multi-candidate case), or (c) a
+  // `dismissed` marker, kept purely so labor-cron's next run knows not to re-queue the exact
+  // candidate(s) already dismissed — it renders nothing and isn't "pending" from here.
+  const managerPendingIsActionable = (item) => {
+    if (!item || item.kind === 'dismissed') return false;
+    if (item.kind === 'replace') {
+      const alreadyLinked = users.some(u => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
+      const oldDeactivated = item.outgoingUserId ? users.find(u => u.id === item.outgoingUserId)?.active === false : true;
+      return !(alreadyLinked && oldDeactivated);
+    }
+    if (item.kind === 'needsReview') {
+      return !(item.candidates || []).some(c => users.some(u => u.paycorEmployeeId === c.employeeId && u.active !== false));
+    }
+    return true; // vacant
+  };
+  const managerPendingCount = Object.values(managerPending).filter(managerPendingIsActionable).length;
+  // Which store's pending item the review modal is currently open for (null = closed). The
+  // modal always reads the LIVE managerPending[pc] entry, not a snapshot, so it can't go stale.
+  const [managerReviewPc, setManagerReviewPc] = useState(null);
+
   const handleToggle = useCallback(() => {
     const newDark = !dark;
     setLogoAnim(true);
@@ -51286,6 +51440,12 @@ function PCGPortal() {
                       )}
                       {visibleNotifs.slice(0, 30).map(n => {
                         const m = meta[n.type] || { emoji: "🆕", tint: O };
+                        // manager_change_pending: resolve against the LIVE managerPending state
+                        // (not the notification's frozen text) — it may have already been
+                        // resolved or dismissed since this notification was logged.
+                        const mgrItem = n.type === "manager_change_pending" ? managerPending[n.storePC] : null;
+                        const mgrActionable = mgrItem ? managerPendingIsActionable(mgrItem) : false;
+                        const openMgrReview = () => { setManagerReviewPc(n.storePC); setShowNotifs(false); };
                         return (
                         <div key={n.id} onClick={() => {
                           setNotifications(ns => ns.map(nn => nn.id === n.id ? { ...nn, read: true } : nn));
@@ -51293,12 +51453,15 @@ function PCGPortal() {
                             txnDeepLinkRef.current = { date: n.date, chkNum: (n.chkNums && n.chkNums.length === 1) ? n.chkNums[0] : null };
                             setDrillInStore(n.storePC);
                             setTab("pulse");
+                            setShowNotifs(false);
                           } else if (n.type === "manager_change_pending") {
-                            setTab("users");
+                            // No tab change — Review opens the modal right here. If it's
+                            // already resolved, clicking just marks it read.
+                            if (mgrActionable) openMgrReview(); else setShowNotifs(false);
                           } else {
                             setTab(n.type === "new_ticket" ? "tickets" : "projects");
+                            setShowNotifs(false);
                           }
-                          setShowNotifs(false);
                         }}
                           onMouseEnter={e => e.currentTarget.style.background = th.hover || (O + "0d")}
                           onMouseLeave={e => e.currentTarget.style.background = n.read ? "transparent" : (O + "08")}
@@ -51309,7 +51472,15 @@ function PCGPortal() {
                           <span style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 9, background: m.tint + "1f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem" }}>{m.emoji}</span>
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ fontSize: "0.8125rem", color: th.text, fontWeight: n.read ? 500 : 700, lineHeight: 1.35 }}>{n.message}</div>
-                            <div style={{ fontSize: "0.6875rem", color: th.muted, marginTop: 3, fontWeight: 500 }}>{relTime(n.createdAt)}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
+                              <span style={{ fontSize: "0.6875rem", color: th.muted, fontWeight: 500 }}>{relTime(n.createdAt)}</span>
+                              {mgrActionable && (
+                                <button onClick={e => { e.stopPropagation(); setNotifications(ns => ns.map(nn => nn.id === n.id ? { ...nn, read: true } : nn)); openMgrReview(); }}
+                                  style={{ background: "#f59e0b1f", border: "1px solid #f59e0b55", color: "#f59e0b", fontSize: "0.625rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "2px 9px", borderRadius: 999, cursor: "pointer" }}>
+                                  Review
+                                </button>
+                              )}
+                            </div>
                           </div>
                           {!n.read && <span style={{ flexShrink: 0, width: 8, height: 8, borderRadius: "50%", background: O, marginTop: 4 }} />}
                         </div>
@@ -51508,6 +51679,22 @@ function PCGPortal() {
           </div>
         )}
 
+        {/* Manager-sync review modal — opened from the bell's Review pill, works from any tab. */}
+        {managerReviewPc && managerPending[managerReviewPc] && managerPendingIsActionable(managerPending[managerReviewPc]) && (
+          <ManagerSyncReviewModal
+            pc={managerReviewPc}
+            item={managerPending[managerReviewPc]}
+            stores={stores}
+            users={users}
+            setUsers={setUsers}
+            currentUser={user}
+            th={th}
+            showAlert={showAlert}
+            onClose={() => setManagerReviewPc(null)}
+            onDismiss={() => dismissManagerPending(managerReviewPc)}
+          />
+        )}
+
         {/* Floating Orion launcher — opens the Orion analyst chat.
             Portaled to document.body so position:fixed escapes the transformed
             layout ancestor (same pattern as the modals above). */}
@@ -51548,7 +51735,7 @@ function PCGPortal() {
           {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} users={users} onMapModeChange={setLocationsMapMode} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
-          {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
+          {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} managerPendingCount={managerPendingCount} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}

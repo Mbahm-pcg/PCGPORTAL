@@ -4683,7 +4683,7 @@
     7: { num: 7, name: "Sharmin Akter", email: "sharmin@peoplecapitalgroup.com" },
     8: { num: 8, name: "Mike", email: "" }
   };
-  function AdminUsers({ users, setUsers, currentUser, th, showAlert: showAlert2, stores }) {
+  function AdminUsers({ users, setUsers, currentUser, th, showAlert: showAlert2, stores, managerPendingCount }) {
     const [view, setView] = useState("list");
     const [editId, setEditId] = useState(null);
     const [showPw, setShowPw] = useState(false);
@@ -4698,36 +4698,6 @@
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
     const [emailAction, setEmailAction] = useState(null);
     const [revokeAction, setRevokeAction] = useState(null);
-    const [managerPending, setManagerPending] = useState({});
-    const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
-    });
-    useEffect(() => {
-      loadManagerPending();
-    }, []);
-    const dismissManagerPending = async (pc) => {
-      const item = managerPending[pc];
-      const next = { ...managerPending };
-      if (item?.kind === "replace") {
-        next[pc] = { kind: "dismissed", dismissedCandidateEmployeeId: item.candidate.employeeId, dismissedAt: (/* @__PURE__ */ new Date()).toISOString() };
-      } else if (item?.kind === "needsReview") {
-        const candidateIds = (item.candidates || []).map((c) => c.employeeId).sort().join(",");
-        next[pc] = { kind: "dismissed", dismissedCandidateEmployeeId: candidateIds, dismissedAt: (/* @__PURE__ */ new Date()).toISOString() };
-      } else {
-        delete next[pc];
-      }
-      const ok = await cloudSave("pcg_manager_pending_v1", next);
-      if (ok) setManagerPending(next);
-    };
-    const managerPendingIsActionable = (item) => {
-      if (!item || item.kind === "dismissed") return false;
-      if (item.kind === "replace") {
-        const alreadyLinked = users.some((u) => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
-        const oldDeactivated = item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId)?.active === false : true;
-        return !(alreadyLinked && oldDeactivated);
-      }
-      return true;
-    };
-    const managerPendingCount = Object.values(managerPending).filter(managerPendingIsActionable).length;
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
       if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
@@ -5035,31 +5005,7 @@
         }
       },
       "+ Add User"
-    ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, Object.entries(managerPending).map(([pc, item]) => {
-      if (!managerPendingIsActionable(item)) return null;
-      const store = stores.find((s) => String(s.pc) === pc);
-      const storeName = store?.name || pc;
-      if (item.kind === "replace") {
-        const alreadyLinked = users.some((u) => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
-        const oldDeactivated = item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId)?.active === false : true;
-        return /* @__PURE__ */ React.createElement("div", { key: pc, style: { ...card(th), padding: "0.85rem 1rem", marginBottom: "0.6rem", borderLeft: "3px solid #f59e0b" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("strong", null, storeName, ":"), " Paycor shows ", /* @__PURE__ */ React.createElement("strong", null, item.candidate.name), " (", item.candidate.jobTitle, ") now managing this store", item.outgoingName ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 was ", /* @__PURE__ */ React.createElement("strong", null, item.outgoingName)) : null, "."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, !alreadyLinked && /* @__PURE__ */ React.createElement("button", { onClick: () => {
-          const existingUsernames = users.map((u) => u.username);
-          openEditPage({
-            name: item.candidate.name,
-            userType: "manager",
-            storePC: pc,
-            username: suggestUsername(item.candidate.name, existingUsernames),
-            password: generatePassword(),
-            paycorEmployeeId: item.candidate.employeeId,
-            region: "PA",
-            active: true,
-            role: item.candidate.jobTitle
-          });
-        }, style: btn(th, { padding: "0.4rem 0.8rem", fontSize: "0.72rem" }) }, "Create Account"), item.outgoingUserId && !oldDeactivated && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(item.outgoingUserId), style: btn(th, { padding: "0.3rem 0.6rem", fontSize: "0.68rem", fontWeight: 500, background: "transparent", border: "1px solid " + th.cardBorder, color: th.muted }) }, "Deactivate ", item.outgoingName), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissManagerPending(pc), style: { background: "none", border: "none", color: th.muted, fontSize: "0.75rem", cursor: "pointer" } }, "Dismiss")));
-      }
-      const text = item.kind === "needsReview" ? `${storeName}: multiple active employees hold a manager title \u2014 needs a human decision.` : `${storeName}: no active employee has held a manager title for 3+ weeks.`;
-      return /* @__PURE__ */ React.createElement("div", { key: pc, style: { ...card(th), padding: "0.85rem 1rem", marginBottom: "0.6rem", borderLeft: "3px solid #f59e0b" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, marginBottom: "0.5rem" } }, text), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissManagerPending(pc), style: { background: "none", border: "none", color: th.muted, fontSize: "0.75rem", cursor: "pointer" } }, "Dismiss"));
-    }), displayUsers.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" } }, "No users found."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobileUsers ? "1fr" : "repeat(2,1fr)", gap: "1rem" } }, displayUsers.map((u) => {
+    ))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } }, displayUsers.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center", color: th.muted, fontSize: "0.875rem" } }, "No users found."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobileUsers ? "1fr" : "repeat(2,1fr)", gap: "1rem" } }, displayUsers.map((u) => {
       const rc2 = roleColor(u.userType);
       const isInactive = u.active === false;
       const IconAction = ({ icon, label, onClick, color, disabled, badge, size = 36 }) => /* @__PURE__ */ React.createElement(
@@ -36348,6 +36294,118 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, t.icon), " ", t.label))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflow: "auto", padding: "1rem 1.25rem" } }, !store ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "This tablet isn't assigned to a store yet. Ask an admin to set the store on this account.") : tab === "tickets" ? /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab: () => {
     }, deepLinkRef }) : /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user })), dataAlert && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", bottom: 24, right: 24, zIndex: 9998, padding: "0.75rem 1.25rem", borderRadius: "0.625rem", background: dataAlert.type === "success" ? "#69db7c" : "#ff6b6b", color: "#111", fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "0.8125rem", boxShadow: "0 8px 32px #00000040", display: "flex", alignItems: "center", gap: "0.5rem" } }, dataAlert.type === "success" ? ICONS.checkCircle("#111") : ICONS.xCircle("#111"), " ", dataAlert.msg));
   }
+  function ManagerSyncReviewModal({ pc, item, stores, users, setUsers, currentUser, th, showAlert: showAlert2, onClose, onDismiss }) {
+    const store = (stores || []).find((s) => String(s.pc) === String(pc));
+    const storeName = store?.name || pc;
+    const existingUsernames = users.map((u) => u.username);
+    const [selectedCandidateId, setSelectedCandidateId] = useState(
+      item.kind === "needsReview" ? null : item.candidate?.employeeId || null
+    );
+    const candidate = item.kind === "needsReview" ? (item.candidates || []).find((c) => c.employeeId === selectedCandidateId) || null : item.kind === "vacant" ? null : item.candidate;
+    const existingAccount = item.kind === "replace" ? item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId) : null : users.find((u) => u.userType === "manager" && u.active !== false && String(u.storePC) === String(pc));
+    const oldAlreadyDeactivated = existingAccount ? existingAccount.active === false : true;
+    const [deactivateOld, setDeactivateOld] = useState(true);
+    const [form, setForm] = useState({
+      name: candidate?.name || "",
+      username: candidate ? suggestUsername(candidate.name, existingUsernames) : "",
+      password: generatePassword(),
+      email: `${pc}@peoplecapitalgroup.com`,
+      role: ""
+    });
+    const [showPw, setShowPw] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const prevCandidateName = useRef(candidate?.name || null);
+    useEffect(() => {
+      if (!candidate || candidate.name === prevCandidateName.current) return;
+      prevCandidateName.current = candidate.name;
+      setForm((f) => ({ ...f, name: candidate.name, username: suggestUsername(candidate.name, existingUsernames) }));
+    }, [candidate?.name]);
+    const canSubmit = form.name.trim() && form.username.trim() && form.password.trim() && !saving;
+    const handleCreate = async () => {
+      if (!canSubmit) return;
+      setSaving(true);
+      const pwErr = validatePasswordClient(form.password);
+      if (pwErr) {
+        showAlert2("error", pwErr);
+        setSaving(false);
+        return;
+      }
+      try {
+        const payload = {
+          username: form.username.trim(),
+          password: form.password,
+          name: form.name.trim(),
+          role: form.role.trim(),
+          initials: form.name.trim().split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2),
+          isAdmin: false,
+          userType: "manager",
+          region: "PA",
+          active: true,
+          darkMode: false,
+          email: form.email.trim(),
+          phone: "",
+          twoFactorRequired: false,
+          auditsAccess: null,
+          storePC: pc,
+          paycorEmployeeId: candidate?.employeeId || null,
+          mustSetup: true
+        };
+        const res = await fetch("/.netlify/functions/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "create", user: payload })
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showAlert2("error", json.error || `Create failed (${res.status})`);
+          setSaving(false);
+          return;
+        }
+        setUsers((us) => [...us, json.user]);
+        logClientEvent(currentUser?.id, currentUser?.userType, "user_created", { targetName: payload.name, targetRole: "manager" });
+        if (existingAccount && !oldAlreadyDeactivated && deactivateOld) {
+          const dres = await fetch("/.netlify/functions/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ action: "toggle-active", id: existingAccount.id })
+          });
+          if (dres.ok) {
+            const djson = await dres.json();
+            setUsers((us) => us.map((u) => u.id === existingAccount.id ? { ...u, ...djson.user } : u));
+            logClientEvent(currentUser?.id, currentUser?.userType, "user_deactivated", { targetName: existingAccount.name, targetRole: existingAccount.userType });
+          }
+        }
+        if (payload.email) {
+          const subject = `Welcome to the ${BRAND_CONFIG.portalName}!`;
+          const htmlBody = `
+          <h2 style="color:#333;margin-bottom:8px;">Welcome, ${payload.name}! \u{1F44B}</h2>
+          <p style="color:#555;font-size:15px;">Your account has been created on the <strong>${BRAND_CONFIG.portalName}</strong>.</p>
+          <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin:16px 0;">
+            <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="${BRAND_CONFIG.portalUrl}/" style="color:${BRAND_CONFIG.primary};">${BRAND_CONFIG.portalUrl}/</a></p>
+            <p style="margin:4px 0;font-size:14px;"><strong>Username:</strong> ${payload.username}</p>
+            <p style="margin:4px 0;font-size:14px;"><strong>Password:</strong> ${payload.password}</p>
+          </div>
+          <p style="color:#555;font-size:14px;">On your first login, you'll be asked to change your password and set up your profile.</p>
+        `;
+          sendNotifyEmail([payload.email], subject, htmlBody).catch(() => {
+          });
+        }
+        showAlert2("success", `${payload.name}'s account created${existingAccount && deactivateOld && !oldAlreadyDeactivated ? ` \u2014 ${existingAccount.name} deactivated` : ""}.`);
+        onClose();
+      } catch (e) {
+        showAlert2("error", "Something went wrong creating the account.");
+      }
+      setSaving(false);
+    };
+    const situationText = item.kind === "replace" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Paycor shows ", /* @__PURE__ */ React.createElement("strong", null, item.candidate.name), " (", item.candidate.jobTitle, ") now managing this store", item.outgoingName ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 was ", /* @__PURE__ */ React.createElement("strong", null, item.outgoingName)) : null, ".") : item.kind === "needsReview" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Multiple active employees hold a manager title at this store \u2014 pick which one is correct.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "No active employee has held a manager title here for 3+ weeks. Enter the manager's name manually.");
+    return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 20px", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), className: "fade-in", style: { position: "relative", width: "100%", maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { borderRadius: "1rem", overflow: "hidden", boxShadow: "0 30px 70px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { background: `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`, padding: "1.1rem 1.4rem", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1rem", fontWeight: 800, color: "#fff", lineHeight: 1.2 } }, storeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: "rgba(255,255,255,0.85)", fontWeight: 600, marginTop: 2 } }, "Manager-sync review")), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { background: "rgba(255,255,255,0.18)", border: "1.5px solid rgba(255,255,255,0.4)", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "1rem", cursor: "pointer", flexShrink: 0 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: 0, padding: "1.25rem 1.4rem", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, lineHeight: 1.4, marginBottom: "1rem" } }, situationText), item.kind === "needsReview" && !candidate && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem", display: "flex", flexDirection: "column", gap: "0.4rem" } }, (item.candidates || []).map((c) => /* @__PURE__ */ React.createElement("label", { key: c.employeeId, style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.6rem 0.75rem", background: th.inputBg, border: `1px solid ${th.inputBorder}`, borderRadius: "0.5rem", cursor: "pointer", fontSize: "0.82rem", color: th.text } }, /* @__PURE__ */ React.createElement("input", { type: "radio", name: "candidate", checked: selectedCandidateId === c.employeeId, onChange: () => setSelectedCandidateId(c.employeeId), style: { accentColor: O } }), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", null, c.name), " \u2014 ", c.jobTitle)))), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      onDismiss();
+      onClose();
+    }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600, padding: 0, marginBottom: "0.25rem" } }, "Dismiss")), (candidate || item.kind === "vacant") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("input", { style: { ...inp(th), gridColumn: "1 / -1" }, placeholder: "Manager's name *", value: form.name, onChange: (e) => setForm((f) => ({ ...f, name: e.target.value })), autoFocus: item.kind === "vacant" }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Username *", value: form.username, onChange: (e) => setForm((f) => ({ ...f, username: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setForm((f) => ({ ...f, username: suggestUsername(f.name, existingUsernames) })), title: "Suggest from name", style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.68rem", fontWeight: 700 } }, "Suggest")), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Password *", type: showPw ? "text" : "password", autoComplete: "new-password", value: form.password, onChange: (e) => setForm((f) => ({ ...f, password: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setShowPw((s) => !s), style: { position: "absolute", right: 52, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.68rem", fontWeight: 700 } }, showPw ? "Hide" : "Show"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setForm((f) => ({ ...f, password: generatePassword() })), title: "Regenerate", style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.68rem", fontWeight: 700 } }, "\u21BB")), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Email", value: form.email, onChange: (e) => setForm((f) => ({ ...f, email: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Job title (e.g. Store Manager)", value: form.role, onChange: (e) => setForm((f) => ({ ...f, role: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "1rem" } }, "Store: ", /* @__PURE__ */ React.createElement("strong", null, storeName), " (locked to this review)"), existingAccount && !oldAlreadyDeactivated && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.8rem", color: th.text, padding: "0.6rem 0.75rem", background: th.inputBg, border: `1px solid ${th.inputBorder}`, borderRadius: "0.5rem", marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: deactivateOld, onChange: (e) => setDeactivateOld(e.target.checked), style: { accentColor: O, width: 15, height: 15 } }), "Also deactivate ", existingAccount.name, "'s account"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: handleCreate, disabled: !canSubmit, style: btn(th, { flex: 1, opacity: canSubmit ? 1 : 0.6, cursor: canSubmit ? "pointer" : "not-allowed" }) }, saving ? "Creating\u2026" : "Create Account"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      onDismiss();
+      onClose();
+    }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 } }, "Dismiss")))))));
+  }
   function PCGPortal() {
     const [user, setUser] = useState(null);
     useEffect(() => {
@@ -37957,6 +38015,40 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDataAlert({ type, msg });
       setTimeout(() => setDataAlert(null), 3500);
     };
+    const [managerPending, setManagerPending] = useState({});
+    const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
+    });
+    useEffect(() => {
+      loadManagerPending();
+    }, []);
+    const dismissManagerPending = async (pc) => {
+      const item = managerPending[pc];
+      const next = { ...managerPending };
+      if (item?.kind === "replace") {
+        next[pc] = { kind: "dismissed", dismissedCandidateEmployeeId: item.candidate.employeeId, dismissedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      } else if (item?.kind === "needsReview") {
+        const candidateIds = (item.candidates || []).map((c) => c.employeeId).sort().join(",");
+        next[pc] = { kind: "dismissed", dismissedCandidateEmployeeId: candidateIds, dismissedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      } else {
+        delete next[pc];
+      }
+      const ok = await cloudSave("pcg_manager_pending_v1", next);
+      if (ok) setManagerPending(next);
+    };
+    const managerPendingIsActionable = (item) => {
+      if (!item || item.kind === "dismissed") return false;
+      if (item.kind === "replace") {
+        const alreadyLinked = users.some((u) => u.paycorEmployeeId === item.candidate.employeeId && u.active !== false);
+        const oldDeactivated = item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId)?.active === false : true;
+        return !(alreadyLinked && oldDeactivated);
+      }
+      if (item.kind === "needsReview") {
+        return !(item.candidates || []).some((c) => users.some((u) => u.paycorEmployeeId === c.employeeId && u.active !== false));
+      }
+      return true;
+    };
+    const managerPendingCount = Object.values(managerPending).filter(managerPendingIsActionable).length;
+    const [managerReviewPc, setManagerReviewPc] = useState(null);
     const handleToggle = useCallback(() => {
       const newDark = !dark;
       setLogoAnim(true);
@@ -39062,6 +39154,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       };
       return /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", right: 0, top: "100%", marginTop: 10, width: "min(360px, calc(100vw - 24px))", maxHeight: 440, display: "flex", flexDirection: "column", ...card(th), padding: 0, overflow: "hidden", boxShadow: "0 12px 40px #00000050", border: `1px solid ${th.cardBorder}`, borderRadius: 14, zIndex: 999 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.875rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: "0.9375rem", color: th.text, letterSpacing: "-0.01em" } }, "Notifications"), unreadCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { background: O, color: "#fff", fontSize: "0.625rem", fontWeight: 700, padding: "1px 7px", borderRadius: 10 } }, unreadCount)), unreadCount > 0 && /* @__PURE__ */ React.createElement("button", { onClick: () => setNotifications((ns) => ns.map((n) => ({ ...n, read: true }))), style: { background: "none", border: "none", color: O, fontSize: "0.6875rem", cursor: "pointer", fontWeight: 700 } }, "Mark all read")), /* @__PURE__ */ React.createElement("div", { style: { overflowY: "auto", flex: 1 } }, visibleNotifs.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.75rem", marginBottom: 8, opacity: 0.5 } }, "\u{1F514}"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", fontWeight: 600 } }, "You're all caught up"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", marginTop: 2, opacity: 0.8 } }, "No notifications right now")), visibleNotifs.slice(0, 30).map((n) => {
         const m = meta[n.type] || { emoji: "\u{1F195}", tint: O };
+        const mgrItem = n.type === "manager_change_pending" ? managerPending[n.storePC] : null;
+        const mgrActionable = mgrItem ? managerPendingIsActionable(mgrItem) : false;
+        const openMgrReview = () => {
+          setManagerReviewPc(n.storePC);
+          setShowNotifs(false);
+        };
         return /* @__PURE__ */ React.createElement(
           "div",
           {
@@ -39072,12 +39170,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
                 txnDeepLinkRef.current = { date: n.date, chkNum: n.chkNums && n.chkNums.length === 1 ? n.chkNums[0] : null };
                 setDrillInStore(n.storePC);
                 setTab("pulse");
+                setShowNotifs(false);
               } else if (n.type === "manager_change_pending") {
-                setTab("users");
+                if (mgrActionable) openMgrReview();
+                else setShowNotifs(false);
               } else {
                 setTab(n.type === "new_ticket" ? "tickets" : "projects");
+                setShowNotifs(false);
               }
-              setShowNotifs(false);
             },
             onMouseEnter: (e) => e.currentTarget.style.background = th.hover || O + "0d",
             onMouseLeave: (e) => e.currentTarget.style.background = n.read ? "transparent" : O + "08",
@@ -39085,7 +39185,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           },
           !n.read && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: O } }),
           /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, width: 32, height: 32, borderRadius: 9, background: m.tint + "1f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem" } }, m.emoji),
-          /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.text, fontWeight: n.read ? 500 : 700, lineHeight: 1.35 } }, n.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, marginTop: 3, fontWeight: 500 } }, relTime(n.createdAt))),
+          /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.text, fontWeight: n.read ? 500 : 700, lineHeight: 1.35 } }, n.message), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 500 } }, relTime(n.createdAt)), mgrActionable && /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                setNotifications((ns) => ns.map((nn) => nn.id === n.id ? { ...nn, read: true } : nn));
+                openMgrReview();
+              },
+              style: { background: "#f59e0b1f", border: "1px solid #f59e0b55", color: "#f59e0b", fontSize: "0.625rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "2px 9px", borderRadius: 999, cursor: "pointer" }
+            },
+            "Review"
+          ))),
           !n.read && /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, width: 8, height: 8, borderRadius: "50%", background: O, marginTop: 4 } })
         );
       })));
@@ -39227,7 +39338,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       display: "flex",
       alignItems: "center",
       gap: "0.5rem"
-    } }, dataAlert.type === "success" ? ICONS.checkCircle("#111") : ICONS.xCircle("#111"), " ", dataAlert.msg), user && !isMobile && tab !== "chat" && ["executive", "it", "office_staff", "dm", "manager"].includes(user.userType) && ReactDOM.createPortal(
+    } }, dataAlert.type === "success" ? ICONS.checkCircle("#111") : ICONS.xCircle("#111"), " ", dataAlert.msg), managerReviewPc && managerPending[managerReviewPc] && managerPendingIsActionable(managerPending[managerReviewPc]) && /* @__PURE__ */ React.createElement(
+      ManagerSyncReviewModal,
+      {
+        pc: managerReviewPc,
+        item: managerPending[managerReviewPc],
+        stores,
+        users,
+        setUsers,
+        currentUser: user,
+        th,
+        showAlert: showAlert2,
+        onClose: () => setManagerReviewPc(null),
+        onDismiss: () => dismissManagerPending(managerReviewPc)
+      }
+    ), user && !isMobile && tab !== "chat" && ["executive", "it", "office_staff", "dm", "manager"].includes(user.userType) && ReactDOM.createPortal(
       /* @__PURE__ */ React.createElement(
         "button",
         {
@@ -39270,7 +39395,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : tab === "district-alignment" || tab === "tools-hub" ? "1.5rem 1.25rem 1rem" : tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
+    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores, managerPendingCount }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
       const OPS = "#2F6FA8";
       const opsTiles = [
         { id: "tasks", name: "Tasks", sub: "Checklists, GPS-verified completions, DM escalation.", show: (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "tasks"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "m9 11 3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" })) },
