@@ -40,15 +40,16 @@ ticket for a borderline reading or misses a slow, quiet failure, and neither is 
 
 | Tier | Condition | Action |
 |------|-----------|--------|
-| **Warning** | Temp **> 5°C**, sustained 2 consecutive checks (~30 min) | Notify the **manager only** (SMS/email/push) — heads up, keep an eye on it. **No ticket yet.** Fires once per episode, not on every check while still borderline. |
+| **Warning** | Temp **> 5°C**, sustained for **30 minutes of wall-clock time** (3 consecutive checks at the 10-min interval — see Check interval below) | Notify the **manager only** (SMS/email/push) — heads up, keep an eye on it. **No ticket yet.** Fires once per episode, not on every check while still borderline. |
 | **Red-flag** | Temp **> 7°C**, on the very first reading that crosses it — no separate sustain requirement (crossing 7°C already means it's clearly gotten worse, no need to wait another 30 min to confirm) | Create the HIGH ticket immediately, notify **manager + DM** (SMS/email/push) |
 | **Prolonged warning** | Still between 5-7°C (never dropped to ≤5°C, never crossed 7°C) for **2 straight hours** | Escalate to the same HIGH ticket + manager+DM notification as Red-flag — a cooler stuck borderline all day is a real problem even if it never spikes higher |
 
-Worked example: 5.5°C at 2:00, 5.8°C at 2:15 (30 min sustained → Warning notification to the
-manager only, no ticket). Stays in the 5-7°C band without change until 4:00 (2 hours since it
-first went over 5°C) → escalates to a HIGH ticket, manager+DM notified. If instead it had
-jumped to 7.5°C at 2:30, that alone creates the ticket immediately, regardless of the 2-hour
-window or whether the Warning had even fired yet.
+Worked example (10-min checks): 5.5°C at 2:00, 5.6°C at 2:10, 5.8°C at 2:20 (30 min elapsed
+since it first crossed 5°C → Warning notification to the manager only, no ticket). Stays in
+the 5-7°C band without change until 4:00 (2 hours since it first went over 5°C) → escalates
+to a HIGH ticket, manager+DM notified. If instead it had jumped to 7.5°C at 2:20, that alone
+creates the ticket immediately, regardless of the 2-hour window or whether the Warning had
+even fired yet.
 
 **exec/IT are never separately texted/emailed for either tier** — they see every notification
 in the bell automatically regardless of type (existing behavior, `filterNotifsByRole`), the
@@ -105,7 +106,22 @@ whether this automation runs or where a ticket routes.
 
 ## Detection — `netlify/functions/shelly-temp-cron.mjs`
 
-Scheduled `*/15 * * * *`, mirroring `no-clockin-cron.mjs`'s exact 3-layer split:
+**Check interval: `*/10 * * * *` (every 10 min), not the 15-min interval `no-clockin-cron`
+uses.** Revised 2026-09-23 — a faster overall interval catches a rapidly-worsening failure
+sooner (a fast climb toward/past 7°C is caught within 10 min instead of up to 15), applying
+to every check, not just ones already mid-episode (a dedicated faster re-check *only* while
+a Warning is active was considered and explicitly rejected — Netlify's fixed-schedule cron
+can't easily do a one-off tighter loop for a single sensor without extra machinery, and a
+uniform faster interval is simpler and was preferred).
+
+Because `advanceTempState` (below) tracks real **elapsed wall-clock time** since a threshold
+was first crossed — not a raw count of consecutive checks — none of the actual time
+thresholds (30-min Warning sustain, 2-hour Prolonged-warning escalation) needed to change
+when the interval did. Only the schedule itself moved, from 15 to 10 min; a check that used
+to take "2 consecutive checks" to reach 30 min now takes 3, but the code never counts checks
+at all, so this required zero logic changes — only `netlify.toml`'s schedule string.
+
+Mirrors `no-clockin-cron.mjs`'s exact 3-layer split otherwise:
 
 - `shelly-temp-cron.mjs` — thin scheduled entry, calls the shared engine.
 - `shelly-temp-lib/run.mjs` — I/O: calls Shelly (`/device/all_status`, same call `shelly.mjs`
