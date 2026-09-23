@@ -106,7 +106,7 @@ async function writeBellNotification(bs, { type, message, storePC, district }) {
   } catch (e) { console.warn('[shelly-temp] bell notification write failed:', e.message); }
 }
 
-export async function runShellyTempCheck() {
+export async function runShellyTempCheck({ dryRun = false } = {}) {
   const bs = blobStore();
   const nowMs = Date.now();
 
@@ -166,16 +166,23 @@ export async function runShellyTempCheck() {
       const { state: nextState, shouldWarn, shouldTicket, reason } = advanceTempState({
         tempC, prevState, nowMs, openTicketExists,
       });
-      state[key] = nextState;
-      results.push({ key, shouldWarn, shouldTicket, reason, tempC });
-
-      if (!shouldWarn && !shouldTicket) continue;
+      if (!dryRun) state[key] = nextState; // dry run never writes state, same as no-clockin's mode:'off'
 
       const isMapped = !!storePc;
       const manager = isMapped ? contactsForStore('manager', storePc, store?.district, users) : testFallbackContacts(users);
       const dm = isMapped ? contactsForStore('dm', storePc, store?.district, users) : [];
       const storeName = store?.name || (isMapped ? storePc : 'Unmapped test sensor');
       const tempF = sensor.tempF;
+
+      results.push({
+        key, shouldWarn, shouldTicket, reason, tempC, tempF, openTicketExists,
+        wouldNotify: (shouldWarn || shouldTicket)
+          ? { manager: manager.map(u => u.name), dm: (shouldTicket ? dm : []).map(u => u.name) }
+          : null,
+      });
+
+      if (!shouldWarn && !shouldTicket) continue;
+      if (dryRun) continue; // report-only above; no sends, no ticket, no bell entry, no state write
 
       if (shouldWarn) {
         const text = `${storeName}: temp sensor reading ${tempF.toFixed(1)}°F / ${tempC.toFixed(1)}°C — above 5°C. Keep an eye on it.`;
@@ -200,8 +207,10 @@ export async function runShellyTempCheck() {
     }
   }
 
-  try { await bs.setJSON(STATE_KEY, { savedAt: new Date().toISOString(), data: state }); }
-  catch (e) { console.warn('[shelly-temp] state write failed:', e.message); }
+  if (!dryRun) {
+    try { await bs.setJSON(STATE_KEY, { savedAt: new Date().toISOString(), data: state }); }
+    catch (e) { console.warn('[shelly-temp] state write failed:', e.message); }
+  }
 
-  return { ok: true, results };
+  return { ok: true, dryRun, results };
 }
