@@ -9,7 +9,7 @@ import { sendSms, sendEmail, sendPush } from '../_shared/channels.mjs';
 import { STORES } from '../labor-cron.mjs';
 import { fetchAllShellyDevices } from '../shelly.mjs';
 import { advanceTempState } from '../../../src/shelly-temp.mjs';
-import { SHELLY_DEVICE_STORE, TEST_RECIPIENT_FALLBACK } from './device-map.mjs';
+import { SHELLY_DEVICE_MAP_BLOB_KEY, TEST_RECIPIENT_FALLBACK } from './device-map.mjs';
 
 const STATE_KEY = 'pcg_shelly_temp_state_v1';
 
@@ -52,9 +52,9 @@ function contactsForStore(role, storePc, district, users) {
   return [];
 }
 
-// Fallback recipients for a device with no SHELLY_DEVICE_STORE entry yet (the current
-// office test unit) — every active IT user + the executive named Mike, so the whole flow
-// is testable end-to-end before a device has a real store assignment. Resolved live from
+// Fallback recipients for a device with no entry in the device-store map blob yet (the
+// current office test unit) — the account named Ahmed + the executive named Mike, so the
+// whole flow is testable end-to-end before a device has a real store assignment. Resolved live from
 // the users table, not hardcoded ids.
 function testFallbackContacts(users) {
   const nameIncludes = (u, needle) => String(u.name || '').toLowerCase().includes(needle.toLowerCase());
@@ -126,6 +126,11 @@ export async function runShellyTempCheck({ dryRun = false } = {}) {
   const nowMs = Date.now();
 
   let state = (await loadJson(bs, STATE_KEY)) || {};
+  // deviceId -> storePc, admin-editable via the Dashboard's per-device store picker
+  // (exec/IT only) — not hardcoded. A device absent from this map is monitored for
+  // nothing below (deliberately: routing a food-safety alert to the wrong store is worse
+  // than not routing it), same as it always was with the static file this replaced.
+  const deviceStoreMap = (await loadJson(bs, SHELLY_DEVICE_MAP_BLOB_KEY)) || {};
 
   let devices = [];
   try {
@@ -148,7 +153,7 @@ export async function runShellyTempCheck({ dryRun = false } = {}) {
   const todayEt = new Date(nowMs).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric' });
   let suppressedPcs = new Set();
   try {
-    const mappedPcs = uniq(Object.values(SHELLY_DEVICE_STORE));
+    const mappedPcs = uniq(Object.values(deviceStoreMap));
     if (mappedPcs.length) {
       const rows = await db`SELECT DISTINCT account FROM ndcp_orders WHERE account = ANY(${mappedPcs}) AND date_shipped = ${todayEt}`;
       suppressedPcs = new Set(rows.map(r => r.account));
@@ -158,7 +163,7 @@ export async function runShellyTempCheck({ dryRun = false } = {}) {
   const results = [];
 
   for (const device of devices) {
-    const storePc = SHELLY_DEVICE_STORE[device.deviceId] || null;
+    const storePc = deviceStoreMap[device.deviceId] || null;
     const store = storePc ? STORES.find(s => String(s.pc) === String(storePc)) : null;
 
     for (const sensor of device.sensors) {

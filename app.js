@@ -5055,7 +5055,7 @@
             active: true,
             role: item.candidate.jobTitle
           });
-        }, style: btn(th, { padding: "0.45rem 0.9rem", fontSize: "0.75rem" }) }, "Create Account"), item.outgoingUserId && !oldDeactivated && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(item.outgoingUserId), style: btn(th, { padding: "0.45rem 0.9rem", fontSize: "0.75rem", background: th.card3, color: th.text }) }, "Deactivate ", item.outgoingName), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissManagerPending(pc), style: { background: "none", border: "none", color: th.muted, fontSize: "0.75rem", cursor: "pointer" } }, "Dismiss")));
+        }, style: btn(th, { padding: "0.4rem 0.8rem", fontSize: "0.72rem" }) }, "Create Account"), item.outgoingUserId && !oldDeactivated && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(item.outgoingUserId), style: btn(th, { padding: "0.3rem 0.6rem", fontSize: "0.68rem", fontWeight: 500, background: "transparent", border: "1px solid " + th.cardBorder, color: th.muted }) }, "Deactivate ", item.outgoingName), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissManagerPending(pc), style: { background: "none", border: "none", color: th.muted, fontSize: "0.75rem", cursor: "pointer" } }, "Dismiss")));
       }
       const text = item.kind === "needsReview" ? `${storeName}: multiple active employees hold a manager title \u2014 needs a human decision.` : `${storeName}: no active employee has held a manager title for 3+ weeks.`;
       return /* @__PURE__ */ React.createElement("div", { key: pc, style: { ...card(th), padding: "0.85rem 1rem", marginBottom: "0.6rem", borderLeft: "3px solid #f59e0b" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, marginBottom: "0.5rem" } }, text), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissManagerPending(pc), style: { background: "none", border: "none", color: th.muted, fontSize: "0.75rem", cursor: "pointer" } }, "Dismiss"));
@@ -22806,7 +22806,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.08";
+  var APP_VERSION = "v21.09";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25054,6 +25054,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       fontWeight: filterType === f.id ? 700 : 400
     } }, f.label)))), /* @__PURE__ */ React.createElement(SalesExplainedSection, { th, user, setTab }), loading || loadingStores ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.5rem" } }, "\u23F3"), "Loading per-store baselines\u2026") : filtered.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem", marginBottom: "0.5rem" } }, "\u2705"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, color: th.text, marginBottom: "0.25rem" } }, "All stores within normal range"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "No ", filterType !== "all" ? filterType + " " : "", "anomalies detected for today")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.25rem" } }, filtered.map((item) => /* @__PURE__ */ React.createElement("div", { key: item.key, style: { ...card(th), padding: "0.875rem 1.25rem", borderLeft: `3px solid ${item.color}`, display: "flex", alignItems: "center", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", minWidth: 52, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.3rem", color: item.color, lineHeight: 1 } }, Math.abs(item.z).toFixed(1), "\u03C3"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.55rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 } }, "z-score")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, item.store.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: th.muted } }, "D", item.store.district), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, color: item.color, background: item.color + "18", border: `1px solid ${item.color}33`, borderRadius: "0.3rem", padding: "0.05rem 0.4rem" } }, item.severity === 0 ? "Critical" : "Watch"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 600, color: item.subtype === "sales" ? "#74c0fc" : "#f59e0b", background: item.subtype === "sales" ? "#74c0fc18" : "#f59e0b18", borderRadius: "0.3rem", padding: "0.05rem 0.4rem" } }, item.subtype === "sales" ? "\u{1F4C9} Sales" : "\u26A0\uFE0F Labor")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, fontWeight: 500 } }, item.msg), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.15rem" } }, item.detail)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0 } }, item.subtype === "labor" && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("labor"), style: { fontSize: "0.72rem", padding: "0.28rem 0.55rem", borderRadius: "0.35rem", background: "#3b82f618", color: "#3b82f6", border: "1px solid #3b82f633", cursor: "pointer" } }, "\u{1F4CA}"), item.subtype === "sales" && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("pulse"), style: { fontSize: "0.72rem", padding: "0.28rem 0.55rem", borderRadius: "0.35rem", background: "#22c55e18", color: "#22c55e", border: "1px solid #22c55e33", cursor: "pointer" } }, "\u26A1"), item.subtype === "shifts" && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("labor"), style: { fontSize: "0.72rem", padding: "0.28rem 0.55rem", borderRadius: "0.35rem", background: "#8b5cf618", color: "#8b5cf6", border: "1px solid #8b5cf633", cursor: "pointer" } }, "\u{1F465}"), item.store.mgrPhone && /* @__PURE__ */ React.createElement("a", { href: `tel:${item.store.mgrPhone.replace(/\D/g, "")}`, style: { fontSize: "0.72rem", padding: "0.28rem 0.55rem", borderRadius: "0.35rem", background: th.card2, color: th.muted, border: `1px solid ${th.cardBorder}`, textDecoration: "none", display: "flex", alignItems: "center" } }, "\u{1F4DE}"))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.875rem 1.25rem", display: "flex", gap: "0.75rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem", flexShrink: 0 } }, "\u2139\uFE0F"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "How baselines work:"), " Each store's normal range is computed from the last 4\u20138 occurrences of the same day of week (e.g., last 8 Tuesdays). A z-score of 2.0 means today is 2 standard deviations from that store's own baseline \u2014 not a network-wide threshold. Cash void and employee pattern anomalies coming in a future update.")));
   }
+  var SHELLY_SENSOR_LABELS = {
+    // '200': 'Walk-in Cooler',
+    // '201': 'Walk-in Freezer',
+  };
   function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert: showAlert2, users }) {
     const hour = (/* @__PURE__ */ new Date()).getHours();
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -25155,6 +25159,29 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       })();
     }, []);
+    const [shellyDevices, setShellyDevices] = useState(null);
+    const loadShellyTemp = (manual = true) => {
+      if (manual) setShellyDevices(null);
+      fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
+    };
+    useEffect(() => {
+      loadShellyTemp(true);
+      const interval = setInterval(() => loadShellyTemp(false), 15 * 60 * 1e3);
+      return () => clearInterval(interval);
+    }, []);
+    const [shellyDeviceMap, setShellyDeviceMap] = useState({});
+    useEffect(() => {
+      cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
+      });
+    }, []);
+    const saveShellyStoreAssignment = (deviceId, storePc) => {
+      const next = { ...shellyDeviceMap };
+      if (storePc) next[deviceId] = storePc;
+      else delete next[deviceId];
+      setShellyDeviceMap(next);
+      cloudSave("pcg_shelly_device_map_v1", next).catch(() => {
+      });
+    };
     useEffect(() => {
       (async () => {
         try {
@@ -25343,7 +25370,34 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         ),
         document.body
       )
-    ))), unreadAnnouncements.length > 0 && /* @__PURE__ */ React.createElement(
+    ))), shellyDevices === "error" ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: "#ff6b6b", marginBottom: "1.25rem" } }, "Couldn't reach the temp sensors.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.25rem" } }, shellyDevices === null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, padding: "0.85rem 0" } }, "Loading temp sensors\u2026"), shellyDevices !== null && shellyDevices.map((dev) => {
+      const assignedPc = shellyDeviceMap[dev.deviceId] || "";
+      const assignedStore = assignedPc ? stores.find((s) => String(s.pc) === String(assignedPc)) : null;
+      const canAssign = isFullAdmin(user);
+      return /* @__PURE__ */ React.createElement("div", { key: dev.deviceId, style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.6rem",
+        background: `linear-gradient(135deg, ${th.card2} 0%, ${th.card} 100%)`,
+        border: `1px solid ${th.cardBorder}`,
+        borderRadius: "0.875rem",
+        padding: "0.85rem 1.25rem",
+        minWidth: 260,
+        maxWidth: 340
+      } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.text, textTransform: "uppercase", letterSpacing: 0.4 } }, assignedStore ? assignedStore.name : "Unassigned sensor"), /* @__PURE__ */ React.createElement("button", { onClick: () => loadShellyTemp(true), title: "Refresh", style: { background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "0.85rem", padding: 2, flexShrink: 0 } }, "\u21BB")), dev.sensors.map((s) => {
+        const label = SHELLY_SENSOR_LABELS[s.sensorId] || `Sensor ${s.sensorId}`;
+        return /* @__PURE__ */ React.createElement("div", { key: s.sensorId, style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", lineHeight: 1 } }, "\u2744\uFE0F"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, dev.online === false ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#f59e0b", fontWeight: 700 } }, label, " offline") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.15rem", color: th.text, lineHeight: 1, letterSpacing: -0.5 } }, s.tempF.toFixed(1), "\xB0", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginLeft: 1 } }, "F"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 600, color: th.muted, marginLeft: 5 } }, "(", s.tempC.toFixed(1), "\xB0C)")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, marginTop: "0.1rem" } }, label, " \xB7 ", dev.lastUpdated ? `as of ${new Date(dev.lastUpdated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""))));
+      }), canAssign && /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: assignedPc,
+          onChange: (e) => saveShellyStoreAssignment(dev.deviceId, e.target.value),
+          style: { ...inp(th), fontSize: "0.72rem", padding: "0.4rem 0.6rem", marginTop: "0.2rem" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Assign to a store \u2014"),
+        [...stores].sort((a, b) => a.name.localeCompare(b.name)).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name))
+      ));
+    })), unreadAnnouncements.length > 0 && /* @__PURE__ */ React.createElement(
       "div",
       {
         onClick: () => setTab("announcements"),

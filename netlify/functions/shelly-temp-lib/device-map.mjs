@@ -1,23 +1,17 @@
 // netlify/functions/shelly-temp-lib/device-map.mjs
-// Shelly device id -> store pc. Shelly's Cloud API carries no usable "which store" field
-// (confirmed against the real response, not assumed — see the design spec), so this is a
-// small hand-maintained map, not auto-detected. A device with no entry here is monitored for
-// nothing by the automation (still shows on the Dashboard display widget, which never needed
-// a store mapping) — deliberately safer than guessing, since routing a food-safety alert to
-// the wrong store is worse than not routing it.
+// Shelly device id -> store pc is now admin-editable, stored in the pcg_shelly_device_map_v1
+// blob (loaded at the top of run.mjs), not hardcoded here — see the Dashboard's per-device
+// store picker (exec/IT only) in app.jsx. This file now only holds what's genuinely still
+// code-level config: the test-recipient fallback for a device with no store assignment yet.
 //
 // See docs/superpowers/specs/2026-09-23-shelly-temp-alerts-design.md for the full design.
-export const SHELLY_DEVICE_STORE = {
-  // '70af09e522d0': '332941', // example format only — pc goes here once a device is
-  //                              actually installed at a store, not before.
-};
+export const SHELLY_DEVICE_MAP_BLOB_KEY = 'pcg_shelly_device_map_v1';
 
-// The current test device (70af09e522d0) is deliberately NOT in the map above — it's
-// sitting in the office, not installed at any store (confirmed 2026-09-23, after almost
-// wrongly assuming otherwise from the Shelly app's own device name, "Bustleton Walk in
-// cooler...", which turned out to be a stale/wrong label). Until it gets a real store
-// entry, both notification tiers for any unmapped device route here instead of being
-// silently unmonitorable end-to-end during testing.
+// A device with no entry in that blob is monitored for nothing by the ticket automation
+// (still shows on the Dashboard display widget, which never needed a store mapping) —
+// deliberately safer than guessing, since routing a food-safety alert to the wrong store is
+// worse than not routing it. For any such device, both notification tiers route here instead
+// of being silently unmonitorable end-to-end during testing.
 //
 // Matched by NAME, not by role (user_type='it') — a first dry-run test (2026-09-23) showed
 // role-based matching also sweeps in shared/service accounts tagged 'it' that happen to
