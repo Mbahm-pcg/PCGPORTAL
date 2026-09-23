@@ -9,6 +9,11 @@
 //   'shadow'              -> shadow: every alert goes ONLY to the user in NO_CLOCKIN_SHADOW_USER
 //                                    (labelled with who it would have reached)
 //   'true'                -> live:   real managers / DMs
+//
+// Paused 2026-09-23: NO_CLOCKIN_LIVE was left on 'shadow', which meant every single
+// no-clockin/absent event across all 45 stores emailed+texted the shadow user individually
+// every 15 min — flooded their inbox. Env var unset back to off (no code change needed);
+// re-enable shadow or flip to 'true' when ready to resume.
 // Spec: docs/superpowers/specs/2026-09-21-no-clockin-alerts-design.md
 import { runNoClockin } from './no-clockin-lib/run.mjs';
 
