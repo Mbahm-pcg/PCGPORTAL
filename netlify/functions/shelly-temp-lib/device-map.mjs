@@ -18,7 +18,13 @@ export const SHELLY_DEVICE_STORE = {
 // cooler...", which turned out to be a stale/wrong label). Until it gets a real store
 // entry, both notification tiers for any unmapped device route here instead of being
 // silently unmonitorable end-to-end during testing.
+//
+// Matched by NAME, not by role (user_type='it') — a first dry-run test (2026-09-23) showed
+// role-based matching also sweeps in shared/service accounts tagged 'it' that happen to
+// exist ("IT Admin", "HR Admin", "Google Review" — the last one's a bot account for the
+// Reviews sync, not a person), none of whom should get a text about an office desk sensor.
 export const TEST_RECIPIENT_FALLBACK = {
-  itRole: 'it',
-  execNameMatch: 'Mike', // matched case-insensitively against users.name, userType 'executive'
+  itNameMatch: 'Ahmed',
+  execNameMatch: 'Mike',
+  // both matched case-insensitively as a substring of users.name
 };

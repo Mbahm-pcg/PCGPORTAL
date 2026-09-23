@@ -47,12 +47,12 @@ function contactsForStore(role, storePc, district, users) {
 // is testable end-to-end before a device has a real store assignment. Resolved live from
 // the users table, not hardcoded ids.
 function testFallbackContacts(users) {
-  const it = users.filter(u => u.user_type === TEST_RECIPIENT_FALLBACK.itRole);
-  const mike = users.filter(u => u.user_type === 'executive'
-    && String(u.name || '').toLowerCase().includes(TEST_RECIPIENT_FALLBACK.execNameMatch.toLowerCase()));
+  const nameIncludes = (u, needle) => String(u.name || '').toLowerCase().includes(needle.toLowerCase());
+  const ahmed = users.filter(u => u.user_type === 'it' && nameIncludes(u, TEST_RECIPIENT_FALLBACK.itNameMatch));
+  const mike = users.filter(u => u.user_type === 'executive' && nameIncludes(u, TEST_RECIPIENT_FALLBACK.execNameMatch));
   const seen = new Set();
   const out = [];
-  for (const u of [...it, ...mike]) { if (seen.has(u.id)) continue; seen.add(u.id); out.push(u); }
+  for (const u of [...ahmed, ...mike]) { if (seen.has(u.id)) continue; seen.add(u.id); out.push(u); }
   return out;
 }
 

@@ -239,14 +239,19 @@ already does (by `store_pc`/`district` against the `users` table), via the same
 picks up whoever the *current* correct manager is, including once separate in-progress
 manager-sync work resolves any store's own manager transition.
 
-**Test-device fallback (added 2026-09-23):** a sensor whose device isn't in
-`SHELLY_DEVICE_STORE` still needs somewhere to send notifications during testing, or the
-whole flow is unverifiable end-to-end before a real store mapping exists. For any such
-device, both tiers route instead to a fixed test audience — every active `user_type='it'`
-account, plus the active executive named "Mike" — resolved live from the `users` table the
-same way store-based recipients are, not hardcoded ids. Once a device gets a real
-`SHELLY_DEVICE_STORE` entry, it immediately switches to normal store-based routing; this
-fallback only ever applies to unmapped devices, never as an override for a mapped one.
+**Test-device fallback (added 2026-09-23, corrected same day):** a sensor whose device
+isn't in `SHELLY_DEVICE_STORE` still needs somewhere to send notifications during testing,
+or the whole flow is unverifiable end-to-end before a real store mapping exists. For any
+such device, both tiers route instead to a fixed test audience — resolved live from the
+`users` table, matched by **name**, not by role. A first live dry-run test against the real
+office sensor found that matching by `user_type='it'` swept in every account tagged that
+way, including shared/service accounts that shouldn't get a temp alert — "IT Admin", "HR
+Admin", and a "Google Review" bot account for the Reviews sync, alongside the actual person.
+Corrected to match specifically on the account named "Ahmed" (`user_type='it'`) plus the
+executive named "Mike" (`user_type='executive'`), both case-insensitive substring matches
+against `users.name`, not hardcoded ids. Once a device gets a real `SHELLY_DEVICE_STORE`
+entry, it immediately switches to normal store-based routing; this fallback only ever
+applies to unmapped devices, never as an override for a mapped one.
 
 ## State — blob `pcg_shelly_temp_state_v1`
 
