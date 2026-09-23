@@ -71,9 +71,11 @@ add but wasn't asked for.
   ticket or warning, and must never silently clear a real in-progress episode either — an
   unknown check simply doesn't move anything, in either direction, and doesn't advance the
   2-hour clock either (an unknown check is time that didn't count, not time that passed safely).
-- Every physical probe is monitored independently — this device (`70af09e522d0`, Bustleton)
+- Every physical probe is monitored independently — the current test device (`70af09e522d0`)
   has two (`temperature:200`, `temperature:201`), confirmed real 2026-09-23 via
-  `/device/all_status`; both get their own episode/state.
+  `/device/all_status`; both get their own episode/state, whenever this device is actually
+  mapped to a store (see Device → store mapping — as of 2026-09-23 it isn't yet; it's sitting
+  in the office, not any store's walk-in, despite what the Shelly app happens to call it).
 - Ticket fields: `priority: 'High'` **always**, hardcoded — never Medium/Low, no override path,
   regardless of whether it arrived via Red-flag or Prolonged warning. `status: 'Open'`,
   `ticketOwner: 'Unassigned'` (general Maintenance queue, same as an unassigned
@@ -88,9 +90,19 @@ way to route a ticket/notification to the right store:
 ```js
 // netlify/functions/shelly-temp-lib/device-map.mjs
 export const SHELLY_DEVICE_STORE = {
-  '70af09e522d0': '332941', // Bustleton
+  // '70af09e522d0': '332941', // example format only — pc goes here once assigned
 };
 ```
+
+**The current test device (`70af09e522d0`) is deliberately NOT in this map yet.** It's
+sitting in the office, not installed at any store — confirmed 2026-09-23 after almost
+assuming otherwise from the Shelly *app*'s own device name ("Bustleton Walk in cooler..."),
+which turned out to be a stale/wrong label, not a reliable signal. This is exactly the
+failure mode "Auto-detecting which store a device belongs to" (Out of Scope, below) was
+already written to avoid — a name-based guess here would have silently routed a real food-
+safety ticket to Bustleton's manager for a sensor that was never anywhere near their store.
+An unmapped device is simply skipped by the automation (logged, not monitored/ticketed) —
+it still shows up fine on the Dashboard display widget, which never needed a store mapping.
 
 **Known limitation, accepted for now:** adding a sensor at a new store needs this one line
 added (+ redeploy) — everything else (the sensor showing up on the Dashboard, being read by
@@ -132,9 +144,12 @@ Mirrors `no-clockin-cron.mjs`'s exact 3-layer split otherwise:
 Constants (`src/shelly-temp.mjs`): `WARNING_THRESHOLD_C = 5`, `WARNING_SUSTAIN_MS = 30 *
 60000`, `RED_FLAG_THRESHOLD_C = 7`, `PROLONGED_WARNING_ESCALATE_MS = 2 * 3600000`.
 
-Pure function `advanceTempState({ tempC, prevState, nowMs })` → `{ state, shouldWarn,
-shouldTicket, reason }` (`reason` is `'red-flag'` | `'prolonged-warning'` | `null`, kept for
-the ticket/notification text and for tests, not a control-flow value):
+Pure function `advanceTempState({ tempC, prevState, nowMs, openTicketExists })` → `{ state,
+shouldWarn, shouldTicket, reason }` (`reason` is `'red-flag'` | `'prolonged-warning'` | `null`,
+kept for the ticket/notification text and for tests, not a control-flow value).
+`openTicketExists` is a plain boolean the caller (`run.mjs`) computes once per sensor per run
+via a live DB check — kept as an input here (not looked up inside this function) so the whole
+decision, including the rule below, stays pure and unit-testable without a DB:
 
 - `tempC == null` (unknown/failed reading) → return `prevState` completely unchanged,
   `shouldWarn: false`, `shouldTicket: false`. Doesn't advance the elapsed-time clock either —
@@ -143,18 +158,29 @@ the ticket/notification text and for tests, not a control-flow value):
 - `tempC > 5`:
   - `overSince` becomes `prevState.overSince || nowMs` (starts the clock on first crossing).
   - `elapsedMs = nowMs - overSince`.
-  - `tempC > 7` → `shouldTicket: true, reason: 'red-flag'` immediately, no elapsed-time
-    requirement.
-  - else if `elapsedMs >= PROLONGED_WARNING_ESCALATE_MS` → `shouldTicket: true, reason:
-    'prolonged-warning'`.
+  - `tempC > 7` → `shouldTicket: !openTicketExists, reason: 'red-flag'` immediately, no
+    elapsed-time requirement. (`shouldTicket` is `false` when one's already open — see below.)
+  - else if `elapsedMs >= PROLONGED_WARNING_ESCALATE_MS` → `shouldTicket: !openTicketExists,
+    reason: 'prolonged-warning'`.
   - else if `elapsedMs >= WARNING_SUSTAIN_MS && !prevState.warningNotified` →
-    `shouldWarn: true` (only once per episode — `warningNotified` flips to `true` and stays
-    that way until the next full reset).
-  - **Whenever `shouldTicket` is true (either reason), `warningNotified` is also set `true`**
-    in the returned state, even on a straight jump to red-flag that skipped the Warning stage
-    entirely. Otherwise a later dip back to, say, 6.5°C (still >5, so not a full reset) would
-    fire a redundant "Warning" notification after the manager+DM have already been alerted
-    about the serious ticket — once an episode has escalated, it's escalated for good.
+    `shouldWarn: !openTicketExists` (only once per episode — `warningNotified` flips to
+    `true` and stays that way until the next full reset, **regardless of whether the actual
+    send was skipped by `openTicketExists`** — no point re-evaluating this every 10 min for
+    the rest of an episode that's already got an open ticket covering it).
+  - **Whenever the red-flag/prolonged-warning condition is met (whether or not a ticket
+    already existed to suppress `shouldTicket`), `warningNotified` is also set `true`** in
+    the returned state — covers both the original "skipped the Warning stage entirely on a
+    straight jump" case and this new "already has an open ticket" case with the same rule:
+    once an episode has escalated (or is already covered by an open ticket), it's handled
+    for good, no redundant Warning later in the same episode.
+
+**Why an open ticket suppresses the Warning too, not just a second ticket**: without this, a
+sensor could fully reset (drop ≤5°C), climb back into the 5-7°C band, sit there 30 minutes,
+and send the manager a fresh "keep an eye on it" Warning — while a HIGH ticket for the exact
+same sensor is *already open* from an earlier, still-unresolved episode. That reads as
+confusing (a lesser heads-up arriving after the serious alert already went out) more than
+it helps, so the same "an open ticket is the lock" principle now covers both tiers, not just
+new-ticket creation.
 
 Each run, in `shelly-temp-lib/run.mjs`:
 1. Call Shelly's `/device/all_status` once (all devices/probes in one call, same as `shelly.mjs`).
@@ -162,13 +188,13 @@ Each run, in `shelly-temp-lib/run.mjs`:
    `date_shipped` is today — build a small set of "suppressed today" store pcs from the result.
 3. For each `(deviceId, sensorId)` pair with a `SHELLY_DEVICE_STORE` entry: if that device's
    store is in today's suppressed set, skip it entirely (state untouched, same as an unknown
-   reading). Otherwise run `advanceTempState` against the saved state for that key.
-4. `shouldWarn` → send the Warning notification (manager only), but only if this hasn't
-   already been sent for this episode (the pure function's `warningNotified` flag already
-   guarantees this — `run.mjs` doesn't need its own separate check here).
-5. `shouldTicket` → check whether a ticket is already open for this exact sensor (`meta` tag
-   match, status ≠ `Closed`) in `maint_tickets`. If not, create it (direct `INSERT INTO
-   maint_tickets`, matching `tickets.mjs`'s exact column shape so the frontend's existing
+   reading). Otherwise, look up `openTicketExists` for this sensor (`meta` tag match, status ≠
+   `Closed`, in `maint_tickets` — one query, its result reused for both the warn and ticket
+   decisions below) and run `advanceTempState` against the saved state for that key.
+4. `shouldWarn` → send the Warning notification (manager only). Already guaranteed to be the
+   first time this episode AND that no ticket is currently open, both — `run.mjs` doesn't
+   need its own separate checks here, the pure function's output already covers them.
+5. `shouldTicket` → create the ticket (direct `INSERT INTO
    `list` reconstruction picks it up with no changes there) and send the Red-flag notification
    (manager + DM).
 6. Either notification also writes one entry into the shared `pcg_notifications_v1` blob
@@ -183,8 +209,8 @@ scopes bell notifications by `storePC` (manager) and `district` (DM), and shows 
 to exec/IT/office_staff regardless of type — this is the exact mechanism
 `manager_change_pending` already uses, and neither tier needs any change to that function.
 Tagging both `temp_warning` and `temp_alert` notifications with the breach store's
-`storePC`/`district` means Bustleton's manager and district 7's DM see both tiers in their
-bell, and exec/IT see everything, automatically.
+`storePC`/`district` means that store's manager and its district's DM see both tiers in
+their bell, and exec/IT see everything, automatically.
 
 **Active channels (SMS/email/push) differ by tier** — this is the actual behavioral
 difference between "quiet" and "escalated", not bell visibility:
@@ -199,8 +225,17 @@ difference between "quiet" and "escalated", not bell visibility:
 Recipients resolved the same way `no-clockin-lib/run.mjs`'s `contactsFor`-style lookup
 already does (by `store_pc`/`district` against the `users` table), via the same
 `sendSms`/`sendEmail`/`sendPush` helpers (`_shared/channels.mjs`) — so this automatically
-picks up whoever the *current* correct manager is, including once the in-progress
-manager-sync work (separately, not yet deployed) resolves Bustleton's own manager transition.
+picks up whoever the *current* correct manager is, including once separate in-progress
+manager-sync work resolves any store's own manager transition.
+
+**Test-device fallback (added 2026-09-23):** a sensor whose device isn't in
+`SHELLY_DEVICE_STORE` still needs somewhere to send notifications during testing, or the
+whole flow is unverifiable end-to-end before a real store mapping exists. For any such
+device, both tiers route instead to a fixed test audience — every active `user_type='it'`
+account, plus the active executive named "Mike" — resolved live from the `users` table the
+same way store-based recipients are, not hardcoded ids. Once a device gets a real
+`SHELLY_DEVICE_STORE` entry, it immediately switches to normal store-based routing; this
+fallback only ever applies to unmapped devices, never as an override for a mapped one.
 
 ## State — blob `pcg_shelly_temp_state_v1`
 
