@@ -21,15 +21,25 @@ async function loadJson(bs, key) {
 }
 const uniq = (a) => [...new Set(a)];
 
+// Returns each channel's actual result instead of discarding it — a silent Promise.allSettled
+// with nothing inspecting the outcomes was exactly how the first live test's SMS failure went
+// unexplained (Textbelt quota was fine, phone numbers were on file, but nothing ever logged
+// or surfaced what sendSms actually returned).
 async function deliver(bs, recipients, subject, text) {
   const phones = uniq(recipients.map(r => r.phone).filter(Boolean));
   const emails = uniq(recipients.map(r => r.email).filter(Boolean));
   const ids = uniq(recipients.map(r => r.id).filter(id => id != null).map(String));
-  await Promise.allSettled([
+  const [sms, email, push] = await Promise.allSettled([
     sendSms(phones, text),
     sendEmail(emails, subject, text),
     sendPush(bs, ids, subject, text, 'temp_alert'),
   ]);
+  const unwrap = (r) => (r.status === 'fulfilled' ? r.value : { error: r.reason?.message || String(r.reason) });
+  const outcome = { phones, sms: unwrap(sms), email: unwrap(email), push: unwrap(push) };
+  if (sms.status === 'rejected' || (sms.status === 'fulfilled' && sms.value?.results?.some(x => x && x.success === false))) {
+    console.warn('[shelly-temp] SMS delivery problem:', JSON.stringify(outcome.sms), 'phones:', phones);
+  }
+  return outcome;
 }
 
 // Manager/DM lookup for a mapped store — same shape as no-clockin-lib's contactsFor,
@@ -174,20 +184,21 @@ export async function runShellyTempCheck({ dryRun = false } = {}) {
       const storeName = store?.name || (isMapped ? storePc : 'Unmapped test sensor');
       const tempF = sensor.tempF;
 
-      results.push({
+      const resultEntry = {
         key, shouldWarn, shouldTicket, reason, tempC, tempF, openTicketExists,
         wouldNotify: (shouldWarn || shouldTicket)
           ? { manager: manager.map(u => u.name), dm: (shouldTicket ? dm : []).map(u => u.name) }
           : null,
-      });
+      };
+      results.push(resultEntry);
 
       if (!shouldWarn && !shouldTicket) continue;
       if (dryRun) continue; // report-only above; no sends, no ticket, no bell entry, no state write
 
       if (shouldWarn) {
         const text = `${storeName}: temp sensor reading ${tempF.toFixed(1)}°F / ${tempC.toFixed(1)}°C — above 5°C. Keep an eye on it.`;
-        try { await deliver(bs, manager, `Temp warning — ${storeName}`, text); }
-        catch (e) { console.warn('[shelly-temp] warning delivery failed:', e.message); }
+        try { resultEntry.delivery = await deliver(bs, manager, `Temp warning — ${storeName}`, text); }
+        catch (e) { console.warn('[shelly-temp] warning delivery failed:', e.message); resultEntry.delivery = { error: e.message }; }
         if (isMapped) {
           await writeBellNotification(bs, { type: 'temp_warning', message: text, storePC: storePc, district: store?.district });
         }
@@ -197,9 +208,10 @@ export async function runShellyTempCheck({ dryRun = false } = {}) {
         let ticketInfo = null;
         try { ticketInfo = await createTicket(db, { deviceId: device.deviceId, sensorId: sensor.sensorId, storePc, storeName: store?.name, tempC, tempF, reason }); }
         catch (e) { console.warn('[shelly-temp] ticket creation failed:', e.message); }
+        resultEntry.ticket = ticketInfo;
         const text = `${storeName}: walk-in over temp — ${tempF.toFixed(1)}°F / ${tempC.toFixed(1)}°C. ${ticketInfo ? `Ticket ${ticketInfo.number} opened.` : 'Ticket creation failed — check manually.'}`;
-        try { await deliver(bs, [...manager, ...dm], `HIGH: Temp alert — ${storeName}`, text); }
-        catch (e) { console.warn('[shelly-temp] red-flag delivery failed:', e.message); }
+        try { resultEntry.delivery = await deliver(bs, [...manager, ...dm], `HIGH: Temp alert — ${storeName}`, text); }
+        catch (e) { console.warn('[shelly-temp] red-flag delivery failed:', e.message); resultEntry.delivery = { error: e.message }; }
         if (isMapped) {
           await writeBellNotification(bs, { type: 'temp_alert', message: text, storePC: storePc, district: store?.district });
         }
