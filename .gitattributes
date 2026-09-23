@@ -1,0 +1,7 @@
+# Netlify's Neon DB migration checker hashes these files and compares against what was
+# recorded as "applied" from the original Linux CI build (LF line endings). Windows'
+# core.autocrlf=true checks them out as CRLF locally, which hash-mismatches and fails
+# `netlify deploy` (CLI) with "migration ... has been modified after being applied" —
+# even though the tracked content never actually changed. Force LF regardless of the
+# checkout machine's autocrlf setting so local CLI deploys hash-match CI exactly.
+netlify/database/migrations/** text eol=lf
