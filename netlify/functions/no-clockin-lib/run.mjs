@@ -51,16 +51,44 @@ function contactsFor(role, store, users, storeRecord) {
   return [];
 }
 
-async function deliver(bs, recipients, subject, text) {
+// compactText (SMS + push body) defaults to the same text as email when not given — only
+// the digest paths below pass a shorter version, so sendTestAlert's single-item call is
+// unaffected.
+async function deliver(bs, recipients, subject, text, compactText = text) {
   const phones = uniq(recipients.map(r => r.phone).filter(Boolean));
   const emails = uniq(recipients.map(r => r.email).filter(Boolean));
   const ids = uniq(recipients.map(r => r.id).filter(id => id != null).map(String));
   await Promise.allSettled([
-    sendSms(phones, text),
+    sendSms(phones, compactText),
     sendEmail(emails, subject, text),
-    sendPush(bs, ids, subject, text, 'no_clockin'),
+    sendPush(bs, ids, subject, compactText, 'no_clockin'),
   ]);
   return { phones: phones.length, emails: emails.length, push: ids.length };
+}
+
+// Identifies a recipient across messages so multiple events in the same run collapse into
+// one send instead of one per event — a DM covering several stores (or the shadow user, who
+// effectively covers every store) used to get N separate emails/texts for N events in one
+// run. Prefer the account id; a synthetic no-account contact (contactsFor's store-email
+// fallback) has none, so fall back to its email+phone.
+export function recipientKey(r) {
+  return r.id != null ? `id:${r.id}` : `c:${r.email || ''}|${r.phone || ''}`;
+}
+
+// Full itemized body for email/push — every event's own text, joined with a count header
+// once there's more than one.
+export function buildDigestText(items, { shadow = false } = {}) {
+  const lines = items.map(it => (shadow ? `${it.text} Would go to: ${it.who}.` : it.text));
+  return items.length > 1 ? `${items.length} alerts:\n\n${lines.join('\n\n')}` : lines[0];
+}
+
+// Compact body for SMS (segment cost) — itemize in full only up to 3 events; beyond that,
+// a count + pointer instead of a wall of text.
+export function buildDigestCompact(items, { shadow = false } = {}) {
+  const full = items.map(it => (shadow ? `${it.text} Would go to: ${it.who}.` : it.text));
+  if (items.length <= 3) return full.join(' | ');
+  const storeCount = uniq(items.map(it => it.storeName)).length;
+  return `${items.length} no-clock-in alerts across ${storeCount} store${storeCount === 1 ? '' : 's'}. Check email or the Portal for full details.`;
 }
 
 /**
@@ -171,17 +199,35 @@ export async function runNoClockin({ mode = 'off' }) {
   }
 
   if (mode === 'live') {
+    // Group this run's events by recipient — one digest send per person, not one per event.
+    const byRecipient = new Map(); // recipientKey -> { recipient, items: [{subject, text, storeName}] }
     for (const m of messages) {
       if (!m.recipients.length) { console.warn('[no-clockin] no recipients for', m.stage, m.storeName); continue; }
-      await deliver(bs, m.recipients, m.subject, m.text);
+      for (const r of m.recipients) {
+        const key = recipientKey(r);
+        if (!byRecipient.has(key)) byRecipient.set(key, { recipient: r, items: [] });
+        byRecipient.get(key).items.push({ subject: m.subject, text: m.text, storeName: m.storeName });
+      }
+    }
+    for (const { recipient, items } of byRecipient.values()) {
+      const subject = items.length === 1 ? items[0].subject : `No Clock-In Alerts (${items.length})`;
+      await deliver(bs, [recipient], subject, buildDigestText(items), buildDigestCompact(items));
     }
   } else if (mode === 'shadow') {
+    // Everything in this run routes to one person — always exactly one digest send.
     const me = [{ id: shadowUser.id, email: shadowUser.email, phone: shadowUser.phone }];
-    for (const m of messages) {
-      const who = m.recipients.length
+    const items = messages.map(m => ({
+      subject: m.subject, text: m.text, storeName: m.storeName,
+      who: m.recipients.length
         ? uniq(m.recipients.map(r => r.name || r.email || r.phone || 'store contact')).join(', ')
-        : 'nobody (no contact on file)';
-      await deliver(bs, me, `[SHADOW] ${m.subject}`, `[SHADOW] ${m.text} Would go to: ${who}.`);
+        : 'nobody (no contact on file)',
+    }));
+    if (items.length) {
+      const subject = items.length === 1 ? `[SHADOW] ${items[0].subject}` : `[SHADOW] No Clock-In Alerts (${items.length})`;
+      await deliver(bs, me,
+        subject,
+        `[SHADOW]\n\n${buildDigestText(items, { shadow: true })}`,
+        `[SHADOW] ${buildDigestCompact(items, { shadow: true })}`);
     }
   }
   if (mode !== 'off') {

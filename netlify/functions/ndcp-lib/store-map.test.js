@@ -2,8 +2,13 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { enrich, weekOf, dcpPct, STORE_BY_PC } = require('./store-map');
 
-test('STORE_BY_PC has all 45 stores keyed by pc string', () => {
-  assert.equal(Object.keys(STORE_BY_PC).length, 45);
+test('STORE_BY_PC has all 46 stores keyed by pc string', () => {
+  // Was 45 — grew to 46 at some point (matches labor-cron.mjs's canonical STORES list,
+  // cross-checked 2026-09-23) and this assertion just never got updated. Only caught now
+  // because npm test's globs were silently matching zero files (see the .gitattributes-
+  // adjacent quoting fix in package.json, same session) — this test had been "passing" by
+  // never running at all.
+  assert.equal(Object.keys(STORE_BY_PC).length, 46);
   // Wadsworth (pc 339616) and Willits (pc 345986) are known anchors
   assert.equal(STORE_BY_PC['339616'].district, 1);
   assert.ok(STORE_BY_PC['345986']); // Willits
