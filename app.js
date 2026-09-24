@@ -22801,7 +22801,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.11";
+  var APP_VERSION = "v21.12";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -38853,7 +38853,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
         if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
       });
-      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
+      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id) && t.id !== "tools-hub");
       const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_manager"] || secTabs.some((t) => t.id === tab);
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,
@@ -38888,7 +38888,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
         if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
       });
-      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
+      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id) && t.id !== "tools-hub");
       const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_auditor"] || secTabs.some((t) => t.id === tab);
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,
@@ -38922,7 +38922,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
         if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
       });
-      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
+      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id) && t.id !== "tools-hub");
       const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_construction"] || secTabs.some((t) => t.id === tab);
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,
@@ -38956,7 +38956,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
         if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
       });
-      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
+      const secTabs = roleTabs.filter((t) => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id) && t.id !== "tools-hub");
       const sectionOpen = collapsed || !!sidebarSectionsOpen["sec_maintenance"] || secTabs.some((t) => t.id === tab);
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,

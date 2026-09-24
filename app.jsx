@@ -28269,7 +28269,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.11";
+const APP_VERSION = "v21.12";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -51047,7 +51047,12 @@ function PCGPortal() {
           ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
             if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
           });
-          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
+          // tools-hub itself (not just its sub-items) already gets its own unconditional,
+          // universal "Tools" section above (rendered for every role) — excluding it here
+          // too, not just from hubDupeIds' sub-item set, is what actually stops it showing
+          // twice (confirmed real 2026-09-24 for Manager; this same filter pattern repeats
+          // for Auditor/Construction/Maintenance below, so it was equally exposed there).
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id) && t.id !== 'tools-hub');
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_manager'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -51078,7 +51083,12 @@ function PCGPortal() {
           ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
             if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
           });
-          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
+          // tools-hub itself (not just its sub-items) already gets its own unconditional,
+          // universal "Tools" section above (rendered for every role) — excluding it here
+          // too, not just from hubDupeIds' sub-item set, is what actually stops it showing
+          // twice (confirmed real 2026-09-24 for Manager; this same filter pattern repeats
+          // for Auditor/Construction/Maintenance below, so it was equally exposed there).
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id) && t.id !== 'tools-hub');
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_auditor'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -51108,7 +51118,12 @@ function PCGPortal() {
           ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
             if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
           });
-          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
+          // tools-hub itself (not just its sub-items) already gets its own unconditional,
+          // universal "Tools" section above (rendered for every role) — excluding it here
+          // too, not just from hubDupeIds' sub-item set, is what actually stops it showing
+          // twice (confirmed real 2026-09-24 for Manager; this same filter pattern repeats
+          // for Auditor/Construction/Maintenance below, so it was equally exposed there).
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id) && t.id !== 'tools-hub');
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_construction'] || secTabs.some(t => t.id === tab);
           return (
           <>
@@ -51138,7 +51153,12 @@ function PCGPortal() {
           ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
             if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
           });
-          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id));
+          // tools-hub itself (not just its sub-items) already gets its own unconditional,
+          // universal "Tools" section above (rendered for every role) — excluding it here
+          // too, not just from hubDupeIds' sub-item set, is what actually stops it showing
+          // twice (confirmed real 2026-09-24 for Manager; this same filter pattern repeats
+          // for Auditor/Construction/Maintenance below, so it was equally exposed there).
+          const secTabs = roleTabs.filter(t => !BASE_TAB_IDS.includes(t.id) && !pinnedNavIds.includes(t.id) && !hubDupeIds.has(t.id) && t.id !== 'tools-hub');
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_maintenance'] || secTabs.some(t => t.id === tab);
           return (
           <>
