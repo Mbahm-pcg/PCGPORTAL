@@ -6,6 +6,51 @@ Store manager accounts in the Portal are hand-maintained and go stale: nothing t
 
 This is Part B of the Locations manager/employee work; Part A (live employee count on Locations, from the same Paycor data) shipped separately (v21.05/v21.06, 2026-09-22).
 
+## Addendum, 2026-09-24 — full automation for the confirmed `replace` case
+
+**Supersedes the "Nothing is automatic beyond detection" rule and the "Automatically
+deactivating/creating without a click" out-of-scope item below — for `replace` only.**
+`needsReview` and `vacant` are explicitly NOT affected by this and keep the original
+human-review-only flow unchanged (see why below).
+
+**Trigger for this change:** Street Rd's manager change (MD Obaid Amin → Nitakumari Patel)
+was detected correctly the moment title-matching was fixed (2026-09-22), but sat as an
+unactioned pending item for two days because nobody had opened the Review flow — the user
+asked for account creation to happen with no human click at all going forward.
+
+**New rule:** a `replace` candidate is auto-applied (new account created, outgoing account
+deactivated) once the exact same candidate has been detected on **two consecutive
+labor-cron runs** — not the first run it appears on. A lone single-run detection is still
+just queued silently (no notification, no action) and waits for the next run to confirm it
+wasn't a one-off Paycor read glitch. Once confirmed, both halves happen in the same action:
+create the new account, deactivate the outgoing one (2026-09-24 decision — see the
+clarifying questions this was decided from), then a single "FYI, already done" bell/email
+notification (not "please review") to whoever gets manager-sync notifications, plus a
+welcome email to the new manager with their login (auto-generated username/password, same
+generators as before; email is now always `{store_pc}@peoplecapitalgroup.com` — @rgi.life
+is retired per an earlier, separate decision — rather than left blank for an admin to type).
+
+**Why `needsReview` and `vacant` are excluded, not just deferred:** this isn't a smaller
+version of the same feature that might get automated later — there's structurally nothing
+safe to automate. `needsReview` has multiple candidates with no way to pick between them
+automatically; `vacant` has no candidate at all to create an account from. Both keep
+surfacing via the bell for a human exactly as before.
+
+**Known accepted risk:** the 2-run buffer only guards against a genuinely transient Paycor
+glitch (a bad read that doesn't repeat). It does not give a human a review window before a
+wrong-but-consistent detection creates a real account — that safety net is gone by design,
+per the explicit choice to go fully automatic. `autoApplyManagerReplace` (`labor-cron.mjs`)
+also checks for an already-existing active account linked to that exact Paycor employee id
+before inserting, so a partial failure between account creation and the pending-blob save
+on an earlier run can't create a duplicate on a later one.
+
+**Implementation:** `shouldAutoApplyReplace({ prevPending, candidateEmployeeId })` in
+`src/manager-sync.mjs` (pure, unit-tested — 4 new tests) decides the 2-run confirmation;
+`autoApplyManagerReplace` in `labor-cron.mjs` does the actual account creation/
+deactivation/welcome-email I/O. The existing bell → `ManagerSyncReviewModal` flow is left
+fully in place as a manual-override path (e.g. to act faster than waiting for the second
+run) — it's just no longer the only way a `replace` item gets resolved.
+
 ## Rules (as agreed 2026-09-22)
 
 - **Manager-title match:** an active employee whose title contains "manager" (case-insensitive) and does **not** also contain "assistant". Title comes from the same field labor-cron already reads (`emp.jobTitle || emp.department || ''`). "Assistant Manager" and "Assistant General Manager" are excluded; "Store Manager" and "General Manager" count.

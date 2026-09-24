@@ -70,6 +70,17 @@ export function detectManagerCandidate({ matches, linkedEmployeeId }) {
   return { status: 'replace', candidate: only };
 }
 
+/** A 'replace' detection is confirmed — safe to fully automate (create the account,
+ *  deactivate the outgoing one, no human review) — only once the SAME candidate has been
+ *  seen on two consecutive runs. A single run is never enough: it could be a one-off
+ *  Paycor data glitch, and unlike the old human-review flow, nothing catches a bad
+ *  auto-created account after the fact. needsReview/vacant are never eligible for this at
+ *  all (call site's job, not this function's) — there's either no single safe choice, or
+ *  no candidate to create an account from. (2026-09-24 decision.) */
+export function shouldAutoApplyReplace({ prevPending, candidateEmployeeId }) {
+  return !!(prevPending && prevPending.kind === 'replace' && prevPending.candidate?.employeeId === candidateEmployeeId);
+}
+
 /** Tracks a store's continuous zero-manager-match streak using a single persisted
  *  "streak started" timestamp, rather than an incrementing counter — much simpler and
  *  avoids the previous design's off-by-one. zeroSinceMs is the timestamp of the first

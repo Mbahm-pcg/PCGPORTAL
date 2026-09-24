@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
   isManagerTitle, managerMatches, namesCorrespond, detectManagerCandidate,
   advanceVacantStreak, suggestUsername, generatePassword, PASSWORD_RULE,
+  shouldAutoApplyReplace,
 } from './manager-sync.mjs';
 
 describe('isManagerTitle', () => {
@@ -142,6 +143,26 @@ describe('detectManagerCandidate', () => {
       detectManagerCandidate({ matches: [], linkedEmployeeId: 'e1' }),
       { status: 'zeroMatch' }
     );
+  });
+});
+
+describe('shouldAutoApplyReplace (2026-09-24 — full automation for confirmed replace)', () => {
+  test('no prior pending at all (first-ever detection) → not confirmed', () => {
+    assert.strictEqual(shouldAutoApplyReplace({ prevPending: undefined, candidateEmployeeId: 'e2' }), false);
+    assert.strictEqual(shouldAutoApplyReplace({ prevPending: null, candidateEmployeeId: 'e2' }), false);
+  });
+  test('prior pending is a different kind (needsReview/vacant/dismissed) → not confirmed', () => {
+    assert.strictEqual(shouldAutoApplyReplace({ prevPending: { kind: 'needsReview', candidates: [] }, candidateEmployeeId: 'e2' }), false);
+    assert.strictEqual(shouldAutoApplyReplace({ prevPending: { kind: 'vacant' }, candidateEmployeeId: 'e2' }), false);
+    assert.strictEqual(shouldAutoApplyReplace({ prevPending: { kind: 'dismissed', dismissedCandidateEmployeeId: 'e2' }, candidateEmployeeId: 'e2' }), false);
+  });
+  test('prior pending is replace but for a DIFFERENT candidate → not confirmed (this is a new candidate, restart the buffer)', () => {
+    const prevPending = { kind: 'replace', candidate: { employeeId: 'e1' } };
+    assert.strictEqual(shouldAutoApplyReplace({ prevPending, candidateEmployeeId: 'e2' }), false);
+  });
+  test('prior pending is replace for the SAME candidate → confirmed, safe to auto-apply', () => {
+    const prevPending = { kind: 'replace', candidate: { employeeId: 'e2' } };
+    assert.strictEqual(shouldAutoApplyReplace({ prevPending, candidateEmployeeId: 'e2' }), true);
   });
 });
 

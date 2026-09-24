@@ -9,8 +9,10 @@ import { lookupUnitCost } from './analyst-lib/cost-lookup.mjs';
 import { computeStorePnL, DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
 import { recordHealth } from './health-lib/record-health.mjs';
 import { parsePaycorPunchMs } from '../../src/paycor-time.mjs';
-import { managerMatches, namesCorrespond, detectManagerCandidate, advanceVacantStreak } from '../../src/manager-sync.mjs';
+import { managerMatches, namesCorrespond, detectManagerCandidate, advanceVacantStreak, suggestUsername, generatePassword, shouldAutoApplyReplace } from '../../src/manager-sync.mjs';
 import { sql } from './_shared/db.mjs';
+import { hashPassword } from './auth-lib/passwords.js';
+import { sendEmail } from './_shared/channels.mjs';
 
 export const config = { schedule: "0 9-23,0-3 * * *" };
 
@@ -1022,6 +1024,74 @@ function cogsPctFor(cfg, store) {
 
 const MANAGER_PENDING_KEY = 'pcg_manager_pending_v1';
 
+// Full automation for the clear-cut 'replace' case only (2026-09-24 decision — see
+// docs/superpowers/specs/2026-09-22-manager-sync-design.md's 2026-09-24 addendum).
+// needsReview (ambiguous — multiple candidates) and vacant (no candidate at all) are NOT
+// eligible: there's either no safe single choice, or no data to create an account from.
+// Called only after a candidate has been seen on 2 consecutive runs (the caller's job) —
+// this function itself does the actual creation + deactivation, no further gating.
+async function autoApplyManagerReplace({ pc, storeName, candidate, outgoingUserId, outgoingName }) {
+  const db = sql();
+
+  // Defense in depth: if an active account is somehow already linked to this exact Paycor
+  // employee (e.g. a partial failure on an earlier run created it but a later step, like
+  // the pending-blob save, failed — leaving this same candidate looking "new" again next
+  // run), don't create a duplicate. Just make sure the outgoing account still gets
+  // deactivated and stop.
+  const existing = await db`SELECT id FROM users WHERE paycor_employee_id = ${candidate.employeeId} AND active = true LIMIT 1`;
+  let createdNew = false;
+  if (!existing.length) {
+    const existingUsernameRows = await db`SELECT username FROM users`;
+    const username = suggestUsername(candidate.name, existingUsernameRows.map(r => r.username));
+    const password = generatePassword();
+    const email = `${pc}@peoplecapitalgroup.com`; // always this domain for anything created
+                                                    // going forward — @rgi.life is retired.
+    const initials = candidate.name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    const passwordHash = hashPassword(password);
+    const [row] = await db`
+      INSERT INTO users (
+        username, name, email, phone, role, user_type, district, store_pc,
+        active, dark_mode, initials, is_admin, must_setup, region,
+        password_hash, must_change, two_factor_required, audits_access,
+        paycor_employee_id, created_at, updated_at
+      ) VALUES (
+        ${username}, ${candidate.name}, ${email}, null, ${candidate.jobTitle || null},
+        'manager', null, ${pc},
+        true, false, ${initials}, false, true, 'PA',
+        ${passwordHash}, true, false, null,
+        ${candidate.employeeId}, now(), now()
+      )
+      ON CONFLICT (username) DO NOTHING
+      RETURNING id
+    `;
+    if (!row) throw new Error(`username collision on auto-create for ${username} (unexpected)`);
+    createdNew = true;
+
+    // Welcome email — best-effort, mirrors the manual Review-modal flow's email. Never
+    // blocks account creation on a delivery failure; the account is real either way.
+    try {
+      const subject = 'Welcome to the PCG Company Portal!';
+      const htmlBody = `
+        <h2 style="color:#333;margin-bottom:8px;">Welcome, ${candidate.name}! 👋</h2>
+        <p style="color:#555;font-size:15px;">Your account has been created on the <strong>PCG Company Portal</strong>.</p>
+        <div style="background:#f8f8f8;border-radius:8px;padding:16px 20px;margin:16px 0;">
+          <p style="margin:4px 0;font-size:14px;"><strong>Portal URL:</strong> <a href="https://pcg-ops.netlify.app/" style="color:#FF671F;">https://pcg-ops.netlify.app/</a></p>
+          <p style="margin:4px 0;font-size:14px;"><strong>Username:</strong> ${username}</p>
+          <p style="margin:4px 0;font-size:14px;"><strong>Password:</strong> ${password}</p>
+        </div>
+        <p style="color:#555;font-size:14px;">On your first login, you'll be asked to change your password and set up your profile.</p>
+      `;
+      await sendEmail([email], subject, htmlBody);
+    } catch (e) { console.warn('[manager-sync] welcome email failed for', pc, ':', e.message); }
+  }
+
+  if (outgoingUserId) {
+    await db`UPDATE users SET active = false, updated_at = now() WHERE id = ${outgoingUserId} AND active = true`;
+  }
+
+  return { createdNew };
+}
+
 // Runs once per labor-cron invocation, after all stores have been processed. Compares
 // each store's managerCandidates (from Step 1, no new Paycor call) against the currently
 // linked Portal manager, updates the pending-change blob, bootstrap-links an
@@ -1128,39 +1198,59 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
 
     if (result.status === 'replace') {
       const currentOutgoingId = linked?.id || null;
-      // Same-candidate dedup must also track outgoingUserId (like the ok+extraOutgoing
-      // branch above already does) — not just candidate.employeeId. Without this, a store
-      // whose outgoing account gets linked to its store_pc AFTER this candidate was first
-      // queued (e.g. the 2026-09-22 orphaned-manager-account fix) stays stuck showing
-      // outgoingUserId: null forever: the guard sees the same candidate already queued and
-      // skips recomputing, so the Deactivate button never appears even once the real
-      // outgoing account is known.
-      const alreadyKnown = prevPending?.kind === 'replace'
-        && prevPending.candidate?.employeeId === result.candidate.employeeId
-        && prevPending.outgoingUserId === currentOutgoingId;
-      if (alreadyKnown) continue;
+      const isNewCandidate = !shouldAutoApplyReplace({ prevPending, candidateEmployeeId: result.candidate.employeeId });
+
       // Admin explicitly dismissed this exact candidate before — Paycor's underlying data
-      // hasn't changed, so don't re-queue or re-notify (a genuinely different candidate,
-      // i.e. a different employeeId, is NOT suppressed by this).
+      // hasn't changed, so don't re-queue, re-confirm, or auto-apply (a genuinely
+      // different candidate, i.e. a different employeeId, is NOT suppressed by this).
       if (prevPending?.kind === 'dismissed' && prevPending.dismissedCandidateEmployeeId === result.candidate.employeeId) continue;
-      const entry = {
+
+      if (!isNewCandidate) {
+        // Seen this exact candidate on the previous run too — confirmed, not a one-off
+        // Paycor read glitch. Full automation for this clear-cut single-candidate case
+        // (2026-09-24 decision, replacing the old human-review-required flow): create the
+        // new manager account and deactivate the outgoing one, no click needed. Uses
+        // currentOutgoingId (freshly computed this run), not whatever prevPending had —
+        // so it's still correct even if the outgoing account only just became known.
+        try {
+          await autoApplyManagerReplace({
+            pc, storeName: r.name, candidate: result.candidate,
+            outgoingUserId: currentOutgoingId, outgoingName: linked?.name || null,
+          });
+          delete pending[pc];
+          newNotifs.push({
+            pc, storeName: r.name, kind: 'auto-replaced',
+            text: `${r.name}: ${result.candidate.name} is now the manager — account auto-created${linked?.name ? `, ${linked.name} deactivated` : ''}.`,
+          });
+        } catch (e) {
+          console.warn('[manager-sync] auto-apply failed for', pc, ':', e.message);
+          // Fall back to a visible pending entry — better than silently losing track of a
+          // confirmed, actionable change if the automation itself hit a real error.
+          pending[pc] = {
+            kind: 'replace',
+            candidate: { employeeId: result.candidate.employeeId, name: result.candidate.name, jobTitle: result.candidate.jobTitle },
+            outgoingUserId: currentOutgoingId,
+            outgoingName: linked?.name || null,
+            detectedAt: prevPending?.detectedAt || new Date(nowMs).toISOString(),
+            autoApplyFailed: true,
+          };
+          newNotifs.push({ pc, storeName: r.name, kind: 'replace', text: `${r.name}: auto-create failed for ${result.candidate.name} — needs manual review.` });
+        }
+        continue;
+      }
+
+      // First-ever detection of this exact candidate: queue it silently and wait for
+      // confirmation on the next run before doing anything — one lone Paycor read
+      // shouldn't be enough to create a real account. No notification here; the only
+      // user-facing signal is the "auto-replaced" one once it's actually confirmed+applied
+      // (or the failure notice above, if automation itself errors).
+      pending[pc] = {
         kind: 'replace',
         candidate: { employeeId: result.candidate.employeeId, name: result.candidate.name, jobTitle: result.candidate.jobTitle },
         outgoingUserId: currentOutgoingId,
         outgoingName: linked?.name || null,
-        detectedAt: (prevPending?.kind === 'replace' && prevPending.candidate?.employeeId === result.candidate.employeeId)
-          ? prevPending.detectedAt // same candidate, only outgoingUserId caught up — keep the original detection time
-          : new Date(nowMs).toISOString(),
+        detectedAt: new Date(nowMs).toISOString(),
       };
-      pending[pc] = entry;
-      // Only push a bell notification for genuinely new information: a brand-new candidate,
-      // or the outgoing account just becoming known (the Deactivate button just became
-      // actionable) — not a no-op re-save of the same fully-known entry.
-      const isNewCandidate = !(prevPending?.kind === 'replace' && prevPending.candidate?.employeeId === result.candidate.employeeId);
-      const outgoingJustResolved = !isNewCandidate && prevPending.outgoingUserId == null && currentOutgoingId != null;
-      if (isNewCandidate || outgoingJustResolved) {
-        newNotifs.push({ pc, storeName: r.name, kind: 'replace', text: `Detected: replace ${linked?.name || '(no manager on file)'} with ${entry.candidate.name} at ${r.name}` });
-      }
       continue;
     }
 
