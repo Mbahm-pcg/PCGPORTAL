@@ -17975,6 +17975,54 @@ ${t2.slice(0, 300)}`);
       return /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.5rem", borderRadius: "0.4rem", background: miss ? "#ef444410" : "transparent", borderLeft: `2px solid ${miss ? "#ef4444" : "transparent"}` } }, /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, fontSize: "0.6rem", color: th.muted, minWidth: 42 } }, new Date(r.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("span", { title: `${r.userName || "Unknown"} \xB7 ${orionRoleLabel(r.userRole)}`, style: { flexShrink: 0, fontSize: "0.6rem", fontWeight: 700, color: orionRoleColor(r.userRole), background: `${orionRoleColor(r.userRole)}1a`, padding: "1px 6px", borderRadius: 999, minWidth: 62, textAlign: "center" } }, orionRoleLabel(r.userRole)), r.userName && /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, fontSize: "0.66rem", color: th.muted, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.userName.split(" ")[0]), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, minWidth: 0, fontSize: "0.78rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.question), r.feedback === "down" && /* @__PURE__ */ React.createElement("span", { title: "thumbs down", style: { fontSize: "0.7rem" } }, "\u{1F44E}"), r.feedback === "up" && /* @__PURE__ */ React.createElement("span", { title: "thumbs up", style: { fontSize: "0.7rem" } }, "\u{1F44D}"), miss && !r.feedback && /* @__PURE__ */ React.createElement("span", { title: r.gapReason || "gap", style: { fontSize: "0.6rem", fontWeight: 800, color: "#ef4444" } }, (r.gapReason || "gap").toUpperCase()));
     })));
   }
+  function AdminSensors({ th, user, stores }) {
+    const [shellyDevices, setShellyDevices] = useState(null);
+    const loadShellyTemp = () => {
+      setShellyDevices(null);
+      fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
+    };
+    useEffect(() => {
+      loadShellyTemp();
+    }, []);
+    const [shellyDeviceMap, setShellyDeviceMap] = useState({});
+    useEffect(() => {
+      cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
+      });
+    }, []);
+    const saveShellyStoreAssignment = (deviceId, storePc) => {
+      const next = { ...shellyDeviceMap };
+      if (storePc) next[deviceId] = storePc;
+      else delete next[deviceId];
+      setShellyDeviceMap(next);
+      cloudSave("pcg_shelly_device_map_v1", next).catch(() => {
+      });
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", fontWeight: 800, color: th.text } }, "Temp Sensors"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: 2 } }, "Shelly walk-in cooler/freezer monitoring \u2014 assign each sensor to a store so alerts route correctly.")), /* @__PURE__ */ React.createElement("button", { onClick: loadShellyTemp, title: "Refresh", style: { background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", cursor: "pointer", color: th.muted, fontSize: "0.8rem", padding: "0.4rem 0.7rem" } }, "\u21BB Refresh")), shellyDevices === "error" && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: "#ff6b6b" } }, "Couldn't reach the temp sensors."), shellyDevices === null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, padding: "0.85rem 0" } }, "Loading temp sensors\u2026"), shellyDevices !== null && shellyDevices !== "error" && shellyDevices.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No Shelly devices found on the account."), shellyDevices !== null && shellyDevices !== "error" && shellyDevices.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.85rem" } }, shellyDevices.map((dev) => {
+      const assignedPc = shellyDeviceMap[dev.deviceId] || "";
+      const assignedStore = assignedPc ? stores.find((s) => String(s.pc) === String(assignedPc)) : null;
+      return /* @__PURE__ */ React.createElement("div", { key: dev.deviceId, style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.65rem",
+        ...card(th),
+        padding: "1rem 1.25rem",
+        minWidth: 280,
+        maxWidth: 360
+      } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.text, textTransform: "uppercase", letterSpacing: 0.4 } }, assignedStore ? assignedStore.name : "Unassigned sensor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, fontFamily: "monospace" } }, dev.deviceId)), dev.sensors.map((s) => {
+        const label = SHELLY_SENSOR_LABELS[s.sensorId] || `Sensor ${s.sensorId}`;
+        return /* @__PURE__ */ React.createElement("div", { key: s.sensorId, style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", lineHeight: 1 } }, "\u2744\uFE0F"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, dev.online === false ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#f59e0b", fontWeight: 700 } }, label, " offline") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.15rem", color: th.text, lineHeight: 1, letterSpacing: -0.5 } }, s.tempF.toFixed(1), "\xB0", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginLeft: 1 } }, "F"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 600, color: th.muted, marginLeft: 5 } }, "(", s.tempC.toFixed(1), "\xB0C)")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, marginTop: "0.1rem" } }, label, " \xB7 ", dev.lastUpdated ? `as of ${new Date(dev.lastUpdated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""))));
+      }), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: assignedPc,
+          onChange: (e) => saveShellyStoreAssignment(dev.deviceId, e.target.value),
+          style: { ...inp(th), fontSize: "0.75rem", padding: "0.5rem 0.6rem", marginTop: "0.2rem" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Assign to a store \u2014"),
+        [...stores].sort((a, b) => a.name.localeCompare(b.name)).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name))
+      ));
+    })));
+  }
   function AdminConsole(props) {
     const { th, user, users, setUsers, showAlert: showAlert2, stores, districts, version, accessOverrides, setAccessOverrides } = props;
     const SUBS = [
@@ -17984,6 +18032,7 @@ ${t2.slice(0, 300)}`);
       { id: "access", label: "Access", icon: "\u{1F510}", accent: "#ef4444" },
       { id: "orion", label: "Orion", icon: "\u{1F7E3}", accent: "#7C3AED" },
       { id: "vendors", label: "Vendors", icon: "\u{1F3D7}\uFE0F", accent: "#14b8a6" },
+      { id: "sensors", label: "Sensors", icon: "\u2744\uFE0F", accent: "#38bdf8" },
       { id: "system", label: "System & Logs", icon: "\u{1F5C4}\uFE0F", accent: "#94a3b8" }
     ];
     const SETTINGS_SECTION = { notifications: "notifications", vendors: "vendors" };
@@ -18036,7 +18085,7 @@ ${t2.slice(0, 300)}`);
         color: on ? s.accent : th.muted,
         transition: "all .15s"
       } }, /* @__PURE__ */ React.createElement("span", null, s.icon), s.label, badge != null && /* @__PURE__ */ React.createElement("span", { title: `${badge} unreviewed knowledge gap${badge !== 1 ? "s" : ""}`, style: { minWidth: 16, height: 16, padding: "0 5px", borderRadius: 999, background: "#ef4444", color: "#fff", fontSize: "0.6rem", fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" } }, badge));
-    })), sub === "tasks" && /* @__PURE__ */ React.createElement(AdminTaskManager, { th, user, stores, showAlert: showAlert2 }), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert: showAlert2 }), sub === "orion" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "1.25rem" } }, /* @__PURE__ */ React.createElement(OrionLearningPanel, { th, user, showAlert: showAlert2, setTab: props.setTab }), /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "orion" })), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
+    })), sub === "tasks" && /* @__PURE__ */ React.createElement(AdminTaskManager, { th, user, stores, showAlert: showAlert2 }), sub === "users" && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores }), sub === "access" && /* @__PURE__ */ React.createElement(AccessMatrix, { th, user, users, accessOverrides, setAccessOverrides, showAlert: showAlert2 }), sub === "orion" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "1.25rem" } }, /* @__PURE__ */ React.createElement(OrionLearningPanel, { th, user, showAlert: showAlert2, setTab: props.setTab }), /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "orion" })), SETTINGS_SECTION[sub] && /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: SETTINGS_SECTION[sub] }), sub === "sensors" && /* @__PURE__ */ React.createElement(AdminSensors, { th, user, stores }), sub === "system" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AdminDataPanel, { th, user, users, stores, districts, version }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement(AdminSettings, { ...props, embedSection: "admin" }))));
   }
   function AnnouncementAcksSection({ th, users, announcements, accent }) {
     const [open, setOpen] = React.useState(false);
@@ -22752,7 +22801,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.10";
+  var APP_VERSION = "v21.11";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25105,29 +25154,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       })();
     }, []);
-    const [shellyDevices, setShellyDevices] = useState(null);
-    const loadShellyTemp = (manual = true) => {
-      if (manual) setShellyDevices(null);
-      fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
-    };
-    useEffect(() => {
-      loadShellyTemp(true);
-      const interval = setInterval(() => loadShellyTemp(false), 15 * 60 * 1e3);
-      return () => clearInterval(interval);
-    }, []);
-    const [shellyDeviceMap, setShellyDeviceMap] = useState({});
-    useEffect(() => {
-      cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
-      });
-    }, []);
-    const saveShellyStoreAssignment = (deviceId, storePc) => {
-      const next = { ...shellyDeviceMap };
-      if (storePc) next[deviceId] = storePc;
-      else delete next[deviceId];
-      setShellyDeviceMap(next);
-      cloudSave("pcg_shelly_device_map_v1", next).catch(() => {
-      });
-    };
     useEffect(() => {
       (async () => {
         try {
@@ -25316,34 +25342,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         ),
         document.body
       )
-    ))), shellyDevices === "error" ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: "#ff6b6b", marginBottom: "1.25rem" } }, "Couldn't reach the temp sensors.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.25rem" } }, shellyDevices === null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, padding: "0.85rem 0" } }, "Loading temp sensors\u2026"), shellyDevices !== null && shellyDevices.map((dev) => {
-      const assignedPc = shellyDeviceMap[dev.deviceId] || "";
-      const assignedStore = assignedPc ? stores.find((s) => String(s.pc) === String(assignedPc)) : null;
-      const canAssign = isFullAdmin(user);
-      return /* @__PURE__ */ React.createElement("div", { key: dev.deviceId, style: {
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.6rem",
-        background: `linear-gradient(135deg, ${th.card2} 0%, ${th.card} 100%)`,
-        border: `1px solid ${th.cardBorder}`,
-        borderRadius: "0.875rem",
-        padding: "0.85rem 1.25rem",
-        minWidth: 260,
-        maxWidth: 340
-      } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: th.text, textTransform: "uppercase", letterSpacing: 0.4 } }, assignedStore ? assignedStore.name : "Unassigned sensor"), /* @__PURE__ */ React.createElement("button", { onClick: () => loadShellyTemp(true), title: "Refresh", style: { background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "0.85rem", padding: 2, flexShrink: 0 } }, "\u21BB")), dev.sensors.map((s) => {
-        const label = SHELLY_SENSOR_LABELS[s.sensorId] || `Sensor ${s.sensorId}`;
-        return /* @__PURE__ */ React.createElement("div", { key: s.sensorId, style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", lineHeight: 1 } }, "\u2744\uFE0F"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, dev.online === false ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#f59e0b", fontWeight: 700 } }, label, " offline") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.15rem", color: th.text, lineHeight: 1, letterSpacing: -0.5 } }, s.tempF.toFixed(1), "\xB0", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginLeft: 1 } }, "F"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 600, color: th.muted, marginLeft: 5 } }, "(", s.tempC.toFixed(1), "\xB0C)")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, marginTop: "0.1rem" } }, label, " \xB7 ", dev.lastUpdated ? `as of ${new Date(dev.lastUpdated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""))));
-      }), canAssign && /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: assignedPc,
-          onChange: (e) => saveShellyStoreAssignment(dev.deviceId, e.target.value),
-          style: { ...inp(th), fontSize: "0.72rem", padding: "0.4rem 0.6rem", marginTop: "0.2rem" }
-        },
-        /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Assign to a store \u2014"),
-        [...stores].sort((a, b) => a.name.localeCompare(b.name)).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name))
-      ));
-    })), unreadAnnouncements.length > 0 && /* @__PURE__ */ React.createElement(
+    ))), unreadAnnouncements.length > 0 && /* @__PURE__ */ React.createElement(
       "div",
       {
         onClick: () => setTab("announcements"),

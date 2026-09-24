@@ -21582,6 +21582,112 @@ function OrionLearningPanel({ th, user, showAlert, setTab }) {
   );
 }
 
+// Temp sensors — Shelly (2026-09-23). Lives in Admin (moved off the Dashboard 2026-09-24 —
+// this is a configuration action, not something every user needs on their home screen).
+// One card per physical DEVICE (a unit can have multiple probes — e.g. cooler + freezer on
+// the same unit, confirmed real on the actual test hardware), built entirely from what
+// shelly.mjs discovers — a new sensor (up to the plan's cap) shows up with no code change.
+// Store assignment saves straight to the blob shelly-temp-lib/run.mjs reads at runtime —
+// also no code change, that's the whole point of moving this off a hardcoded map.
+function AdminSensors({ th, user, stores }) {
+  const [shellyDevices, setShellyDevices] = useState(null); // [{deviceId, online, lastUpdated, sensors:[{sensorId,tempF,tempC}]}] | 'error' | null (loading)
+  const loadShellyTemp = () => {
+    setShellyDevices(null);
+    fetch('/.netlify/functions/shelly')
+      .then(r => r.json())
+      .then(d => setShellyDevices(d && !d.error ? d.devices : 'error'))
+      .catch(() => setShellyDevices('error'));
+  };
+  useEffect(() => { loadShellyTemp(); }, []);
+
+  const [shellyDeviceMap, setShellyDeviceMap] = useState({});
+  useEffect(() => { cloudLoad('pcg_shelly_device_map_v1').then(d => setShellyDeviceMap(d && typeof d === 'object' ? d : {})).catch(() => {}); }, []);
+  const saveShellyStoreAssignment = (deviceId, storePc) => {
+    const next = { ...shellyDeviceMap };
+    if (storePc) next[deviceId] = storePc; else delete next[deviceId];
+    setShellyDeviceMap(next); // optimistic — the picker reflects the choice immediately
+    cloudSave('pcg_shelly_device_map_v1', next).catch(() => {});
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+        <div>
+          <div style={{ fontSize: "0.95rem", fontWeight: 800, color: th.text }}>Temp Sensors</div>
+          <div style={{ fontSize: "0.75rem", color: th.muted, marginTop: 2 }}>Shelly walk-in cooler/freezer monitoring — assign each sensor to a store so alerts route correctly.</div>
+        </div>
+        <button onClick={loadShellyTemp} title="Refresh" style={{ background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", cursor: "pointer", color: th.muted, fontSize: "0.8rem", padding: "0.4rem 0.7rem" }}>↻ Refresh</button>
+      </div>
+
+      {shellyDevices === 'error' && (
+        <div style={{ fontSize: "0.8rem", color: "#ff6b6b" }}>Couldn't reach the temp sensors.</div>
+      )}
+      {shellyDevices === null && (
+        <div style={{ fontSize: "0.8rem", color: th.muted, padding: "0.85rem 0" }}>Loading temp sensors…</div>
+      )}
+      {shellyDevices !== null && shellyDevices !== 'error' && shellyDevices.length === 0 && (
+        <div style={{ fontSize: "0.8rem", color: th.muted }}>No Shelly devices found on the account.</div>
+      )}
+      {shellyDevices !== null && shellyDevices !== 'error' && shellyDevices.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.85rem" }}>
+          {shellyDevices.map(dev => {
+            const assignedPc = shellyDeviceMap[dev.deviceId] || '';
+            const assignedStore = assignedPc ? stores.find(s => String(s.pc) === String(assignedPc)) : null;
+            return (
+              <div key={dev.deviceId} style={{
+                display: "flex", flexDirection: "column", gap: "0.65rem",
+                ...card(th),
+                padding: "1rem 1.25rem",
+                minWidth: 280, maxWidth: 360,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                  <div style={{ fontSize: "0.72rem", fontWeight: 800, color: th.text, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                    {assignedStore ? assignedStore.name : "Unassigned sensor"}
+                  </div>
+                  <div style={{ fontSize: "0.62rem", color: th.muted, fontFamily: "monospace" }}>{dev.deviceId}</div>
+                </div>
+                {dev.sensors.map(s => {
+                  const label = SHELLY_SENSOR_LABELS[s.sensorId] || `Sensor ${s.sensorId}`;
+                  return (
+                    <div key={s.sensorId} style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                      <div style={{ fontSize: "1.4rem", lineHeight: 1 }}>❄️</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {dev.online === false ? (
+                          <div style={{ fontSize: "0.78rem", color: "#f59e0b", fontWeight: 700 }}>{label} offline</div>
+                        ) : (
+                          <>
+                            <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.15rem", color: th.text, lineHeight: 1, letterSpacing: -0.5 }}>
+                              {s.tempF.toFixed(1)}°<span style={{ fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginLeft: 1 }}>F</span>
+                              <span style={{ fontSize: "0.65rem", fontWeight: 600, color: th.muted, marginLeft: 5 }}>({s.tempC.toFixed(1)}°C)</span>
+                            </div>
+                            <div style={{ fontSize: "0.6rem", color: th.muted, marginTop: "0.1rem" }}>
+                              {label} · {dev.lastUpdated ? `as of ${new Date(dev.lastUpdated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                <select
+                  value={assignedPc}
+                  onChange={e => saveShellyStoreAssignment(dev.deviceId, e.target.value)}
+                  style={{ ...inp(th), fontSize: "0.75rem", padding: "0.5rem 0.6rem", marginTop: "0.2rem" }}
+                >
+                  <option value="">— Assign to a store —</option>
+                  {[...stores].sort((a, b) => a.name.localeCompare(b.name)).map(s => (
+                    <option key={s.pc} value={s.pc}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminConsole(props) {
   const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
   const SUBS = [
@@ -21591,6 +21697,7 @@ function AdminConsole(props) {
     { id: 'access',        label: 'Access',        icon: '🔐', accent: '#ef4444' },
     { id: 'orion',         label: 'Orion',         icon: '🟣', accent: '#7C3AED' },
     { id: 'vendors',       label: 'Vendors',       icon: '🏗️', accent: '#14b8a6' },
+    { id: 'sensors',       label: 'Sensors',       icon: '❄️', accent: '#38bdf8' },
     { id: 'system',        label: 'System & Logs', icon: '🗄️', accent: '#94a3b8' },
   ];
   // Map our flat tabs onto AdminSettings' internal section ids ('orion' is handled
@@ -21647,6 +21754,7 @@ function AdminConsole(props) {
         <AdminSettings {...props} embedSection="orion" />
       </div>}
       {SETTINGS_SECTION[sub] && <AdminSettings {...props} embedSection={SETTINGS_SECTION[sub]} />}
+      {sub === 'sensors' && <AdminSensors th={th} user={user} stores={stores} />}
       {sub === 'system' && <>
         <AdminDataPanel th={th} user={user} users={users} stores={stores} districts={districts} version={version} />
         <div style={{ marginTop: '1.25rem' }}>
@@ -28161,7 +28269,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.10";
+const APP_VERSION = "v21.11";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -31659,39 +31767,6 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
     })();
   }, []);
 
-  // Temp sensors — Shelly Cloud (2026-09-23). shelly.mjs auto-discovers every device +
-  // every temperature probe on the account, so a NEW sensor (up to the plan's cap) shows
-  // up here automatically, no code change — this component just renders whatever the
-  // function returns. Auto-refreshes every 15 min + a manual ↻ button.
-  const [shellyDevices, setShellyDevices] = useState(null); // [{deviceId, online, lastUpdated, sensors:[{sensorId,tempF,tempC}]}] | 'error' | null (loading)
-  // manual=true (the ↻ button, and the very first load) blanks to "Loading…" first; a
-  // background auto-refresh tick does NOT, so the last known readings stay on screen
-  // instead of flashing to a loading state every 15 minutes.
-  const loadShellyTemp = (manual = true) => {
-    if (manual) setShellyDevices(null);
-    fetch('/.netlify/functions/shelly')
-      .then(r => r.json())
-      .then(d => setShellyDevices(d && !d.error ? d.devices : 'error'))
-      .catch(() => setShellyDevices('error'));
-  };
-  useEffect(() => {
-    loadShellyTemp(true);
-    const interval = setInterval(() => loadShellyTemp(false), 15 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // deviceId -> storePc, admin-editable (exec/IT only, see the picker below). Blob-backed
-  // so assigning a sensor to a store is a UI action, never a code change — the automation
-  // (shelly-temp-lib/run.mjs) reads this exact same blob at runtime.
-  const [shellyDeviceMap, setShellyDeviceMap] = useState({});
-  useEffect(() => { cloudLoad('pcg_shelly_device_map_v1').then(d => setShellyDeviceMap(d && typeof d === 'object' ? d : {})).catch(() => {}); }, []);
-  const saveShellyStoreAssignment = (deviceId, storePc) => {
-    const next = { ...shellyDeviceMap };
-    if (storePc) next[deviceId] = storePc; else delete next[deviceId];
-    setShellyDeviceMap(next); // optimistic — the picker reflects the choice immediately
-    cloudSave('pcg_shelly_device_map_v1', next).catch(() => {});
-  };
-
   // Fetch daily feed (quote + news) once on mount
   useEffect(() => {
     (async () => {
@@ -31942,77 +32017,6 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
           )}
         </div>
       </div>
-
-      {/* Temp sensors — Shelly (2026-09-23). One card per DEVICE (a physical unit can have
-          multiple probes — e.g. cooler + freezer on the same unit), built entirely from
-          what shelly.mjs discovers. Store assignment is a UI action (exec/IT only), not a
-          code change — saves straight to the blob shelly-temp-lib/run.mjs reads at runtime. */}
-      {shellyDevices === 'error' ? (
-        <div style={{ fontSize: "0.8rem", color: "#ff6b6b", marginBottom: "1.25rem" }}>Couldn't reach the temp sensors.</div>
-      ) : (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.25rem" }}>
-          {shellyDevices === null && (
-            <div style={{ fontSize: "0.8rem", color: th.muted, padding: "0.85rem 0" }}>Loading temp sensors…</div>
-          )}
-          {shellyDevices !== null && shellyDevices.map(dev => {
-            const assignedPc = shellyDeviceMap[dev.deviceId] || '';
-            const assignedStore = assignedPc ? stores.find(s => String(s.pc) === String(assignedPc)) : null;
-            const canAssign = isFullAdmin(user);
-            return (
-              <div key={dev.deviceId} style={{
-                display: "flex", flexDirection: "column", gap: "0.6rem",
-                background: `linear-gradient(135deg, ${th.card2} 0%, ${th.card} 100%)`,
-                border: `1px solid ${th.cardBorder}`,
-                borderRadius: "0.875rem",
-                padding: "0.85rem 1.25rem",
-                minWidth: 260, maxWidth: 340,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-                  <div style={{ fontSize: "0.72rem", fontWeight: 800, color: th.text, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                    {assignedStore ? assignedStore.name : "Unassigned sensor"}
-                  </div>
-                  <button onClick={() => loadShellyTemp(true)} title="Refresh" style={{ background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "0.85rem", padding: 2, flexShrink: 0 }}>↻</button>
-                </div>
-                {dev.sensors.map(s => {
-                  const label = SHELLY_SENSOR_LABELS[s.sensorId] || `Sensor ${s.sensorId}`;
-                  return (
-                    <div key={s.sensorId} style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                      <div style={{ fontSize: "1.4rem", lineHeight: 1 }}>❄️</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        {dev.online === false ? (
-                          <div style={{ fontSize: "0.78rem", color: "#f59e0b", fontWeight: 700 }}>{label} offline</div>
-                        ) : (
-                          <>
-                            <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.15rem", color: th.text, lineHeight: 1, letterSpacing: -0.5 }}>
-                              {s.tempF.toFixed(1)}°<span style={{ fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginLeft: 1 }}>F</span>
-                              <span style={{ fontSize: "0.65rem", fontWeight: 600, color: th.muted, marginLeft: 5 }}>({s.tempC.toFixed(1)}°C)</span>
-                            </div>
-                            <div style={{ fontSize: "0.6rem", color: th.muted, marginTop: "0.1rem" }}>
-                              {label} · {dev.lastUpdated ? `as of ${new Date(dev.lastUpdated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-                {canAssign && (
-                  <select
-                    value={assignedPc}
-                    onChange={e => saveShellyStoreAssignment(dev.deviceId, e.target.value)}
-                    style={{ ...inp(th), fontSize: "0.72rem", padding: "0.4rem 0.6rem", marginTop: "0.2rem" }}
-                  >
-                    <option value="">— Assign to a store —</option>
-                    {[...stores].sort((a, b) => a.name.localeCompare(b.name)).map(s => (
-                      <option key={s.pc} value={s.pc}>{s.name}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {/* Unread Announcements — shown at top so they're never missed */}
       {unreadAnnouncements.length > 0 && (
