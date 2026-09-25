@@ -101,7 +101,18 @@ export const FEEDS = [
   { key: 'pnl-live', label: 'P&L (live)', blobKey: 'pcg_pnl_live_v1',
     expectedMaxAgeMin: 420, perStore: false, critical: true, category: 'Cash' }, // written by labor-cron (same ~6h overnight gap); 420 clears it
   { key: 'pnl-store', label: 'P&L (per-store)', blobKey: 'pcg_pnl_store_',
-    expectedMaxAgeMin: 420, perStore: true, critical: true, category: 'Cash' }, // per-store P&L; active set scoped to stores with a P&L blob (see cron/endpoint activePcsByKey)
+    // Was 420 (same as labor/labor-store/pnl-live) — investigated 2026-09-25 after a
+    // daily-recurring false alarm (OK->STALE~6:30am ET, self-heals by ~9:30am ET, every
+    // day for 9+ days straight per pcg_system_health_alerts_v1). Confirmed it's isolated
+    // to this ONE feed — labor/labor-store/pnl-live share the identical 420 threshold and
+    // the identical labor-cron overnight gap but have never flapped — so this isn't a
+    // generic labor-cron timing issue, it's specific to P&L's own dependency (almost
+    // certainly waiting on Pulse sales data to finalize before it can compute, unlike
+    // labor which only needs Paycor punches). 720 (12h) gives real margin above the
+    // observed ~10.5h worst case (last good write ~11pm ET -> confirmed recovery ~9:30am
+    // ET) instead of the ~1h margin 420 left, without loosening the other 3 feeds that
+    // were never actually a problem.
+    expectedMaxAgeMin: 720, perStore: true, critical: true, category: 'Cash' }, // per-store P&L; active set scoped to stores with a P&L blob (see cron/endpoint activePcsByKey)
   // Comms / AI / Platform (non-critical)
   { key: 'reviews', label: 'Google Reviews', blobKey: 'pcg_reviews_network',
     expectedMaxAgeMin: 11520, perStore: false, critical: false, category: 'Comms' }, // weekly, 8d tol
