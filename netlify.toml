@@ -10,6 +10,11 @@
 [functions.labor-cron]
   schedule = "0 9-23,0-3 * * *"
 
+# Fills labor-cron's overnight gap (UTC 4-8 / ET midnight-4am) for store "8200" (364412)
+# only — the one 24-hour store. Every other store is correctly closed during this window.
+[functions.labor-cron-8200]
+  schedule = "0 4-8 * * *"
+
 # Deal Pipeline critical-date reminders — daily 8am ET (12:00 UTC). Emails the deal team
 # a digest of dates inside their warning window (or overdue).
 [functions.deal-alerts-cron]
