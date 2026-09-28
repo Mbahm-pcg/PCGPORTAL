@@ -53,6 +53,7 @@
     calendar: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2", ry: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" })) }),
     reports: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }), /* @__PURE__ */ React.createElement("polyline", { points: "14 2 14 8 20 8" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "13", x2: "8", y2: "13" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "17", x2: "8", y2: "17" }), /* @__PURE__ */ React.createElement("polyline", { points: "10 9 9 9 8 9" })),
     audits: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" }), /* @__PURE__ */ React.createElement("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }), /* @__PURE__ */ React.createElement("path", { d: "m9 14 2 2 4-4" })),
+    incident: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" }), /* @__PURE__ */ React.createElement("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "11", x2: "12", y2: "15" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "17.5", x2: "12.01", y2: "17.5" })),
     schedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("polyline", { points: "8 14 10 17 14 13" })) }),
     staffSchedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("circle", { cx: "12", cy: "16", r: "2.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "14.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "13.2", y2: "16.8" })) }),
     clock: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("circle", { cx: "12", cy: "12", r: "9" }), React.createElement("polyline", { points: "12 7 12 12 15.5 14" })) })
@@ -906,6 +907,41 @@
     a.click();
     a.remove();
     return r;
+  }
+
+  // src/incident-report.mjs
+  var DEFAULT_EVIDENCE_ITEMS = [
+    { id: "camera", label: "Interior security camera footage", defaultChecked: true },
+    { id: "report", label: "This Workplace Incident Report", defaultChecked: true },
+    { id: "witness", label: "Witness statements", defaultChecked: false }
+  ];
+  function buildEvidenceList(checkedIds = [], customLabels = []) {
+    const checked = new Set(checkedIds || []);
+    const defaults = DEFAULT_EVIDENCE_ITEMS.map((item) => ({ label: item.label, checked: checked.has(item.id) }));
+    const custom = (customLabels || []).map((l) => String(l || "").trim()).filter(Boolean).map((label) => ({ label, checked: true }));
+    return [...defaults, ...custom];
+  }
+  function autofillFromStore(store) {
+    if (!store) return { storePC: "", storeName: "", address: "", operatingEntity: "" };
+    const addressParts = [store.address, store.city, [store.state, store.zip].filter(Boolean).join(" ")].filter(Boolean);
+    return {
+      storePC: store.pc || "",
+      storeName: store.name || "",
+      address: addressParts.join(", "),
+      operatingEntity: store.legal || ""
+    };
+  }
+  function splitPeopleForPdf(people) {
+    const named = (people || []).filter((p) => String(p?.name || "").trim());
+    return {
+      parties: named.map((p) => ({ name: p.name.trim(), role: p.role || "" })),
+      contacts: named.map((p) => ({ name: p.name.trim(), phone: p.phone || "", email: p.email || "" }))
+    };
+  }
+  function buildSubjectEmployeeParty(report) {
+    const name = String(report?.employeeName || "").trim();
+    if (!name) return null;
+    return { name, role: "Injured employee", phone: report?.employeePhone || "", email: report?.employeeEmail || "" };
   }
 
   // src/deal-dates.mjs
@@ -16923,6 +16959,288 @@ ${t2.slice(0, 300)}`);
       reader.readAsDataURL(file);
     });
   }
+  async function exportIncidentReportPdf(report) {
+    const employeeParty = buildSubjectEmployeeParty(report);
+    const allPeople = employeeParty ? [employeeParty, ...report.people || []] : report.people || [];
+    const { parties, contacts } = splitPeopleForPdf(allPeople);
+    const photos = (report.attachments || []).filter((a) => a.type === "image");
+    const videos = (report.attachments || []).filter((a) => a.type === "video");
+    const photoData = [];
+    for (const p of photos) {
+      const loaded = await cloudLoadFile(p.fileKey);
+      if (loaded?.data) photoData.push({ ...p, dataUrl: loaded.data });
+    }
+    const rowsHtml = (rows) => rows.map((r) => `<tr><td style="padding:4px 8px;border:1px solid #ddd;">${r[0]}</td><td style="padding:4px 8px;border:1px solid #ddd;">${r[1]}</td></tr>`).join("");
+    const onOwnPage = (inner) => `<div style="page-break-before:always;break-before:page;page-break-inside:avoid;break-inside:avoid;">${inner}</div>`;
+    const el = document.createElement("div");
+    el.style.cssText = "width:800px;background:#fff;color:#111;font-family:Arial,sans-serif;padding:24px;font-size:11px;line-height:1.4;";
+    el.innerHTML = `
+    <div style="text-align:center;border-bottom:2px solid #FF671F;padding-bottom:8px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:13px;">PEOPLE CAPITAL GROUP</div>
+      <div style="font-size:9px;font-style:italic;color:#555;">CONFIDENTIAL \u2014 INTERNAL USE ONLY</div>
+      <div style="font-size:15px;font-weight:800;margin-top:6px;">WORKPLACE INCIDENT REPORT</div>
+    </div>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Case Information</h3>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;">${rowsHtml([
+      ["Report Date", report.reportDate || ""],
+      ["Report Prepared By", report.preparedByName || ""],
+      ["Incident Date", report.incidentDate || ""],
+      ["Incident Time (Approx.)", report.incidentTime || ""],
+      ["Incident Location", `PC#${report.storePC || ""} ${report.address || ""}`],
+      ["Operating Entity", report.operatingEntity || ""],
+      ["Incident Type", report.incidentType || ""],
+      ["W/C Claim", report.wcClaim || ""],
+      ["Reported Injury", report.reportedInjury || ""],
+      ["Video Evidence", videos.length ? `Yes \u2014 see ${videos.map((v) => v.name).join(", ")}` : "No"]
+    ])}</table>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Subject Employee</h3>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;">${rowsHtml([
+      ["Employee Name", `${report.employeeName || ""}${report.employeeDob ? ", DOB: " + report.employeeDob : ""}`],
+      ["Status", report.employeeStatus || ""],
+      ["Address", report.employeeAddress || ""],
+      ["Contact Information", report.employeePhone || ""]
+    ])}</table>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Incident Summary</h3>
+    <p style="white-space:pre-wrap;">${(report.incidentSummary || "").replace(/</g, "&lt;")}</p>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Evidence Preserved</h3>
+    <ul style="margin:0;padding-left:18px;">${(report.evidence || []).filter((e) => e.checked).map((e) => `<li>${e.label}</li>`).join("")}</ul>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Preparer Certification</h3>
+    <p>I certify that the information contained in this report is accurate to the best of my knowledge.</p>
+    <p>_______________________________<br/><strong>${report.preparedByName || ""}</strong><br/>People Capital Group<br/>Date: ${report.reportDate || ""}</p>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Name / Role of Parties Involved / Witnesses</h3>
+    <ol style="margin:0;padding-left:18px;">${parties.map((p) => `<li>${p.name} / ${p.role}</li>`).join("")}</ol>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Contact List</h3>
+    ${contacts.map((c) => `<p style="margin:0 0 8px;"><strong>NAME:</strong> ${c.name}<br/><strong>PHONE NUMBER:</strong> ${c.phone}<br/><strong>EMAIL:</strong> ${c.email}</p>`).join("")}
+    ${photoData.map((p) => onOwnPage(`<h3 style="font-size:12px;margin:0 0 8px;">Photo Evidence \u2014 ${p.name || ""}</h3><img src="${p.dataUrl}" style="max-width:100%;max-height:9in;object-fit:contain;display:block;border:1px solid #ddd;" />`)).join("")}
+    ${videos.length ? onOwnPage(`<h3 style="font-size:12px;margin:0 0 8px;">Video Evidence</h3><p>Video file(s) attached \u2014 downloaded separately alongside this PDF: ${videos.map((v) => v.name).join(", ")}</p>`) : ""}
+  `;
+    const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    await html2pdf().set({
+      margin: 0.4,
+      filename: `PCG-Incident-Report-${report.storeName || report.id}-${dateStr}.pdf`,
+      image: { type: "jpeg", quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+      pagebreak: { mode: ["css", "legacy"], avoid: ["img"] }
+    }).from(el).save();
+    for (const v of videos) {
+      const loaded = await cloudLoadFile(v.fileKey);
+      if (!loaded?.data) continue;
+      const a = document.createElement("a");
+      a.href = loaded.data;
+      a.download = v.name || "incident-video";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  }
+  function IncidentReportsTab({ user, th, stores, showAlert: showAlert2 }) {
+    const isReviewer = user?.userType === "executive" || user?.userType === "it";
+    const EMPTY_PEOPLE_ROW = { name: "", role: "", phone: "", email: "" };
+    const todayISO = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const nowTimeLabel = () => (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const [reports, setReports] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+    const [showForm, setShowForm] = React.useState(false);
+    const [submitting, setSubmitting] = React.useState(false);
+    const [error, setError] = React.useState("");
+    const [employeeMatches, setEmployeeMatches] = React.useState([]);
+    const [employeeSearchOpen, setEmployeeSearchOpen] = React.useState(false);
+    const employeeSearchTimer = React.useRef(null);
+    const searchEmployees = (storePC, query) => {
+      if (employeeSearchTimer.current) clearTimeout(employeeSearchTimer.current);
+      if (!storePC || query.trim().length < 2) {
+        setEmployeeMatches([]);
+        return;
+      }
+      employeeSearchTimer.current = setTimeout(() => {
+        fetch("/.netlify/functions/employee-directory", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "search", storePc: storePC, query })
+        }).then((r) => r.json()).then((j) => {
+          if (j?.ok) {
+            setEmployeeMatches(j.matches || []);
+            setEmployeeSearchOpen(true);
+          }
+        }).catch(() => {
+        });
+      }, 300);
+    };
+    const pickEmployeeMatch = (m) => {
+      setForm((f) => ({ ...f, employeeName: `${m.firstName} ${m.lastName}`.trim(), employeeDob: m.birthDate || f.employeeDob, employeeEmail: m.email || f.employeeEmail }));
+      setEmployeeSearchOpen(false);
+      setEmployeeMatches([]);
+    };
+    const EMPTY_FORM = {
+      incidentDate: todayISO(),
+      incidentTime: nowTimeLabel(),
+      employeeName: "",
+      employeeDob: "",
+      employeeStatus: "",
+      employeeAddress: "",
+      employeePhone: "",
+      employeeEmail: "",
+      storePC: "",
+      storeName: "",
+      address: "",
+      operatingEntity: "",
+      incidentType: "",
+      wcClaim: "",
+      reportedInjury: "",
+      incidentSummary: "",
+      people: [{ ...EMPTY_PEOPLE_ROW }],
+      evidenceChecked: DEFAULT_EVIDENCE_ITEMS.filter((i) => i.defaultChecked).map((i) => i.id),
+      evidenceCustom: [""],
+      attachments: []
+      // [{ file, previewUrl, kind: 'image'|'video' }] before upload
+    };
+    const [form, setForm] = React.useState(EMPTY_FORM);
+    const loadReports = React.useCallback(() => {
+      setLoading(true);
+      fetch("/.netlify/functions/incident-reports", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "list" })
+      }).then((r) => r.json()).then((j) => {
+        if (j?.ok) setReports(j.reports || []);
+      }).catch(() => {
+      }).finally(() => setLoading(false));
+    }, []);
+    React.useEffect(() => {
+      loadReports();
+    }, [loadReports]);
+    const onPickStore = (pc) => {
+      const store = (stores || []).find((s) => String(s.pc) === String(pc));
+      const auto = autofillFromStore(store);
+      setForm((f) => ({ ...f, ...auto }));
+    };
+    const setPersonField = (idx, field, value) => {
+      setForm((f) => {
+        const people = f.people.slice();
+        people[idx] = { ...people[idx], [field]: value };
+        return { ...f, people };
+      });
+    };
+    const addPersonRow = () => setForm((f) => ({ ...f, people: [...f.people, { ...EMPTY_PEOPLE_ROW }] }));
+    const removePersonRow = (idx) => setForm((f) => ({ ...f, people: f.people.filter((_, i) => i !== idx) }));
+    const toggleEvidence = (id) => setForm((f) => ({
+      ...f,
+      evidenceChecked: f.evidenceChecked.includes(id) ? f.evidenceChecked.filter((x) => x !== id) : [...f.evidenceChecked, id]
+    }));
+    const setCustomEvidence = (idx, value) => setForm((f) => {
+      const evidenceCustom = f.evidenceCustom.slice();
+      evidenceCustom[idx] = value;
+      return { ...f, evidenceCustom };
+    });
+    const addCustomEvidenceRow = () => setForm((f) => ({ ...f, evidenceCustom: [...f.evidenceCustom, ""] }));
+    const onAttachFiles = (fileList) => {
+      const files = Array.from(fileList || []);
+      const next = files.map((file) => ({
+        file,
+        kind: file.type.startsWith("video") ? "video" : "image",
+        previewUrl: URL.createObjectURL(file)
+      }));
+      setForm((f) => ({ ...f, attachments: [...f.attachments, ...next] }));
+    };
+    const removeAttachment = (idx) => setForm((f) => ({ ...f, attachments: f.attachments.filter((_, i) => i !== idx) }));
+    const resetForm = () => setForm({ ...EMPTY_FORM, incidentDate: todayISO(), incidentTime: nowTimeLabel() });
+    const submit = async () => {
+      setError("");
+      if (!form.storePC) {
+        setError("Select the incident location.");
+        return;
+      }
+      if (!form.incidentSummary.trim()) {
+        setError("Incident summary is required.");
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const tempId = Date.now();
+        const attachmentRefs = [];
+        for (let i = 0; i < form.attachments.length; i++) {
+          const a = form.attachments[i];
+          const fileKey = `incident_media_${tempId}_${i}`;
+          await cloudSaveFile(fileKey, a.file, user?.name || "");
+          attachmentRefs.push({ fileKey, name: a.file.name, type: a.kind, mimeType: a.file.type, size: a.file.size });
+        }
+        const evidence = buildEvidenceList(form.evidenceChecked, form.evidenceCustom);
+        const report = {
+          id: tempId,
+          incidentDate: form.incidentDate,
+          incidentTime: form.incidentTime,
+          employeeName: form.employeeName,
+          employeeDob: form.employeeDob,
+          employeeStatus: form.employeeStatus,
+          employeeAddress: form.employeeAddress,
+          employeePhone: form.employeePhone,
+          employeeEmail: form.employeeEmail,
+          storePC: form.storePC,
+          storeName: form.storeName,
+          address: form.address,
+          operatingEntity: form.operatingEntity,
+          incidentType: form.incidentType,
+          wcClaim: form.wcClaim,
+          reportedInjury: form.reportedInjury,
+          incidentSummary: form.incidentSummary,
+          people: form.people.filter((p) => p.name.trim()),
+          evidence,
+          attachments: attachmentRefs
+        };
+        const res = await fetch("/.netlify/functions/incident-reports", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "create", report })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.ok) {
+          setError(j?.error || "Could not save this report \u2014 please try again.");
+          setSubmitting(false);
+          return;
+        }
+        resetForm();
+        setShowForm(false);
+        showAlert2 && showAlert2("success", "Incident report filed.");
+        loadReports();
+      } catch {
+        setError("Network error \u2014 please try again.");
+      }
+      setSubmitting(false);
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: sectionTitle(th) }, isReviewer ? "All Incident Reports" : "My Incident Reports"), /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: () => setShowForm((s) => !s) }, showForm ? "Cancel" : "+ New Report")), showForm && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...pill("#0ea5e9"), marginBottom: "0.75rem" } }, "Report Prepared By: ", user?.name || "Unknown", " \xB7 ", todayISO()), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Location (store)"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.storePC, onChange: (e) => onPickStore(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), (stores || []).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Operating Entity"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.operatingEntity, onChange: (e) => setForm((f) => ({ ...f, operatingEntity: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.incidentDate, onChange: (e) => setForm((f) => ({ ...f, incidentDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Time (approx.)"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.incidentTime, onChange: (e) => setForm((f) => ({ ...f, incidentTime: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Type"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. Worker's Compensation / employee injury", value: form.incidentType, onChange: (e) => setForm((f) => ({ ...f, incidentType: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Reported Injury"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.reportedInjury, onChange: (e) => setForm((f) => ({ ...f, reportedInjury: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "W/C Claim"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. Travelers, WC Claim # EDY7201", value: form.wcClaim, onChange: (e) => setForm((f) => ({ ...f, wcClaim: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem", fontWeight: 700 } }, "Subject Employee"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.75rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Employee Name"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: inp(th),
+        value: form.employeeName,
+        onChange: (e) => {
+          const v = e.target.value;
+          setForm((f) => ({ ...f, employeeName: v }));
+          searchEmployees(form.storePC, v);
+        },
+        onFocus: () => {
+          if (employeeMatches.length) setEmployeeSearchOpen(true);
+        },
+        onBlur: () => setTimeout(() => setEmployeeSearchOpen(false), 150),
+        placeholder: form.storePC ? "Start typing to search this store's roster\u2026" : "Select a store first to search"
+      }
+    ), employeeSearchOpen && employeeMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, marginTop: "0.2rem", maxHeight: "10rem", overflowY: "auto" } }, employeeMatches.map((m) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: m.paycorEmployeeId,
+        onMouseDown: () => pickEmployeeMatch(m),
+        style: { padding: "0.5rem 0.7rem", cursor: "pointer", fontSize: "0.82rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}` }
+      },
+      m.firstName,
+      " ",
+      m.lastName,
+      " ",
+      m.status && m.status !== "Active" ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", m.status, ")") : null
+    )))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "DOB"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.employeeDob, onChange: (e) => setForm((f) => ({ ...f, employeeDob: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Status"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. Active, On leave", value: form.employeeStatus, onChange: (e) => setForm((f) => ({ ...f, employeeStatus: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Phone"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.employeePhone, onChange: (e) => setForm((f) => ({ ...f, employeePhone: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Email"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.employeeEmail, onChange: (e) => setForm((f) => ({ ...f, employeeEmail: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Address"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.employeeAddress, onChange: (e) => setForm((f) => ({ ...f, employeeAddress: e.target.value })) }))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Summary"), /* @__PURE__ */ React.createElement("textarea", { style: { ...inp(th), minHeight: "6rem", marginBottom: "0.9rem" }, value: form.incidentSummary, onChange: (e) => setForm((f) => ({ ...f, incidentSummary: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem" } }, "Evidence Preserved"), DEFAULT_EVIDENCE_ITEMS.map((item) => /* @__PURE__ */ React.createElement("label", { key: item.id, style: { display: "flex", gap: "0.5rem", alignItems: "center", fontSize: "0.85rem", color: th.text, marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.evidenceChecked.includes(item.id), onChange: () => toggleEvidence(item.id) }), item.label)), form.evidenceCustom.map((v, i) => /* @__PURE__ */ React.createElement("input", { key: i, style: { ...inp(th), marginTop: "0.3rem" }, placeholder: "Add another item\u2026", value: v, onChange: (e) => setCustomEvidence(i, e.target.value) })), /* @__PURE__ */ React.createElement("button", { type: "button", style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.cardBorder}`, padding: "0.4rem 0.8rem", fontSize: "0.75rem", marginTop: "0.4rem" }) }, onClick: addCustomEvidenceRow }, "+ Add item")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem" } }, "Photo / Video Evidence"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*,video/*", multiple: true, onChange: (e) => onAttachFiles(e.target.files) }), form.attachments.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.5rem" } }, form.attachments.map((a, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { position: "relative" } }, a.kind === "image" ? /* @__PURE__ */ React.createElement("img", { src: a.previewUrl, alt: "", style: { width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${th.cardBorder}` } }) : /* @__PURE__ */ React.createElement("video", { src: a.previewUrl, style: { width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${th.cardBorder}` } }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => removeAttachment(i), style: { position: "absolute", top: -6, right: -6, background: "#ef4444", color: "#fff", border: "none", borderRadius: 999, width: 18, height: 18, fontSize: "0.65rem", cursor: "pointer" } }, "\xD7"))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem" } }, "Parties Involved / Witnesses / Contacts"), form.people.map((p, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: "0.4rem", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Name", value: p.name, onChange: (e) => setPersonField(i, "name", e.target.value) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Role / relationship", value: p.role, onChange: (e) => setPersonField(i, "role", e.target.value) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Phone", value: p.phone, onChange: (e) => setPersonField(i, "phone", e.target.value) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Email", value: p.email, onChange: (e) => setPersonField(i, "email", e.target.value) }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => removePersonRow(i), style: { ...btn(th, { background: "transparent", color: "#ef4444", border: `1px solid ${th.cardBorder}`, padding: "0.4rem 0.6rem" }) } }, "Remove"))), /* @__PURE__ */ React.createElement("button", { type: "button", style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.cardBorder}`, padding: "0.4rem 0.8rem", fontSize: "0.75rem" }) }, onClick: addPersonRow }, "+ Add person")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.8rem", marginBottom: "0.6rem" } }, error), /* @__PURE__ */ React.createElement("button", { style: btn(th, submitting ? { opacity: 0.6 } : {}), disabled: submitting, onClick: submit }, submitting ? "Filing\u2026" : "File Report")), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026") : reports.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No incident reports filed yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem" } }, reports.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { ...card(th), padding: "0.9rem 1.1rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.9rem" } }, r.storeName || "Unknown store", " \u2014 ", r.incidentDate || r.reportDate, r.employeeName ? ` \xB7 ${r.employeeName}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "0.2rem" } }, "Prepared by ", r.preparedByName, " \xB7 Filed ", r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "")), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.5rem 1rem", fontSize: "0.8rem" }), onClick: () => exportIncidentReportPdf(r) }, "Download PDF")))));
+  }
   var BIZ_EXPENSE_CATEGORIES = ["Gas", "Food", "Tools", "Supplies", "Repairs", "Office", "Other"];
   function ExpensesTab({ user, th, stores }) {
     const isBizExpenseAdmin = user?.userType === "executive" || user?.userType === "it" || user?.userType === "office_staff";
@@ -17497,7 +17815,8 @@ ${t2.slice(0, 300)}`);
       { id: "system-health", label: "System Health" }
     ],
     "tools-hub": [
-      { id: "district-alignment", label: "District Alignment" }
+      { id: "district-alignment", label: "District Alignment" },
+      { id: "incident-reports", label: "Incident Reports" }
     ],
     finance: [
       { id: "pnl", label: "P&L" },
@@ -21803,6 +22122,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "impact", label: "Impact Radar", icon: (c) => ICONS.search(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
+      { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -21832,6 +22152,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "impact", label: "Impact Radar", icon: (c) => ICONS.search(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
+      { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "users", label: "Users", icon: (c) => ICONS.users(c) },
@@ -21846,6 +22167,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
+      { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
       { id: "map", label: "Map", icon: (c) => ICONS.map(c) }
     ];
@@ -21862,6 +22184,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "finance", label: "Finance", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
+      { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "ops-hub", label: "Operations", icon: (c) => ICONS.schedule(c), noPinToggle: true },
@@ -21881,6 +22204,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "pnl", label: "My P&L", icon: (c) => ICONS.dollar(c) },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
+      { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) }
     ];
     if (ut === "construction") return [
@@ -21889,21 +22213,24 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
-      { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) }
+      { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
+      { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) }
     ];
     if (ut === "vendor") return [
       { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
       { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
-      { id: "chat", label: "Chat", icon: (c) => ICONS.chat(c) }
+      { id: "chat", label: "Chat", icon: (c) => ICONS.chat(c) },
+      { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) }
     ];
     if (ut === "maintenance") return [
       ...BASE_TABS,
       { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
-      { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) }
+      { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
+      { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) }
     ];
     return BASE_TABS;
   };
@@ -22801,7 +23128,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.12";
+  var APP_VERSION = "v21.14";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -39128,7 +39455,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     } }, ICONS.dashboard(th.text)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 18, color: th.text, letterSpacing: -0.5, lineHeight: 1.1 } }, tab === MOBILE_LAUNCHER_TAB_ID ? "Menu" : (() => {
       const ct = TABS.find((t) => t.id === tab);
       return ct ? /* @__PURE__ */ React.createElement(React.Fragment, null, typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon, " ", ct.label) : null;
-    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.7rem", marginTop: "0.1rem", lineHeight: 1.1 } }, tab === MOBILE_LAUNCHER_TAB_ID && "Jump to any part of the portal.", tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "finance" && "P&L, NDCP orders, cash deposits, reconciliation, and expenses in one place.", tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place.", tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place.", tab === "system-hub" && "Admin, Email, and Reports in one place.", tab === "tools-hub" && "Handy tools, available to everyone.", tab === "district-alignment" && "A sandbox for planning district groupings \u2014 separate from the real Locations data.", tab === "system-health" && "Pipeline health, feed freshness, and outage alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "audits" && "Field operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "network-complaints" && "Worst-tier guest complaints across the network this month \u2014 add internal comments.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.7rem", marginTop: "0.1rem", lineHeight: 1.1 } }, tab === MOBILE_LAUNCHER_TAB_ID && "Jump to any part of the portal.", tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "finance" && "P&L, NDCP orders, cash deposits, reconciliation, and expenses in one place.", tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place.", tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place.", tab === "system-hub" && "Admin, Email, and Reports in one place.", tab === "tools-hub" && "Handy tools, available to everyone.", tab === "district-alignment" && "A sandbox for planning district groupings \u2014 separate from the real Locations data.", tab === "system-health" && "Pipeline health, feed freshness, and outage alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "audits" && "Field operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "network-complaints" && "Worst-tier guest complaints across the network this month \u2014 add internal comments.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets.", tab === "incident-reports" && "File and review workplace incident reports."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setShowNotifs((s) => !s);
       setShowChatPanel(false);
     }, style: { background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" } }, ICONS.bell(th.text), filterNotifsByRole(notifications, user).filter((n) => !n.read).length > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px " + (th.headerBg || th.bg) } }, filterNotifsByRole(notifications, user).filter((n) => !n.read).length)), showNotifs && (() => {
@@ -39432,10 +39759,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     })(), tab === "tools-hub" && (() => {
       const TOOLS = "#2F6FA8";
       const toolsTiles = [
-        { id: "district-alignment", name: "District Alignment", sub: "Draft district/DM groupings, sales snapshots, and store spacing \u2014 a sandbox that never touches real Locations data.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "district-alignment"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7", rx: "1" })) }
+        { id: "district-alignment", name: "District Alignment", sub: "Draft district/DM groupings, sales snapshots, and store spacing \u2014 a sandbox that never touches real Locations data.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "district-alignment"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7", rx: "1" })) },
+        { id: "incident-reports", name: "Incident Reports", sub: "File and review Workplace Incident Reports \u2014 case info, witnesses, photo/video evidence, PDF export.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "incident-reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.incident(TOOLS)) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
-    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
 })();

@@ -216,6 +216,27 @@ export async function fetchAllEmployees(legalEntityId) {
   return records;
 }
 
+// Same pagination shape as fetchAllEmployees, but for the identifyingData
+// endpoint — paycor.mjs's own action mapping already discards
+// socialSecurityNumber before this ever sees a response, so every record
+// here is just {employeeId, birthDate}. Feeds the Employee Directory sync.
+export async function fetchAllIdentifyingData(legalEntityId) {
+  let records = [];
+  let continuationToken;
+  do {
+    const raw = await callPaycorProxy('identifyingData', continuationToken ? { legalEntityId, continuationToken } : { legalEntityId });
+    const body = JSON.parse(raw || '{}');
+    if (!Array.isArray(body.records) && (body.Title || body.CorrelationId)) {
+      throw new Error(`Paycor error response fetching identifyingData: ${body.Title || 'unknown'} — ${body.Detail || ''}`);
+    }
+    const page = Array.isArray(body.records) ? body.records : [];
+    records = records.concat(page);
+    continuationToken = body.continuationToken || null;
+    if (!page.length) continuationToken = null;
+  } while (continuationToken);
+  return records;
+}
+
 // Same fallback chain as labor-cron.mjs's computeHoursFromPunches — not every
 // punch carries a pre-computed hours field.
 export function punchHours(p) {

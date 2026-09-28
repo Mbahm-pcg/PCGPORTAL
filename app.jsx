@@ -5,6 +5,7 @@ import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
+import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty } from './src/incident-report.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
@@ -19951,6 +19952,409 @@ async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
   });
 }
 
+// ── Workplace Incident Report Tab ───────────────────────────────────────────
+// Any non-kiosk logged-in user can file one; exec/IT see every report, everyone
+// else sees only reports they personally filed (enforced server-side in
+// incident-reports.mjs, not just here). See docs/superpowers/specs/2026-09-25-
+// incident-report-design.md for the full design.
+async function exportIncidentReportPdf(report) {
+  // The subject employee is listed both in their own "Subject Employee" block
+  // and as the first Parties/Witnesses + Contact List entry (role "Injured
+  // employee") — matching the source document without making anyone type the
+  // employee's name/phone/email twice.
+  const employeeParty = buildSubjectEmployeeParty(report);
+  const allPeople = employeeParty ? [employeeParty, ...(report.people || [])] : (report.people || []);
+  const { parties, contacts } = splitPeopleForPdf(allPeople);
+  const photos = (report.attachments || []).filter(a => a.type === 'image');
+  const videos = (report.attachments || []).filter(a => a.type === 'video');
+
+  // Resolve attachment refs to viewable data URLs before building the DOM to export.
+  const photoData = [];
+  for (const p of photos) {
+    const loaded = await cloudLoadFile(p.fileKey);
+    if (loaded?.data) photoData.push({ ...p, dataUrl: loaded.data });
+  }
+
+  const rowsHtml = (rows) => rows.map(r => `<tr><td style="padding:4px 8px;border:1px solid #ddd;">${r[0]}</td><td style="padding:4px 8px;border:1px solid #ddd;">${r[1]}</td></tr>`).join('');
+
+  // Each photo (and the video note) gets page-break-before + page-break-inside:avoid
+  // so it always lands whole on its own page — a phone-screenshot-sized photo is
+  // often taller than the remaining space on the current page, and without this it
+  // gets sliced across two pages by html2pdf's page-height chunking.
+  const onOwnPage = (inner) => `<div style="page-break-before:always;break-before:page;page-break-inside:avoid;break-inside:avoid;">${inner}</div>`;
+
+  const el = document.createElement('div');
+  el.style.cssText = 'width:800px;background:#fff;color:#111;font-family:Arial,sans-serif;padding:24px;font-size:11px;line-height:1.4;';
+  el.innerHTML = `
+    <div style="text-align:center;border-bottom:2px solid #FF671F;padding-bottom:8px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:13px;">PEOPLE CAPITAL GROUP</div>
+      <div style="font-size:9px;font-style:italic;color:#555;">CONFIDENTIAL — INTERNAL USE ONLY</div>
+      <div style="font-size:15px;font-weight:800;margin-top:6px;">WORKPLACE INCIDENT REPORT</div>
+    </div>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Case Information</h3>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;">${rowsHtml([
+      ['Report Date', report.reportDate || ''],
+      ['Report Prepared By', report.preparedByName || ''],
+      ['Incident Date', report.incidentDate || ''],
+      ['Incident Time (Approx.)', report.incidentTime || ''],
+      ['Incident Location', `PC#${report.storePC || ''} ${report.address || ''}`],
+      ['Operating Entity', report.operatingEntity || ''],
+      ['Incident Type', report.incidentType || ''],
+      ['W/C Claim', report.wcClaim || ''],
+      ['Reported Injury', report.reportedInjury || ''],
+      ['Video Evidence', videos.length ? `Yes — see ${videos.map(v => v.name).join(', ')}` : 'No'],
+    ])}</table>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Subject Employee</h3>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;">${rowsHtml([
+      ['Employee Name', `${report.employeeName || ''}${report.employeeDob ? ', DOB: ' + report.employeeDob : ''}`],
+      ['Status', report.employeeStatus || ''],
+      ['Address', report.employeeAddress || ''],
+      ['Contact Information', report.employeePhone || ''],
+    ])}</table>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Incident Summary</h3>
+    <p style="white-space:pre-wrap;">${(report.incidentSummary || '').replace(/</g, '&lt;')}</p>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Evidence Preserved</h3>
+    <ul style="margin:0;padding-left:18px;">${(report.evidence || []).filter(e => e.checked).map(e => `<li>${e.label}</li>`).join('')}</ul>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Preparer Certification</h3>
+    <p>I certify that the information contained in this report is accurate to the best of my knowledge.</p>
+    <p>_______________________________<br/><strong>${report.preparedByName || ''}</strong><br/>People Capital Group<br/>Date: ${report.reportDate || ''}</p>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Name / Role of Parties Involved / Witnesses</h3>
+    <ol style="margin:0;padding-left:18px;">${parties.map(p => `<li>${p.name} / ${p.role}</li>`).join('')}</ol>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Contact List</h3>
+    ${contacts.map(c => `<p style="margin:0 0 8px;"><strong>NAME:</strong> ${c.name}<br/><strong>PHONE NUMBER:</strong> ${c.phone}<br/><strong>EMAIL:</strong> ${c.email}</p>`).join('')}
+    ${photoData.map(p => onOwnPage(`<h3 style="font-size:12px;margin:0 0 8px;">Photo Evidence — ${p.name || ''}</h3><img src="${p.dataUrl}" style="max-width:100%;max-height:9in;object-fit:contain;display:block;border:1px solid #ddd;" />`)).join('')}
+    ${videos.length ? onOwnPage(`<h3 style="font-size:12px;margin:0 0 8px;">Video Evidence</h3><p>Video file(s) attached — downloaded separately alongside this PDF: ${videos.map(v => v.name).join(', ')}</p>`) : ''}
+  `;
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  await html2pdf().set({
+    margin: 0.4, filename: `PCG-Incident-Report-${report.storeName || report.id}-${dateStr}.pdf`,
+    image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'], avoid: ['img'] },
+  }).from(el).save();
+
+  // Videos can't play inside a PDF — download them as separate files alongside it.
+  for (const v of videos) {
+    const loaded = await cloudLoadFile(v.fileKey);
+    if (!loaded?.data) continue;
+    const a = document.createElement('a');
+    a.href = loaded.data; a.download = v.name || 'incident-video';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+}
+
+function IncidentReportsTab({ user, th, stores, showAlert }) {
+  const isReviewer = user?.userType === 'executive' || user?.userType === 'it';
+  const EMPTY_PEOPLE_ROW = { name: '', role: '', phone: '', email: '' };
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+  const nowTimeLabel = () => new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+  const [reports, setReports] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [showForm, setShowForm] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [employeeMatches, setEmployeeMatches] = React.useState([]);
+  const [employeeSearchOpen, setEmployeeSearchOpen] = React.useState(false);
+  const employeeSearchTimer = React.useRef(null);
+
+  const searchEmployees = (storePC, query) => {
+    if (employeeSearchTimer.current) clearTimeout(employeeSearchTimer.current);
+    if (!storePC || query.trim().length < 2) { setEmployeeMatches([]); return; }
+    employeeSearchTimer.current = setTimeout(() => {
+      fetch('/.netlify/functions/employee-directory', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'search', storePc: storePC, query }),
+      })
+        .then(r => r.json())
+        .then(j => { if (j?.ok) { setEmployeeMatches(j.matches || []); setEmployeeSearchOpen(true); } })
+        .catch(() => {});
+    }, 300);
+  };
+
+  const pickEmployeeMatch = (m) => {
+    setForm(f => ({ ...f, employeeName: `${m.firstName} ${m.lastName}`.trim(), employeeDob: m.birthDate || f.employeeDob, employeeEmail: m.email || f.employeeEmail }));
+    setEmployeeSearchOpen(false);
+    setEmployeeMatches([]);
+  };
+
+  const EMPTY_FORM = {
+    incidentDate: todayISO(),
+    incidentTime: nowTimeLabel(),
+    employeeName: '', employeeDob: '', employeeStatus: '', employeeAddress: '', employeePhone: '', employeeEmail: '',
+    storePC: '', storeName: '', address: '', operatingEntity: '',
+    incidentType: '', wcClaim: '', reportedInjury: '',
+    incidentSummary: '',
+    people: [{ ...EMPTY_PEOPLE_ROW }],
+    evidenceChecked: DEFAULT_EVIDENCE_ITEMS.filter(i => i.defaultChecked).map(i => i.id),
+    evidenceCustom: [''],
+    attachments: [], // [{ file, previewUrl, kind: 'image'|'video' }] before upload
+  };
+  const [form, setForm] = React.useState(EMPTY_FORM);
+
+  const loadReports = React.useCallback(() => {
+    setLoading(true);
+    fetch('/.netlify/functions/incident-reports', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'list' }),
+    })
+      .then(r => r.json())
+      .then(j => { if (j?.ok) setReports(j.reports || []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+  React.useEffect(() => { loadReports(); }, [loadReports]);
+
+  const onPickStore = (pc) => {
+    const store = (stores || []).find(s => String(s.pc) === String(pc));
+    const auto = autofillFromStore(store);
+    setForm(f => ({ ...f, ...auto }));
+  };
+
+  const setPersonField = (idx, field, value) => {
+    setForm(f => {
+      const people = f.people.slice();
+      people[idx] = { ...people[idx], [field]: value };
+      return { ...f, people };
+    });
+  };
+  const addPersonRow = () => setForm(f => ({ ...f, people: [...f.people, { ...EMPTY_PEOPLE_ROW }] }));
+  const removePersonRow = (idx) => setForm(f => ({ ...f, people: f.people.filter((_, i) => i !== idx) }));
+
+  const toggleEvidence = (id) => setForm(f => ({
+    ...f,
+    evidenceChecked: f.evidenceChecked.includes(id) ? f.evidenceChecked.filter(x => x !== id) : [...f.evidenceChecked, id],
+  }));
+  const setCustomEvidence = (idx, value) => setForm(f => {
+    const evidenceCustom = f.evidenceCustom.slice();
+    evidenceCustom[idx] = value;
+    return { ...f, evidenceCustom };
+  });
+  const addCustomEvidenceRow = () => setForm(f => ({ ...f, evidenceCustom: [...f.evidenceCustom, ''] }));
+
+  const onAttachFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    const next = files.map(file => ({
+      file, kind: file.type.startsWith('video') ? 'video' : 'image',
+      previewUrl: URL.createObjectURL(file),
+    }));
+    setForm(f => ({ ...f, attachments: [...f.attachments, ...next] }));
+  };
+  const removeAttachment = (idx) => setForm(f => ({ ...f, attachments: f.attachments.filter((_, i) => i !== idx) }));
+
+  const resetForm = () => setForm({ ...EMPTY_FORM, incidentDate: todayISO(), incidentTime: nowTimeLabel() });
+
+  const submit = async () => {
+    setError('');
+    if (!form.storePC) { setError('Select the incident location.'); return; }
+    if (!form.incidentSummary.trim()) { setError('Incident summary is required.'); return; }
+    setSubmitting(true);
+    try {
+      const tempId = Date.now();
+      // Upload attachments first (chunked blob helper — same one ticket photos/videos use),
+      // storing only the reference on the report row, never the raw file.
+      const attachmentRefs = [];
+      for (let i = 0; i < form.attachments.length; i++) {
+        const a = form.attachments[i];
+        const fileKey = `incident_media_${tempId}_${i}`;
+        await cloudSaveFile(fileKey, a.file, user?.name || '');
+        attachmentRefs.push({ fileKey, name: a.file.name, type: a.kind, mimeType: a.file.type, size: a.file.size });
+      }
+      const evidence = buildEvidenceList(form.evidenceChecked, form.evidenceCustom);
+      const report = {
+        id: tempId,
+        incidentDate: form.incidentDate, incidentTime: form.incidentTime,
+        employeeName: form.employeeName, employeeDob: form.employeeDob, employeeStatus: form.employeeStatus,
+        employeeAddress: form.employeeAddress, employeePhone: form.employeePhone, employeeEmail: form.employeeEmail,
+        storePC: form.storePC, storeName: form.storeName, address: form.address, operatingEntity: form.operatingEntity,
+        incidentType: form.incidentType, wcClaim: form.wcClaim,
+        reportedInjury: form.reportedInjury, incidentSummary: form.incidentSummary,
+        people: form.people.filter(p => p.name.trim()),
+        evidence, attachments: attachmentRefs,
+      };
+      const res = await fetch('/.netlify/functions/incident-reports', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'create', report }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.ok) { setError(j?.error || 'Could not save this report — please try again.'); setSubmitting(false); return; }
+      resetForm();
+      setShowForm(false);
+      showAlert && showAlert('success', 'Incident report filed.');
+      loadReports();
+    } catch {
+      setError('Network error — please try again.');
+    }
+    setSubmitting(false);
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div style={sectionTitle(th)}>{isReviewer ? 'All Incident Reports' : 'My Incident Reports'}</div>
+        <button style={btn(th)} onClick={() => setShowForm(s => !s)}>{showForm ? 'Cancel' : '+ New Report'}</button>
+      </div>
+
+      {showForm && (
+        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
+          <div style={{ ...pill('#0ea5e9'), marginBottom: '0.75rem' }}>Report Prepared By: {user?.name || 'Unknown'} · {todayISO()}</div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', marginBottom: '0.75rem' }}>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Location (store)</label>
+              <select style={inp(th)} value={form.storePC} onChange={e => onPickStore(e.target.value)}>
+                <option value="">Select a store…</option>
+                {(stores || []).map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Operating Entity</label>
+              <input style={inp(th)} value={form.operatingEntity} onChange={e => setForm(f => ({ ...f, operatingEntity: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Date</label>
+              <input type="date" style={inp(th)} value={form.incidentDate} onChange={e => setForm(f => ({ ...f, incidentDate: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Time (approx.)</label>
+              <input style={inp(th)} value={form.incidentTime} onChange={e => setForm(f => ({ ...f, incidentTime: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Type</label>
+              <input style={inp(th)} placeholder="e.g. Worker's Compensation / employee injury" value={form.incidentType} onChange={e => setForm(f => ({ ...f, incidentType: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Reported Injury</label>
+              <input style={inp(th)} value={form.reportedInjury} onChange={e => setForm(f => ({ ...f, reportedInjury: e.target.value }))} />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>W/C Claim</label>
+              <input style={inp(th)} placeholder="e.g. Travelers, WC Claim # EDY7201" value={form.wcClaim} onChange={e => setForm(f => ({ ...f, wcClaim: e.target.value }))} />
+            </div>
+          </div>
+
+          <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.4rem', fontWeight: 700 }}>Subject Employee</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', marginBottom: '0.9rem' }}>
+            <div style={{ position: 'relative' }}>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Employee Name</label>
+              <input
+                style={inp(th)}
+                value={form.employeeName}
+                onChange={e => { const v = e.target.value; setForm(f => ({ ...f, employeeName: v })); searchEmployees(form.storePC, v); }}
+                onFocus={() => { if (employeeMatches.length) setEmployeeSearchOpen(true); }}
+                onBlur={() => setTimeout(() => setEmployeeSearchOpen(false), 150)}
+                placeholder={form.storePC ? "Start typing to search this store's roster…" : 'Select a store first to search'}
+              />
+              {employeeSearchOpen && employeeMatches.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, marginTop: '0.2rem', maxHeight: '10rem', overflowY: 'auto' }}>
+                  {employeeMatches.map(m => (
+                    <div key={m.paycorEmployeeId} onMouseDown={() => pickEmployeeMatch(m)}
+                      style={{ padding: '0.5rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}` }}>
+                      {m.firstName} {m.lastName} {m.status && m.status !== 'Active' ? <span style={{ color: th.muted }}>({m.status})</span> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>DOB</label>
+              <input type="date" style={inp(th)} value={form.employeeDob} onChange={e => setForm(f => ({ ...f, employeeDob: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Status</label>
+              <input style={inp(th)} placeholder="e.g. Active, On leave" value={form.employeeStatus} onChange={e => setForm(f => ({ ...f, employeeStatus: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Phone</label>
+              <input style={inp(th)} value={form.employeePhone} onChange={e => setForm(f => ({ ...f, employeePhone: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Email</label>
+              <input style={inp(th)} value={form.employeeEmail} onChange={e => setForm(f => ({ ...f, employeeEmail: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: th.muted }}>Address</label>
+              <input style={inp(th)} value={form.employeeAddress} onChange={e => setForm(f => ({ ...f, employeeAddress: e.target.value }))} />
+            </div>
+          </div>
+
+          <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Summary</label>
+          <textarea style={{ ...inp(th), minHeight: '6rem', marginBottom: '0.9rem' }} value={form.incidentSummary} onChange={e => setForm(f => ({ ...f, incidentSummary: e.target.value }))} />
+
+          <div style={{ marginBottom: '0.9rem' }}>
+            <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.4rem' }}>Evidence Preserved</div>
+            {DEFAULT_EVIDENCE_ITEMS.map(item => (
+              <label key={item.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.85rem', color: th.text, marginBottom: '0.3rem' }}>
+                <input type="checkbox" checked={form.evidenceChecked.includes(item.id)} onChange={() => toggleEvidence(item.id)} />
+                {item.label}
+              </label>
+            ))}
+            {form.evidenceCustom.map((v, i) => (
+              <input key={i} style={{ ...inp(th), marginTop: '0.3rem' }} placeholder="Add another item…" value={v} onChange={e => setCustomEvidence(i, e.target.value)} />
+            ))}
+            <button type="button" style={{ ...btn(th, { background: 'transparent', color: th.muted, border: `1px solid ${th.cardBorder}`, padding: '0.4rem 0.8rem', fontSize: '0.75rem', marginTop: '0.4rem' }) }} onClick={addCustomEvidenceRow}>+ Add item</button>
+          </div>
+
+          <div style={{ marginBottom: '0.9rem' }}>
+            <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.4rem' }}>Photo / Video Evidence</div>
+            <input type="file" accept="image/*,video/*" multiple onChange={e => onAttachFiles(e.target.files)} />
+            {form.attachments.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
+                {form.attachments.map((a, i) => (
+                  <div key={i} style={{ position: 'relative' }}>
+                    {a.kind === 'image'
+                      ? <img src={a.previewUrl} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: `1px solid ${th.cardBorder}` }} />
+                      : <video src={a.previewUrl} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: `1px solid ${th.cardBorder}` }} />}
+                    <button type="button" onClick={() => removeAttachment(i)} style={{ position: 'absolute', top: -6, right: -6, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 999, width: 18, height: 18, fontSize: '0.65rem', cursor: 'pointer' }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginBottom: '0.9rem' }}>
+            <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.4rem' }}>Parties Involved / Witnesses / Contacts</div>
+            {form.people.map((p, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '0.4rem', marginBottom: '0.4rem' }}>
+                <input style={inp(th)} placeholder="Name" value={p.name} onChange={e => setPersonField(i, 'name', e.target.value)} />
+                <input style={inp(th)} placeholder="Role / relationship" value={p.role} onChange={e => setPersonField(i, 'role', e.target.value)} />
+                <input style={inp(th)} placeholder="Phone" value={p.phone} onChange={e => setPersonField(i, 'phone', e.target.value)} />
+                <input style={inp(th)} placeholder="Email" value={p.email} onChange={e => setPersonField(i, 'email', e.target.value)} />
+                <button type="button" onClick={() => removePersonRow(i)} style={{ ...btn(th, { background: 'transparent', color: '#ef4444', border: `1px solid ${th.cardBorder}`, padding: '0.4rem 0.6rem' }) }}>Remove</button>
+              </div>
+            ))}
+            <button type="button" style={{ ...btn(th, { background: 'transparent', color: th.muted, border: `1px solid ${th.cardBorder}`, padding: '0.4rem 0.8rem', fontSize: '0.75rem' }) }} onClick={addPersonRow}>+ Add person</button>
+          </div>
+
+          {error && <div style={{ color: '#ef4444', fontSize: '0.8rem', marginBottom: '0.6rem' }}>{error}</div>}
+          <button style={btn(th, submitting ? { opacity: 0.6 } : {})} disabled={submitting} onClick={submit}>{submitting ? 'Filing…' : 'File Report'}</button>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ color: th.muted, fontSize: '0.85rem' }}>Loading…</div>
+      ) : reports.length === 0 ? (
+        <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>No incident reports filed yet.</div>
+      ) : (
+        <div style={{ display: 'grid', gap: '0.6rem' }}>
+          {reports.map(r => (
+            <div key={r.id} style={{ ...card(th), padding: '0.9rem 1.1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700, color: th.text, fontSize: '0.9rem' }}>{r.storeName || 'Unknown store'} — {r.incidentDate || r.reportDate}{r.employeeName ? ` · ${r.employeeName}` : ''}</div>
+                <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.2rem' }}>Prepared by {r.preparedByName} · Filed {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}</div>
+              </div>
+              <button style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.8rem' })} onClick={() => exportIncidentReportPdf(r)}>Download PDF</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Business Expenses Tab (own-receipts submit + log; Task 4 adds admin section) ──
 const BIZ_EXPENSE_CATEGORIES = ['Gas', 'Food', 'Tools', 'Supplies', 'Repairs', 'Office', 'Other'];
 
@@ -20838,6 +21242,7 @@ const HUB_SUBITEMS = {
   ],
   'tools-hub': [
     { id: 'district-alignment', label: 'District Alignment' },
+    { id: 'incident-reports', label: 'Incident Reports' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -26844,6 +27249,7 @@ const computeRoleTabs = (user) => {
     { id: "impact",    label: "Impact Radar",   icon: (c) => ICONS.search(c) },
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",        icon: (c) => ICONS.audits(c) },
+    { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -26874,6 +27280,7 @@ const computeRoleTabs = (user) => {
     { id: "impact",    label: "Impact Radar", icon: (c) => ICONS.search(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
+    { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
@@ -26889,6 +27296,7 @@ const computeRoleTabs = (user) => {
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
+    { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
   ];
@@ -26906,6 +27314,7 @@ const computeRoleTabs = (user) => {
     { id: "finance",   label: "Finance",        icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",         icon: (c) => ICONS.audits(c) },
+    { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "projects",  label: "Projects",       icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline",  icon: (c) => ICONS.checkCircle(c) },
     { id: "ops-hub",   label: "Operations",     icon: (c) => ICONS.schedule(c), noPinToggle: true },
@@ -26926,6 +27335,7 @@ const computeRoleTabs = (user) => {
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
+    { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
   ];
   // Construction & Development → base + locations + projects (no analytics/pulse)
@@ -26936,6 +27346,7 @@ const computeRoleTabs = (user) => {
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
+    { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
   ];
   // Vendor → projects + chat
   if (ut === "vendor") return [
@@ -26944,6 +27355,7 @@ const computeRoleTabs = (user) => {
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
     { id: "chat",     label: "Chat",     icon: (c) => ICONS.chat(c) },
+    { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
   ];
   // Maintenance → full workspace (base tabs) + locations + projects.
   // Must include the base tabs (links/notes/todos/contacts/kb/announcements) — the shared
@@ -26955,6 +27367,7 @@ const computeRoleTabs = (user) => {
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "locations",  label: "Locations",  icon: (c) => ICONS.locations(c) },
     { id: "projects",   label: "Projects",   icon: (c) => ICONS.projects(c) },
+    { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
   ];
   return BASE_TABS;
 };
@@ -28269,7 +28682,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.12";
+const APP_VERSION = "v21.14";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -51361,6 +51774,7 @@ function PCGPortal() {
                 {tab === "network-complaints" && "Worst-tier guest complaints across the network this month — add internal comments."}
                 {tab === "email" && "Shared inbox and outbound email from the portal."}
                 {tab === "tickets"  && "Submit and track maintenance & service tickets."}
+                {tab === "incident-reports" && "File and review workplace incident reports."}
               </p>
             </div>
           </div>
@@ -51811,6 +52225,7 @@ function PCGPortal() {
             const TOOLS = '#2F6FA8';
             const toolsTiles = [
               { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'district-alignment'), icon: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></> },
+              { id: 'incident-reports', name: 'Incident Reports', sub: 'File and review Workplace Incident Reports — case info, witnesses, photo/video evidence, PDF export.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'incident-reports'), icon: <>{ICONS.incident(TOOLS)}</> },
             ].filter(t => t.show);
             return (
               <div>
@@ -51841,6 +52256,7 @@ function PCGPortal() {
           {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} setTab={setTab} deepLinkRef={ticketDeepLinkRef} />}
           {tab === "expenses" && <ExpensesTab user={user} th={th} stores={stores} />}
+          {tab === "incident-reports" && <IncidentReportsTab user={user} th={th} stores={stores} showAlert={showAlert} />}
           {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}
           {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
           </Guard>

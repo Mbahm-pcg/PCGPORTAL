@@ -90,6 +90,12 @@
 [functions.weather-forecast-cron]
   schedule = "0 12 * * *"
 
+# Employee Directory sync — daily 4am ET (08:00 UTC), ahead of Tips/Labor.
+# Pulls Name + Paycor ID + DOB + work email per store into employee_directory
+# — feeds the Incident Report's Subject Employee type-ahead.
+[functions.employee-directory-cron]
+  schedule = "0 8 * * *"
+
 # Email sync — disabled until env vars configured
 # [functions.email-sync-cron]
 #   schedule = "0 * * * *"

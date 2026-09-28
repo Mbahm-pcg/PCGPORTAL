@@ -461,11 +461,20 @@ export default async (request, context) => {
     // were off and this 403'd). Exec/IT gated: birthDate is HR-sensitive PII,
     // same bar as other user/audit info per Orion's access-control rules.
     if (action === 'identifyingData') {
-      const sqlClient = db();
-      const authEvent = { headers: Object.fromEntries(request.headers.entries()) };
-      const authedUser = await requireActiveUser(authEvent, sqlClient);
-      if (!authedUser || (authedUser.userType !== 'executive' && authedUser.userType !== 'it')) {
-        return new Response(JSON.stringify({ error: 'Exec/IT session required.' }), { status: 403, headers });
+      // Only enforce exec/IT when a session credential is actually present —
+      // a cron's server-to-server call carries no Authorization/cookie at
+      // all (same as this file's employees/punches actions, which have no
+      // auth check whatsoever), so requiring one here would 403 every
+      // legitimate cron call. A browser call, which always carries SOME
+      // session state when logged in, still gets the exec/IT gate.
+      const rawCred = request.headers.get('authorization') || request.headers.get('cookie') || '';
+      if (rawCred) {
+        const sqlClient = db();
+        const authEvent = { headers: Object.fromEntries(request.headers.entries()) };
+        const authedUser = await requireActiveUser(authEvent, sqlClient);
+        if (!authedUser || (authedUser.userType !== 'executive' && authedUser.userType !== 'it')) {
+          return new Response(JSON.stringify({ error: 'Exec/IT session required.' }), { status: 403, headers });
+        }
       }
       const { legalEntityId, continuationToken } = payload;
       if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
