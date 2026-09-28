@@ -16981,7 +16981,7 @@ ${t2.slice(0, 300)}`);
       <div style="font-size:15px;font-weight:800;margin-top:6px;">WORKPLACE INCIDENT REPORT</div>
     </div>
     <h3 style="font-size:12px;margin:10px 0 6px;">Case Information</h3>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;">${rowsHtml([
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
       ["Report Date", report.reportDate || ""],
       ["Report Prepared By", report.preparedByName || ""],
       ["Incident Date", report.incidentDate || ""],
@@ -16994,7 +16994,7 @@ ${t2.slice(0, 300)}`);
       ["Video Evidence", videos.length ? `Yes \u2014 see ${videos.map((v) => v.name).join(", ")}` : "No"]
     ])}</table>
     <h3 style="font-size:12px;margin:10px 0 6px;">Subject Employee</h3>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;">${rowsHtml([
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
       ["Employee Name", `${report.employeeName || ""}${report.employeeDob ? ", DOB: " + report.employeeDob : ""}`],
       ["Status", report.employeeStatus || ""],
       ["Address", report.employeeAddress || ""],
@@ -23171,7 +23171,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.16";
+  var APP_VERSION = "v21.17";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

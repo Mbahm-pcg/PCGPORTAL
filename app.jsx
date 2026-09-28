@@ -19992,7 +19992,7 @@ async function exportIncidentReportPdf(report) {
       <div style="font-size:15px;font-weight:800;margin-top:6px;">WORKPLACE INCIDENT REPORT</div>
     </div>
     <h3 style="font-size:12px;margin:10px 0 6px;">Case Information</h3>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;">${rowsHtml([
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
       ['Report Date', report.reportDate || ''],
       ['Report Prepared By', report.preparedByName || ''],
       ['Incident Date', report.incidentDate || ''],
@@ -20005,7 +20005,7 @@ async function exportIncidentReportPdf(report) {
       ['Video Evidence', videos.length ? `Yes — see ${videos.map(v => v.name).join(', ')}` : 'No'],
     ])}</table>
     <h3 style="font-size:12px;margin:10px 0 6px;">Subject Employee</h3>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;">${rowsHtml([
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
       ['Employee Name', `${report.employeeName || ''}${report.employeeDob ? ', DOB: ' + report.employeeDob : ''}`],
       ['Status', report.employeeStatus || ''],
       ['Address', report.employeeAddress || ''],
@@ -28714,7 +28714,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.16";
+const APP_VERSION = "v21.17";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
