@@ -20074,7 +20074,14 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
   };
 
   const pickEmployeeMatch = (m) => {
-    setForm(f => ({ ...f, employeeName: `${m.firstName} ${m.lastName}`.trim(), employeeDob: m.birthDate || f.employeeDob, employeeEmail: m.email || f.employeeEmail }));
+    // Paycor's birthDate comes back as a full timestamp ("2000-03-08T00:00:00"),
+    // but <input type="date"> only accepts a bare "yyyy-MM-dd" — silently
+    // rejects anything else (blank field, no error, just a console warning).
+    const dob = m.birthDate ? String(m.birthDate).slice(0, 10) : '';
+    setForm(f => ({
+      ...f, employeeName: `${m.firstName} ${m.lastName}`.trim(), employeeDob: dob || f.employeeDob,
+      employeeEmail: m.email || f.employeeEmail, employeeStatus: m.status || f.employeeStatus,
+    }));
     setEmployeeSearchOpen(false);
     setEmployeeMatches([]);
   };
@@ -28707,7 +28714,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.15";
+const APP_VERSION = "v21.16";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

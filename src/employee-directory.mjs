@@ -4,10 +4,19 @@
 // same sync run, so Paycor's GUID lines up directly between them — no
 // name-based fallback matching needed here) into upsert-ready rows.
 
+// Paycor's birthDate comes back as a full timestamp ("2000-03-08T00:00:00"),
+// not a bare date — normalize to "yyyy-MM-dd" at the source so every
+// consumer (the search endpoint, the frontend's <input type="date">, the
+// PDF export) gets a clean date and never has to re-derive this.
+function normalizeDate(value) {
+  if (!value) return null;
+  return String(value).slice(0, 10);
+}
+
 export function buildDirectoryRows(employeesPage, identifyingDataPage, storePc, legalEntityId) {
   const dobById = new Map();
   for (const r of (identifyingDataPage || [])) {
-    if (r && r.employeeId) dobById.set(r.employeeId, r.birthDate || null);
+    if (r && r.employeeId) dobById.set(r.employeeId, normalizeDate(r.birthDate));
   }
   return (employeesPage || [])
     .filter(e => e && e.id)

@@ -17069,7 +17069,14 @@ ${t2.slice(0, 300)}`);
       }, 300);
     };
     const pickEmployeeMatch = (m) => {
-      setForm((f) => ({ ...f, employeeName: `${m.firstName} ${m.lastName}`.trim(), employeeDob: m.birthDate || f.employeeDob, employeeEmail: m.email || f.employeeEmail }));
+      const dob = m.birthDate ? String(m.birthDate).slice(0, 10) : "";
+      setForm((f) => ({
+        ...f,
+        employeeName: `${m.firstName} ${m.lastName}`.trim(),
+        employeeDob: dob || f.employeeDob,
+        employeeEmail: m.email || f.employeeEmail,
+        employeeStatus: m.status || f.employeeStatus
+      }));
       setEmployeeSearchOpen(false);
       setEmployeeMatches([]);
     };
@@ -23164,7 +23171,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.15";
+  var APP_VERSION = "v21.16";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

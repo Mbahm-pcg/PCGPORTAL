@@ -33,6 +33,11 @@ test('buildDirectoryRows: missing email/statusData shape degrades to null, never
   assert.equal(rows[0].status, null);
 });
 
+test('buildDirectoryRows: a full-timestamp birthDate from Paycor is normalized to a bare yyyy-MM-dd date', () => {
+  const rows = buildDirectoryRows([EMP()], [{ employeeId: 'guid-1', birthDate: '2000-03-08T00:00:00' }], '337839', '193888');
+  assert.equal(rows[0].birthDate, '2000-03-08');
+});
+
 test('buildDirectoryRows: empty employees page returns empty array', () => {
   assert.deepEqual(buildDirectoryRows([], [{ employeeId: 'guid-1', birthDate: '1990-01-01' }], '337839', '193888'), []);
 });
