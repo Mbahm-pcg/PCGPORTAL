@@ -17112,10 +17112,20 @@ ${t2.slice(0, 300)}`);
     React.useEffect(() => {
       loadReports();
     }, [loadReports]);
+    const [storeQuery, setStoreQuery] = React.useState("");
+    const [storeSearchOpen, setStoreSearchOpen] = React.useState(false);
+    const storeMatches = React.useMemo(() => {
+      const q = storeQuery.trim().toLowerCase();
+      const all = stores || [];
+      if (!q) return all;
+      return all.filter((s) => s.name.toLowerCase().includes(q) || String(s.pc).includes(q));
+    }, [stores, storeQuery]);
     const onPickStore = (pc) => {
       const store = (stores || []).find((s) => String(s.pc) === String(pc));
       const auto = autofillFromStore(store);
       setForm((f) => ({ ...f, ...auto }));
+      setStoreQuery(store?.name || "");
+      setStoreSearchOpen(false);
     };
     const setPersonField = (idx, field, value) => {
       setForm((f) => {
@@ -17146,7 +17156,10 @@ ${t2.slice(0, 300)}`);
       setForm((f) => ({ ...f, attachments: [...f.attachments, ...next] }));
     };
     const removeAttachment = (idx) => setForm((f) => ({ ...f, attachments: f.attachments.filter((_, i) => i !== idx) }));
-    const resetForm = () => setForm({ ...EMPTY_FORM, incidentDate: todayISO(), incidentTime: nowTimeLabel() });
+    const resetForm = () => {
+      setForm({ ...EMPTY_FORM, incidentDate: todayISO(), incidentTime: nowTimeLabel() });
+      setStoreQuery("");
+    };
     const submit = async () => {
       setError("");
       if (!form.storePC) {
@@ -17211,7 +17224,30 @@ ${t2.slice(0, 300)}`);
       }
       setSubmitting(false);
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: sectionTitle(th) }, isReviewer ? "All Incident Reports" : "My Incident Reports"), /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: () => setShowForm((s) => !s) }, showForm ? "Cancel" : "+ New Report")), showForm && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...pill("#0ea5e9"), marginBottom: "0.75rem" } }, "Report Prepared By: ", user?.name || "Unknown", " \xB7 ", todayISO()), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Location (store)"), /* @__PURE__ */ React.createElement("select", { style: inp(th), value: form.storePC, onChange: (e) => onPickStore(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), (stores || []).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Operating Entity"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.operatingEntity, onChange: (e) => setForm((f) => ({ ...f, operatingEntity: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.incidentDate, onChange: (e) => setForm((f) => ({ ...f, incidentDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Time (approx.)"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.incidentTime, onChange: (e) => setForm((f) => ({ ...f, incidentTime: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Type"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. Worker's Compensation / employee injury", value: form.incidentType, onChange: (e) => setForm((f) => ({ ...f, incidentType: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Reported Injury"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.reportedInjury, onChange: (e) => setForm((f) => ({ ...f, reportedInjury: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "W/C Claim"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. Travelers, WC Claim # EDY7201", value: form.wcClaim, onChange: (e) => setForm((f) => ({ ...f, wcClaim: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem", fontWeight: 700 } }, "Subject Employee"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.75rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Employee Name"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: sectionTitle(th) }, isReviewer ? "All Incident Reports" : "My Incident Reports"), /* @__PURE__ */ React.createElement("button", { style: btn(th), onClick: () => setShowForm((s) => !s) }, showForm ? "Cancel" : "+ New Report")), showForm && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...pill("#0ea5e9"), marginBottom: "0.75rem" } }, "Report Prepared By: ", user?.name || "Unknown", " \xB7 ", todayISO()), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Location (store)"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: inp(th),
+        value: storeQuery,
+        onChange: (e) => {
+          setStoreQuery(e.target.value);
+          setStoreSearchOpen(true);
+        },
+        onFocus: () => setStoreSearchOpen(true),
+        onBlur: () => setTimeout(() => setStoreSearchOpen(false), 150),
+        placeholder: "Start typing a store name\u2026"
+      }
+    ), storeSearchOpen && storeMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "100%", left: 0, right: 0, zIndex: 6, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, marginTop: "0.2rem", maxHeight: "12rem", overflowY: "auto" } }, storeMatches.map((s) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: s.pc,
+        onMouseDown: () => onPickStore(s.pc),
+        style: { padding: "0.5rem 0.7rem", cursor: "pointer", fontSize: "0.82rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}` }
+      },
+      s.name,
+      " ",
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 PC#", s.pc)
+    )))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Operating Entity"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.operatingEntity, onChange: (e) => setForm((f) => ({ ...f, operatingEntity: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.incidentDate, onChange: (e) => setForm((f) => ({ ...f, incidentDate: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Time (approx.)"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.incidentTime, onChange: (e) => setForm((f) => ({ ...f, incidentTime: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Type"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. Worker's Compensation / employee injury", value: form.incidentType, onChange: (e) => setForm((f) => ({ ...f, incidentType: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Reported Injury"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.reportedInjury, onChange: (e) => setForm((f) => ({ ...f, reportedInjury: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "W/C Claim"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. Travelers, WC Claim # EDY7201", value: form.wcClaim, onChange: (e) => setForm((f) => ({ ...f, wcClaim: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem", fontWeight: 700 } }, "Subject Employee"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.75rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Employee Name"), /* @__PURE__ */ React.createElement(
       "input",
       {
         style: inp(th),
@@ -23128,7 +23164,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.14";
+  var APP_VERSION = "v21.15";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

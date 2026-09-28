@@ -20107,10 +20107,21 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
   }, []);
   React.useEffect(() => { loadReports(); }, [loadReports]);
 
+  const [storeQuery, setStoreQuery] = React.useState('');
+  const [storeSearchOpen, setStoreSearchOpen] = React.useState(false);
+  const storeMatches = React.useMemo(() => {
+    const q = storeQuery.trim().toLowerCase();
+    const all = stores || [];
+    if (!q) return all;
+    return all.filter(s => s.name.toLowerCase().includes(q) || String(s.pc).includes(q));
+  }, [stores, storeQuery]);
+
   const onPickStore = (pc) => {
     const store = (stores || []).find(s => String(s.pc) === String(pc));
     const auto = autofillFromStore(store);
     setForm(f => ({ ...f, ...auto }));
+    setStoreQuery(store?.name || '');
+    setStoreSearchOpen(false);
   };
 
   const setPersonField = (idx, field, value) => {
@@ -20144,7 +20155,7 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
   };
   const removeAttachment = (idx) => setForm(f => ({ ...f, attachments: f.attachments.filter((_, i) => i !== idx) }));
 
-  const resetForm = () => setForm({ ...EMPTY_FORM, incidentDate: todayISO(), incidentTime: nowTimeLabel() });
+  const resetForm = () => { setForm({ ...EMPTY_FORM, incidentDate: todayISO(), incidentTime: nowTimeLabel() }); setStoreQuery(''); };
 
   const submit = async () => {
     setError('');
@@ -20203,12 +20214,26 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
           <div style={{ ...pill('#0ea5e9'), marginBottom: '0.75rem' }}>Report Prepared By: {user?.name || 'Unknown'} · {todayISO()}</div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', marginBottom: '0.75rem' }}>
-            <div>
+            <div style={{ position: 'relative' }}>
               <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Location (store)</label>
-              <select style={inp(th)} value={form.storePC} onChange={e => onPickStore(e.target.value)}>
-                <option value="">Select a store…</option>
-                {(stores || []).map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
-              </select>
+              <input
+                style={inp(th)}
+                value={storeQuery}
+                onChange={e => { setStoreQuery(e.target.value); setStoreSearchOpen(true); }}
+                onFocus={() => setStoreSearchOpen(true)}
+                onBlur={() => setTimeout(() => setStoreSearchOpen(false), 150)}
+                placeholder="Start typing a store name…"
+              />
+              {storeSearchOpen && storeMatches.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 6, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, marginTop: '0.2rem', maxHeight: '12rem', overflowY: 'auto' }}>
+                  {storeMatches.map(s => (
+                    <div key={s.pc} onMouseDown={() => onPickStore(s.pc)}
+                      style={{ padding: '0.5rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}` }}>
+                      {s.name} <span style={{ color: th.muted }}>· PC#{s.pc}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label style={{ fontSize: '0.75rem', color: th.muted }}>Operating Entity</label>
@@ -28682,7 +28707,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.14";
+const APP_VERSION = "v21.15";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
