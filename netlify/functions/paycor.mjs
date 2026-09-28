@@ -433,64 +433,6 @@ export default async (request, context) => {
       return new Response(JSON.stringify({ url }), { status: 200, headers });
     }
 
-    // ── TEMPORARY, exec/IT-gated: adopt a freshly re-issued PAYCOR_REFRESH_TOKEN
-    // env var (obtained by redoing Paycor's activation flow after enabling the
-    // "Identifying Data"/"SSN and BirthDate" scopes) as the live token lineage.
-    // The normal refresh path (getAccessToken) ALWAYS prefers the shared blob
-    // cache's refreshToken over the env var — it's continuously rotated by
-    // ordinary Labor/Pulse/Tips traffic and only ever seeded from the env var
-    // on a cold start with an empty cache — so just updating the env var and
-    // redeploying does nothing on its own. This action calls Paycor directly
-    // with the NEW env-var token (bypassing the shared cache entirely), and
-    // only on success does it back up the old cache and switch the live
-    // lineage over. On any failure the shared cache is left completely
-    // untouched — zero impact on live Labor/Pulse/Tips traffic. Remove this
-    // action once the cutover is confirmed done (one-time operation).
-    if (action === 'adoptNewRefreshToken') {
-      const sqlClient = db();
-      const authEvent = { headers: Object.fromEntries(request.headers.entries()) };
-      const authedUser = await requireActiveUser(authEvent, sqlClient);
-      if (!authedUser || (authedUser.userType !== 'executive' && authedUser.userType !== 'it')) {
-        return new Response(JSON.stringify({ error: 'Exec/IT session required.' }), { status: 403, headers });
-      }
-      const clientId = process.env.PAYCOR_CLIENT_ID;
-      const clientSecret = process.env.PAYCOR_CLIENT_SECRET;
-      const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
-      const envRefreshToken = process.env.PAYCOR_REFRESH_TOKEN;
-      if (!clientId || !clientSecret || !subscriptionKey || !envRefreshToken) {
-        return new Response(JSON.stringify({ error: 'Missing Paycor env credentials' }), { status: 500, headers });
-      }
-
-      const fresh = await refreshTokenFromPaycor(clientId, clientSecret, subscriptionKey, envRefreshToken);
-      if (!fresh) {
-        return new Response(JSON.stringify({ ok: false, step: 'refresh', error: 'Paycor rejected the new refresh token — old lineage left untouched.' }), { status: 200, headers });
-      }
-
-      // Only NOW touch the shared cache — the new lineage is confirmed valid.
-      const previous = await readSharedTokenCache();
-      const backupKey = `${TOKEN_CACHE_KEY}_backup_preidentifying_${Date.now()}`;
-      if (previous) {
-        try { await getTokenBlobStore().setJSON(backupKey, previous); } catch (e) { console.warn('[paycor] backup write failed (continuing anyway):', e.message); }
-      }
-      tokenCache = fresh;
-      await writeSharedTokenCache(fresh);
-
-      // Confirm the new lineage actually carries the new scope before declaring victory.
-      let scopeConfirmed = false;
-      let scopeCheckError;
-      try {
-        const testRes = await callPaycor(`/legalentities/193888/employeesIdentifyingData`, 'GET', null, 'v2');
-        const records = (testRes.data?.records || []).map(r => ({ employeeId: r.employeeId, birthDate: r.birthDate || null }));
-        scopeConfirmed = testRes.status === 200 && records.length > 0 && !!records[0].birthDate;
-        if (testRes.status !== 200) scopeCheckError = `identifyingData returned ${testRes.status}`;
-      } catch (e) { scopeCheckError = e.message; }
-
-      return new Response(JSON.stringify({
-        ok: true, step: 'adopted', backedUpPreviousLineage: !!previous, backupKey: previous ? backupKey : null,
-        scopeConfirmed, scopeCheckError,
-      }), { status: 200, headers });
-    }
-
     // ── Proxy: list legal entities for a tenant ──
     if (action === 'legalEntities') {
       const { tenantId } = payload;
