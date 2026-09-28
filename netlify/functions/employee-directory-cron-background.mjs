@@ -1,7 +1,16 @@
-// employee-directory-cron.mjs — daily sync of Name + Paycor ID + DOB + work
-// email into the employee_directory table, per store. Feeds the Incident
-// Report's Subject Employee type-ahead (employee-directory.mjs's search
-// action). Read-only from Paycor's side — this never writes back.
+// employee-directory-cron-background.mjs — daily sync of Name + Paycor ID +
+// DOB + work email into the employee_directory table, per store. Feeds the
+// Incident Report's Subject Employee type-ahead (employee-directory.mjs's
+// search action). Read-only from Paycor's side — this never writes back.
+//
+// Named "-background" (not just "employee-directory-cron.mjs") after a real
+// manually-triggered run hit a hard 60000ms timeout partway through 45+
+// stores × 2 Paycor calls each — confirmed 2026-09-28 via Netlify's own
+// function log showing a suspiciously round Duration: 60000 ms. Same fix
+// tips-report-cron-background.mjs already needed for the identical shape of
+// problem (many stores × Paycor calls routinely exceeds the standard
+// timeout) — the "-background" filename suffix is what grants the 15-minute
+// execution budget.
 import { neon } from '@neondatabase/serverless';
 import { STORES } from './labor-cron.mjs';
 import { fetchAllEmployees, fetchAllIdentifyingData } from './tips-report-cron-background.mjs';
@@ -62,11 +71,11 @@ export default async () => {
       await upsertRows(rows);
       results.push({ store: store.pc, count: rows.length, ok: true });
     } catch (e) {
-      console.warn('[employee-directory-cron] store failed:', store.pc, e.message);
+      console.warn('[employee-directory-cron-background] store failed:', store.pc, e.message);
       results.push({ store: store.pc, ok: false, error: e.message });
     }
   }
   const ok = results.filter(r => r.ok).length;
-  console.log(`[employee-directory-cron] synced ${ok}/${STORES.length} stores`);
+  console.log(`[employee-directory-cron-background] synced ${ok}/${STORES.length} stores`);
   return new Response(JSON.stringify({ ok: true, results }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 };

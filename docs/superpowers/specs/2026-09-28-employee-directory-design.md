@@ -127,6 +127,16 @@ name with no match behaves exactly as today (free text, no autofill) — the
 directory catches up automatically on its next daily sync if it's a
 genuinely new hire.
 
+## Addendum, 2026-09-28 — renamed to `employee-directory-cron-background.mjs`
+
+A real manually-triggered run hit a flat 60000ms timeout partway through
+45+ stores × 2 Paycor calls each (confirmed via Netlify's function log — a
+suspiciously round `Duration: 60000 ms`). Same problem class
+`tips-report-cron-background.mjs` already exists to solve; fixed the same
+way — renamed the function file to end in `-background`, which is what
+grants Netlify's 15-minute execution budget. `netlify.toml`'s function key
+and the schedule are otherwise unchanged.
+
 ## Testing
 
 - Pure merge/shape logic (combining an `employees` page and an

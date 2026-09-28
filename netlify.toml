@@ -92,8 +92,10 @@
 
 # Employee Directory sync — daily 4am ET (08:00 UTC), ahead of Tips/Labor.
 # Pulls Name + Paycor ID + DOB + work email per store into employee_directory
-# — feeds the Incident Report's Subject Employee type-ahead.
-[functions.employee-directory-cron]
+# — feeds the Incident Report's Subject Employee type-ahead. Named
+# "-background" (15-min timeout) after a real manual trigger hit a flat
+# 60000ms timeout partway through 45+ stores × 2 Paycor calls each.
+[functions.employee-directory-cron-background]
   schedule = "0 8 * * *"
 
 # Email sync — disabled until env vars configured
