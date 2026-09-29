@@ -499,7 +499,7 @@ function selfTestShareMath() {
   }
 }
 
-async function buildPeriodStoreResults(endDateStr, days) {
+export async function buildPeriodStoreResults(endDateStr, days) {
   selfTestShareMath();
   const dates = dateRangeEndingAt(endDateStr, days);
   const snapshots = await Promise.all(dates.map(loadDaySnapshot));
