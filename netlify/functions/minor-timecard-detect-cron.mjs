@@ -71,26 +71,31 @@ async function blobSave(key, data) { await getBlobStore().setJSON(key, { savedAt
 // Only ever extracts employeeId + birthDate. See file header.
 function mapIdentifyingRecord(rec) { return { employeeId: rec.employeeId, birthDate: rec.birthDate || null }; }
 
+// Non-200/thrown failures are logged, not silently swallowed — confirmed
+// necessary the hard way (2026-07-21, the original break-compliance-cron.mjs):
+// a Paycor call failing this way is otherwise indistinguishable from "this
+// store genuinely has no minors," which for a legal-compliance detector means
+// silently reporting "all fine" while never actually checking anything.
 async function fetchIdentifyingData(legalEntityId) {
   try {
     let all = [], path = `/v2/legalentities/${legalEntityId}/employeesIdentifyingData`;
     while (path) {
       const res = await callPaycor(path);
-      if (res.status !== 200) break;
+      if (res.status !== 200) { console.error(`[minor-timecard-detect] identifyingData ${legalEntityId} failed: HTTP ${res.status}`); break; }
       all = all.concat((res.data?.records || []).map(mapIdentifyingRecord));
       const token = res.data?.continuationToken;
       path = token ? `/v2/legalentities/${legalEntityId}/employeesIdentifyingData?continuationToken=${encodeURIComponent(token)}` : null;
     }
     return all;
-  } catch { return []; }
+  } catch (err) { console.error(`[minor-timecard-detect] identifyingData ${legalEntityId} error:`, err.message); return []; }
 }
 
 async function fetchActiveEmployees(legalEntityId) {
   try {
-    const res = await callPaycor(`/legalentities/${legalEntityId}/employees?include=All`);
-    if (res.status !== 200) return [];
+    const res = await callPaycor(`/v1/legalentities/${legalEntityId}/employees?include=All`);
+    if (res.status !== 200) { console.error(`[minor-timecard-detect] employees ${legalEntityId} failed: HTTP ${res.status}`); return []; }
     return (res.data?.records || []).filter(e => e.statusData?.status === 'Active').map(e => ({ employeeId: e.id, name: `${e.firstName || ''} ${e.lastName || ''}`.trim() }));
-  } catch { return []; }
+  } catch (err) { console.error(`[minor-timecard-detect] employees ${legalEntityId} error:`, err.message); return []; }
 }
 
 async function getMinorRoster(store, cache) {
@@ -111,16 +116,16 @@ async function getMinorRoster(store, cache) {
 // at every store.
 async function fetchWeekPunches(employeeId, weekStart, weekEnd) {
   try {
-    const res = await callPaycor(`/employees/${employeeId}/employeePunches?startDate=${weekStart}&endDate=${weekEnd}`);
-    if (res.status !== 200) return [];
+    const res = await callPaycor(`/v1/employees/${employeeId}/employeePunches?startDate=${weekStart}&endDate=${weekEnd}`);
+    if (res.status !== 200) { console.error(`[minor-timecard-detect] employeePunches ${employeeId} failed: HTTP ${res.status}`); return []; }
     const punches = res.data?.records || res.data || [];
     return Array.isArray(punches) ? punches : [];
-  } catch { return []; }
+  } catch (err) { console.error(`[minor-timecard-detect] employeePunches ${employeeId} error:`, err.message); return []; }
 }
 
 function sendEmail(to, subject, html) {
   return new Promise((resolve) => {
-    const body = JSON.stringify({ from: 'PCG Portal <alerts@peoplecapitalgroup.com>', to: Array.isArray(to) ? to : [to], subject, html });
+    const body = JSON.stringify({ from: process.env.NOTIFY_FROM || 'PCG Portal <alerts@peoplecapitalgroup.com>', to: Array.isArray(to) ? to : [to], subject, html });
     const req = https.request({ hostname: 'api.resend.com', port: 443, path: '/emails', method: 'POST', headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, res => { res.resume(); resolve(res.statusCode); });
     req.on('error', () => resolve(0));
     req.write(body); req.end();
