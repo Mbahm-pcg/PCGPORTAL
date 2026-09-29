@@ -15,9 +15,9 @@ export function ageFromBirthDate(birthDate, asOfDate = new Date()) {
   if (!birthDate) return null;
   const dob = new Date(birthDate);
   if (isNaN(dob)) return null;
-  let age = asOfDate.getFullYear() - dob.getFullYear();
-  const beforeBirthdayThisYear = (asOfDate.getMonth() < dob.getMonth())
-    || (asOfDate.getMonth() === dob.getMonth() && asOfDate.getDate() < dob.getDate());
+  let age = asOfDate.getUTCFullYear() - dob.getUTCFullYear();
+  const beforeBirthdayThisYear = (asOfDate.getUTCMonth() < dob.getUTCMonth())
+    || (asOfDate.getUTCMonth() === dob.getUTCMonth() && asOfDate.getUTCDate() < dob.getUTCDate());
   if (beforeBirthdayThisYear) age--;
   return age;
 }
@@ -54,7 +54,10 @@ export function groupPunchesByDate(punches) {
   for (const p of (punches || [])) {
     const t = punchTime(p);
     if (!t) continue;
-    const dateStr = String(t).slice(0, 10);
+    // Normalize punch time to ISO date string: handles both string and Date instances.
+    const d = new Date(t);
+    if (isNaN(d)) continue;
+    const dateStr = toISODate(d);
     if (!grouped[dateStr]) grouped[dateStr] = [];
     grouped[dateStr].push(p);
   }

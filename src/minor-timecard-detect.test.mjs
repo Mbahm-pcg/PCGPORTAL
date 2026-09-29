@@ -40,6 +40,17 @@ test('groupPunchesByDate: buckets by America/New_York calendar date', () => {
   assert.equal(grouped['2026-09-21'], undefined);
 });
 
+test('groupPunchesByDate: handles both string and Date instance punch times', () => {
+  const punches = [
+    { punchDateTime: '2026-09-19T06:00:00' },
+    { punchDateTime: new Date('2026-09-19T11:24:00Z') },
+    { punchDateTime: new Date('2026-09-20T07:00:00Z') },
+  ];
+  const grouped = groupPunchesByDate(punches);
+  assert.equal(grouped['2026-09-19'].length, 2);
+  assert.equal(grouped['2026-09-20'].length, 1);
+});
+
 test('analyzeDayForViolation: no break at all over 5h is a violation', () => {
   const result = analyzeDayForViolation([
     { punchDateTime: '2026-09-19T06:00:00' },
