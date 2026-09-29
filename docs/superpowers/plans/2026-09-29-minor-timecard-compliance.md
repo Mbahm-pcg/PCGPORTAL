@@ -20,7 +20,7 @@
 - **Shadow-mode testing, before this ever reaches real managers:** matching the established `NO_CLOCKIN_SHADOW_USER` pattern already used by `no-clockin-cron.mjs` (see `no-clockin-lib/run.mjs`), a new env var `MINOR_TIMECARD_SHADOW_EMAIL` redirects every email this feature sends to that one address instead of the real manager/DM/office-staff recipients, with the subject prefixed `[TEST]` and the email body annotated with who it would really have gone to. When the env var is unset, everything behaves normally (real recipients). This lets Ahmed test the whole real pipeline — real Paycor data, real violation detection, real escalation timing — against his own inbox before it ever reaches a real manager. Both crons (Tasks 4 and 5) implement this the same way.
 - **Blob storage, not Neon Postgres** — this data doesn't need relational queries; matches the pattern the original (reverted) `break-compliance-cron.mjs` already used successfully.
 - **Version bump:** bump `APP_VERSION` in `app.jsx` once, in the final UI task (Task 7) — this is the only task that touches user-visible frontend code.
-- **`STORES` comes from the existing export**, not a new duplicate array: `import { STORES } from '../tips-report-cron-background.mjs';` (see `tips-reconcile-cron.mjs` for the precedent — it already imports `STORES` this same way).
+- **`STORES` comes from the existing export**, not a new duplicate array: `import { STORES } from './tips-report-cron-background.mjs';` (both files live in `netlify/functions/`, so the path is `./`, not `../` — see `tips-reconcile-cron.mjs` for the precedent, which already imports `STORES` this same way).
 
 ---
 
@@ -725,7 +725,7 @@ git commit -m "feat(minor-timecard): add email subject/content builders"
 // `birthDate` from that response. See memory: project_paycor_identifying_data_scope.
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
-import { STORES } from '../tips-report-cron-background.mjs';
+import { STORES } from './tips-report-cron-background.mjs';
 import { weekRangeEndingYesterday, groupPunchesByDate, analyzeDayForViolation, ageFromBirthDate, isMinor } from '../../src/minor-timecard-detect.mjs';
 import { buildIssueRecord, resolveNotificationRecipients } from '../../src/minor-timecard-lifecycle.mjs';
 import { buildEmailSubject, buildDigestEmailHtml } from '../../src/minor-timecard-email.mjs';
@@ -971,7 +971,7 @@ git commit -m "feat(minor-timecard): add Sunday detection cron"
 - Modify: `netlify.toml` (add the schedule entry)
 
 **Interfaces:**
-- Consumes: `analyzeDayForViolation` (Task 1 — note: `groupPunchesByDate` is NOT needed here, unlike Task 4; this cron fetches exactly one day's punches per issue via `fetchDayPunches`, so the result is already a single day's punch array with nothing to group); `shouldEscalateToday`, `execBackstopDue`, `resolveNotificationRecipients`, `applyResolutionCheck` (Task 2); `buildEmailSubject`, `buildDigestEmailHtml` (Task 3); `STORES` (existing export); reuses the same Paycor-OAuth/blob-helper code pattern as Task 4 (duplicated in this file, consistent with how `tips-report-refresh-background.mjs` and `tips-report-cron-background.mjs` each keep their own copy rather than sharing a module across scheduled functions in this codebase).
+- Consumes: `analyzeDayForViolation` (Task 1 — note: `groupPunchesByDate` is NOT needed here, unlike Task 4; this cron fetches exactly one day's punches per issue via `fetchDayPunches`, so the result is already a single day's punch array with nothing to group); `shouldEscalateToday`, `execBackstopDue`, `resolveNotificationRecipients`, `applyResolutionCheck` (Task 2); `buildEmailSubject`, `buildDigestEmailHtml` (Task 3). Note: unlike Task 4, this cron does NOT import `STORES` — it operates on the existing issues array (each issue already carries its own `pc`/`storeName`/`district`), never needing to enumerate all 46 stores itself. Reuses the same Paycor-OAuth/blob-helper code pattern as Task 4 (duplicated in this file, consistent with how `tips-report-refresh-background.mjs` and `tips-report-cron-background.mjs` each keep their own copy rather than sharing a module across scheduled functions in this codebase).
 - Produces: updates `pcg_minor_timecard_issues_v1` (read by Task 7's UI).
 
 - [ ] **Step 1: Write the implementation**
