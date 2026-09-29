@@ -26,7 +26,7 @@ export default async (request) => {
     if (body?.pc) pc = String(body.pc);
   } catch { /* GET-style call with no body is fine — use the default */ }
 
-  const { storeResults, missingDates } = await buildPeriodStoreResults(PERIOD_END, PERIOD_DAYS);
+  const { storeResults, missingDates, zeroEligibleDays, pulseGapDays, crewErrorDays } = await buildPeriodStoreResults(PERIOD_END, PERIOD_DAYS);
   const store = storeResults.find(s => String(s.pc) === pc);
   if (!store) return new Response(JSON.stringify({ error: `No results for pc ${pc}` }), { status: 404, headers: { 'Content-Type': 'application/json' } });
 
@@ -34,8 +34,13 @@ export default async (request) => {
     .map(c => ({ name: c.name, hours: Number(c.hours.toFixed(4)), share: Number(c.share.toFixed(2)) }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const forThisStore = (list) => (list || []).filter(x => String(x.pc) === pc);
+
   return new Response(JSON.stringify({
     ok: true, store: store.name, pc: store.pc, status: store.status, crewStatus: store.crewStatus,
-    tipPool: Number(store.tipPool.toFixed(2)), missingDates, crew,
+    tipPool: Number(store.tipPool.toFixed(2)), zeroEligiblePool: store.zeroEligiblePool, missingDates, crew,
+    zeroEligibleDays: forThisStore(zeroEligibleDays),
+    pulseGapDays: forThisStore(pulseGapDays),
+    crewErrorDays: forThisStore(crewErrorDays),
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 };
