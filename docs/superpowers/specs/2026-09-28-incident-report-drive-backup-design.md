@@ -129,6 +129,38 @@ the report is already safely and durably stored), the client:
    a UI error for the person filing the report, who has already succeeded
    at their actual task.
 
+## Addendum, 2026-09-29 — target is a regular folder, not a genuine Shared Drive
+
+First real test failed immediately: `"Shared drive not found:
+1A2aYyLns90Qv1LqgxZ8HQhxUW9epiP5r"`. Turns out the ID Ahmed provided is a
+regular "My Drive" folder ("Reports") owned by his own Google account,
+shared with **Editor** access to the service account — not a genuine
+Shared Drive (Drive's own UI clearly separates "My Drive" from "Shared
+drives" in the left sidebar; Shared Drives grant "Content Manager," not
+"Editor"). This is the second option from the original clarifying
+question ("a personal account's folder, shared as Editor"), not the first
+("Shared Drive") that was originally selected — a mismatch between the
+plan and what actually got set up, not a mistake on anyone's part; the
+terminology is easy to conflate.
+
+Fix: `corpora:'drive'` + `driveId` are Shared-Drive-only query parameters
+that make Google's API validate the ID against real Shared Drive
+resources and reject anything else. Removed both from
+`buildFolderFindQuery`; kept `supportsAllDrives:true` (harmless outside a
+Shared Drive context, so no downside to leaving it in case this ever does
+move to a real Shared Drive later). Renamed `SHARED_DRIVE_ID` →
+`DRIVE_FOLDER_ID` throughout for accuracy.
+
+**Still open:** the classic "bare service account has no Drive storage
+quota of its own" gotcha (see the original design's Architecture section)
+was specifically sidestepped by planning for a genuine Shared Drive. With
+a personal-folder-plus-Editor-share setup instead, whether file creation
+by the service account succeeds depends on Workspace-specific behavior
+that wasn't verified before this fix — the next real test will confirm
+either way. If it fails with a storage-quota-shaped error specifically
+(not the "Shared drive not found" error above), that confirms a genuine
+Shared Drive is actually required, not just easier.
+
 ## Testing
 
 - Folder find-or-create query construction and the Shared-Drive-specific

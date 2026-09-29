@@ -1,10 +1,19 @@
 // incident-report-drive.mjs — backs up an Incident Report's PDF + evidence
-// to a Google Shared Drive, one subfolder per store. Fire-and-forget from
+// to a Google Drive folder, one subfolder per store. Fire-and-forget from
 // the client's side (called right after a successful report create) —
 // never blocks or reflects back onto the report's own success/failure.
 // Failures here log server-side AND write a bell notification to exec/IT
 // (type: incident_report_drive_backup_failed) so a silent, ongoing failure
 // doesn't go unnoticed.
+//
+// The target (DRIVE_FOLDER_ID below) is a regular "My Drive" folder owned
+// by a real Google account, shared with Editor access to the service
+// account — NOT a genuine Shared Drive. Confirmed live 2026-09-29: an
+// earlier version of this file used Shared-Drive-only query params
+// (corpora:'drive', driveId), which errored with "Shared drive not found"
+// against this folder. Google validates driveId against real Shared Drive
+// resources specifically — don't reintroduce those params unless this
+// actually moves to a genuine Shared Drive later.
 import { google } from 'googleapis';
 import { getStore } from '@netlify/blobs';
 import { neon } from '@neondatabase/serverless';
@@ -12,7 +21,7 @@ import { Readable } from 'node:stream';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { buildFolderFindQuery, buildFolderCreateParams, buildFileUploadParams } from '../../src/incident-report-drive.mjs';
 
-const SHARED_DRIVE_ID = '1A2aYyLns90Qv1LqgxZ8HQhxUW9epiP5r';
+const DRIVE_FOLDER_ID = '1A2aYyLns90Qv1LqgxZ8HQhxUW9epiP5r';
 const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
 
 const cors = {
@@ -56,10 +65,10 @@ async function readChunkedFile(store, key) {
 }
 
 async function findOrCreateStoreFolder(drive, storeName) {
-  const findRes = await drive.files.list(buildFolderFindQuery(storeName, SHARED_DRIVE_ID));
+  const findRes = await drive.files.list(buildFolderFindQuery(storeName, DRIVE_FOLDER_ID));
   const existing = findRes.data.files && findRes.data.files[0];
   if (existing) return existing.id;
-  const createRes = await drive.files.create(buildFolderCreateParams(storeName, SHARED_DRIVE_ID));
+  const createRes = await drive.files.create(buildFolderCreateParams(storeName, DRIVE_FOLDER_ID));
   return createRes.data.id;
 }
 

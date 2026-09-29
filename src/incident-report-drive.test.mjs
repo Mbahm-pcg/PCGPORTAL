@@ -4,12 +4,15 @@ import { buildFolderFindQuery, buildFolderCreateParams, buildFileUploadParams } 
 
 const DRIVE_ID = '1A2aYyLns90Qv1LqgxZ8HQhxUW9epiP5r';
 
-test('buildFolderFindQuery: includes Shared Drive params and a name+mimeType+parent query', () => {
+test('buildFolderFindQuery: a name+mimeType+parent query, supportsAllDrives but no Shared-Drive-only params', () => {
   const q = buildFolderFindQuery('Bustleton', DRIVE_ID);
   assert.equal(q.supportsAllDrives, true);
-  assert.equal(q.includeItemsFromAllDrives, true);
-  assert.equal(q.corpora, 'drive');
-  assert.equal(q.driveId, DRIVE_ID);
+  // corpora/driveId/includeItemsFromAllDrives are Shared-Drive-only params —
+  // the actual target is a regular "My Drive" folder shared as Editor, and
+  // Google's API errors out if driveId doesn't resolve to a real Shared Drive.
+  assert.equal(q.includeItemsFromAllDrives, undefined);
+  assert.equal(q.corpora, undefined);
+  assert.equal(q.driveId, undefined);
   assert.match(q.q, /name = 'Bustleton'/);
   assert.match(q.q, /mimeType = 'application\/vnd\.google-apps\.folder'/);
   assert.match(q.q, new RegExp(`'${DRIVE_ID}' in parents`));
@@ -20,7 +23,7 @@ test('buildFolderFindQuery: escapes a single quote in the store name (e.g. an ap
   assert.match(q.q, /name = 'O\\'Malley\\'s'/);
 });
 
-test('buildFolderCreateParams: creates a folder under the Shared Drive root', () => {
+test('buildFolderCreateParams: creates a folder under the target folder', () => {
   const p = buildFolderCreateParams('Bustleton', DRIVE_ID);
   assert.deepEqual(p.requestBody, { name: 'Bustleton', mimeType: 'application/vnd.google-apps.folder', parents: [DRIVE_ID] });
   assert.equal(p.supportsAllDrives, true);
