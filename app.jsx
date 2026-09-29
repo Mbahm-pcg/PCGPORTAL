@@ -19952,6 +19952,58 @@ async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
   });
 }
 
+// Fire-and-forget backup of a just-filed report's PDF + evidence to Google
+// Drive — see docs/superpowers/specs/2026-09-28-incident-report-drive-
+// backup-design.md. Builds an abbreviated version of the PDF (case info +
+// summary + parties list only) as a Blob, chunk-saves it into Netlify Blobs
+// exactly like photos/videos already are, then hands off only blob keys
+// (never raw bytes) to incident-report-drive.mjs, which does the actual
+// Drive upload server-side. Any failure here is swallowed by the caller —
+// never surfaced to the person who just successfully filed their report.
+async function backupToDrive(reportId, report, attachmentsBeforeUpload) {
+  const employeeParty = buildSubjectEmployeeParty(report);
+  const { parties } = splitPeopleForPdf(employeeParty ? [employeeParty, ...(report.people || [])] : (report.people || []));
+  const rowsHtml = (rows) => rows.map(r => `<tr><td style="padding:4px 8px;border:1px solid #ddd;">${r[0]}</td><td style="padding:4px 8px;border:1px solid #ddd;">${r[1]}</td></tr>`).join('');
+  const el = document.createElement('div');
+  el.style.cssText = 'width:800px;background:#fff;color:#111;font-family:Arial,sans-serif;padding:24px;font-size:11px;line-height:1.4;';
+  el.innerHTML = `
+    <div style="text-align:center;border-bottom:2px solid #FF671F;padding-bottom:8px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:13px;">PEOPLE CAPITAL GROUP</div>
+      <div style="font-size:9px;font-style:italic;color:#555;">CONFIDENTIAL — INTERNAL USE ONLY</div>
+      <div style="font-size:15px;font-weight:800;margin-top:6px;">WORKPLACE INCIDENT REPORT</div>
+    </div>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Case Information</h3>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
+      ['Report Date', report.reportDate || ''], ['Report Prepared By', report.preparedByName || ''],
+      ['Incident Date', report.incidentDate || ''], ['Incident Location', `PC#${report.storePC || ''} ${report.address || ''}`],
+      ['Incident Type', report.incidentType || ''], ['W/C Claim', report.wcClaim || ''],
+      ['Reported Injury', report.reportedInjury || ''],
+    ])}</table>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Incident Summary</h3>
+    <p style="white-space:pre-wrap;">${(report.incidentSummary || '').replace(/</g, '&lt;')}</p>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Name / Role of Parties Involved / Witnesses</h3>
+    <ol style="margin:0;padding-left:18px;">${parties.map(p => `<li>${p.name} / ${p.role}</li>`).join('')}</ol>
+  `;
+  let pdfBlob;
+  try {
+    pdfBlob = await html2pdf().set({
+      margin: 0.4, image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+    }).from(el).outputPdf('blob');
+  } catch { return; } // PDF generation failing here just means no Drive backup this time — never surfaced
+
+  const pdfKey = `incident_pdf_${reportId}`;
+  await cloudSaveFile(pdfKey, new File([pdfBlob], `incident-${reportId}.pdf`, { type: 'application/pdf' }), report.preparedByName || '');
+
+  const attachmentMeta = (attachmentsBeforeUpload || []).map(a => ({ fileKey: a.fileKey, name: a.name, mimeType: a.mimeType }));
+
+  await fetch('/.netlify/functions/incident-report-drive', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify({ action: 'backup', reportId, storeName: report.storeName || 'Unknown', pdfKey, attachments: attachmentMeta }),
+  });
+}
+
 // ── Workplace Incident Report Tab ───────────────────────────────────────────
 // Any non-kiosk logged-in user can file one; exec/IT see every report, everyone
 // else sees only reports they personally filed (enforced server-side in
@@ -20199,6 +20251,11 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j?.ok) { setError(j?.error || 'Could not save this report — please try again.'); setSubmitting(false); return; }
+      // Fire-and-forget Drive backup — never awaited, never blocks the
+      // success path below, and any failure here is invisible to the filer
+      // (the report is already safely saved; backend logs + notifies
+      // exec/IT instead — see incident-report-drive.mjs).
+      backupToDrive(j.id, report, attachmentRefs).catch(() => {});
       resetForm();
       setShowForm(false);
       showAlert && showAlert('success', 'Incident report filed.');
@@ -27411,7 +27468,7 @@ const isFullAdmin = (u) => u && (u.userType === "executive" || u.userType === "i
 // manager being replaced (they must never see their own replacement notice) and has no
 // district field (which would otherwise mean "show to every DM", not just the relevant
 // one — see filterNotifsByRole's `!n.district` backward-compat rule below).
-const ADMIN_ONLY_NOTIF_TYPES = new Set(['manager_change_pending']);
+const ADMIN_ONLY_NOTIF_TYPES = new Set(['manager_change_pending', 'incident_report_drive_backup_failed']);
 
 // Filter notifications to only those relevant to the current user's role.
 // Notifications without storePC metadata are shown to everyone (backward compat).
@@ -28714,7 +28771,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.17";
+const APP_VERSION = "v21.18";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

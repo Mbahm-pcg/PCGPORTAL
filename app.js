@@ -16959,6 +16959,54 @@ ${t2.slice(0, 300)}`);
       reader.readAsDataURL(file);
     });
   }
+  async function backupToDrive(reportId, report, attachmentsBeforeUpload) {
+    const employeeParty = buildSubjectEmployeeParty(report);
+    const { parties } = splitPeopleForPdf(employeeParty ? [employeeParty, ...report.people || []] : report.people || []);
+    const rowsHtml = (rows) => rows.map((r) => `<tr><td style="padding:4px 8px;border:1px solid #ddd;">${r[0]}</td><td style="padding:4px 8px;border:1px solid #ddd;">${r[1]}</td></tr>`).join("");
+    const el = document.createElement("div");
+    el.style.cssText = "width:800px;background:#fff;color:#111;font-family:Arial,sans-serif;padding:24px;font-size:11px;line-height:1.4;";
+    el.innerHTML = `
+    <div style="text-align:center;border-bottom:2px solid #FF671F;padding-bottom:8px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:13px;">PEOPLE CAPITAL GROUP</div>
+      <div style="font-size:9px;font-style:italic;color:#555;">CONFIDENTIAL \u2014 INTERNAL USE ONLY</div>
+      <div style="font-size:15px;font-weight:800;margin-top:6px;">WORKPLACE INCIDENT REPORT</div>
+    </div>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Case Information</h3>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
+      ["Report Date", report.reportDate || ""],
+      ["Report Prepared By", report.preparedByName || ""],
+      ["Incident Date", report.incidentDate || ""],
+      ["Incident Location", `PC#${report.storePC || ""} ${report.address || ""}`],
+      ["Incident Type", report.incidentType || ""],
+      ["W/C Claim", report.wcClaim || ""],
+      ["Reported Injury", report.reportedInjury || ""]
+    ])}</table>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Incident Summary</h3>
+    <p style="white-space:pre-wrap;">${(report.incidentSummary || "").replace(/</g, "&lt;")}</p>
+    <h3 style="font-size:12px;margin:10px 0 6px;">Name / Role of Parties Involved / Witnesses</h3>
+    <ol style="margin:0;padding-left:18px;">${parties.map((p) => `<li>${p.name} / ${p.role}</li>`).join("")}</ol>
+  `;
+    let pdfBlob;
+    try {
+      pdfBlob = await html2pdf().set({
+        margin: 0.4,
+        image: { type: "jpeg", quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: "in", format: "letter", orientation: "portrait" }
+      }).from(el).outputPdf("blob");
+    } catch {
+      return;
+    }
+    const pdfKey = `incident_pdf_${reportId}`;
+    await cloudSaveFile(pdfKey, new File([pdfBlob], `incident-${reportId}.pdf`, { type: "application/pdf" }), report.preparedByName || "");
+    const attachmentMeta = (attachmentsBeforeUpload || []).map((a) => ({ fileKey: a.fileKey, name: a.name, mimeType: a.mimeType }));
+    await fetch("/.netlify/functions/incident-report-drive", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      body: JSON.stringify({ action: "backup", reportId, storeName: report.storeName || "Unknown", pdfKey, attachments: attachmentMeta })
+    });
+  }
   async function exportIncidentReportPdf(report) {
     const employeeParty = buildSubjectEmployeeParty(report);
     const allPeople = employeeParty ? [employeeParty, ...report.people || []] : report.people || [];
@@ -17222,6 +17270,8 @@ ${t2.slice(0, 300)}`);
           setSubmitting(false);
           return;
         }
+        backupToDrive(j.id, report, attachmentRefs).catch(() => {
+        });
         resetForm();
         setShowForm(false);
         showAlert2 && showAlert2("success", "Incident report filed.");
@@ -22278,7 +22328,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return BASE_TABS;
   };
   var isFullAdmin = (u) => u && (u.userType === "executive" || u.userType === "it");
-  var ADMIN_ONLY_NOTIF_TYPES = /* @__PURE__ */ new Set(["manager_change_pending"]);
+  var ADMIN_ONLY_NOTIF_TYPES = /* @__PURE__ */ new Set(["manager_change_pending", "incident_report_drive_backup_failed"]);
   var filterNotifsByRole = (notifs, user) => {
     if (!user || user.userType === "executive" || user.userType === "it" || user.userType === "office_staff") return notifs;
     const visible = notifs.filter((n) => !ADMIN_ONLY_NOTIF_TYPES.has(n.type));
@@ -23171,7 +23221,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.17";
+  var APP_VERSION = "v21.18";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
