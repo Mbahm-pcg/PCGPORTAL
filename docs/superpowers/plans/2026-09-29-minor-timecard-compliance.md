@@ -1106,48 +1106,70 @@ export default async (request) => {
   const openByStore = {};
   let resolvedCount = 0, escalatedCount = 0;
 
+  // Each issue is processed inside its own try/catch — one malformed record
+  // (e.g. a corrupted date field) must never abort the whole run and lose
+  // every other store's already-computed resolutions/escalations, matching
+  // the per-store isolation the sibling detect-cron already uses.
   for (const issue of issues) {
     if (issue.status !== 'open') continue;
     if (issue.firstFlaggedAt.slice(0, 10) === todayDateStr) continue; // don't double-notify the day it was created
 
-    const dayPunches = await fetchDayPunches(issue.employeeId, issue.violationDate);
-    if (dayPunches !== null) {
-      const freshResult = analyzeDayForViolation(dayPunches);
-      const updated = applyResolutionCheck(issue, freshResult, now);
-      if (updated.status === 'resolved') { resolvedCount++; Object.assign(issue, updated); continue; }
+    try {
+      const dayPunches = await fetchDayPunches(issue.employeeId, issue.violationDate);
+      if (dayPunches !== null) {
+        const freshResult = analyzeDayForViolation(dayPunches);
+        const updated = applyResolutionCheck(issue, freshResult, now);
+        if (updated.status === 'resolved') { resolvedCount++; Object.assign(issue, updated); continue; }
+      }
+      // still open (or fetch failed this run — leave it open, try again tomorrow)
+
+      if (shouldEscalateToday(issue, todayDateStr)) { issue.escalatedAt = now.toISOString(); escalatedCount++; }
+
+      if (!openByStore[issue.pc]) openByStore[issue.pc] = { storeName: issue.storeName, issues: [] };
+      openByStore[issue.pc].issues.push({ issue, dayPunches: dayPunches || [] });
+    } catch (err) {
+      console.error(`[minor-timecard-followup] issue ${issue.id} error:`, err.message);
     }
-    // still open (or fetch failed this run — leave it open, try again tomorrow)
-
-    if (shouldEscalateToday(issue, todayDateStr)) { issue.escalatedAt = now.toISOString(); escalatedCount++; }
-
-    if (!openByStore[issue.pc]) openByStore[issue.pc] = { storeName: issue.storeName, issues: [] };
-    openByStore[issue.pc].issues.push({ issue, dayPunches: dayPunches || [] });
   }
 
   let emailsSent = 0;
   for (const [pc, { storeName, issues: storeIssues }] of Object.entries(openByStore)) {
-    const anyEscalated = storeIssues.some(({ issue }) => issue.escalatedAt);
-    const oldestFlagged = storeIssues.reduce((min, { issue }) => issue.firstFlaggedAt < min ? issue.firstFlaggedAt : min, storeIssues[0].issue.firstFlaggedAt);
-    const dayN = daysBetween(oldestFlagged.slice(0, 10), todayDateStr) + 1;
-    const realRecipients = resolveNotificationRecipients(storeIssues[0].issue, users);
-    const { recipients, subject, html } = applyShadowMode(realRecipients, buildEmailSubject(storeName, anyEscalated, anyEscalated ? dayN : null), buildDigestEmailHtml(storeName, storeIssues));
-    for (const r of recipients) {
-      const status = await sendEmail(r.email, subject, html);
-      const record = { recipientRole: r.role, recipientEmail: r.email, sentAt: now.toISOString(), success: status >= 200 && status < 300, error: status >= 200 && status < 300 ? null : `HTTP ${status}` };
-      storeIssues.forEach(({ issue }) => issue.notifications.push(record));
-    }
-    if (recipients.length) emailsSent++;
+    try {
+      const anyEscalated = storeIssues.some(({ issue }) => issue.escalatedAt);
+      // Recipients must reflect the STORE's aggregate escalation state, not
+      // just the first issue's — a store can have one long-escalated issue
+      // and one freshly-flagged one in the same run. Picking whichever issue
+      // is actually escalated (if any) keeps resolveNotificationRecipients'
+      // per-issue contract correct without changing that function itself.
+      // Confirmed necessary via review (2026-09-29): the naive
+      // storeIssues[0].issue version silently dropped DM/office-staff from
+      // an escalated issue's email whenever a not-yet-escalated issue
+      // happened to sort first in the array.
+      const representativeIssue = anyEscalated ? storeIssues.find(({ issue }) => issue.escalatedAt).issue : storeIssues[0].issue;
+      const oldestFlagged = storeIssues.reduce((min, { issue }) => issue.firstFlaggedAt < min ? issue.firstFlaggedAt : min, storeIssues[0].issue.firstFlaggedAt);
+      const dayN = daysBetween(oldestFlagged.slice(0, 10), todayDateStr) + 1;
+      const realRecipients = resolveNotificationRecipients(representativeIssue, users);
+      const { recipients, subject, html } = applyShadowMode(realRecipients, buildEmailSubject(storeName, anyEscalated, anyEscalated ? dayN : null), buildDigestEmailHtml(storeName, storeIssues));
+      for (const r of recipients) {
+        const status = await sendEmail(r.email, subject, html);
+        const record = { recipientRole: r.role, recipientEmail: r.email, sentAt: now.toISOString(), success: status >= 200 && status < 300, error: status >= 200 && status < 300 ? null : `HTTP ${status}` };
+        storeIssues.forEach(({ issue }) => issue.notifications.push(record));
+      }
+      if (recipients.length) emailsSent++;
 
-    // 7-day exec backstop — once per issue, independent of the regular digest above.
-    for (const { issue } of storeIssues) {
-      if (execBackstopDue(issue, todayDateStr)) {
-        const realExecUsers = users.filter(u => u.active !== false && (u.userType === 'executive' || u.userType === 'it') && u.email).map(u => ({ role: 'exec_backstop', email: u.email }));
-        const backstop = applyShadowMode(realExecUsers, `⚠ Minor Timecard Unresolved 7+ Days — ${storeName}`, buildDigestEmailHtml(storeName, [{ issue, dayPunches: [] }]));
-        for (const r of backstop.recipients) {
-          const status = await sendEmail(r.email, backstop.subject, backstop.html);
-          issue.notifications.push({ recipientRole: 'exec_backstop', recipientEmail: r.email, sentAt: now.toISOString(), success: status >= 200 && status < 300, error: status >= 200 && status < 300 ? null : `HTTP ${status}` });
+      // 7-day exec backstop — once per issue, independent of the regular digest above.
+      for (const { issue } of storeIssues) {
+        if (execBackstopDue(issue, todayDateStr)) {
+          const realExecUsers = users.filter(u => u.active !== false && (u.userType === 'executive' || u.userType === 'it') && u.email).map(u => ({ role: 'exec_backstop', email: u.email }));
+          const backstop = applyShadowMode(realExecUsers, `⚠ Minor Timecard Unresolved 7+ Days — ${storeName}`, buildDigestEmailHtml(storeName, [{ issue, dayPunches: [] }]));
+          for (const r of backstop.recipients) {
+            const status = await sendEmail(r.email, backstop.subject, backstop.html);
+            issue.notifications.push({ recipientRole: 'exec_backstop', recipientEmail: r.email, sentAt: now.toISOString(), success: status >= 200 && status < 300, error: status >= 200 && status < 300 ? null : `HTTP ${status}` });
+          }
         }
       }
+    } catch (err) {
+      console.error(`[minor-timecard-followup] store ${pc} notification error:`, err.message);
     }
   }
 
