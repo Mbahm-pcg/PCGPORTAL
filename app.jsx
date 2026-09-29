@@ -6,6 +6,7 @@ import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-neg
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty } from './src/incident-report.mjs';
+import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
@@ -20444,6 +20445,228 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
   );
 }
 
+// ── Minor Timecard Compliance (Tools hub tile) ────────────────────────────
+// Read-only review screen over the pcg_minor_timecard_issues_v1 blob that
+// minor-timecard-detect-cron / -followup-cron write. Role scoping is NOT
+// reimplemented here: filterIssuesForRole (src/minor-timecard-lifecycle.mjs)
+// is the single shared source of truth, used by the crons too.
+const MINOR_TIMECARD_ISSUES_KEY = 'pcg_minor_timecard_issues_v1';
+// Escalation isn't its own stored status — an issue is "escalated" while it's
+// still open but has an escalatedAt stamp (see shouldEscalateToday).
+const mtcDisplayStatus = (issue) => {
+  if (issue?.status === 'resolved' || issue?.status === 'manually_resolved') return 'resolved';
+  if (issue?.escalatedAt) return 'escalated';
+  return 'open';
+};
+const MTC_STATUS_META = {
+  open:      { label: 'Open',      color: '#f59e0b', icon: BTN.alert },
+  escalated: { label: 'Escalated', color: '#ef4444', icon: <>{React.createElement("polyline", { points: "7 11 12 6 17 11" })}{React.createElement("polyline", { points: "7 18 12 13 17 18" })}</> },
+  resolved:  { label: 'Resolved',  color: '#22c55e', icon: BTN.check },
+};
+const MTC_ROLE_LABEL = { manager: 'Manager', dm: 'DM', office_staff: 'Office', exec_backstop: 'Exec' };
+const mtcShortDate = (iso) => {
+  if (!iso) return '';
+  const d = new Date(String(iso).length === 10 ? `${iso}T12:00:00` : iso);
+  return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+function MinorTimecardComplianceTab({ user, th, showAlert }) {
+  const [issues, setIssues] = React.useState(null); // null = still loading
+  const [filter, setFilter] = React.useState('all'); // 'all' | 'open' | 'escalated' | 'resolvedWeek'
+  const [busyId, setBusyId] = React.useState(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    cloudLoad(MINOR_TIMECARD_ISSUES_KEY)
+      .then(data => { if (alive) setIssues(Array.isArray(data) ? data : []); })
+      .catch(() => { if (alive) setIssues([]); });
+    return () => { alive = false; };
+  }, []);
+
+  // Matches minor-timecard-resolve.mjs's own server-side gate (exec/it/dm); the
+  // endpoint re-checks it, this only decides whether to show the button.
+  const canResolve = user?.userType === 'executive' || user?.userType === 'it' || user?.userType === 'dm';
+
+  // Always called with an array (never the null loading sentinel) so the hook
+  // runs identically on every render, loaded or not.
+  const scoped = React.useMemo(() => filterIssuesForRole(issues || [], user) || [], [issues, user]);
+
+  const weekAgoISO = React.useMemo(() => new Date(Date.now() - 7 * 86400000).toISOString(), []);
+  const recentlyResolved = (i) => mtcDisplayStatus(i) === 'resolved' && (i.resolvedAt || '') >= weekAgoISO;
+
+  // The screen only ever shows live work plus a short "just cleared" tail —
+  // anything resolved more than a week ago is history, not a to-do.
+  const visible = React.useMemo(
+    () => scoped.filter(i => mtcDisplayStatus(i) !== 'resolved' || recentlyResolved(i)),
+    [scoped, weekAgoISO],
+  );
+
+  const counts = React.useMemo(() => ({
+    open: visible.filter(i => mtcDisplayStatus(i) === 'open').length,
+    escalated: visible.filter(i => mtcDisplayStatus(i) === 'escalated').length,
+    resolvedWeek: visible.filter(recentlyResolved).length,
+  }), [visible, weekAgoISO]);
+
+  const rows = React.useMemo(() => {
+    const list = filter === 'all' ? visible
+      : filter === 'resolvedWeek' ? visible.filter(recentlyResolved)
+      : visible.filter(i => mtcDisplayStatus(i) === filter);
+    // Worst first (escalated → open → resolved), then oldest violation first.
+    const rank = { escalated: 0, open: 1, resolved: 2 };
+    return list.slice().sort((a, b) =>
+      (rank[mtcDisplayStatus(a)] - rank[mtcDisplayStatus(b)]) ||
+      String(a.violationDate || '').localeCompare(String(b.violationDate || '')));
+  }, [visible, filter, weekAgoISO]);
+
+  const lastUpdated = React.useMemo(() => {
+    let max = null;
+    scoped.forEach(i => {
+      [i.firstFlaggedAt, i.escalatedAt, i.resolvedAt, ...((i.notifications || []).map(n => n.sentAt))]
+        .forEach(t => { if (t && (!max || t > max)) max = t; });
+    });
+    return max;
+  }, [scoped]);
+
+  // One entry per recipient role (first send wins for the date; any failed send
+  // to that role flags the whole entry) — a trail, not a full send log.
+  const notifTrail = (issue) => {
+    const seen = new Map();
+    (issue.notifications || []).forEach(n => {
+      const key = n.recipientRole || 'other';
+      if (!seen.has(key)) seen.set(key, { role: key, at: n.sentAt, failed: !n.success });
+      else if (!n.success) seen.get(key).failed = true;
+    });
+    return Array.from(seen.values());
+  };
+
+  const markResolved = async (issueId) => {
+    if (!window.confirm('Mark this resolved? This stops the daily reminders for this issue.')) return;
+    setBusyId(issueId);
+    try {
+      const res = await fetch('/.netlify/functions/minor-timecard-resolve', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ issueId }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j?.ok && j.issue) {
+        setIssues(prev => (prev || []).map(i => (i.id === issueId ? j.issue : i)));
+        showAlert && showAlert('success', 'Marked resolved — daily reminders stopped for this issue.');
+      } else {
+        showAlert && showAlert('error', j?.error || 'Could not mark resolved — try again.');
+      }
+    } catch {
+      showAlert && showAlert('error', 'Network error — could not mark resolved.');
+    }
+    setBusyId(null);
+  };
+
+  const STATS = [
+    { key: 'open', label: 'Open', value: counts.open, color: MTC_STATUS_META.open.color },
+    { key: 'escalated', label: 'Escalated', value: counts.escalated, color: MTC_STATUS_META.escalated.color },
+    { key: 'resolvedWeek', label: 'Resolved this week', value: counts.resolvedWeek, color: MTC_STATUS_META.resolved.color },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem' }}>
+        {ICONS.minorTimecard(th.text)}
+        <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Minor Timecard Compliance</h1>
+      </div>
+      <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
+        PA minor-labor-law timecard review — who still needs a fix, and who's already been notified.
+        {' '}{lastUpdated
+          ? `Last updated ${new Date(lastUpdated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`
+          : issues === null ? '' : 'No activity recorded yet.'}
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem', marginBottom: '1rem' }}>
+        {STATS.map(s => {
+          const active = filter === s.key;
+          return (
+            <button key={s.key} type="button"
+              onClick={() => setFilter(active ? 'all' : s.key)}
+              aria-pressed={active}
+              style={{
+                ...card(th), padding: '0.8rem 1rem', textAlign: 'left', cursor: 'pointer',
+                borderLeft: `3px solid ${s.color}`, fontFamily: "'Source Sans 3'",
+                outline: active ? `2px solid ${O}` : 'none', outlineOffset: '-1px',
+              }}>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '1.5rem', color: th.text, lineHeight: 1.1 }}>{s.value}</div>
+              <div style={microLabel(th, { marginTop: '0.15rem' })}>{s.label}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {filter !== 'all' && (
+        <div style={{ marginBottom: '0.6rem' }}>
+          <button type="button" onClick={() => setFilter('all')}
+            style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: '0.2rem 0.7rem', fontSize: '0.72rem', cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>
+            Clear filter
+          </button>
+        </div>
+      )}
+
+      {issues === null && (
+        <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>Loading…</div>
+      )}
+      {issues !== null && rows.length === 0 && (
+        <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>
+          {visible.length === 0 ? 'No minor timecard issues flagged — nothing to review.' : 'Nothing matches this filter.'}
+        </div>
+      )}
+
+      {issues !== null && rows.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          {rows.map(i => {
+            const ds = mtcDisplayStatus(i);
+            const meta = MTC_STATUS_META[ds];
+            const trail = notifTrail(i);
+            return (
+              <div key={i.id} style={{ ...card(th), padding: '0.85rem 1.1rem', borderLeft: `4px solid ${meta.color}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 800, color: th.text }}>{i.storeName || `Store #${i.pc}`}</span>
+                      <span style={{ fontSize: '0.7rem', color: th.muted }}>District {i.district ?? '—'} · #{i.pc}</span>
+                      <span style={pill(meta.color)}>
+                        <Icon d={meta.icon} size={11} color={meta.color} />{meta.label}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: th.text, marginTop: '0.3rem' }}>
+                      {i.employeeName || 'Unknown employee'}
+                      <span style={{ color: th.muted }}>
+                        {' · '}{mtcShortDate(i.violationDate) || i.violationDate || '—'}
+                        {i.consecutiveHours != null && ` · ${Number(i.consecutiveHours).toFixed(1)} consecutive hrs`}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: th.muted, marginTop: '0.3rem' }}>
+                      {trail.length === 0 ? 'Not notified yet' : trail.map((t, n) => (
+                        <span key={t.role}>
+                          {n > 0 && ' · '}
+                          {MTC_ROLE_LABEL[t.role] || t.role} {t.failed ? 'send failed' : mtcShortDate(t.at)}
+                        </span>
+                      ))}
+                      {ds === 'resolved' && i.resolvedAt && ` · Resolved ${mtcShortDate(i.resolvedAt)}${i.resolvedVia === 'manual' ? ` by ${i.resolvedBy || 'admin'}` : ' automatically'}`}
+                    </div>
+                  </div>
+                  {canResolve && ds !== 'resolved' && (
+                    <button type="button" disabled={busyId === i.id} onClick={() => markResolved(i.id)}
+                      style={btn(th, { padding: '0.45rem 0.9rem', fontSize: '0.78rem', flexShrink: 0, opacity: busyId === i.id ? 0.6 : 1, cursor: busyId === i.id ? 'default' : 'pointer' })}>
+                      {busyId === i.id ? 'Saving…' : 'Mark Resolved'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Business Expenses Tab (own-receipts submit + log; Task 4 adds admin section) ──
 const BIZ_EXPENSE_CATEGORIES = ['Gas', 'Food', 'Tools', 'Supplies', 'Repairs', 'Office', 'Other'];
 
@@ -21332,6 +21555,7 @@ const HUB_SUBITEMS = {
   'tools-hub': [
     { id: 'district-alignment', label: 'District Alignment' },
     { id: 'incident-reports', label: 'Incident Reports' },
+    { id: 'minor-timecard', label: 'Minor Timecard Compliance' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -27339,6 +27563,7 @@ const computeRoleTabs = (user) => {
     { id: "reports",   label: "Reports",       icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",        icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
+    { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -27370,6 +27595,7 @@ const computeRoleTabs = (user) => {
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
+    { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
@@ -27404,6 +27630,7 @@ const computeRoleTabs = (user) => {
     { id: "reports",   label: "Reports",        icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",         icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
+    { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
     { id: "projects",  label: "Projects",       icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline",  icon: (c) => ICONS.checkCircle(c) },
     { id: "ops-hub",   label: "Operations",     icon: (c) => ICONS.schedule(c), noPinToggle: true },
@@ -27425,6 +27652,7 @@ const computeRoleTabs = (user) => {
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
+    { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
   ];
   // Construction & Development → base + locations + projects (no analytics/pulse)
@@ -28771,7 +28999,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.19";
+const APP_VERSION = "v21.20";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -51864,6 +52092,7 @@ function PCGPortal() {
                 {tab === "email" && "Shared inbox and outbound email from the portal."}
                 {tab === "tickets"  && "Submit and track maintenance & service tickets."}
                 {tab === "incident-reports" && "File and review workplace incident reports."}
+                {tab === "minor-timecard" && "Weekly PA minor-labor-law timecard review — who needs a fix, and who's already been notified."}
               </p>
             </div>
           </div>
@@ -52315,6 +52544,7 @@ function PCGPortal() {
             const toolsTiles = [
               { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'district-alignment'), icon: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></> },
               { id: 'incident-reports', name: 'Incident Reports', sub: 'File and review Workplace Incident Reports — case info, witnesses, photo/video evidence, PDF export.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'incident-reports'), icon: <>{ICONS.incident(TOOLS)}</> },
+              { id: 'minor-timecard', name: 'Minor Timecard Compliance', sub: 'Weekly PA minor-labor-law timecard review — who needs a fix, and who\'s already been notified.', show: ['executive','it','office_staff','dm','manager'].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'minor-timecard'), icon: <>{ICONS.minorTimecard(TOOLS)}</> },
             ].filter(t => t.show);
             return (
               <div>
@@ -52346,6 +52576,7 @@ function PCGPortal() {
           {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} setTab={setTab} deepLinkRef={ticketDeepLinkRef} />}
           {tab === "expenses" && <ExpensesTab user={user} th={th} stores={stores} />}
           {tab === "incident-reports" && <IncidentReportsTab user={user} th={th} stores={stores} showAlert={showAlert} />}
+          {tab === "minor-timecard" && <MinorTimecardComplianceTab user={user} th={th} showAlert={showAlert} />}
           {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}
           {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
           </Guard>

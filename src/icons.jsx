@@ -69,6 +69,10 @@ const ICONS = {
   schedule: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"4",width:"18",height:"18",rx:"2"})}{React.createElement("line",{x1:"16",y1:"2",x2:"16",y2:"6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"6"})}{React.createElement("line",{x1:"3",y1:"10",x2:"21",y2:"10"})}{React.createElement("polyline",{points:"8 14 10 17 14 13"})}</>} />,
   staffSchedule: (c) => <Icon color={c} d={<>{React.createElement("rect",{x:"3",y:"4",width:"18",height:"18",rx:"2"})}{React.createElement("line",{x1:"16",y1:"2",x2:"16",y2:"6"})}{React.createElement("line",{x1:"8",y1:"2",x2:"8",y2:"6"})}{React.createElement("line",{x1:"3",y1:"10",x2:"21",y2:"10"})}{React.createElement("circle",{cx:"12",cy:"16",r:"2.3"})}{React.createElement("line",{x1:"12",y1:"16",x2:"12",y2:"14.3"})}{React.createElement("line",{x1:"12",y1:"16",x2:"13.2",y2:"16.8"})}</>} />,
   clock: (c) => <Icon color={c} d={<>{React.createElement("circle",{cx:"12",cy:"12",r:"9"})}{React.createElement("polyline",{points:"12 7 12 12 15.5 14"})}</>} />,
+  // Minor Timecard Compliance — a narrow punch-card with a clock badge beside it.
+  // Deliberately NOT the plain `clock` glyph (one big centred dial) nor `staffSchedule`
+  // (calendar + person): the tall card + detached corner dial is its own silhouette.
+  minorTimecard: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="9" height="18" rx="1.5"/><line x1="5.6" y1="8" x2="9.4" y2="8"/><line x1="5.6" y1="12.5" x2="9.4" y2="12.5"/><circle cx="18" cy="17" r="4.5"/><polyline points="18 14.4 18 17 19.9 18.1"/></svg>,
 
 };
 

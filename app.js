@@ -56,7 +56,11 @@
     incident: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" }), /* @__PURE__ */ React.createElement("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "11", x2: "12", y2: "15" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "17.5", x2: "12.01", y2: "17.5" })),
     schedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("polyline", { points: "8 14 10 17 14 13" })) }),
     staffSchedule: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }), React.createElement("line", { x1: "16", y1: "2", x2: "16", y2: "6" }), React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "6" }), React.createElement("line", { x1: "3", y1: "10", x2: "21", y2: "10" }), React.createElement("circle", { cx: "12", cy: "16", r: "2.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "14.3" }), React.createElement("line", { x1: "12", y1: "16", x2: "13.2", y2: "16.8" })) }),
-    clock: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("circle", { cx: "12", cy: "12", r: "9" }), React.createElement("polyline", { points: "12 7 12 12 15.5 14" })) })
+    clock: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("circle", { cx: "12", cy: "12", r: "9" }), React.createElement("polyline", { points: "12 7 12 12 15.5 14" })) }),
+    // Minor Timecard Compliance — a narrow punch-card with a clock badge beside it.
+    // Deliberately NOT the plain `clock` glyph (one big centred dial) nor `staffSchedule`
+    // (calendar + person): the tall card + detached corner dial is its own silhouette.
+    minorTimecard: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "9", height: "18", rx: "1.5" }), /* @__PURE__ */ React.createElement("line", { x1: "5.6", y1: "8", x2: "9.4", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "5.6", y1: "12.5", x2: "9.4", y2: "12.5" }), /* @__PURE__ */ React.createElement("circle", { cx: "18", cy: "17", r: "4.5" }), /* @__PURE__ */ React.createElement("polyline", { points: "18 14.4 18 17 19.9 18.1" }))
   };
   var BTN = {
     edit: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M12 20h9" }), React.createElement("path", { d: "M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" })),
@@ -204,7 +208,7 @@
     );
   }
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/bufferToBase64URLString.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/bufferToBase64URLString.js
   function bufferToBase64URLString(buffer) {
     const bytes = new Uint8Array(buffer);
     let str = "";
@@ -215,7 +219,7 @@
     return base64String.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
   }
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/base64URLStringToBuffer.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/base64URLStringToBuffer.js
   function base64URLStringToBuffer(base64URLString) {
     const base64 = base64URLString.replace(/-/g, "+").replace(/_/g, "/");
     const padLength = (4 - base64.length % 4) % 4;
@@ -229,7 +233,7 @@
     return buffer;
   }
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthn.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthn.js
   function browserSupportsWebAuthn() {
     return _browserSupportsWebAuthnInternals.stubThis(globalThis?.PublicKeyCredential !== void 0 && typeof globalThis.PublicKeyCredential === "function");
   }
@@ -237,7 +241,7 @@
     stubThis: (value) => value
   };
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/toPublicKeyCredentialDescriptor.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/toPublicKeyCredentialDescriptor.js
   function toPublicKeyCredentialDescriptor(descriptor) {
     const { id } = descriptor;
     return {
@@ -252,7 +256,7 @@
     };
   }
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/isValidDomain.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/isValidDomain.js
   function isValidDomain(hostname) {
     return (
       // Consider localhost valid as well since it's okay wrt Secure Contexts
@@ -261,7 +265,7 @@
     );
   }
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/webAuthnError.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/webAuthnError.js
   var WebAuthnError = class extends Error {
     constructor({ message, code, cause, name }) {
       super(message, { cause });
@@ -276,7 +280,7 @@
     }
   };
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/identifyRegistrationError.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/identifyRegistrationError.js
   function identifyRegistrationError({ error, options }) {
     const { publicKey } = options;
     if (!publicKey) {
@@ -372,7 +376,7 @@
     return error;
   }
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/webAuthnAbortService.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/webAuthnAbortService.js
   var BaseWebAuthnAbortService = class {
     constructor() {
       Object.defineProperty(this, "controller", {
@@ -403,7 +407,7 @@
   };
   var WebAuthnAbortService = new BaseWebAuthnAbortService();
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/toAuthenticatorAttachment.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/toAuthenticatorAttachment.js
   var attachments = ["cross-platform", "platform"];
   function toAuthenticatorAttachment(attachment) {
     if (!attachment) {
@@ -415,7 +419,7 @@
     return attachment;
   }
 
-  // node_modules/@simplewebauthn/browser/esm/methods/startRegistration.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/methods/startRegistration.js
   async function startRegistration(options) {
     if (!options.optionsJSON && options.challenge) {
       console.warn("startRegistration() was not called correctly. It will try to continue with the provided options, but this call should be refactored to use the expected call structure instead. See https://simplewebauthn.dev/docs/packages/browser#typeerror-cannot-read-properties-of-undefined-reading-challenge for more information.");
@@ -502,7 +506,7 @@
 `, cause);
   }
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthnAutofill.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthnAutofill.js
   function browserSupportsWebAuthnAutofill() {
     if (!browserSupportsWebAuthn()) {
       return _browserSupportsWebAuthnAutofillInternals.stubThis(new Promise((resolve) => resolve(false)));
@@ -517,7 +521,7 @@
     stubThis: (value) => value
   };
 
-  // node_modules/@simplewebauthn/browser/esm/helpers/identifyAuthenticationError.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/identifyAuthenticationError.js
   function identifyAuthenticationError({ error, options }) {
     const { publicKey } = options;
     if (!publicKey) {
@@ -562,7 +566,7 @@
     return error;
   }
 
-  // node_modules/@simplewebauthn/browser/esm/methods/startAuthentication.js
+  // ../../../node_modules/@simplewebauthn/browser/esm/methods/startAuthentication.js
   async function startAuthentication(options) {
     if (!options.optionsJSON && options.challenge) {
       console.warn("startAuthentication() was not called correctly. It will try to continue with the provided options, but this call should be refactored to use the expected call structure instead. See https://simplewebauthn.dev/docs/packages/browser#typeerror-cannot-read-properties-of-undefined-reading-challenge for more information.");
@@ -942,6 +946,15 @@
     const name = String(report?.employeeName || "").trim();
     if (!name) return null;
     return { name, role: "Injured employee", phone: report?.employeePhone || "", email: report?.employeeEmail || "" };
+  }
+
+  // src/minor-timecard-lifecycle.mjs
+  function filterIssuesForRole(issues, user) {
+    const ut = user?.userType;
+    if (ut === "executive" || ut === "it" || ut === "office_staff") return issues;
+    if (ut === "dm") return issues.filter((i) => String(i.district) === String(user.district));
+    if (ut === "manager") return issues.filter((i) => String(i.pc) === String(user.storePC));
+    return [];
   }
 
   // src/deal-dates.mjs
@@ -17334,6 +17347,148 @@ ${t2.slice(0, 300)}`);
       m.status && m.status !== "Active" ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", m.status, ")") : null
     )))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "DOB"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: form.employeeDob, onChange: (e) => setForm((f) => ({ ...f, employeeDob: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Status"), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "e.g. Active, On leave", value: form.employeeStatus, onChange: (e) => setForm((f) => ({ ...f, employeeStatus: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Phone"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.employeePhone, onChange: (e) => setForm((f) => ({ ...f, employeePhone: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Email"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.employeeEmail, onChange: (e) => setForm((f) => ({ ...f, employeeEmail: e.target.value })) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Address"), /* @__PURE__ */ React.createElement("input", { style: inp(th), value: form.employeeAddress, onChange: (e) => setForm((f) => ({ ...f, employeeAddress: e.target.value })) }))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted } }, "Incident Summary"), /* @__PURE__ */ React.createElement("textarea", { style: { ...inp(th), minHeight: "6rem", marginBottom: "0.9rem" }, value: form.incidentSummary, onChange: (e) => setForm((f) => ({ ...f, incidentSummary: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem" } }, "Evidence Preserved"), DEFAULT_EVIDENCE_ITEMS.map((item) => /* @__PURE__ */ React.createElement("label", { key: item.id, style: { display: "flex", gap: "0.5rem", alignItems: "center", fontSize: "0.85rem", color: th.text, marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.evidenceChecked.includes(item.id), onChange: () => toggleEvidence(item.id) }), item.label)), form.evidenceCustom.map((v, i) => /* @__PURE__ */ React.createElement("input", { key: i, style: { ...inp(th), marginTop: "0.3rem" }, placeholder: "Add another item\u2026", value: v, onChange: (e) => setCustomEvidence(i, e.target.value) })), /* @__PURE__ */ React.createElement("button", { type: "button", style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.cardBorder}`, padding: "0.4rem 0.8rem", fontSize: "0.75rem", marginTop: "0.4rem" }) }, onClick: addCustomEvidenceRow }, "+ Add item")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem" } }, "Photo / Video Evidence"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*,video/*", multiple: true, onChange: (e) => onAttachFiles(e.target.files) }), form.attachments.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.5rem" } }, form.attachments.map((a, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { position: "relative" } }, a.kind === "image" ? /* @__PURE__ */ React.createElement("img", { src: a.previewUrl, alt: "", style: { width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${th.cardBorder}` } }) : /* @__PURE__ */ React.createElement("video", { src: a.previewUrl, style: { width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${th.cardBorder}` } }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => removeAttachment(i), style: { position: "absolute", top: -6, right: -6, background: "#ef4444", color: "#fff", border: "none", borderRadius: 999, width: 18, height: 18, fontSize: "0.65rem", cursor: "pointer" } }, "\xD7"))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.4rem" } }, "Parties Involved / Witnesses / Contacts"), form.people.map((p, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: "0.4rem", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Name", value: p.name, onChange: (e) => setPersonField(i, "name", e.target.value) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Role / relationship", value: p.role, onChange: (e) => setPersonField(i, "role", e.target.value) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Phone", value: p.phone, onChange: (e) => setPersonField(i, "phone", e.target.value) }), /* @__PURE__ */ React.createElement("input", { style: inp(th), placeholder: "Email", value: p.email, onChange: (e) => setPersonField(i, "email", e.target.value) }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => removePersonRow(i), style: { ...btn(th, { background: "transparent", color: "#ef4444", border: `1px solid ${th.cardBorder}`, padding: "0.4rem 0.6rem" }) } }, "Remove"))), /* @__PURE__ */ React.createElement("button", { type: "button", style: { ...btn(th, { background: "transparent", color: th.muted, border: `1px solid ${th.cardBorder}`, padding: "0.4rem 0.8rem", fontSize: "0.75rem" }) }, onClick: addPersonRow }, "+ Add person")), error && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.8rem", marginBottom: "0.6rem" } }, error), /* @__PURE__ */ React.createElement("button", { style: btn(th, submitting ? { opacity: 0.6 } : {}), disabled: submitting, onClick: submit }, submitting ? "Filing\u2026" : "File Report")), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026") : reports.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No incident reports filed yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem" } }, reports.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { ...card(th), padding: "0.9rem 1.1rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.9rem" } }, r.storeName || "Unknown store", " \u2014 ", r.incidentDate || r.reportDate, r.employeeName ? ` \xB7 ${r.employeeName}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "0.2rem" } }, "Prepared by ", r.preparedByName, " \xB7 Filed ", r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "")), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.5rem 1rem", fontSize: "0.8rem" }), onClick: () => exportIncidentReportPdf(r) }, "Download PDF")))));
   }
+  var MINOR_TIMECARD_ISSUES_KEY = "pcg_minor_timecard_issues_v1";
+  var mtcDisplayStatus = (issue) => {
+    if (issue?.status === "resolved" || issue?.status === "manually_resolved") return "resolved";
+    if (issue?.escalatedAt) return "escalated";
+    return "open";
+  };
+  var MTC_STATUS_META = {
+    open: { label: "Open", color: "#f59e0b", icon: BTN.alert },
+    escalated: { label: "Escalated", color: "#ef4444", icon: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("polyline", { points: "7 11 12 6 17 11" }), React.createElement("polyline", { points: "7 18 12 13 17 18" })) },
+    resolved: { label: "Resolved", color: "#22c55e", icon: BTN.check }
+  };
+  var MTC_ROLE_LABEL = { manager: "Manager", dm: "DM", office_staff: "Office", exec_backstop: "Exec" };
+  var mtcShortDate = (iso) => {
+    if (!iso) return "";
+    const d = new Date(String(iso).length === 10 ? `${iso}T12:00:00` : iso);
+    return isNaN(d) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+  function MinorTimecardComplianceTab({ user, th, showAlert: showAlert2 }) {
+    const [issues, setIssues] = React.useState(null);
+    const [filter, setFilter] = React.useState("all");
+    const [busyId, setBusyId] = React.useState(null);
+    React.useEffect(() => {
+      let alive = true;
+      cloudLoad(MINOR_TIMECARD_ISSUES_KEY).then((data) => {
+        if (alive) setIssues(Array.isArray(data) ? data : []);
+      }).catch(() => {
+        if (alive) setIssues([]);
+      });
+      return () => {
+        alive = false;
+      };
+    }, []);
+    const canResolve = user?.userType === "executive" || user?.userType === "it" || user?.userType === "dm";
+    const scoped = React.useMemo(() => filterIssuesForRole(issues || [], user) || [], [issues, user]);
+    const weekAgoISO = React.useMemo(() => new Date(Date.now() - 7 * 864e5).toISOString(), []);
+    const recentlyResolved = (i) => mtcDisplayStatus(i) === "resolved" && (i.resolvedAt || "") >= weekAgoISO;
+    const visible = React.useMemo(
+      () => scoped.filter((i) => mtcDisplayStatus(i) !== "resolved" || recentlyResolved(i)),
+      [scoped, weekAgoISO]
+    );
+    const counts = React.useMemo(() => ({
+      open: visible.filter((i) => mtcDisplayStatus(i) === "open").length,
+      escalated: visible.filter((i) => mtcDisplayStatus(i) === "escalated").length,
+      resolvedWeek: visible.filter(recentlyResolved).length
+    }), [visible, weekAgoISO]);
+    const rows = React.useMemo(() => {
+      const list = filter === "all" ? visible : filter === "resolvedWeek" ? visible.filter(recentlyResolved) : visible.filter((i) => mtcDisplayStatus(i) === filter);
+      const rank = { escalated: 0, open: 1, resolved: 2 };
+      return list.slice().sort((a, b) => rank[mtcDisplayStatus(a)] - rank[mtcDisplayStatus(b)] || String(a.violationDate || "").localeCompare(String(b.violationDate || "")));
+    }, [visible, filter, weekAgoISO]);
+    const lastUpdated = React.useMemo(() => {
+      let max = null;
+      scoped.forEach((i) => {
+        [i.firstFlaggedAt, i.escalatedAt, i.resolvedAt, ...(i.notifications || []).map((n) => n.sentAt)].forEach((t) => {
+          if (t && (!max || t > max)) max = t;
+        });
+      });
+      return max;
+    }, [scoped]);
+    const notifTrail = (issue) => {
+      const seen = /* @__PURE__ */ new Map();
+      (issue.notifications || []).forEach((n) => {
+        const key = n.recipientRole || "other";
+        if (!seen.has(key)) seen.set(key, { role: key, at: n.sentAt, failed: !n.success });
+        else if (!n.success) seen.get(key).failed = true;
+      });
+      return Array.from(seen.values());
+    };
+    const markResolved = async (issueId) => {
+      if (!window.confirm("Mark this resolved? This stops the daily reminders for this issue.")) return;
+      setBusyId(issueId);
+      try {
+        const res = await fetch("/.netlify/functions/minor-timecard-resolve", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ issueId })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (res.ok && j?.ok && j.issue) {
+          setIssues((prev) => (prev || []).map((i) => i.id === issueId ? j.issue : i));
+          showAlert2 && showAlert2("success", "Marked resolved \u2014 daily reminders stopped for this issue.");
+        } else {
+          showAlert2 && showAlert2("error", j?.error || "Could not mark resolved \u2014 try again.");
+        }
+      } catch {
+        showAlert2 && showAlert2("error", "Network error \u2014 could not mark resolved.");
+      }
+      setBusyId(null);
+    };
+    const STATS = [
+      { key: "open", label: "Open", value: counts.open, color: MTC_STATUS_META.open.color },
+      { key: "escalated", label: "Escalated", value: counts.escalated, color: MTC_STATUS_META.escalated.color },
+      { key: "resolvedWeek", label: "Resolved this week", value: counts.resolvedWeek, color: MTC_STATUS_META.resolved.color }
+    ];
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.minorTimecard(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Minor Timecard Compliance")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "PA minor-labor-law timecard review \u2014 who still needs a fix, and who's already been notified.", " ", lastUpdated ? `Last updated ${new Date(lastUpdated).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : issues === null ? "" : "No activity recorded yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.6rem", marginBottom: "1rem" } }, STATS.map((s) => {
+      const active = filter === s.key;
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: s.key,
+          type: "button",
+          onClick: () => setFilter(active ? "all" : s.key),
+          "aria-pressed": active,
+          style: {
+            ...card(th),
+            padding: "0.8rem 1rem",
+            textAlign: "left",
+            cursor: "pointer",
+            borderLeft: `3px solid ${s.color}`,
+            fontFamily: "'Source Sans 3'",
+            outline: active ? `2px solid ${O}` : "none",
+            outlineOffset: "-1px"
+          }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text, lineHeight: 1.1 } }, s.value),
+        /* @__PURE__ */ React.createElement("div", { style: microLabel(th, { marginTop: "0.15rem" }) }, s.label)
+      );
+    })), filter !== "all" && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: () => setFilter("all"),
+        style: { background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: "0.2rem 0.7rem", fontSize: "0.72rem", cursor: "pointer", fontFamily: "'Source Sans 3'" }
+      },
+      "Clear filter"
+    )), issues === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), issues !== null && rows.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, visible.length === 0 ? "No minor timecard issues flagged \u2014 nothing to review." : "Nothing matches this filter."), issues !== null && rows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, rows.map((i) => {
+      const ds = mtcDisplayStatus(i);
+      const meta = MTC_STATUS_META[ds];
+      const trail = notifTrail(i);
+      return /* @__PURE__ */ React.createElement("div", { key: i.id, style: { ...card(th), padding: "0.85rem 1.1rem", borderLeft: `4px solid ${meta.color}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 800, color: th.text } }, i.storeName || `Store #${i.pc}`), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, "District ", i.district ?? "\u2014", " \xB7 #", i.pc), /* @__PURE__ */ React.createElement("span", { style: pill(meta.color) }, /* @__PURE__ */ React.createElement(Icon, { d: meta.icon, size: 11, color: meta.color }), meta.label)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.text, marginTop: "0.3rem" } }, i.employeeName || "Unknown employee", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", mtcShortDate(i.violationDate) || i.violationDate || "\u2014", i.consecutiveHours != null && ` \xB7 ${Number(i.consecutiveHours).toFixed(1)} consecutive hrs`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.3rem" } }, trail.length === 0 ? "Not notified yet" : trail.map((t, n) => /* @__PURE__ */ React.createElement("span", { key: t.role }, n > 0 && " \xB7 ", MTC_ROLE_LABEL[t.role] || t.role, " ", t.failed ? "send failed" : mtcShortDate(t.at))), ds === "resolved" && i.resolvedAt && ` \xB7 Resolved ${mtcShortDate(i.resolvedAt)}${i.resolvedVia === "manual" ? ` by ${i.resolvedBy || "admin"}` : " automatically"}`)), canResolve && ds !== "resolved" && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          disabled: busyId === i.id,
+          onClick: () => markResolved(i.id),
+          style: btn(th, { padding: "0.45rem 0.9rem", fontSize: "0.78rem", flexShrink: 0, opacity: busyId === i.id ? 0.6 : 1, cursor: busyId === i.id ? "default" : "pointer" })
+        },
+        busyId === i.id ? "Saving\u2026" : "Mark Resolved"
+      )));
+    })));
+  }
   var BIZ_EXPENSE_CATEGORIES = ["Gas", "Food", "Tools", "Supplies", "Repairs", "Office", "Other"];
   function ExpensesTab({ user, th, stores }) {
     const isBizExpenseAdmin = user?.userType === "executive" || user?.userType === "it" || user?.userType === "office_staff";
@@ -17909,7 +18064,8 @@ ${t2.slice(0, 300)}`);
     ],
     "tools-hub": [
       { id: "district-alignment", label: "District Alignment" },
-      { id: "incident-reports", label: "Incident Reports" }
+      { id: "incident-reports", label: "Incident Reports" },
+      { id: "minor-timecard", label: "Minor Timecard Compliance" }
     ],
     finance: [
       { id: "pnl", label: "P&L" },
@@ -22216,6 +22372,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
+      { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -22246,6 +22403,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
+      { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "users", label: "Users", icon: (c) => ICONS.users(c) },
@@ -22278,6 +22436,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
+      { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "ops-hub", label: "Operations", icon: (c) => ICONS.schedule(c), noPinToggle: true },
@@ -22298,6 +22457,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
+      { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) }
     ];
     if (ut === "construction") return [
@@ -23221,7 +23381,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.19";
+  var APP_VERSION = "v21.20";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -39548,7 +39708,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     } }, ICONS.dashboard(th.text)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: isMobile ? 17 : 18, color: th.text, letterSpacing: -0.5, lineHeight: 1.1 } }, tab === MOBILE_LAUNCHER_TAB_ID ? "Menu" : (() => {
       const ct = TABS.find((t) => t.id === tab);
       return ct ? /* @__PURE__ */ React.createElement(React.Fragment, null, typeof ct.icon === "function" ? ct.icon(th.text) : ct.icon, " ", ct.label) : null;
-    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.7rem", marginTop: "0.1rem", lineHeight: 1.1 } }, tab === MOBILE_LAUNCHER_TAB_ID && "Jump to any part of the portal.", tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "finance" && "P&L, NDCP orders, cash deposits, reconciliation, and expenses in one place.", tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place.", tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place.", tab === "system-hub" && "Admin, Email, and Reports in one place.", tab === "tools-hub" && "Handy tools, available to everyone.", tab === "district-alignment" && "A sandbox for planning district groupings \u2014 separate from the real Locations data.", tab === "system-health" && "Pipeline health, feed freshness, and outage alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "audits" && "Field operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "network-complaints" && "Worst-tier guest complaints across the network this month \u2014 add internal comments.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets.", tab === "incident-reports" && "File and review workplace incident reports."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    })()), /* @__PURE__ */ React.createElement("p", { className: "hide-mobile", style: { color: th.muted, fontSize: "0.7rem", marginTop: "0.1rem", lineHeight: 1.1 } }, tab === MOBILE_LAUNCHER_TAB_ID && "Jump to any part of the portal.", tab === "dashboard" && "Your operations command center.", tab === "links" && "All your key resources in one place.", tab === "contacts" && "Team directory and vendor contacts.", tab === "notes" && "Personal notes \u2014 only visible to you when logged in.", tab === "todos" && "Create tasks, assign to teammates, and track progress.", tab === "chat" && "Team messaging and direct messages.", tab === "announcements" && "Company-wide announcements and updates.", tab === "map" && "Real-time view of all 45+ stores \u2014 color-coded by labor %, live who's clocked in, open tickets per pin.", tab === "anomalies" && "Rolling per-store baselines \u2014 flags unusual sales or labor patterns for this store's day-of-week history.", tab === "scorecard" && "Weekly DM ranking \u2014 composite score across labor efficiency, sales growth, alert response time, and ticket health.", tab === "calendar" && "Tickets, equipment maintenance schedules, project milestones, and tasks with due dates.", tab === "locations" && "Store locations and operational details.", tab === "analytics" && "Sales data and performance metrics.", tab === "pulse" && "Live sales monitoring and weekly trends.", tab === "finance" && "P&L, NDCP orders, cash deposits, reconciliation, and expenses in one place.", tab === "ops-hub" && "Tasks, Pulse, Analytics, Anomalies, DM Scorecard, and Audits in one place.", tab === "team-hub" && "Locations, Impact Radar, Projects, Deal Pipeline, and Users in one place.", tab === "system-hub" && "Admin, Email, and Reports in one place.", tab === "tools-hub" && "Handy tools, available to everyone.", tab === "district-alignment" && "A sandbox for planning district groupings \u2014 separate from the real Locations data.", tab === "system-health" && "Pipeline health, feed freshness, and outage alerts.", tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion.", tab === "audits" && "Field operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.", tab === "projects" && "Track construction, remodels, and new store builds.", tab === "users" && "User accounts and access management.", tab === "kb" && "Company guides, SOPs, training materials, and reference articles.", tab === "admin" && "Users, configuration, audit log, and system data.", tab === "network-complaints" && "Worst-tier guest complaints across the network this month \u2014 add internal comments.", tab === "email" && "Shared inbox and outbound email from the portal.", tab === "tickets" && "Submit and track maintenance & service tickets.", tab === "incident-reports" && "File and review workplace incident reports.", tab === "minor-timecard" && "Weekly PA minor-labor-law timecard review \u2014 who needs a fix, and who's already been notified."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, isMobile && (user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u2726 Orion"), isMobile && user?.userType === "manager" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "\u229E My Store"), isMobile && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), isMobile && user?.userType === "construction" && isConstructionMobileTester(user) && /* @__PURE__ */ React.createElement("button", { onClick: () => togglePortalMode(false), style: { background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap" } }, "Mobile View"), false, (canViewProjects(user) || user?.userType === "manager" || user?.userType === "dm") && /* @__PURE__ */ React.createElement("div", { ref: notifRef }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setShowNotifs((s) => !s);
       setShowChatPanel(false);
     }, style: { background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", position: "relative", padding: 4, display: "flex", alignItems: "center" } }, ICONS.bell(th.text), filterNotifsByRole(notifications, user).filter((n) => !n.read).length > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: "#ff4444", color: "#fff", fontSize: "0.5625rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px " + (th.headerBg || th.bg) } }, filterNotifsByRole(notifications, user).filter((n) => !n.read).length)), showNotifs && (() => {
@@ -39853,10 +40013,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const TOOLS = "#2F6FA8";
       const toolsTiles = [
         { id: "district-alignment", name: "District Alignment", sub: "Draft district/DM groupings, sales snapshots, and store spacing \u2014 a sandbox that never touches real Locations data.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "district-alignment"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7", rx: "1" })) },
-        { id: "incident-reports", name: "Incident Reports", sub: "File and review Workplace Incident Reports \u2014 case info, witnesses, photo/video evidence, PDF export.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "incident-reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.incident(TOOLS)) }
+        { id: "incident-reports", name: "Incident Reports", sub: "File and review Workplace Incident Reports \u2014 case info, witnesses, photo/video evidence, PDF export.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "incident-reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.incident(TOOLS)) },
+        { id: "minor-timecard", name: "Minor Timecard Compliance", sub: "Weekly PA minor-labor-law timecard review \u2014 who needs a fix, and who's already been notified.", show: ["executive", "it", "office_staff", "dm", "manager"].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "minor-timecard"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.minorTimecard(TOOLS)) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
-    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
 })();
