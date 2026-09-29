@@ -48,3 +48,25 @@ test('buildDigestEmailHtml: bundles multiple issues for the same store into one 
   assert.match(html, /30-minute break/i);
   assert.match(html, /not a substitute for confirming/i);
 });
+
+test('buildViolationCardHtml: escapes HTML special characters in employee name', () => {
+  const issue = { employeeName: 'Anne & <script>alert(1)</script>', violationDate: '2026-09-19', consecutiveHours: 5.4 };
+  const dayPunches = [
+    { punchDateTime: '2026-09-19T06:00:00' },
+    { punchDateTime: '2026-09-19T11:24:00' },
+  ];
+  const html = buildViolationCardHtml(issue, dayPunches);
+  // Should contain escaped version, not the raw script tag
+  assert.match(html, /Anne &amp; &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+});
+
+test('buildDigestEmailHtml: escapes HTML special characters in store name', () => {
+  const issues = [
+    { issue: { employeeName: 'Person A', violationDate: '2026-09-19', consecutiveHours: 5.4 }, dayPunches: [{ punchDateTime: '2026-09-19T06:00:00' }, { punchDateTime: '2026-09-19T11:24:00' }] },
+  ];
+  const html = buildDigestEmailHtml('Store & <img onerror=alert(1)>', issues);
+  // Should contain escaped version, not the raw script
+  assert.match(html, /Store &amp; &lt;img onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(html, /<img onerror=/);
+});
