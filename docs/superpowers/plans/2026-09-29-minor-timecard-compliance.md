@@ -17,6 +17,7 @@
 - **Week boundary:** Sunday–Saturday (Pulse/Tips convention), not the Labor page's Monday-start convention.
 - **Never guess on ambiguous punch data.** An odd number of punches in a day (unpaired) must be treated as indeterminate, not silently assumed to be a violation or a non-violation — this project was burned hard by exactly this kind of guess earlier (2026-09-29 tips-week incidents).
 - **No push/SMS for this feature** — email only, via Resend, matching `tips-reconcile-cron.mjs`'s and `schedule-alerts.mjs`'s existing pattern.
+- **Shadow-mode testing, before this ever reaches real managers:** matching the established `NO_CLOCKIN_SHADOW_USER` pattern already used by `no-clockin-cron.mjs` (see `no-clockin-lib/run.mjs`), a new env var `MINOR_TIMECARD_SHADOW_EMAIL` redirects every email this feature sends to that one address instead of the real manager/DM/office-staff recipients, with the subject prefixed `[TEST]` and the email body annotated with who it would really have gone to. When the env var is unset, everything behaves normally (real recipients). This lets Ahmed test the whole real pipeline — real Paycor data, real violation detection, real escalation timing — against his own inbox before it ever reaches a real manager. Both crons (Tasks 4 and 5) implement this the same way.
 - **Blob storage, not Neon Postgres** — this data doesn't need relational queries; matches the pattern the original (reverted) `break-compliance-cron.mjs` already used successfully.
 - **Version bump:** bump `APP_VERSION` in `app.jsx` once, in the final UI task (Task 7) — this is the only task that touches user-visible frontend code.
 - **`STORES` comes from the existing export**, not a new duplicate array: `import { STORES } from '../tips-report-cron-background.mjs';` (see `tips-reconcile-cron.mjs` for the precedent — it already imports `STORES` this same way).
@@ -843,6 +844,23 @@ function sendEmail(to, subject, html) {
   });
 }
 
+// Shadow-mode testing (matches the established NO_CLOCKIN_SHADOW_USER pattern
+// in no-clockin-lib/run.mjs): when MINOR_TIMECARD_SHADOW_EMAIL is set, every
+// real recipient is collapsed into that one address instead, labelled with
+// who it would really have gone to — lets this be tested against real Paycor
+// data without ever reaching a real manager/DM/office-staff inbox. Unset in
+// production once testing is done.
+function applyShadowMode(recipients, subject, html) {
+  const shadowEmail = process.env.MINOR_TIMECARD_SHADOW_EMAIL;
+  if (!shadowEmail) return { recipients, subject, html };
+  const wouldGoTo = recipients.map(r => `${r.role}: ${r.email}`).join(', ') || '(no recipients)';
+  return {
+    recipients: [{ role: 'shadow', email: shadowEmail }],
+    subject: `[TEST] ${subject}`,
+    html: `<div style="background:#f59e0b18;border:1px solid #f59e0b55;border-radius:0.5rem;padding:10px 14px;margin-bottom:16px;font-family:sans-serif;font-size:0.8rem;color:#fbbf24;">SHADOW MODE — would really go to: ${wouldGoTo}</div>${html}`,
+  };
+}
+
 export default async (request) => {
   const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
@@ -897,9 +915,8 @@ export default async (request) => {
         }
         if (!storeNewIssues.length) return;
 
-        const recipients = resolveNotificationRecipients(storeNewIssues[0].issue, users); // manager-only pre-escalation, same for every issue at this store today
-        const subject = buildEmailSubject(store.name, false, null);
-        const html = buildDigestEmailHtml(store.name, storeNewIssues);
+        const realRecipients = resolveNotificationRecipients(storeNewIssues[0].issue, users); // manager-only pre-escalation, same for every issue at this store today
+        const { recipients, subject, html } = applyShadowMode(realRecipients, buildEmailSubject(store.name, false, null), buildDigestEmailHtml(store.name, storeNewIssues));
         const notifications = [];
         for (const r of recipients) {
           const status = await sendEmail(r.email, subject, html);
@@ -1044,6 +1061,21 @@ function sendEmail(to, subject, html) {
   });
 }
 
+// Same shadow-mode testing as minor-timecard-detect-cron.mjs — see that
+// file's comment for the full rationale. Both crons must apply this the same
+// way so a shadow-mode test sees the complete Sunday-through-escalation flow
+// in one inbox, not just the initial email.
+function applyShadowMode(recipients, subject, html) {
+  const shadowEmail = process.env.MINOR_TIMECARD_SHADOW_EMAIL;
+  if (!shadowEmail) return { recipients, subject, html };
+  const wouldGoTo = recipients.map(r => `${r.role}: ${r.email}`).join(', ') || '(no recipients)';
+  return {
+    recipients: [{ role: 'shadow', email: shadowEmail }],
+    subject: `[TEST] ${subject}`,
+    html: `<div style="background:#f59e0b18;border:1px solid #f59e0b55;border-radius:0.5rem;padding:10px 14px;margin-bottom:16px;font-family:sans-serif;font-size:0.8rem;color:#fbbf24;">SHADOW MODE — would really go to: ${wouldGoTo}</div>${html}`,
+  };
+}
+
 const daysBetween = (a, b) => Math.floor((new Date(b) - new Date(a)) / 86400000);
 
 export default async (request) => {
@@ -1092,10 +1124,8 @@ export default async (request) => {
     const anyEscalated = storeIssues.some(({ issue }) => issue.escalatedAt);
     const oldestFlagged = storeIssues.reduce((min, { issue }) => issue.firstFlaggedAt < min ? issue.firstFlaggedAt : min, storeIssues[0].issue.firstFlaggedAt);
     const dayN = daysBetween(oldestFlagged.slice(0, 10), todayDateStr) + 1;
-    const subject = buildEmailSubject(storeName, anyEscalated, anyEscalated ? dayN : null);
-    const html = buildDigestEmailHtml(storeName, storeIssues);
-
-    const recipients = resolveNotificationRecipients(storeIssues[0].issue, users);
+    const realRecipients = resolveNotificationRecipients(storeIssues[0].issue, users);
+    const { recipients, subject, html } = applyShadowMode(realRecipients, buildEmailSubject(storeName, anyEscalated, anyEscalated ? dayN : null), buildDigestEmailHtml(storeName, storeIssues));
     for (const r of recipients) {
       const status = await sendEmail(r.email, subject, html);
       const record = { recipientRole: r.role, recipientEmail: r.email, sentAt: now.toISOString(), success: status >= 200 && status < 300, error: status >= 200 && status < 300 ? null : `HTTP ${status}` };
@@ -1106,10 +1136,11 @@ export default async (request) => {
     // 7-day exec backstop — once per issue, independent of the regular digest above.
     for (const { issue } of storeIssues) {
       if (execBackstopDue(issue, todayDateStr)) {
-        const execUsers = users.filter(u => u.active !== false && (u.userType === 'executive' || u.userType === 'it') && u.email);
-        for (const u of execUsers) {
-          const status = await sendEmail(u.email, `⚠ Minor Timecard Unresolved 7+ Days — ${storeName}`, buildDigestEmailHtml(storeName, [{ issue, dayPunches: [] }]));
-          issue.notifications.push({ recipientRole: 'exec_backstop', recipientEmail: u.email, sentAt: now.toISOString(), success: status >= 200 && status < 300, error: status >= 200 && status < 300 ? null : `HTTP ${status}` });
+        const realExecUsers = users.filter(u => u.active !== false && (u.userType === 'executive' || u.userType === 'it') && u.email).map(u => ({ role: 'exec_backstop', email: u.email }));
+        const backstop = applyShadowMode(realExecUsers, `⚠ Minor Timecard Unresolved 7+ Days — ${storeName}`, buildDigestEmailHtml(storeName, [{ issue, dayPunches: [] }]));
+        for (const r of backstop.recipients) {
+          const status = await sendEmail(r.email, backstop.subject, backstop.html);
+          issue.notifications.push({ recipientRole: 'exec_backstop', recipientEmail: r.email, sentAt: now.toISOString(), success: status >= 200 && status < 300, error: status >= 200 && status < 300 ? null : `HTTP ${status}` });
         }
       }
     }
@@ -1316,6 +1347,10 @@ git commit -m "feat(minor-timecard): add Admin UI screen, icon, and tile registr
 ```
 
 ---
+
+## Testing With Your Own Email
+
+Once Tasks 4–6 are deployed, set the Netlify env var `MINOR_TIMECARD_SHADOW_EMAIL` to your own address (all deploy contexts, same as any other env var here) **before** the crons run for real. Every email this feature would send goes to you instead, labelled `[TEST]` in the subject and with a banner at the top of the email body saying exactly who it would really have gone to (manager/DM/office staff, by name/email). This lets you see the real detection results against real Paycor data, the real escalation timing, and the real email content — without a single real manager ever being touched. Once you're happy with it, remove the env var and it switches to real recipients.
 
 ## Self-Review Notes
 
