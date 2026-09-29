@@ -127,10 +127,10 @@ export default async (request) => {
   // every other store's already-computed resolutions/escalations, matching
   // the per-store isolation the sibling detect-cron already uses.
   for (const issue of issues) {
-    if (issue.status !== 'open') continue;
-    if (issue.firstFlaggedAt.slice(0, 10) === todayDateStr) continue; // don't double-notify the day it was created
-
     try {
+      if (issue.status !== 'open') continue;
+      if (issue.firstFlaggedAt.slice(0, 10) === todayDateStr) continue; // don't double-notify the day it was created
+
       const dayPunches = await fetchDayPunches(issue.employeeId, issue.violationDate);
       if (dayPunches !== null) {
         const freshResult = analyzeDayForViolation(dayPunches);
