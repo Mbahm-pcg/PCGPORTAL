@@ -971,7 +971,7 @@ git commit -m "feat(minor-timecard): add Sunday detection cron"
 - Modify: `netlify.toml` (add the schedule entry)
 
 **Interfaces:**
-- Consumes: `analyzeDayForViolation`, `groupPunchesByDate` (Task 1); `shouldEscalateToday`, `execBackstopDue`, `resolveNotificationRecipients`, `applyResolutionCheck` (Task 2); `buildEmailSubject`, `buildDigestEmailHtml` (Task 3); `STORES` (existing export); reuses the same Paycor-OAuth/blob-helper code pattern as Task 4 (duplicated in this file, consistent with how `tips-report-refresh-background.mjs` and `tips-report-cron-background.mjs` each keep their own copy rather than sharing a module across scheduled functions in this codebase).
+- Consumes: `analyzeDayForViolation` (Task 1 — note: `groupPunchesByDate` is NOT needed here, unlike Task 4; this cron fetches exactly one day's punches per issue via `fetchDayPunches`, so the result is already a single day's punch array with nothing to group); `shouldEscalateToday`, `execBackstopDue`, `resolveNotificationRecipients`, `applyResolutionCheck` (Task 2); `buildEmailSubject`, `buildDigestEmailHtml` (Task 3); `STORES` (existing export); reuses the same Paycor-OAuth/blob-helper code pattern as Task 4 (duplicated in this file, consistent with how `tips-report-refresh-background.mjs` and `tips-report-cron-background.mjs` each keep their own copy rather than sharing a module across scheduled functions in this codebase).
 - Produces: updates `pcg_minor_timecard_issues_v1` (read by Task 7's UI).
 
 - [ ] **Step 1: Write the implementation**
@@ -986,7 +986,7 @@ git commit -m "feat(minor-timecard): add Sunday detection cron"
 // resolved. See docs/superpowers/specs/2026-09-29-minor-timecard-compliance-design.md.
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
-import { groupPunchesByDate, analyzeDayForViolation } from '../../src/minor-timecard-detect.mjs';
+import { analyzeDayForViolation } from '../../src/minor-timecard-detect.mjs';
 import { shouldEscalateToday, execBackstopDue, resolveNotificationRecipients, applyResolutionCheck } from '../../src/minor-timecard-lifecycle.mjs';
 import { buildEmailSubject, buildDigestEmailHtml } from '../../src/minor-timecard-email.mjs';
 
