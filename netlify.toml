@@ -117,6 +117,9 @@
 [functions.minor-timecard-detect-cron]
   schedule = "0 10 * * 0"
 
+[functions.minor-timecard-followup-cron]
+  schedule = "0 10 * * *"
+
 # Monthly P&L — 1st of each month at 7 AM ET (11:00 UTC)
 [functions.pnl-cron]
   schedule = "0 11 1 * *"
