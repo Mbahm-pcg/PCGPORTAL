@@ -229,6 +229,22 @@ export async function fetchAllIdentifyingData(legalEntityId) {
     if (!Array.isArray(body.records) && (body.Title || body.CorrelationId)) {
       throw new Error(`Paycor error response fetching identifyingData: ${body.Title || 'unknown'} — ${body.Detail || ''}`);
     }
+    // paycor.mjs's identifyingData action always answers with an outer HTTP
+    // 200, even when the underlying Paycor call itself failed — it relays
+    // the REAL status in the body's `status` field instead (confirmed via
+    // paycor.mjs: `{ status: res.status, count, records, continuationToken }`).
+    // A scope/permission failure there comes back as `status: 403,
+    // records: []` — not the Title/CorrelationId shape checked above — which
+    // silently reads as "zero employees have a birthdate" to every caller.
+    // Confirmed real risk, not theoretical: this exact endpoint's scope was
+    // off from 2026-07-21 to 2026-09-28 (see project_paycor_identifying_data_scope
+    // memory). Found via final review (2026-09-30) of the Minor Timecard
+    // Compliance feature, whose minor-detection roster depends entirely on
+    // this data — a false-empty response here silently produces "zero
+    // minors company-wide" with no error anywhere.
+    if (body.status && body.status !== 200) {
+      throw new Error(`Paycor identifyingData request failed: HTTP ${body.status}`);
+    }
     const page = Array.isArray(body.records) ? body.records : [];
     records = records.concat(page);
     continuationToken = body.continuationToken || null;
