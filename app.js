@@ -17366,14 +17366,21 @@ ${t2.slice(0, 300)}`);
   };
   function MinorTimecardComplianceTab({ user, th, showAlert: showAlert2 }) {
     const [issues, setIssues] = React.useState(null);
+    const [loadError, setLoadError] = React.useState(null);
     const [filter, setFilter] = React.useState("all");
     const [busyId, setBusyId] = React.useState(null);
     React.useEffect(() => {
       let alive = true;
-      cloudLoad(MINOR_TIMECARD_ISSUES_KEY).then((data) => {
-        if (alive) setIssues(Array.isArray(data) ? data : []);
-      }).catch(() => {
-        if (alive) setIssues([]);
+      cloudLoadOrThrow(MINOR_TIMECARD_ISSUES_KEY).then((data) => {
+        if (alive) {
+          setIssues(Array.isArray(data) ? data : []);
+          setLoadError(null);
+        }
+      }).catch((err) => {
+        if (alive) {
+          setIssues([]);
+          setLoadError(err?.message || "Load failed");
+        }
       });
       return () => {
         alive = false;
@@ -17473,11 +17480,26 @@ ${t2.slice(0, 300)}`);
         style: { background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: "0.2rem 0.7rem", fontSize: "0.72rem", cursor: "pointer", fontFamily: "'Source Sans 3'" }
       },
       "Clear filter"
-    )), issues === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), issues !== null && rows.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, visible.length === 0 ? "No minor timecard issues flagged \u2014 nothing to review." : "Nothing matches this filter."), issues !== null && rows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, rows.map((i) => {
+    )), issues === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, "Couldn't load minor timecard issues \u2014 try refreshing.", /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.75rem", marginTop: "0.35rem" } }, "This is a load failure, not an all-clear \u2014 the counts above are not a real reading.")), issues !== null && !loadError && rows.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, visible.length === 0 ? "No minor timecard issues flagged \u2014 nothing to review." : "Nothing matches this filter."), issues !== null && !loadError && rows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, rows.map((i) => {
       const ds = mtcDisplayStatus(i);
       const meta = MTC_STATUS_META[ds];
       const trail = notifTrail(i);
-      return /* @__PURE__ */ React.createElement("div", { key: i.id, style: { ...card(th), padding: "0.85rem 1.1rem", borderLeft: `4px solid ${meta.color}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 800, color: th.text } }, i.storeName || `Store #${i.pc}`), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, "District ", i.district ?? "\u2014", " \xB7 #", i.pc), /* @__PURE__ */ React.createElement("span", { style: pill(meta.color) }, /* @__PURE__ */ React.createElement(Icon, { d: meta.icon, size: 11, color: meta.color }), meta.label)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.text, marginTop: "0.3rem" } }, i.employeeName || "Unknown employee", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", mtcShortDate(i.violationDate) || i.violationDate || "\u2014", i.consecutiveHours != null && ` \xB7 ${Number(i.consecutiveHours).toFixed(1)} consecutive hrs`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.3rem" } }, trail.length === 0 ? "Not notified yet" : trail.map((t, n) => /* @__PURE__ */ React.createElement("span", { key: t.role }, n > 0 && " \xB7 ", MTC_ROLE_LABEL[t.role] || t.role, " ", t.failed ? "send failed" : mtcShortDate(t.at))), ds === "resolved" && i.resolvedAt && ` \xB7 Resolved ${mtcShortDate(i.resolvedAt)}${i.resolvedVia === "manual" ? ` by ${i.resolvedBy || "admin"}` : " automatically"}`)), canResolve && ds !== "resolved" && /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { key: i.id, style: { ...card(th), padding: "0.85rem 1.1rem", borderLeft: `4px solid ${meta.color}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: {
+        width: 22,
+        height: 22,
+        borderRadius: "50%",
+        flexShrink: 0,
+        background: `${meta.color}22`,
+        border: `1px solid ${meta.color}55`,
+        color: meta.color,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "'Raleway'",
+        fontWeight: 800,
+        fontSize: "0.72rem",
+        lineHeight: 1
+      } }, (i.storeName || String(i.pc ?? "?")).trim().charAt(0).toUpperCase() || "?"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 800, color: th.text } }, i.storeName || `Store #${i.pc}`), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, "District ", i.district ?? "\u2014", " \xB7 #", i.pc), /* @__PURE__ */ React.createElement("span", { style: pill(meta.color) }, /* @__PURE__ */ React.createElement(Icon, { d: meta.icon, size: 11, color: meta.color }), meta.label)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.text, marginTop: "0.3rem" } }, i.employeeName || "Unknown employee", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", mtcShortDate(i.violationDate) || i.violationDate || "\u2014", i.consecutiveHours != null && ` \xB7 ${Number(i.consecutiveHours).toFixed(1)} consecutive hrs`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.3rem" } }, trail.length === 0 ? "Not notified yet" : trail.map((t, n) => /* @__PURE__ */ React.createElement("span", { key: t.role }, n > 0 && " \xB7 ", MTC_ROLE_LABEL[t.role] || t.role, " ", t.failed ? "send failed" : mtcShortDate(t.at))), ds === "resolved" && i.resolvedAt && ` \xB7 Resolved ${mtcShortDate(i.resolvedAt)}${i.resolvedVia === "manual" ? ` by ${i.resolvedBy || "admin"}` : " automatically"}`)), canResolve && ds !== "resolved" && /* @__PURE__ */ React.createElement(
         "button",
         {
           type: "button",
@@ -23381,7 +23403,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.20";
+  var APP_VERSION = "v21.21";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

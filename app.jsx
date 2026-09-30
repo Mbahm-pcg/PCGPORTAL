@@ -20472,14 +20472,20 @@ const mtcShortDate = (iso) => {
 
 function MinorTimecardComplianceTab({ user, th, showAlert }) {
   const [issues, setIssues] = React.useState(null); // null = still loading
+  const [loadError, setLoadError] = React.useState(null);
   const [filter, setFilter] = React.useState('all'); // 'all' | 'open' | 'escalated' | 'resolvedWeek'
   const [busyId, setBusyId] = React.useState(null);
 
   React.useEffect(() => {
     let alive = true;
-    cloudLoad(MINOR_TIMECARD_ISSUES_KEY)
-      .then(data => { if (alive) setIssues(Array.isArray(data) ? data : []); })
-      .catch(() => { if (alive) setIssues([]); });
+    // cloudLoadOrThrow, NOT cloudLoad: cloudLoad swallows a network/HTTP failure
+    // into the same null a genuinely-clean week produces, which on this screen
+    // would render as "nothing to review" — a false all-clear on a PA labor-law
+    // compliance view during a Blobs outage. A thrown failure gets its own state
+    // and its own message instead.
+    cloudLoadOrThrow(MINOR_TIMECARD_ISSUES_KEY)
+      .then(data => { if (alive) { setIssues(Array.isArray(data) ? data : []); setLoadError(null); } })
+      .catch(err => { if (alive) { setIssues([]); setLoadError(err?.message || 'Load failed'); } });
     return () => { alive = false; };
   }, []);
 
@@ -20611,13 +20617,22 @@ function MinorTimecardComplianceTab({ user, th, showAlert }) {
       {issues === null && (
         <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>Loading…</div>
       )}
-      {issues !== null && rows.length === 0 && (
+      {/* Deliberately NOT the empty state — a failed load must never read as an all-clear. */}
+      {loadError && (
+        <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: '#e03131', fontSize: '0.85rem' }}>
+          Couldn't load minor timecard issues — try refreshing.
+          <div style={{ color: th.muted, fontSize: '0.75rem', marginTop: '0.35rem' }}>
+            This is a load failure, not an all-clear — the counts above are not a real reading.
+          </div>
+        </div>
+      )}
+      {issues !== null && !loadError && rows.length === 0 && (
         <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>
           {visible.length === 0 ? 'No minor timecard issues flagged — nothing to review.' : 'Nothing matches this filter.'}
         </div>
       )}
 
-      {issues !== null && rows.length > 0 && (
+      {issues !== null && !loadError && rows.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           {rows.map(i => {
             const ds = mtcDisplayStatus(i);
@@ -20628,6 +20643,15 @@ function MinorTimecardComplianceTab({ user, th, showAlert }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      {/* Store initial — decorative only; the store name sits right beside it,
+                          so it's aria-hidden rather than read out twice. Tinted with the row's
+                          status colour so the accent bar, badge and avatar read as one unit. */}
+                      <span aria-hidden="true" style={{
+                        width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                        background: `${meta.color}22`, border: `1px solid ${meta.color}55`, color: meta.color,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.72rem', lineHeight: 1,
+                      }}>{(i.storeName || String(i.pc ?? '?')).trim().charAt(0).toUpperCase() || '?'}</span>
                       <span style={{ fontSize: '0.85rem', fontWeight: 800, color: th.text }}>{i.storeName || `Store #${i.pc}`}</span>
                       <span style={{ fontSize: '0.7rem', color: th.muted }}>District {i.district ?? '—'} · #{i.pc}</span>
                       <span style={pill(meta.color)}>
@@ -28999,7 +29023,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.20";
+const APP_VERSION = "v21.21";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
