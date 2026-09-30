@@ -113,12 +113,21 @@
 
 # Minor timecard compliance — Sunday 6 AM ET (10:00 UTC): scans every store's
 # under-18 employees for the week that just ended, flags PA minor-labor-law
-# violations, and emails each affected store's manager.
-[functions.minor-timecard-detect-cron]
+# violations, and emails each affected store's manager. Named "-background"
+# (15-min budget, not the default ~60s) for the same reason
+# employee-directory-cron-background.mjs was: 46 stores x 2 Paycor calls each
+# hard-timed-out at a flat 60000 ms on 2026-09-28, and this one additionally
+# fetches a week of punches per minor on top of that.
+[functions.minor-timecard-detect-cron-background]
   schedule = "0 10 * * 0"
 
+# Daily follow-up/escalation — 7:30 AM ET (11:30 UTC). Deliberately 90 minutes
+# AFTER the Sunday detect run above: both functions read-modify-write the same
+# pcg_minor_timecard_issues_v1 blob, so they must never overlap. (The followup
+# also merges onto a fresh re-read before saving, but the schedule gap is the
+# primary defence — see minor-timecard-followup-cron.mjs's header.)
 [functions.minor-timecard-followup-cron]
-  schedule = "0 10 * * *"
+  schedule = "30 11 * * *"
 
 # Monthly P&L — 1st of each month at 7 AM ET (11:00 UTC)
 [functions.pnl-cron]

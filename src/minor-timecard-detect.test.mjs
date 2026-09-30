@@ -105,7 +105,36 @@ test('analyzeDayForViolation: under 5.0 hours total is never a violation even wi
 
 test('analyzeDayForViolation: no punches at all is ok, zero hours, no violation', () => {
   const result = analyzeDayForViolation([]);
-  assert.deepEqual(result, { status: 'ok', consecutiveHours: 0, longestGapMinutes: null, violates: false });
+  assert.deepEqual(result, { status: 'ok', consecutiveHours: 0, longestGapMinutes: null, violationGapMinutes: null, violates: false });
+});
+
+test('analyzeDayForViolation: violationGapMinutes describes the VIOLATING stretch, not the whole day', () => {
+  // A real, qualifying 30-minute break early in the day, then a second,
+  // completely unbroken 5.5h stretch that is the actual violation. The day's
+  // longest gap (30 min) reads as compliant; the violating stretch had no
+  // break at all.
+  const result = analyzeDayForViolation([
+    { punchDateTime: '2026-09-19T06:00:00' }, // in
+    { punchDateTime: '2026-09-19T08:00:00' }, // out (2h)
+    { punchDateTime: '2026-09-19T08:30:00' }, // in (30 min break — qualifies, closes the stretch)
+    { punchDateTime: '2026-09-19T14:00:00' }, // out (5.5h — the violation)
+  ]);
+  assert.equal(result.status, 'ok');
+  assert.equal(result.violates, true);
+  assert.equal(Math.round(result.consecutiveHours * 10) / 10, 5.5);
+  assert.equal(Math.round(result.longestGapMinutes), 30);   // day-wide
+  assert.equal(result.violationGapMinutes, 0);              // inside the violating stretch
+});
+
+test('analyzeDayForViolation: violationGapMinutes reports a sub-qualifying gap inside the violating stretch', () => {
+  const result = analyzeDayForViolation([
+    { punchDateTime: '2026-09-19T06:00:00' },
+    { punchDateTime: '2026-09-19T09:00:00' },
+    { punchDateTime: '2026-09-19T09:10:00' }, // 10 min — does not qualify, stretch continues
+    { punchDateTime: '2026-09-19T12:30:00' },
+  ]);
+  assert.equal(result.violates, true);
+  assert.equal(Math.round(result.violationGapMinutes), 10);
 });
 
 test('analyzeDayForViolation: an odd/unpaired punch count is indeterminate, never guessed as a violation', () => {

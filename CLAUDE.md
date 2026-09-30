@@ -73,6 +73,14 @@ netlify/functions/
   no-clockin-cron.mjs         — No clock-in alerts: 30 min → manager, 60 min → absent to manager + DM (SMS + push + email)
   no-clockin.mjs              — Manual exec/IT endpoint for it: dry run + `?sendTest=1` (scheduled fns can't be hit over HTTP — empty 403)
   no-clockin-lib/run.mjs      — Shared engine used by both
+  # ── Minor Timecard Compliance (PA minor labor law) ──
+  minor-timecard-detect-cron-background.mjs — Sunday: scans every store's under-18 crew for the
+                                closed week, flags 5+ consecutive hrs with no 30-min break, emails
+                                the manager (`-background` = 15-min budget; it WILL exceed 60s)
+  minor-timecard-followup-cron.mjs — Daily: re-checks each open issue against live Paycor, auto-
+                                resolves, escalates to DM + office staff from the Monday after the
+                                week closes, 7-day exec backstop; merges onto a fresh blob read
+  minor-timecard-resolve.mjs  — Manual "Mark Resolved" endpoint (exec/IT/DM, DM district-scoped)
   # ── Orion Analyst (AI) ──
   analyst.js                  — Analyst entry
   analyst-cron.js             — Scheduled analyst runs (DM briefs, anomaly scans, exec reports)
@@ -135,6 +143,8 @@ npx netlify status           # Check auth + site link
 | `analyst-cron` | `0 11,14 * * *` | DM briefs + anomaly/exec reports |
 | `schedule-alerts` | `0 10 * * 1,4` | Mon/Thu 6am ET labor risk alerts |
 | `no-clockin-cron` | `*/15 * * * *` | log-only until `NO_CLOCKIN_LIVE=true`; scheduled shifts with no punch |
+| `minor-timecard-detect-cron-background` | `0 10 * * 0` | Sun 6am ET; log-only until `MINOR_TIMECARD_LIVE` is set; PA under-18 break violations for the closed week |
+| `minor-timecard-followup-cron` | `30 11 * * *` | 7:30am ET daily re-check/escalation; **90 min after detect on purpose** — both write `pcg_minor_timecard_issues_v1` |
 | `reports-backup` | `59 4 * * *` | nightly rolling 7-day backup |
 | `kb-sync-background` | `0 10 * * 1` | Mon weekly Drive KB sync |
 | `reconciliation-cron` | `1 4 * * 0,2` | Sun snapshot / Tue compare |
@@ -308,6 +318,7 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
 | `NOTIFY_FROM` / `PULSE_NOTIFY_EMAIL` / `SMTP_FROM_DOMAIN` | Email sender config |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | SMS |
 | `NO_CLOCKIN_LIVE` / `NO_CLOCKIN_SHADOW_USER` / `TEXTBELT_API_KEY` | no-clockin-cron mode: unset = log-only, `shadow` = alerts go ONLY to the username in `NO_CLOCKIN_SHADOW_USER` (labelled with who they'd reach), `true` = real managers/DMs; Textbelt SMS key (what sms.mjs / pulse-notify / no-clockin actually use) |
+| `MINOR_TIMECARD_LIVE` / `MINOR_TIMECARD_SHADOW_EMAIL` | Minor-timecard cron mode (same 3-state shape as `NO_CLOCKIN_LIVE`): unset = log-only (detects + logs, sends nothing, writes nothing — safe to deploy unconfigured), `shadow` = every email redirected to `MINOR_TIMECARD_SHADOW_EMAIL` labelled with who it would have reached (issue state still written), `true` = real manager/DM/office-staff/exec. **Before switching `shadow` → `true`, clear the `pcg_minor_timecard_issues_v1` blob** — shadow runs write real `escalatedAt` and real `exec_backstop` notification records, which would otherwise suppress the real backstop and make a manager's first-ever email an already-escalated "Day 12" notice. Full runbook in `minor-timecard-followup-cron.mjs`'s header |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL` / `VAPID_SUBJECT` | Web push |
 
 ---

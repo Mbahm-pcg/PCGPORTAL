@@ -78,21 +78,23 @@ export function analyzeDayForViolation(dayPunches) {
     .sort((a, b) => a.t - b.t);
 
   if (sorted.length === 0) {
-    return { status: 'ok', consecutiveHours: 0, longestGapMinutes: null, violates: false };
+    return { status: 'ok', consecutiveHours: 0, longestGapMinutes: null, violationGapMinutes: null, violates: false };
   }
   if (sorted.length % 2 !== 0) {
-    return { status: 'indeterminate', consecutiveHours: null, longestGapMinutes: null, violates: false };
+    return { status: 'indeterminate', consecutiveHours: null, longestGapMinutes: null, violationGapMinutes: null, violates: false };
   }
 
   const pairs = [];
   for (let i = 0; i < sorted.length; i += 2) pairs.push({ in: sorted[i].t, out: sorted[i + 1].t });
 
-  let longestGapMinutes = null;
+  let longestGapMinutes = null;   // longest gap anywhere in the day
   let stretchStart = pairs[0].in;
+  let stretchGapMinutes = 0;      // longest gap INSIDE the current stretch (always < 30 by construction)
   let maxStretchHours = 0;
+  let violationGapMinutes = 0;    // stretchGapMinutes of the longest (i.e. the violating) stretch
   const closeStretch = (end) => {
     const hours = (end - stretchStart) / 3600000;
-    if (hours > maxStretchHours) maxStretchHours = hours;
+    if (hours > maxStretchHours) { maxStretchHours = hours; violationGapMinutes = stretchGapMinutes; }
   };
 
   for (let i = 1; i < pairs.length; i++) {
@@ -101,6 +103,9 @@ export function analyzeDayForViolation(dayPunches) {
     if (gapMinutes >= QUALIFYING_BREAK_MINUTES) {
       closeStretch(pairs[i - 1].out);
       stretchStart = pairs[i].in;
+      stretchGapMinutes = 0;
+    } else if (gapMinutes > stretchGapMinutes) {
+      stretchGapMinutes = gapMinutes;
     }
     // A sub-qualifying gap does NOT close the stretch — the clock keeps running
     // across it, per PA law's actual intent (see file header).
@@ -110,7 +115,14 @@ export function analyzeDayForViolation(dayPunches) {
   return {
     status: 'ok',
     consecutiveHours: maxStretchHours,
+    // longestGapMinutes is the whole DAY's longest gap — useful context, but
+    // NOT the number that describes the violation. On a split shift with a
+    // real 30-minute break followed by a second, unbroken 5.5h stretch it is
+    // 30, which reads as compliant. violationGapMinutes is the longest gap
+    // within the stretch that actually violated (0 when there was none), and
+    // is what any downstream display of "did they get a break" must use.
     longestGapMinutes,
+    violationGapMinutes,
     violates: maxStretchHours >= VIOLATION_HOURS,
   };
 }

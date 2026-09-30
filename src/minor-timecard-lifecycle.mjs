@@ -9,11 +9,16 @@ export function buildIssueId(pc, employeeId, violationDate) {
   return `${pc}_${employeeId}_${violationDate}`;
 }
 
-export function buildIssueRecord({ pc, storeName, district, employeeId, employeeName, weekStart, weekEnd, violationDate, consecutiveHours, now = new Date() }) {
+// `longestGapMinutes` here is analyzeDayForViolation's `violationGapMinutes`:
+// the longest gap INSIDE the stretch that actually violated (0 if there was
+// none), not the day's longest gap. Stored on the issue so every email/UI
+// rendering of "did they get a break" reports the same figure the violation
+// was decided on, instead of re-deriving a second one from raw punches later.
+export function buildIssueRecord({ pc, storeName, district, employeeId, employeeName, weekStart, weekEnd, violationDate, consecutiveHours, longestGapMinutes = null, now = new Date() }) {
   return {
     id: buildIssueId(pc, employeeId, violationDate),
     pc, storeName, district, employeeId, employeeName,
-    weekStart, weekEnd, violationDate, consecutiveHours,
+    weekStart, weekEnd, violationDate, consecutiveHours, longestGapMinutes,
     status: 'open',
     firstFlaggedAt: now.toISOString(),
     escalatedAt: null,
