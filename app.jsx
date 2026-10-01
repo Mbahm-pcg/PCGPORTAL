@@ -12,7 +12,7 @@ import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWe
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
 import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid.mjs';
 import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
-import { parseDateOnly, toDateStr, defaultClosedPeriodEnd } from './src/office-clock-period-math.mjs';
+import { parseDateOnly, toDateStr, defaultClosedPeriodEnd, payPeriodEndFor } from './src/office-clock-period-math.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -21200,7 +21200,7 @@ function OfficeClockReview({ user, th, showAlert }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <label style={{ fontSize: '0.8rem', color: th.muted }}>
           Pay period ending{' '}
-          <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} style={inp(th)} />
+          <input type="date" value={periodEnd} onChange={e => e.target.value && setPeriodEnd(payPeriodEndFor(e.target.value, OFFICE_CLOCK_BIWEEKLY_ANCHOR_END))} style={inp(th)} />
         </label>
         {data && <span style={pill(data.locked ? '#6b7280' : '#22c55e')}>{data.locked ? 'Locked — fully sent to Paycor' : 'Open for edits'}</span>}
       </div>
@@ -29707,7 +29707,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.28";
+const APP_VERSION = "v21.29";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
