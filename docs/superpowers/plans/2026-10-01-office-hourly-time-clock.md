@@ -692,7 +692,11 @@ In `office-clock-send-background.mjs`:
 2. `SELECT cp.*, u.paycor_employee_id, u.paycor_department_id FROM office_clock_punches cp JOIN users u ON u.id = cp.user_id WHERE cp.pay_period_end = ${periodEnd} AND cp.paycor_status = 'unsent'`.
 3. Build one array of Paycor punch objects: `punchStatusAndActivity(punchType)`
    gives `{status, activity}`; look up the cached GUID for `activity`; build
-   `{ EmployeeId: u.paycor_employee_id, DepartmentId: u.paycor_department_id, PunchDateTime: row.captured_at, PunchStatusType: status, ActivityTypeId: <cached GUID>, Note: row.note || undefined }`.
+   `{ EmployeeId: u.paycor_employee_id, DepartmentId: u.paycor_department_id, PunchDateTime: row.captured_at, PunchStatusType: status, ActivityTypeId: <cached GUID>, IsTransfer: false, Note: row.note || undefined }`.
+   **`IsTransfer` is required** — confirmed by the Controlled Test (a real 400 from
+   Paycor: "The IsTransfer field is required"), contradicting the earlier
+   "believed optional" from secondhand docs. Always `false` here; this feature
+   never represents a location transfer.
 4. Call `createPunches`; get a tracking ID.
 5. `UPDATE office_clock_punches SET paycor_status = 'pending', paycor_tracking_id = ${trackingId} WHERE id = ANY(${ids})`.
 6. Poll `punchErrorLog` via `resolvePunchLogResponse`, same semantics as the design

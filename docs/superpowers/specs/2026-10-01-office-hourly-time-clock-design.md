@@ -265,12 +265,19 @@ retry/confirmation logic.
 
 ## Open Questions
 
-1. **Exact `CreatePunches` required/optional field list** — confirmed by the
-   Controlled Test's real response.
-2. **Whether PCG's OAuth client has write scope for `CreatePunches`** at all, and
-   whether the office/corporate legal entity is itself Perform-Time-enabled — both
-   surface via the Controlled Test and Task 4's first real fetch against that legal
-   entity.
+1. ~~Exact `CreatePunches` required/optional field list~~ — **RESOLVED by the
+   Controlled Test (2026-10-01).** A real punch was posted for Ahmed Bhuiyan at
+   Bustleton (legal entity 193884) and confirmed present in his actual punch
+   history afterward. The real field list: `EmployeeId`, `DepartmentId`,
+   `PunchDateTime`, `PunchStatusType`, `ActivityTypeId`, and — contradicting the
+   earlier "believed optional" from secondhand docs — **`IsTransfer` is
+   required** (a first attempt without it got a real 400: "The IsTransfer field
+   is required"). `Note` is confirmed optional and round-trips correctly.
+2. ~~Whether PCG's OAuth client has write scope for `CreatePunches`~~ —
+   **RESOLVED: yes**, confirmed by the same successful test. (The
+   office/corporate legal entity's own write access is still a separate,
+   not-yet-tested fact — Bustleton standing in for the mechanism itself, per
+   the Controlled Test's own stated scope.)
 3. **The office/corporate legal entity ID itself** — needed before Task 4 can be
    built against real data; to be supplied once known.
 
