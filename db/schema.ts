@@ -15,6 +15,7 @@ export const users = pgTable("users", {
   darkMode: boolean("dark_mode").default(false),
   avatarUrl: text("avatar_url"),
   paycorEmployeeId: text("paycor_employee_id"), // matches db-migrate.mjs's `ALTER ... ADD COLUMN ... TEXT` (no length cap)
+  paycorDepartmentId: text("paycor_department_id"), // Office Hourly Time Clock: matches paycor_employee_id's pattern; presence of both = enabled
   googleId: varchar("google_id", { length: 255 }),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),

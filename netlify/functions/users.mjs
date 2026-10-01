@@ -47,6 +47,21 @@ async function ensurePaycorEmployeeIdColumn(db) {
   }
 }
 
+// Office Hourly Time Clock: mirrors paycor_employee_id's existing pattern above. A
+// user can punch once both fields are set — that's the entire enablement, no
+// separate flag (see feedback_role_based_feature_access memory: visibility is a
+// role-level Access Matrix concern, handled in app.jsx/Task 8, not here).
+let _paycorDepartmentIdColumnEnsured = false;
+async function ensurePaycorDepartmentIdColumn(db) {
+  if (_paycorDepartmentIdColumnEnsured) return;
+  try {
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS paycor_department_id text`;
+    _paycorDepartmentIdColumnEnsured = true;
+  } catch (err) {
+    console.warn('ensurePaycorDepartmentIdColumn failed (continuing):', err?.message || err);
+  }
+}
+
 // Map a DB row (snake_case) to a client-safe object (camelCase). Never includes
 // password_hash or two_factor_secret.
 function toClient(row) {
@@ -78,6 +93,7 @@ function toClient(row) {
     failedAttempts:     row.failed_attempts,
     auditsAccess:       row.audits_access ?? null,
     paycorEmployeeId:   row.paycor_employee_id ?? null,
+    paycorDepartmentId: row.paycor_department_id ?? null,
   };
 }
 
@@ -103,6 +119,7 @@ export default async (request) => {
   // ensureTables(), since a fresh deploy could hit either function first.
   await ensureAuditsColumn(db);
   await ensurePaycorEmployeeIdColumn(db);
+  await ensurePaycorDepartmentIdColumn(db);
   const url = new URL(request.url);
   // requireActiveUser (not plain requireUser) so a revoked/deactivated session can't perform
   // user CRUD until its token expires. null = unauthenticated (the public `list` is still allowed).
@@ -125,7 +142,7 @@ export default async (request) => {
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
-               audits_access, paycor_employee_id
+               audits_access, paycor_employee_id, paycor_department_id
         FROM users ORDER BY id
       `;
       return reply(200, rows.map(toClient));
@@ -186,7 +203,7 @@ export default async (request) => {
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
-               audits_access, paycor_employee_id
+               audits_access, paycor_employee_id, paycor_department_id
         FROM users WHERE id = ${row.id}
       `;
       return reply(201, { user: toClient(created) });
@@ -197,7 +214,7 @@ export default async (request) => {
       const { id, patch } = body;
       if (!id || !patch) return reply(400, { error: 'id and patch required' });
 
-      const [target] = await db`SELECT id, username, user_type, audits_access FROM users WHERE id = ${id}`;
+      const [target] = await db`SELECT id, username, user_type, audits_access, paycor_employee_id, paycor_department_id FROM users WHERE id = ${id}`;
       if (!target) return reply(404, { error: 'user not found' });
       // Any authenticated user may update their OWN contact info (the profile
       // modal every role uses) even when their role wouldn't otherwise pass
@@ -233,6 +250,23 @@ export default async (request) => {
         }
       }
 
+      // Paycor identity (Office Hourly Time Clock): linking an existing account to
+      // Paycor — paycor_employee_id + paycor_department_id — is the entire punch
+      // enablement, no separate flag. Same gate as audits_access above: only
+      // executive/IT may change either field; a patch that omits both, or
+      // resubmits their current (unchanged) values, needs no elevated permission.
+      const paycorEmployeeIdProvided = Object.prototype.hasOwnProperty.call(patch, 'paycorEmployeeId');
+      const paycorDepartmentIdProvided = Object.prototype.hasOwnProperty.call(patch, 'paycorDepartmentId');
+      let nextPaycorEmployeeId, nextPaycorDepartmentId;
+      if (paycorEmployeeIdProvided || paycorDepartmentIdProvided) {
+        nextPaycorEmployeeId = paycorEmployeeIdProvided ? (patch.paycorEmployeeId || null) : (target.paycor_employee_id ?? null);
+        nextPaycorDepartmentId = paycorDepartmentIdProvided ? (patch.paycorDepartmentId || null) : (target.paycor_department_id ?? null);
+        const paycorChanged = nextPaycorEmployeeId !== (target.paycor_employee_id ?? null) || nextPaycorDepartmentId !== (target.paycor_department_id ?? null);
+        if (paycorChanged && !isFullAdmin(claims)) {
+          return reply(403, { error: 'only executive/IT can change Paycor identity' });
+        }
+      }
+
       // Hash and apply password change separately. Complexity is enforced unless the
       // user is (or is becoming) a shared device (store tablet/kiosk).
       if (patch.password) {
@@ -249,6 +283,19 @@ export default async (request) => {
       // null here means "revoke the grant," which must actually take effect.
       if (auditsAccessProvided) {
         await db`UPDATE users SET audits_access = ${patch.auditsAccess ?? null}, updated_at = now() WHERE id = ${id}`;
+      }
+
+      // Same reasoning as audits_access above: computed up front (not COALESCE) so
+      // either field can be explicitly nulled to unlink, while the field left out of
+      // the patch keeps its current value instead of being clobbered to null.
+      if (paycorEmployeeIdProvided || paycorDepartmentIdProvided) {
+        await db`
+          UPDATE users SET
+            paycor_employee_id   = ${nextPaycorEmployeeId},
+            paycor_department_id = ${nextPaycorDepartmentId},
+            updated_at = now()
+          WHERE id = ${id}
+        `;
       }
 
       await db`
@@ -277,7 +324,7 @@ export default async (request) => {
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
-               audits_access
+               audits_access, paycor_employee_id, paycor_department_id
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });
