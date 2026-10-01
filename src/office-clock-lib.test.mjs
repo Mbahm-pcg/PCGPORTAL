@@ -45,6 +45,19 @@ test('findIncompleteDays does not flag a complete in/out pair', () => {
   assert.deepEqual(findIncompleteDays(punches), []);
 });
 
+test('findIncompleteDays buckets by ET calendar day, not UTC (I4)', () => {
+  // 2026-08-11T02:00:00Z is 2026-08-10 22:00 ET (EDT, UTC-4) — a late-night
+  // clock-out that lands on the NEXT UTC calendar day but is still the SAME
+  // ET day as the clock-in. Before the I4 fix (raw `capturedAt.slice(0,10)`
+  // UTC bucketing), this clock-out would have been bucketed under 2026-08-11
+  // and the clock-in under 2026-08-10, falsely flagging an open clock-in.
+  const punches = [
+    { punchType: 'clock_in', capturedAt: '2026-08-10T13:00:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-08-11T02:00:00Z' },
+  ];
+  assert.deepEqual(findIncompleteDays(punches), []);
+});
+
 test('findIncompleteDays flags a meal_start with no matching meal_end', () => {
   const punches = [
     { punchType: 'clock_in', capturedAt: '2026-08-10T13:00:00Z' },

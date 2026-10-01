@@ -31,7 +31,7 @@
 import { sql } from './_shared/db.mjs';
 import { getStore } from '@netlify/blobs';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { punchStatusAndActivity } from '../../src/office-clock-lib.mjs';
+import { punchStatusAndActivity, isPeriodLocked } from '../../src/office-clock-lib.mjs';
 import { resolvePunchLogResponse } from '../../src/paycor-punch-resolve.mjs';
 import { callPaycor } from './paycor.mjs';
 import { ensureActivityTypes } from './office-clock-review.mjs';
@@ -68,6 +68,17 @@ export default async (request) => {
   const authedUser = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db);
   if (!authedUser || (authedUser.userType !== 'executive' && authedUser.userType !== 'it')) {
     return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
+  }
+
+  // I1 — this file's own lock check, not just office-clock-review.mjs's.
+  // That file's `send` action already rejects a locked period with a 409,
+  // but this function's own URL takes nothing more secret than
+  // `{ periodEnd }` (see header comment), so without checking the lock here
+  // too, any exec/it caller who reaches THIS url directly could bypass that
+  // 409 and push a locked period to Paycor anyway. Checked right after auth,
+  // before any DB claim/write.
+  if (isPeriodLocked(periodEnd, new Date())) {
+    return new Response(JSON.stringify({ error: 'Pay period is locked' }), { status: 409 });
   }
 
   const legalEntityId = process.env.OFFICE_LEGAL_ENTITY_ID;

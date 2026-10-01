@@ -20700,12 +20700,11 @@ function MinorTimecardComplianceTab({ user, th, showAlert }) {
 // secondary section). Nothing here re-implements the backend's link gate or
 // lock logic — only displays what those endpoints return.
 
-// Office/corporate Paycor legal entity — a single fixed ID, unlike the 45
-// per-store legal entities duplicated elsewhere in this codebase (CLAUDE.md
-// gotcha #9), so a hardcoded constant here is fine. Matches
-// OFFICE_LEGAL_ENTITY_ID in office-clock-roster.mjs / office-clock-send-
-// background.mjs.
-const OFFICE_LEGAL_ENTITY_ID = '193872';
+// I5 — there is deliberately NO legal-entity-ID constant here. The office/
+// corporate Paycor legal entity lives in exactly one place, server-side: the
+// OFFICE_LEGAL_ENTITY_ID Netlify env var, read directly by office-clock-
+// roster.mjs's `linkable` action and office-clock-send-background.mjs. The
+// client never needs it and never sends it.
 
 const OFFICE_CLOCK_PUNCH_TYPES = [
   { key: 'clock_in', label: 'Clock In' },
@@ -20744,9 +20743,15 @@ const officeClockToLocalInput = (iso) => {
 
 function OfficeClockTab({ user, th, showAlert }) {
   // The ONLY enablement signal on this screen — mirrors office-clock-
-  // punch.mjs's own server-side 409 check (Task 5); this is just the
-  // friendlier up-front version of the same gate.
-  const linked = !!(user?.paycorEmployeeId && user?.paycorDepartmentId);
+  // punch.mjs's own server-side 409 check (Task 5). Deliberately NOT derived
+  // from `user?.paycorEmployeeId`/`user?.paycorDepartmentId`: the session user
+  // object (from portal-auth.mjs's `issue()`/`me`) never carries those fields
+  // at all — only users.mjs's own projection (used by the admin screens) does
+  // — so that would show "not set up" forever even for a correctly linked
+  // user. Instead this is a fresh server read every load, via `today`'s own
+  // `linked` field (C1), which also stays correct if a link is revoked
+  // mid-session. `null` = still loading (not yet known either way).
+  const [linked, setLinked] = React.useState(null);
   const [punches, setPunches] = React.useState(null); // null = loading
   const [busyType, setBusyType] = React.useState(null);
 
@@ -20757,14 +20762,11 @@ function OfficeClockTab({ user, th, showAlert }) {
       body: JSON.stringify({ action: 'today' }),
     })
       .then(res => res.json().catch(() => ({})))
-      .then(j => setPunches(Array.isArray(j.punches) ? j.punches : []))
-      .catch(() => setPunches([]));
+      .then(j => { setLinked(!!j.linked); setPunches(Array.isArray(j.punches) ? j.punches : []); })
+      .catch(() => { setLinked(false); setPunches([]); });
   }, []);
 
-  React.useEffect(() => {
-    if (!linked) { setPunches([]); return; }
-    loadToday();
-  }, [linked, loadToday]);
+  React.useEffect(() => { loadToday(); }, [loadToday]);
 
   const lastType = punches && punches.length ? punches[punches.length - 1].punchType : null;
   const allowed = new Set(officeClockNextAllowed(lastType));
@@ -20801,13 +20803,17 @@ function OfficeClockTab({ user, th, showAlert }) {
         Clock in/out and track meal breaks — today's punches only.
       </p>
 
-      {!linked && (
+      {linked === null && (
+        <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>Loading…</div>
+      )}
+
+      {linked === false && (
         <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.88rem' }}>
           You're not set up for time clock yet — contact IT.
         </div>
       )}
 
-      {linked && (
+      {linked === true && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.6rem', marginBottom: '1.2rem' }}>
             {OFFICE_CLOCK_PUNCH_TYPES.map(b => {
@@ -20861,7 +20867,7 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
     fetch('/.netlify/functions/office-clock-roster', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ action: 'linkable', legalEntityId: OFFICE_LEGAL_ENTITY_ID }),
+      body: JSON.stringify({ action: 'linkable' }),
     })
       .then(async res => {
         const j = await res.json().catch(() => ({}));
@@ -20881,6 +20887,15 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
 
   const setLink = async (emp, link) => {
     if (!emp.linkedUserId) return;
+    // I6 — a Paycor employee with no department on file can never actually
+    // punch (office-clock-punch.mjs's enablement gate requires both fields),
+    // so Link is refused client-side before even calling users.mjs — the
+    // server-side `|| null` coercion on an empty string would otherwise make
+    // this "succeed" into an unusable half-link.
+    if (link && !emp.departmentId) {
+      showAlert && showAlert('error', 'This employee has no department on file in Paycor — cannot link until that is set.');
+      return;
+    }
     setBusyId(emp.paycorEmployeeId);
     try {
       const patch = link
@@ -20894,8 +20909,15 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { showAlert && showAlert('error', j?.error || 'Could not update link.'); setBusyId(null); return; }
       setUsers && setUsers(us => us.map(u => u.id === emp.linkedUserId ? { ...u, ...j.user } : u));
-      setEmployees(prev => (prev || []).map(e => e.paycorEmployeeId === emp.paycorEmployeeId ? { ...e, alreadyLinked: link } : e));
-      showAlert && showAlert('success', link ? 'Account linked.' : 'Account unlinked.');
+      // I6 — `alreadyLinked` is derived from the server's ACTUAL returned
+      // user fields (both paycorEmployeeId AND paycorDepartmentId present),
+      // never from the boolean the admin merely requested. A write that
+      // "succeeded" with a null department (e.g. a stale/odd response) must
+      // not show as linked when the user still can't punch.
+      const savedUser = j?.user || {};
+      const actuallyLinked = !!(savedUser.paycorEmployeeId && savedUser.paycorDepartmentId);
+      setEmployees(prev => (prev || []).map(e => e.paycorEmployeeId === emp.paycorEmployeeId ? { ...e, alreadyLinked: actuallyLinked } : e));
+      showAlert && showAlert('success', actuallyLinked ? 'Account linked.' : 'Account unlinked.');
     } catch {
       showAlert && showAlert('error', 'Network error — could not update link.');
     }
@@ -20905,7 +20927,7 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem' }}>
-        {ICONS.officeClock(th.text)}
+        {ICONS.officeClockLink(th.text)}
         <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Office Time Clock — Link Accounts</h1>
       </div>
       <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
@@ -20944,10 +20966,21 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
                           {busy ? '…' : 'Unlink'}
                         </button>
                       ) : (
-                        <button type="button" disabled={busy} onClick={() => setLink(e, true)}
-                          style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.76rem', opacity: busy ? 0.6 : 1 })}>
-                          {busy ? '…' : 'Link'}
-                        </button>
+                        // I6 — Link is disabled (with a visible reason) when
+                        // this employee has no department on file in Paycor:
+                        // office-clock-punch.mjs's enablement gate requires
+                        // BOTH paycor_employee_id and paycor_department_id,
+                        // so linking without a department would "succeed" but
+                        // leave the account unable to ever actually punch.
+                        <span title={!e.departmentId ? 'No department on file in Paycor — cannot link' : undefined}>
+                          <button type="button" disabled={busy || !e.departmentId} onClick={() => setLink(e, true)}
+                            style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.76rem', opacity: (busy || !e.departmentId) ? 0.5 : 1, cursor: (busy || !e.departmentId) ? 'default' : 'pointer' })}>
+                            {busy ? '…' : 'Link'}
+                          </button>
+                          {!e.departmentId && (
+                            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.2rem' }}>No department on file</div>
+                          )}
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -21123,7 +21156,7 @@ function OfficeClockReview({ user, th, showAlert }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem' }}>
-        {ICONS.officeClock(th.text)}
+        {ICONS.officeClockReview(th.text)}
         <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Office Time Clock — Pay Period Review</h1>
       </div>
       <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
@@ -21206,7 +21239,16 @@ function OfficeClockReview({ user, th, showAlert }) {
                               <td style={tdCell(th)}>{new Date(p.capturedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{flagged ? ' ⚠' : ''}</td>
                               <td style={tdCell(th)}>{p.paycorStatus}</td>
                               <td style={tdCell(th)}>
-                                {!data.locked && <button type="button" onClick={() => startEdit(p)} style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: '0.2rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer' }}>Edit</button>}
+                                {/* C2 — a punch already pending/confirmed in Paycor can't actually be
+                                    re-sent (office-clock-send-background.mjs only ever claims 'unsent'
+                                    rows), so editing it here would silently diverge from the real
+                                    payroll record. Only unsent/failed rows are editable. */}
+                                {!data.locked && (p.paycorStatus === 'unsent' || p.paycorStatus === 'failed') && (
+                                  <button type="button" onClick={() => startEdit(p)} style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: '0.2rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer' }}>Edit</button>
+                                )}
+                                {!data.locked && (p.paycorStatus === 'pending' || p.paycorStatus === 'confirmed') && (
+                                  <span style={{ color: th.muted, fontSize: '0.72rem' }} title="Already sent to Paycor — correct it there instead">Sent</span>
+                                )}
                               </td>
                             </>
                           )}
@@ -28179,9 +28221,13 @@ const computeRoleTabs = (user) => {
     { id: "audits",    label: "Audits",        icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
-    { id: "office-clock", label: "Office Time Clock", icon: (c) => ICONS.officeClock(c) },
-    { id: "office-clock-admin", label: "Office Time Clock — Link Accounts", icon: (c) => ICONS.officeClock(c) },
-    { id: "office-clock-review", label: "Office Time Clock — Pay Period Review", icon: (c) => ICONS.officeClock(c) },
+    // I8 — no plain "office-clock" (punch) tab here: exec/it don't punch, and
+    // office-clock-punch.mjs's own auth check only allows office_staff, so
+    // this tab would 403 on every action for exec/it. The admin screens
+    // below (link accounts / pay period review) stay exec/it-only — that's a
+    // separate gate from the punch tab's own eligible-roles list.
+    { id: "office-clock-admin", label: "Office Time Clock — Link Accounts", icon: (c) => ICONS.officeClockLink(c) },
+    { id: "office-clock-review", label: "Office Time Clock — Pay Period Review", icon: (c) => ICONS.officeClockReview(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -29618,7 +29664,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.23";
+const APP_VERSION = "v21.24";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -53164,9 +53210,13 @@ function PCGPortal() {
               { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'district-alignment'), icon: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></> },
               { id: 'incident-reports', name: 'Incident Reports', sub: 'File and review Workplace Incident Reports — case info, witnesses, photo/video evidence, PDF export.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'incident-reports'), icon: <>{ICONS.incident(TOOLS)}</> },
               { id: 'minor-timecard', name: 'Minor Timecard Compliance', sub: 'Weekly PA minor-labor-law timecard review — who needs a fix, and who\'s already been notified.', show: ['executive','it','office_staff','dm','manager'].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'minor-timecard'), icon: <>{ICONS.minorTimecard(TOOLS)}</> },
-              { id: 'office-clock', name: 'Office Time Clock', sub: 'Clock in/out and track meal breaks for office/corporate staff.', show: ['executive','it','office_staff'].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock'), icon: <>{ICONS.officeClock(TOOLS)}</> },
-              { id: 'office-clock-admin', name: 'Office Time Clock — Link Accounts', sub: 'Link office_staff Portal accounts to their Paycor identity to enable punching.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-admin'), icon: <>{ICONS.officeClock(TOOLS)}</> },
-              { id: 'office-clock-review', name: 'Office Time Clock — Pay Period Review', sub: 'Review, edit, and send a closed biweekly pay period to Paycor.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-review'), icon: <>{ICONS.officeClock(TOOLS)}</> },
+              // I8 — eligible roles narrowed to office_staff only: exec/it
+              // never punch, and office-clock-punch.mjs's own auth check only
+              // allows office_staff, so this tile would 403 for exec/it. The
+              // two admin screens below are a separate, unchanged gate.
+              { id: 'office-clock', name: 'Office Time Clock', sub: 'Clock in/out and track meal breaks for office/corporate staff.', show: user?.userType === 'office_staff' && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock'), icon: <>{ICONS.officeClock(TOOLS)}</> },
+              { id: 'office-clock-admin', name: 'Office Time Clock — Link Accounts', sub: 'Link office_staff Portal accounts to their Paycor identity to enable punching.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-admin'), icon: <>{ICONS.officeClockLink(TOOLS)}</> },
+              { id: 'office-clock-review', name: 'Office Time Clock — Pay Period Review', sub: 'Review, edit, and send a closed biweekly pay period to Paycor.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-review'), icon: <>{ICONS.officeClockReview(TOOLS)}</> },
             ].filter(t => t.show);
             return (
               <div>
@@ -53199,7 +53249,7 @@ function PCGPortal() {
           {tab === "expenses" && <ExpensesTab user={user} th={th} stores={stores} />}
           {tab === "incident-reports" && <IncidentReportsTab user={user} th={th} stores={stores} showAlert={showAlert} />}
           {tab === "minor-timecard" && <MinorTimecardComplianceTab user={user} th={th} showAlert={showAlert} />}
-          {tab === "office-clock" && ['executive','it','office_staff'].includes(user?.userType) && <OfficeClockTab user={user} th={th} showAlert={showAlert} />}
+          {tab === "office-clock" && user?.userType === 'office_staff' && <OfficeClockTab user={user} th={th} showAlert={showAlert} />}
           {tab === "office-clock-admin" && isFullAdmin(user) && <OfficeClockAdmin user={user} th={th} showAlert={showAlert} users={users} setUsers={setUsers} />}
           {tab === "office-clock-review" && isFullAdmin(user) && <OfficeClockReview user={user} th={th} showAlert={showAlert} />}
           {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}

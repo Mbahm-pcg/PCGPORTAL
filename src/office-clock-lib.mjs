@@ -42,6 +42,16 @@ export function isPeriodLocked(periodEndDate, now) {
   return pmIsPeriodLocked(periodEndDate, now);
 }
 
+// The ET (America/New_York) calendar date of a UTC instant, as a
+// "YYYY-MM-DD" string — the same idiom already used correctly elsewhere in
+// this feature (office-clock-compare.mjs's etDayOf, office-clock-punch.mjs's
+// `today` action and etDateStr). Used here (I4), NOT a raw UTC slice, so a
+// punch made after ~8pm ET buckets into the day the employee actually
+// experienced it as, not the next UTC calendar day.
+function etDateStr(date) {
+  return date.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
 // Flags days where a punch sequence is incomplete: an open clock-in with no
 // later clock-out that same day, or an open meal_start with no later meal_end
 // that same day. `punches` is one employee's punches for a period (or a day),
@@ -50,7 +60,7 @@ export function findIncompleteDays(punches) {
   const sorted = [...punches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
   const byDay = new Map();
   for (const p of sorted) {
-    const day = p.capturedAt.slice(0, 10);
+    const day = etDateStr(new Date(p.capturedAt));
     if (!byDay.has(day)) byDay.set(day, []);
     byDay.get(day).push(p);
   }

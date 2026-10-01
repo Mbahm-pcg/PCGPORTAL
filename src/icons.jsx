@@ -78,6 +78,18 @@ const ICONS = {
   // `staffSchedule` (calendar + person + dial) and `minorTimecard` (tall punch-card +
   // detached corner dial) — this one reads as "my own badge", not a shared schedule.
   officeClock: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1z"/><rect x="4" y="6" width="16" height="15" rx="2"/><circle cx="12" cy="14" r="4.3"/><polyline points="12 11.7 12 14 13.8 15.2"/></svg>,
+  // Office Time Clock — Link Accounts (I10): the same ID-badge silhouette as
+  // `officeClock` (so the family reads as related), but with a chain-link
+  // glyph in place of the clock face — "connecting an account", not "time".
+  // Deliberately distinct from `officeClock` (clock face) and
+  // `officeClockReview` (clipboard) below.
+  officeClockLink: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1z"/><rect x="4" y="6" width="16" height="15" rx="2"/><path d="M9.6 14.9a2.1 2.1 0 0 1 0-2.97l1.1-1.1a2.1 2.1 0 0 1 2.97 2.97"/><path d="M14.4 13.1a2.1 2.1 0 0 1 0 2.97l-1.1 1.1a2.1 2.1 0 0 1-2.97-2.97"/></svg>,
+  // Office Time Clock — Pay Period Review (I10): a clipboard with two
+  // checklist checkmarks and a small clock badge at the corner. Distinct from
+  // `minorTimecard` (a tall punch-card with tally lines and a detached dial)
+  // and from `officeClock`/`officeClockLink` above (ID-badge silhouette) —
+  // this one reads as "reviewing a checklist against time", not "my badge".
+  officeClockReview: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="12" height="18" rx="1.5"/><path d="M8.5 1.5h3a1 1 0 0 1 1 1V4h-5V2.5a1 1 0 0 1 1-1z"/><polyline points="7 10 8.3 11.3 11 8.6"/><polyline points="7 14.5 8.3 15.8 11 13.1"/><circle cx="18.5" cy="18.5" r="4"/><polyline points="18.5 16.3 18.5 18.5 20 19.5"/></svg>,
 
 };
 

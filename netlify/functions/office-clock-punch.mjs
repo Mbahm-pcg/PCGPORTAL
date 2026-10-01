@@ -36,8 +36,17 @@ const PUNCH_TYPES = new Set(['clock_in', 'meal_start', 'meal_end', 'clock_out'])
 // propagates up to this file's own outer try/catch (a clean 500), the same path
 // a real query failure later in the handler would take — so a DB error is never
 // silently swallowed or mislabeled, just handled once, in one place.
+//
+// Exported (I7) so office-clock-review.mjs and office-clock-compare.mjs — the
+// other two files that query office_clock_punches but never created it —
+// call this exact function too, rather than a second copy of this DDL. Same
+// shared-helper shape as office-clock-review.mjs's own exported
+// `ensureActivityTypes`. The module-level `_ready` flag below is scoped to
+// THIS module's own warm instance; each file that imports this still runs
+// its own first-call CREATE TABLE IF NOT EXISTS once per cold start, which is
+// cheap and idempotent either way.
 let _ready = false;
-async function ensureTables(db) {
+export async function ensurePunchesTable(db) {
   if (_ready) return;
   await db`CREATE TABLE IF NOT EXISTS office_clock_punches (
     id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -54,6 +63,28 @@ async function ensureTables(db) {
     created_at         timestamptz NOT NULL DEFAULT now()
   )`;
   _ready = true;
+}
+
+// Shared "is this user actually linked to Paycor right now" check — fetched
+// fresh from the DB every call (never trusted from the signed session token,
+// which doesn't carry these fields at all — see this file's `today` action
+// and app.jsx's OfficeClockTab for why). Both paycor_employee_id and
+// paycor_department_id must be set; a department-less link can never
+// actually send a punch (see office-clock-roster.mjs's departmentId
+// gating, I6).
+async function isLinkedToPaycor(db, userId) {
+  const rows = await db`SELECT paycor_employee_id, paycor_department_id FROM users WHERE id = ${userId}`;
+  const link = rows[0];
+  return !!(link && link.paycor_employee_id && link.paycor_department_id);
+}
+
+// The ET (America/New_York) calendar date of a UTC instant, as a
+// "YYYY-MM-DD" string — the same idiom office-clock-compare.mjs's etDayOf
+// already uses, reused here (not UTC's own `toISOString().slice(0,10)`) so a
+// punch made after ~8pm ET is assigned to the correct pay period instead of
+// silently rolling into the next UTC calendar day (I4).
+function etDateStr(date) {
+  return date.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
 
 function rowToPunch(r) {
@@ -85,7 +116,7 @@ export default async (request) => {
 
   try {
     const db = sql();
-    await ensureTables(db);
+    await ensurePunchesTable(db);
 
     // Whole-handler role gate, same shape as office-clock-roster.mjs's exec/it check
     // (Task 4) — every action in this file is this office_staff user's own punch
@@ -111,15 +142,17 @@ export default async (request) => {
       // (not trusted from the signed token) so a just-revoked link blocks the very
       // next punch, not just the next login — and this runs BEFORE any row is
       // written, so an unlinked user never gets a half-written punch.
-      const linkRows = await db`SELECT paycor_employee_id, paycor_department_id FROM users WHERE id = ${authedUser.sub}`;
-      const link = linkRows[0];
-      if (!link || !link.paycor_employee_id || !link.paycor_department_id) {
+      const linked = await isLinkedToPaycor(db, authedUser.sub);
+      if (!linked) {
         return json(409, { error: 'not linked to Paycor yet — contact IT' });
       }
 
       // Server-generated timestamp — never trust a client-supplied capturedAt.
+      // The pay period is keyed off the ET calendar date of that instant, not
+      // its UTC date (I4) — otherwise a punch after ~8pm ET would be filed
+      // under the NEXT pay period, two weeks later than it actually belongs.
       const capturedAt = new Date();
-      const payPeriodEnd = payPeriodEndFor(capturedAt.toISOString().slice(0, 10));
+      const payPeriodEnd = payPeriodEndFor(etDateStr(capturedAt));
 
       const [row] = await db`
         INSERT INTO office_clock_punches (user_id, punch_type, captured_at, pay_period_end, source, paycor_status)
@@ -130,6 +163,17 @@ export default async (request) => {
     }
 
     if (action === 'today') {
+      // Returns `linked` alongside today's punches (C1) — this is a fresh DB
+      // read of the session user's own paycor_employee_id/paycor_department_id,
+      // the same check `punch` above performs, NOT derived from the session
+      // user object. portal-auth.mjs's `issue()`/`me` action never puts these
+      // fields on the signed token at all (only users.mjs's own projection,
+      // used by the admin screens, carries them) — so a client that tried to
+      // derive "linked" from `user?.paycorEmployeeId` would see "not set up"
+      // forever, even for a correctly linked user. This also stays accurate if
+      // a link is revoked mid-session, since it's re-checked on every load.
+      const linked = await isLinkedToPaycor(db, authedUser.sub);
+
       // "Today" = the ET calendar day (America/New_York), not a UTC-day boundary,
       // which would roll over mid-afternoon for Philadelphia-based office staff.
       // Computed in SQL via the standard double `AT TIME ZONE` idiom rather than
@@ -143,7 +187,7 @@ export default async (request) => {
         WHERE user_id = ${authedUser.sub}
           AND captured_at >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')
         ORDER BY captured_at ASC`;
-      return json(200, { punches: rows.map(rowToPunch) });
+      return json(200, { linked, punches: rows.map(rowToPunch) });
     }
 
     return json(400, { error: `Unknown action: ${action}` });

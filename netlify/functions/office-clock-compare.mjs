@@ -18,6 +18,7 @@
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { callPaycor } from './paycor.mjs';
+import { ensurePunchesTable } from './office-clock-punch.mjs';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -85,6 +86,11 @@ export default async (request) => {
 
   try {
     const db = sql();
+    // I7 — this file queries office_clock_punches (below) but never created
+    // it; office-clock-punch.mjs does, via this shared helper, so a fresh
+    // database (or one with no punches yet) gets a clean empty comparison
+    // instead of a 500 "relation does not exist".
+    await ensurePunchesTable(db);
 
     // Whole-handler role gate, exec/it only — same shape as
     // office-clock-roster.mjs (Task 4) and office-clock-review.mjs (Task 6).

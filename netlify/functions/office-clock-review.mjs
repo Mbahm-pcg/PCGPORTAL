@@ -19,8 +19,9 @@
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { getStore } from '@netlify/blobs';
-import { isPeriodLocked, findIncompleteDays } from '../../src/office-clock-lib.mjs';
+import { isPeriodLocked, findIncompleteDays, payPeriodEndFor } from '../../src/office-clock-lib.mjs';
 import { callPaycor } from './paycor.mjs';
+import { ensurePunchesTable } from './office-clock-punch.mjs';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +32,15 @@ const cors = {
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: cors });
 
 const PUNCH_TYPES = new Set(['clock_in', 'meal_start', 'meal_end', 'clock_out']);
+
+// The ET (America/New_York) calendar date of a UTC instant, as a
+// "YYYY-MM-DD" string — the same idiom office-clock-compare.mjs's etDayOf and
+// office-clock-punch.mjs's etDateStr already use, reused here so pay-period
+// derivation during an edit (I3/I4) agrees with every other place this
+// feature assigns a punch to a day/period.
+function etDateStr(date) {
+  return date.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
 
 function getBlobStore() {
   return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
@@ -44,6 +54,14 @@ function getBlobStore() {
 let _tablesReady = false;
 async function ensureTables(db) {
   if (_tablesReady) return;
+  // I7 — office-clock-punch.mjs created office_clock_punches, but this file
+  // queries it too (every action below) and never ensured it existed. On a
+  // fresh database (or before any office_staff user has ever punched), that
+  // would 500 with "relation does not exist" instead of a clean empty result.
+  // Shared helper, not a second copy of the DDL — same pattern as
+  // `ensureActivityTypes` below, which office-clock-send-background.mjs
+  // itself already reuses from this file.
+  await ensurePunchesTable(db);
   await db`CREATE TABLE IF NOT EXISTS office_clock_activity_types (
     legal_entity_id        text PRIMARY KEY,
     work_activity_type_id  text NOT NULL,
@@ -196,10 +214,6 @@ export default async (request) => {
     if (action === 'edit') {
       const { periodEnd, punchId, userId, punchType, capturedAt, note } = payload;
       if (!periodEnd) return json(400, { error: 'Missing periodEnd' });
-      // 409, zero override path — checked before anything else in this branch,
-      // including validating the rest of the payload, so a locked period can
-      // never be partially edited.
-      if (isPeriodLocked(periodEnd, new Date())) return json(409, { error: 'Pay period is locked' });
 
       if (!punchId) {
         // Inserting a brand-new punch (e.g. IT adding a missed clock-out)
@@ -217,21 +231,68 @@ export default async (request) => {
 
       let row;
       if (punchId) {
+        // Load the row's own current state first — the already-sent check,
+        // the lock check, and the period-consistency check below all have to
+        // run against what THIS ROW actually is, never against whatever the
+        // request payload merely claims. Zero DB mutation happens until every
+        // one of these passes.
+        const existingRows = await db`SELECT * FROM office_clock_punches WHERE id = ${punchId}`;
+        const existing = existingRows[0];
+        if (!existing) return json(404, { error: 'Punch not found' });
+
+        // C2 — editing a punch already accepted by (or mid-send to) Paycor
+        // would save here but never actually reach Paycor: the background
+        // sender only ever claims paycor_status = 'unsent' rows, so this edit
+        // would silently diverge from the real payroll record while the UI
+        // reports success. There is no way to un-send a punch from here.
+        if (existing.paycor_status === 'pending' || existing.paycor_status === 'confirmed') {
+          return json(409, { error: "This punch has already been sent to Paycor — correct it directly in Paycor's own timecard editor instead; there is no way to un-send a punch from this screen" });
+        }
+
+        // I2 — lock check against the ROW's own stored pay_period_end, never
+        // the payload's periodEnd. Otherwise a caller could submit a locked
+        // punch's real id alongside an unrelated, still-open periodEnd and
+        // slip past the lock entirely.
+        const existingPeriodEnd = new Date(existing.pay_period_end).toISOString().slice(0, 10);
+        if (isPeriodLocked(existingPeriodEnd, new Date())) return json(409, { error: 'Pay period is locked' });
+
+        // I3 — when capturedAt is changing, the new pay_period_end is derived
+        // server-side from that timestamp's own ET calendar date (never
+        // trusted straight off the payload's periodEnd) and must match the
+        // period the admin is actually editing from. Otherwise this could
+        // file a punch under a period that doesn't actually contain its own
+        // timestamp, where no future `period` view would ever find it again.
+        let newPayPeriodEnd = existingPeriodEnd;
+        if (capturedAt) {
+          newPayPeriodEnd = payPeriodEndFor(etDateStr(new Date(capturedAt)));
+          if (newPayPeriodEnd !== periodEnd) {
+            return json(400, { error: `That time falls in the pay period ending ${newPayPeriodEnd}, not ${periodEnd} — edit it from that period instead` });
+          }
+        }
+
         [row] = await db`
           UPDATE office_clock_punches
           SET punch_type = COALESCE(${punchType || null}, punch_type),
               captured_at = COALESCE(${capturedAt || null}, captured_at),
-              pay_period_end = ${periodEnd},
+              pay_period_end = ${newPayPeriodEnd},
               source = 'manual_edit',
               edited_by = ${editedBy},
               note = ${editNote}
           WHERE id = ${punchId}
           RETURNING *`;
-        if (!row) return json(404, { error: 'Punch not found' });
       } else {
+        // New punch — same lock check as before (there's no existing row to
+        // key it off of), plus the same server-derived-period check as the
+        // edit path above (I3): pay_period_end comes from capturedAt's own ET
+        // calendar date, not straight from the payload's periodEnd.
+        if (isPeriodLocked(periodEnd, new Date())) return json(409, { error: 'Pay period is locked' });
+        const newPayPeriodEnd = payPeriodEndFor(etDateStr(new Date(capturedAt)));
+        if (newPayPeriodEnd !== periodEnd) {
+          return json(400, { error: `That time falls in the pay period ending ${newPayPeriodEnd}, not ${periodEnd} — add it from that period instead` });
+        }
         [row] = await db`
           INSERT INTO office_clock_punches (user_id, punch_type, captured_at, pay_period_end, source, edited_by, note, paycor_status)
-          VALUES (${userId}, ${punchType}, ${capturedAt}, ${periodEnd}, 'manual_edit', ${editedBy}, ${editNote}, 'unsent')
+          VALUES (${userId}, ${punchType}, ${capturedAt}, ${newPayPeriodEnd}, 'manual_edit', ${editedBy}, ${editNote}, 'unsent')
           RETURNING *`;
       }
       return json(200, { ok: true, punch: rowToPunch(row) });

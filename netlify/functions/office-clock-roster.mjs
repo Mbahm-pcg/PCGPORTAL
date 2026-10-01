@@ -53,8 +53,17 @@ export default async (request) => {
 
   try {
     if (action === 'linkable') {
-      const { legalEntityId } = payload;
-      if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+      // I5 — the office/corporate legal entity ID is read from the server's
+      // own OFFICE_LEGAL_ENTITY_ID env var, same single source of truth
+      // office-clock-send-background.mjs already uses, NOT trusted from the
+      // client's request payload. Trusting a client-supplied legal entity ID
+      // for a real Paycor employee lookup would let any exec/it caller
+      // enumerate a different legal entity's roster than the one this
+      // feature is actually for — this design decision was explicit (one
+      // env var, read server-side everywhere); any `legalEntityId` the
+      // client still sends is ignored.
+      const legalEntityId = process.env.OFFICE_LEGAL_ENTITY_ID;
+      if (!legalEntityId) return new Response(JSON.stringify({ error: 'OFFICE_LEGAL_ENTITY_ID is not configured' }), { status: 500, headers });
 
       const [allEmployees, officeUsers] = await Promise.all([
         fetchAllEmployees(legalEntityId),
