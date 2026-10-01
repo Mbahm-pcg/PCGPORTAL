@@ -714,6 +714,47 @@ export default async (request, context) => {
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
+    // ── Proxy: activity types for a legal entity (Work/Meal/Break GUIDs) ──
+    // Read-only. Used once, at office-clock enable time, to populate the
+    // office_clock_activity_types cache (Task 3) — never re-fetched per punch.
+    if (action === 'activityTypes') {
+      const { legalEntityId } = payload;
+      if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+      const res = await callPaycor(`/legalentities/${legalEntityId}/activityTypes`);
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
+    // ── Write: create time card punches for a legal entity ──────────────────────────────
+    // POST /v1/legalentities/{legalEntityId}/CreatePunches
+    // Body: array of { EmployeeId, DepartmentId, PunchDateTime, PunchStatusType,
+    // ActivityTypeId, Note? }. Returns a tracking ID immediately — the real outcome
+    // is only knowable via the separate punchErrorLog action below. Auth-gated
+    // exec/it, matching createSchedulingShifts's pattern.
+    if (action === 'createPunches') {
+      const sqlClient = db();
+      const authEvent = { headers: Object.fromEntries(request.headers.entries()) };
+      const authedUser = await requireActiveUser(authEvent, sqlClient);
+      if (!authedUser || (authedUser.userType !== 'executive' && authedUser.userType !== 'it')) {
+        return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers });
+      }
+      const { legalEntityId, punches } = payload;
+      if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+      if (!Array.isArray(punches) || punches.length === 0) return new Response(JSON.stringify({ error: 'Missing punches array' }), { status: 400, headers });
+      const res = await callPaycor(`/legalentities/${legalEntityId}/CreatePunches`, 'POST', punches);
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
+    // ── Proxy: punch error log for a CreatePunches tracking ID ──────────────────
+    // GET /v1/legalentities/{legalEntityId}/punchErrorLog/{trackingId}
+    // Callers MUST interpret this via resolvePunchLogResponse (src/paycor-punch-
+    // resolve.mjs) — never treat a bare non-2xx-but-non-404 response as success.
+    if (action === 'punchErrorLog') {
+      const { legalEntityId, trackingId } = payload;
+      if (!legalEntityId || !trackingId) return new Response(JSON.stringify({ error: 'Missing legalEntityId or trackingId' }), { status: 400, headers });
+      const res = await callPaycor(`/legalentities/${legalEntityId}/punchErrorLog/${trackingId}`);
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
     // ── Proxy: scheduling jobs for a legal entity ──
     if (action === 'schedulingJobs') {
       const { legalEntityId } = payload;
