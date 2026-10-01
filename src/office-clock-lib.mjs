@@ -32,6 +32,8 @@ export function payPeriodEndFor(dateStr) {
   const anchor = parseDateOnly(BIWEEKLY_ANCHOR_END);
   const target = parseDateOnly(dateStr);
   const diffDays = Math.round((target - anchor) / 86400000);
+  // Math.ceil, not floor: we need the smallest anchor-aligned period-end at or after the target.
+  // floor() reverses this for dates between period boundaries (e.g., Aug 2 would wrongly map to Aug 1).
   const periodIndex = Math.ceil(diffDays / 14);
   const end = new Date(anchor);
   end.setUTCDate(end.getUTCDate() + periodIndex * 14);
