@@ -316,7 +316,20 @@ async function doRefresh(clientId, clientSecret, subscriptionKey, refreshTokenTo
 
 // ── Paycor API Call ──────────────────────────────────────────────────────────
 
-async function callPaycor(path, method = 'GET', body = null, version = 'v1') {
+// Exported (additive only — every existing in-file caller is unaffected) so
+// office-clock-send-background.mjs (Task 6) can call Paycor directly for its
+// CreatePunches batch write and punchErrorLog polling, and office-clock-
+// review.mjs can call it for the one-time activityTypes lookup, without a
+// self-HTTP round trip through this file's own `createPunches` action. That
+// action's own exec/it `requireActiveUser` gate (below) exists to protect
+// direct public HTTP access to this endpoint; the office-clock send flow is
+// itself already exec/it-gated one layer up (office-clock-review.mjs's `send`
+// action) and is server-internal, privileged code, not a public caller — same
+// trust boundary as labor-cron.mjs's own already-exported `callPaycor`, reused
+// directly by paycor.mjs's own STORES import and others. Same shape as Task
+// 2's precedent in this feature (tips-report-cron-background.mjs functions
+// that only needed a bare `export` added for reuse, no behavior change).
+export async function callPaycor(path, method = 'GET', body = null, version = 'v1') {
   const token = await getAccessToken();
   const subscriptionKey = process.env.PAYCOR_SUBSCRIPTION_KEY;
 
