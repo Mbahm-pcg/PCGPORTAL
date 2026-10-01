@@ -280,7 +280,7 @@ export function toET(utc) {
 // so two weekly periods line up exactly with one biweekly pay period. Biweekly
 // is anchored to the real period the user gave us: Sun Aug 2 – Sat Aug 15,
 // 2026 (confirmed against Paycor's own pay-group frequency: "Bi-weekly").
-const BIWEEKLY_ANCHOR_END = '2026-08-15'; // Saturday closing the first known period
+export const BIWEEKLY_ANCHOR_END = '2026-08-15'; // Saturday closing the first known period
 
 function parseDateOnly(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -302,8 +302,8 @@ function addDaysStr(dateStr, days) {
 function isWeekBoundary(busDt) { return dayOfWeek(busDt) === 2; } // Tuesday, 3 days after Saturday close
 // The actual Sun-Sat week this Tuesday's rollup reports on (the Saturday 3
 // days before the trigger date) — NOT busDt itself, which is the send day.
-function weekEndForTrigger(busDt) { return addDaysStr(busDt, -3); }
-function isBiweekBoundary(busDt) {
+export function weekEndForTrigger(busDt) { return addDaysStr(busDt, -3); }
+export function isBiweekBoundary(busDt) {
   if (!isWeekBoundary(busDt)) return false;
   const weekEnd = weekEndForTrigger(busDt);
   const diffDays = Math.round((parseDateOnly(weekEnd) - parseDateOnly(BIWEEKLY_ANCHOR_END)) / 86400000);
