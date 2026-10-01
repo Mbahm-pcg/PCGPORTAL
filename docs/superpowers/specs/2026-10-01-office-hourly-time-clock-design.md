@@ -42,6 +42,11 @@ None of that applies here:
   entirely, not just deferred.
 - **Paycor legal entity:** office staff sit under their own dedicated
   corporate/office legal entity in Paycor, not one of the 45 store entities.
+- **Access control:** gated through the existing per-role Access Matrix
+  (`accessOverrides`/`HUB_SUBITEMS`), the same mechanism Minor Timecard Compliance
+  already uses — not a bespoke `clock_enabled` column. See
+  [[feedback_role_based_feature_access]]. Per-person enablement is simply whether
+  that user has been linked to a Paycor employee record at all.
 - Everything about *how Paycor itself works* (the write endpoint, the async
   tracking-ID/error-log model, the punch mapping, the biweekly batch cadence and its
   real Tuesday-night lock) is unchanged — that was never wrong, only who it's for.
@@ -107,9 +112,15 @@ fully read-only: no further edits, no further sends, no override.
 
 1. Give hourly office staff a clock-in / meal-break / clock-out tab, inside their
    existing Portal login, that captures every punch the instant it happens.
-2. Give IT/exec control over exactly which office staff accounts have this tab —
-   a simple per-user flag, not a role-wide switch (most office staff are salaried
-   and should never see it).
+2. Give IT/exec control over who can even see this tab, through the **existing
+   per-role Access Matrix** (`accessOverrides`/`accessSubOn`/`HUB_SUBITEMS` —
+   see [[feedback_role_based_feature_access]]), the same mechanism Minor Timecard
+   Compliance already uses — not a bespoke new permission flag. That way, if the
+   company later decides a different role should get this too, it's a toggle in
+   that existing admin screen, not new code. Within an eligible role, whether a
+   specific person can actually *use* it still depends on whether they've been
+   linked to a real Paycor employee record (see One-Time Setup) — most office
+   staff are salaried and will simply never be linked.
 3. Once each biweekly pay period closes, give IT/exec a single review screen to edit
    any gaps and push the whole period to Paycor with one button.
 
@@ -146,7 +157,14 @@ cleanup means manually correcting/removing it in Paycor's own UI afterward.
 | column | type | notes |
 |---|---|---|
 | `paycor_department_id` | text, nullable | from the matched Paycor employee record, sibling to the existing `paycor_employee_id` |
-| `clock_enabled` | boolean, default false | the per-person opt-in flag — same shape as the existing `audits_access` grant: a capability some users in a role have and others don't |
+
+No separate enable/disable flag. **A user can actually punch once both
+`paycor_employee_id` and `paycor_department_id` are set** — that link's existence
+*is* the enablement, set once by IT during One-Time Setup. Tab *visibility* is a
+completely separate concern, handled by the Access Matrix (see Goals #2) — someone
+could in principle see an empty/not-set-up Time Clock tab if their role is eligible
+but they haven't been linked yet; the tab shows a plain "not set up — contact IT"
+state in that case rather than punch buttons.
 
 `is_hourly` is **not stored** — it's derived live from the matched Paycor employee's
 `statusData.flsa` field (`HourlyNonExempt` vs anything else) at link time and shown
@@ -221,17 +239,20 @@ retry/confirmation logic.
 2. Picks the matching existing office_staff account — `paycor_employee_id` and
    `paycor_department_id` auto-fill from that Paycor record, and the employee's FLSA
    status is shown ("Hourly" / "Salaried — clock-in not applicable") as a plain
-   signal, not an enforced gate (IT makes the final call on `clock_enabled`).
-3. IT toggles `clock_enabled` on. The user immediately sees the new tab next time
-   they load the Portal — no new login, no password/PIN change, nothing else
-   different about their account.
+   signal, not an enforced gate (IT makes the final call on whether to link them at
+   all).
+3. Saving the link is the entire "enable" action — no separate toggle. The user
+   immediately sees working punch buttons next time they load the Time Clock tab
+   (which they may already be able to see, if their role is eligible via the Access
+   Matrix) — no new login, no password change, nothing else different about their
+   account.
 
 ## Pay Period Review & Send (IT/exec only)
 
 - Once a pay period closes (Saturday night), a review screen lists that period's
-  `office_clock_punches` across every `clock_enabled` user, flagging obviously
-  incomplete days (an open clock-in with no clock-out; a meal started with no meal
-  ended).
+  `office_clock_punches` across every linked user (`paycor_employee_id` and
+  `paycor_department_id` both set), flagging obviously incomplete days (an open
+  clock-in with no clock-out; a meal started with no meal ended).
 - IT/exec can add or edit any punch's date/time inline (`source = manual_edit`,
   `edited_by` recorded).
 - A **"Send to Paycor"** button (available any time before the Tuesday-night lock,
