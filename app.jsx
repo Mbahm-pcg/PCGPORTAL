@@ -20741,6 +20741,78 @@ const officeClockToLocalInput = (iso) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+// Display-only per-day hours summary for OfficeClockReview's Pay Period
+// Review screen (requested live during testing, 2026-10-01). Pure frontend
+// computation over punches the screen already loaded — no new fetch, no
+// write path, never shared with any server-side file. Groups one employee's
+// punches by ET calendar day using the SAME idiom already used correctly
+// elsewhere in this feature (src/office-clock-lib.mjs's findIncompleteDays /
+// etDateStr, netlify/functions/office-clock-compare.mjs's etDayOf, and the
+// inline version already in this component's detailed-rows table below) —
+// never a raw UTC slice, which would silently misbucket any punch made
+// after ~8pm ET. Returns one row per day, sorted chronologically, with
+// `totalMinutes: null` (never a guessed/rounded number) whenever the day's
+// punches aren't exactly the normal one-clock-in/one-clock-out (optionally
+// one meal-start/meal-end) shape, or the times don't make chronological
+// sense (e.g. an edited punch putting clock-out before clock-in).
+function officeClockDailyHours(punches) {
+  const sorted = [...(punches || [])].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
+  const byDay = new Map();
+  for (const p of sorted) {
+    const day = new Date(p.capturedAt).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(p);
+  }
+  const rows = [];
+  for (const [day, dayPunches] of byDay) {
+    const byType = (t) => dayPunches.filter(p => p.punchType === t);
+    const clockIns = byType('clock_in');
+    const clockOuts = byType('clock_out');
+    const mealStarts = byType('meal_start');
+    const mealEnds = byType('meal_end');
+    const clockIn = clockIns[0] || null;
+    const clockOut = clockOuts[0] || null;
+    const mealStart = mealStarts[0] || null;
+    const mealEnd = mealEnds[0] || null;
+
+    // Normal shape: exactly one clock_in, exactly one clock_out, and meal
+    // punches (if any) exactly one pair. Anything else (missing punch,
+    // duplicate punch, an orphaned meal_start/meal_end) can't be totaled
+    // exactly, so it's left incomplete rather than guessed at.
+    let totalMinutes = null;
+    const regularShape = clockIns.length === 1 && clockOuts.length === 1
+      && mealStarts.length === mealEnds.length && mealStarts.length <= 1;
+    if (regularShape) {
+      const inMs = new Date(clockIn.capturedAt).getTime();
+      const outMs = new Date(clockOut.capturedAt).getTime();
+      let grossMs = outMs - inMs;
+      let sane = Number.isFinite(grossMs) && grossMs > 0;
+      if (sane && mealStart && mealEnd) {
+        const mealInMs = new Date(mealStart.capturedAt).getTime();
+        const mealOutMs = new Date(mealEnd.capturedAt).getTime();
+        const mealMs = mealOutMs - mealInMs;
+        if (!Number.isFinite(mealMs) || mealMs < 0 || mealInMs < inMs || mealOutMs > outMs) {
+          sane = false; // meal punches out of order or outside the shift — don't guess
+        } else {
+          grossMs -= mealMs;
+        }
+      }
+      if (sane) totalMinutes = Math.round(grossMs / 60000);
+    }
+    rows.push({ day, clockIn, clockOut, mealStart, mealEnd, totalMinutes });
+  }
+  return rows.sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
+}
+// "Xh Ym" — same format already used for duration labels elsewhere in the
+// app (see AuditReport's durationLabel). Exact to the minute, never rounded
+// to the nearest hour or estimated.
+function officeClockFmtHours(totalMinutes) {
+  if (totalMinutes === null || totalMinutes === undefined || !Number.isFinite(totalMinutes)) return null;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 function OfficeClockTab({ user, th, showAlert }) {
   // The ONLY enablement signal on this screen — mirrors office-clock-
   // punch.mjs's own server-side 409 check (Task 5). Deliberately NOT derived
@@ -21231,7 +21303,9 @@ function OfficeClockReview({ user, th, showAlert }) {
             <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>No employees are linked to Paycor yet — link an office_staff account under Admin · Office Time Clock first.</div>
           )}
 
-          {byEmployee.map(emp => (
+          {byEmployee.map(emp => {
+            const dailyHours = officeClockDailyHours(emp.punches);
+            return (
             <div key={emp.userId} style={{ ...card(th), padding: '0.9rem 1rem', marginBottom: '0.7rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <span style={{ fontWeight: 800, color: th.text, fontSize: '0.88rem' }}>{emp.userName}</span>
@@ -21239,6 +21313,34 @@ function OfficeClockReview({ user, th, showAlert }) {
                   <button type="button" onClick={() => startAdd(emp.userId)} style={btn(th, { padding: '0.25rem 0.6rem', fontSize: '0.72rem' })}>+ Add punch</button>
                 )}
               </div>
+
+              {/* Daily Hours — computed summary, read-only, display-only (see
+                  officeClockDailyHours above). Sits above the detailed/editable
+                  punch rows; never used in place of them. */}
+              {dailyHours.length > 0 && (
+                <div style={{ overflowX: 'auto', marginBottom: '0.7rem' }}>
+                  <div style={{ fontSize: '0.74rem', fontWeight: 700, color: th.muted, marginBottom: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>Daily Hours</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead>
+                      <tr>{['Date', 'Clock In', 'Clock Out', 'Total Hours'].map(h => <th key={h} style={{ ...thCell(th), textAlign: 'left' }}>{h}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {dailyHours.map(d => {
+                        const label = officeClockFmtHours(d.totalMinutes);
+                        return (
+                          <tr key={d.day} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
+                            <td style={tdCell(th)}>{officeClockParseDate(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                            <td style={tdCell(th)}>{d.clockIn ? officeClockTime(d.clockIn.capturedAt) : '—'}</td>
+                            <td style={tdCell(th)}>{d.clockOut ? officeClockTime(d.clockOut.capturedAt) : '—'}</td>
+                            <td style={{ ...tdCell(th), fontWeight: 700, color: label ? th.text : th.muted, fontStyle: label ? 'normal' : 'italic' }}>{label || 'Incomplete'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                   <thead>
@@ -21319,7 +21421,7 @@ function OfficeClockReview({ user, th, showAlert }) {
                 </table>
               </div>
             </div>
-          ))}
+          );})}
         </>
       )}
 
@@ -29707,7 +29809,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.29";
+const APP_VERSION = "v21.30";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
