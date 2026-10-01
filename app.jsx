@@ -20691,6 +20691,596 @@ function MinorTimecardComplianceTab({ user, th, showAlert }) {
   );
 }
 
+// ── Office Hourly Time Clock (Tools hub tiles) ────────────────────────────
+// Three screens on top of office-clock-*.mjs (Tasks 4-7): the punch clock
+// itself (OfficeClockTab — office_staff/exec/it) and two exec/it-only admin
+// screens (OfficeClockAdmin: link Paycor accounts; OfficeClockReview: pay
+// period review/edit/send, with the Paycor comparison folded in as a
+// secondary section). Nothing here re-implements the backend's link gate or
+// lock logic — only displays what those endpoints return.
+
+// Office/corporate Paycor legal entity — a single fixed ID, unlike the 45
+// per-store legal entities duplicated elsewhere in this codebase (CLAUDE.md
+// gotcha #9), so a hardcoded constant here is fine. Matches
+// OFFICE_LEGAL_ENTITY_ID in office-clock-roster.mjs / office-clock-send-
+// background.mjs.
+const OFFICE_LEGAL_ENTITY_ID = '193872';
+
+const OFFICE_CLOCK_PUNCH_TYPES = [
+  { key: 'clock_in', label: 'Clock In' },
+  { key: 'meal_start', label: 'Start Meal' },
+  { key: 'meal_end', label: 'End Meal' },
+  { key: 'clock_out', label: 'Clock Out' },
+];
+// Which punch types make sense next, given the last punch of the day (or no
+// punches yet). Pure display/UX logic only — office-clock-punch.mjs doesn't
+// enforce a sequence server-side, so this only disables buttons that would
+// obviously be wrong to tap right now, not a hard state machine.
+function officeClockNextAllowed(lastType) {
+  if (!lastType || lastType === 'clock_out') return ['clock_in'];
+  if (lastType === 'clock_in') return ['meal_start', 'clock_out'];
+  if (lastType === 'meal_start') return ['meal_end'];
+  if (lastType === 'meal_end') return ['meal_start', 'clock_out'];
+  return ['clock_in'];
+}
+const officeClockTime = (iso) => {
+  const d = new Date(iso);
+  return isNaN(d) ? '—' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+
+function OfficeClockTab({ user, th, showAlert }) {
+  // The ONLY enablement signal on this screen — mirrors office-clock-
+  // punch.mjs's own server-side 409 check (Task 5); this is just the
+  // friendlier up-front version of the same gate.
+  const linked = !!(user?.paycorEmployeeId && user?.paycorDepartmentId);
+  const [punches, setPunches] = React.useState(null); // null = loading
+  const [busyType, setBusyType] = React.useState(null);
+
+  const loadToday = React.useCallback(() => {
+    fetch('/.netlify/functions/office-clock-punch', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'today' }),
+    })
+      .then(res => res.json().catch(() => ({})))
+      .then(j => setPunches(Array.isArray(j.punches) ? j.punches : []))
+      .catch(() => setPunches([]));
+  }, []);
+
+  React.useEffect(() => {
+    if (!linked) { setPunches([]); return; }
+    loadToday();
+  }, [linked, loadToday]);
+
+  const lastType = punches && punches.length ? punches[punches.length - 1].punchType : null;
+  const allowed = new Set(officeClockNextAllowed(lastType));
+
+  const doPunch = async (punchType) => {
+    setBusyType(punchType);
+    try {
+      const res = await fetch('/.netlify/functions/office-clock-punch', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'punch', punchType }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j?.ok) {
+        loadToday();
+      } else if (res.status === 409) {
+        showAlert && showAlert('error', j?.error || "You're not set up for time clock yet — contact IT.");
+      } else {
+        showAlert && showAlert('error', j?.error || 'Could not record punch — try again.');
+      }
+    } catch {
+      showAlert && showAlert('error', 'Network error — could not record punch.');
+    }
+    setBusyType(null);
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem' }}>
+        {ICONS.officeClock(th.text)}
+        <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Time Clock</h1>
+      </div>
+      <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
+        Clock in/out and track meal breaks — today's punches only.
+      </p>
+
+      {!linked && (
+        <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.88rem' }}>
+          You're not set up for time clock yet — contact IT.
+        </div>
+      )}
+
+      {linked && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.6rem', marginBottom: '1.2rem' }}>
+            {OFFICE_CLOCK_PUNCH_TYPES.map(b => {
+              const enabled = punches !== null && allowed.has(b.key);
+              const busy = busyType === b.key;
+              return (
+                <button key={b.key} type="button" disabled={!enabled || busy}
+                  onClick={() => doPunch(b.key)}
+                  style={btn(th, {
+                    padding: '1rem 0.6rem', fontSize: '0.95rem', fontWeight: 800,
+                    opacity: !enabled ? 0.4 : (busy ? 0.7 : 1),
+                    cursor: !enabled || busy ? 'default' : 'pointer',
+                  })}>
+                  {busy ? 'Saving…' : b.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ ...microLabel(th), marginBottom: '0.4rem' }}>Today's punches</div>
+          {punches === null && <div style={{ color: th.muted, fontSize: '0.82rem' }}>Loading…</div>}
+          {punches !== null && punches.length === 0 && (
+            <div style={{ ...card(th), padding: '1rem', color: th.muted, fontSize: '0.82rem', textAlign: 'center' }}>No punches yet today.</div>
+          )}
+          {punches !== null && punches.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {punches.map(p => (
+                <div key={p.id} style={{ ...card(th), padding: '0.6rem 0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, color: th.text, fontSize: '0.85rem' }}>
+                    {OFFICE_CLOCK_PUNCH_TYPES.find(b => b.key === p.punchType)?.label || p.punchType}
+                  </span>
+                  <span style={{ color: th.muted, fontSize: '0.82rem' }}>{officeClockTime(p.capturedAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── OfficeClockAdmin — link office_staff Portal accounts to Paycor identity (exec/it only) ──
+function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
+  const [employees, setEmployees] = React.useState(null); // null = loading
+  const [loadError, setLoadError] = React.useState(null);
+  const [busyId, setBusyId] = React.useState(null);
+
+  const load = React.useCallback(() => {
+    setLoadError(null);
+    fetch('/.netlify/functions/office-clock-roster', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'linkable', legalEntityId: OFFICE_LEGAL_ENTITY_ID }),
+    })
+      .then(async res => {
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j?.error || `Load failed (${res.status})`);
+        setEmployees(Array.isArray(j.employees) ? j.employees : []);
+      })
+      .catch(err => { setEmployees([]); setLoadError(err.message || 'Load failed'); });
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const userById = React.useMemo(() => {
+    const m = new Map();
+    (users || []).forEach(u => m.set(u.id, u));
+    return m;
+  }, [users]);
+
+  const setLink = async (emp, link) => {
+    if (!emp.linkedUserId) return;
+    setBusyId(emp.paycorEmployeeId);
+    try {
+      const patch = link
+        ? { paycorEmployeeId: String(emp.paycorEmployeeId), paycorDepartmentId: String(emp.departmentId || '') }
+        : { paycorEmployeeId: null, paycorDepartmentId: null };
+      const res = await fetch('/.netlify/functions/users', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'update', id: emp.linkedUserId, patch }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { showAlert && showAlert('error', j?.error || 'Could not update link.'); setBusyId(null); return; }
+      setUsers && setUsers(us => us.map(u => u.id === emp.linkedUserId ? { ...u, ...j.user } : u));
+      setEmployees(prev => (prev || []).map(e => e.paycorEmployeeId === emp.paycorEmployeeId ? { ...e, alreadyLinked: link } : e));
+      showAlert && showAlert('success', link ? 'Account linked.' : 'Account unlinked.');
+    } catch {
+      showAlert && showAlert('error', 'Network error — could not update link.');
+    }
+    setBusyId(null);
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem' }}>
+        {ICONS.officeClock(th.text)}
+        <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Office Time Clock — Link Accounts</h1>
+      </div>
+      <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
+        Office/corporate Paycor employees — link an office_staff Portal account to enable their time clock. Unlinking disables punching immediately; there is no separate on/off switch.
+      </p>
+
+      {employees === null && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>Loading…</div>}
+      {loadError && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: '#e03131', fontSize: '0.85rem' }}>{loadError}</div>}
+
+      {employees !== null && !loadError && (
+        <div style={{ ...card(th), overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
+              <tr>
+                {['Name', 'Job Title', 'Type', 'Portal Account', ''].map(h => (
+                  <th key={h} style={{ ...thCell(th), textAlign: 'left' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map(e => {
+                const acct = e.linkedUserId ? userById.get(e.linkedUserId) : null;
+                const busy = busyId === e.paycorEmployeeId;
+                return (
+                  <tr key={e.paycorEmployeeId} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
+                    <td style={{ ...tdCell(th), fontWeight: 700, color: th.text }}>{e.name || '—'}</td>
+                    <td style={{ ...tdCell(th), color: th.muted }}>{e.jobTitle || '—'}</td>
+                    <td style={tdCell(th)}>{e.isHourly ? 'Hourly' : 'Salaried'}</td>
+                    <td style={{ ...tdCell(th), color: th.muted }}>
+                      {acct ? (acct.name || acct.username) : (e.linkedUserId ? `User #${e.linkedUserId}` : 'No office_staff account found')}
+                    </td>
+                    <td style={tdCell(th)}>
+                      {!e.linkedUserId ? null : e.alreadyLinked ? (
+                        <button type="button" disabled={busy} onClick={() => setLink(e, false)}
+                          style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.76rem', opacity: busy ? 0.6 : 1 })}>
+                          {busy ? '…' : 'Unlink'}
+                        </button>
+                      ) : (
+                        <button type="button" disabled={busy} onClick={() => setLink(e, true)}
+                          style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.76rem', opacity: busy ? 0.6 : 1 })}>
+                          {busy ? '…' : 'Link'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {employees.length === 0 && (
+                <tr><td colSpan={5} style={{ ...tdCell(th), textAlign: 'center', color: th.muted }}>No active office employees found in Paycor.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Duplicated pure period-math (same anchor/formula as src/office-clock-
+// lib.mjs's payPeriodEndFor/isPeriodLocked, itself anchored to tips-report-
+// cron-background.mjs's BIWEEKLY_ANCHOR_END) — not imported directly because
+// that chain pulls in Netlify-function-only (Node/Blobs) dependencies that
+// don't belong in this browser bundle. Keep the anchor date in sync if it
+// ever changes — same duplication-across-files tradeoff this codebase
+// already accepts for per-store config (CLAUDE.md gotcha #9).
+const OFFICE_CLOCK_BIWEEKLY_ANCHOR_END = '2026-08-15';
+function officeClockParseDate(s) { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
+function officeClockDateStr(d) { return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; }
+function officeClockPeriodEndFor(dateStr) {
+  const anchor = officeClockParseDate(OFFICE_CLOCK_BIWEEKLY_ANCHOR_END);
+  const target = officeClockParseDate(dateStr);
+  const diffDays = Math.round((target - anchor) / 86400000);
+  const periodIndex = Math.ceil(diffDays / 14);
+  const end = new Date(anchor);
+  end.setUTCDate(end.getUTCDate() + periodIndex * 14);
+  return officeClockDateStr(end);
+}
+function officeClockIsLocked(periodEnd, now) {
+  const end = officeClockParseDate(periodEnd);
+  const lockAt = new Date(end);
+  lockAt.setUTCDate(lockAt.getUTCDate() + 4);
+  return now.getTime() >= lockAt.getTime();
+}
+// Most recently CLOSED period — the current anchor-aligned period if it's
+// already locked, otherwise the one before it (always guaranteed locked).
+function officeClockDefaultPeriodEnd() {
+  const now = new Date();
+  const current = officeClockPeriodEndFor(officeClockDateStr(now));
+  if (officeClockIsLocked(current, now)) return current;
+  const prev = officeClockParseDate(current);
+  prev.setUTCDate(prev.getUTCDate() - 14);
+  return officeClockDateStr(prev);
+}
+
+const OFFICE_CLOCK_SEND_POLL_MS = 5000;
+
+// ── OfficeClockReview — pay period review/edit/send + Paycor comparison (exec/it only) ──
+function OfficeClockReview({ user, th, showAlert }) {
+  const [periodEnd, setPeriodEnd] = React.useState(officeClockDefaultPeriodEnd());
+  const [data, setData] = React.useState(null); // { locked, punches, incompleteDays }
+  const [loadError, setLoadError] = React.useState(null);
+  const [editingId, setEditingId] = React.useState(null); // punchId, or `new:${userId}`
+  const [editForm, setEditForm] = React.useState({ punchType: 'clock_in', capturedAt: '' });
+  const [saving, setSaving] = React.useState(false);
+  const [sendState, setSendState] = React.useState(null);
+  const pollRef = React.useRef(null);
+
+  const load = React.useCallback(() => {
+    setLoadError(null);
+    fetch('/.netlify/functions/office-clock-review', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'period', periodEnd }),
+    })
+      .then(async res => {
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j?.error || `Load failed (${res.status})`);
+        setData(j);
+      })
+      .catch(err => { setData(null); setLoadError(err.message || 'Load failed'); });
+  }, [periodEnd]);
+
+  React.useEffect(() => { load(); setEditingId(null); }, [load]);
+  React.useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const byEmployee = React.useMemo(() => {
+    const m = new Map();
+    (data?.punches || []).forEach(p => {
+      if (!m.has(p.userId)) m.set(p.userId, { userName: p.userName, punches: [] });
+      m.get(p.userId).punches.push(p);
+    });
+    return [...m.entries()].map(([userId, v]) => ({ userId, ...v })).sort((a, b) => (a.userName || '').localeCompare(b.userName || ''));
+  }, [data]);
+
+  const incompleteByDay = React.useMemo(() => {
+    const s = new Set();
+    (data?.incompleteDays || []).forEach(i => s.add(`${i.userId}:${i.day}`));
+    return s;
+  }, [data]);
+
+  const startEdit = (p) => { setEditingId(p.id); setEditForm({ punchType: p.punchType, capturedAt: p.capturedAt.slice(0, 16) }); };
+  const startAdd = (userId) => { setEditingId(`new:${userId}`); setEditForm({ punchType: 'clock_in', capturedAt: '' }); };
+  const cancelEdit = () => setEditingId(null);
+
+  const saveEdit = async (userId, punchId) => {
+    if (!editForm.capturedAt) { showAlert && showAlert('error', 'Pick a date/time.'); return; }
+    setSaving(true);
+    try {
+      const res = await fetch('/.netlify/functions/office-clock-review', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          action: 'edit', periodEnd, punchId: punchId || undefined, userId,
+          punchType: editForm.punchType, capturedAt: new Date(editForm.capturedAt).toISOString(),
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { showAlert && showAlert('error', j?.error || 'Save failed.'); setSaving(false); return; }
+      setEditingId(null);
+      load();
+      showAlert && showAlert('success', 'Punch saved.');
+    } catch {
+      showAlert && showAlert('error', 'Network error — save failed.');
+    }
+    setSaving(false);
+  };
+
+  const pollSendStatus = React.useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch('/.netlify/functions/office-clock-review', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ action: 'sendStatus', periodEnd }),
+        });
+        const j = await res.json().catch(() => ({}));
+        setSendState(j);
+        if (j?.status === 'done' || j?.status === 'error') {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          load();
+        }
+      } catch { /* network hiccup — keep polling until MAX_POLLS elapses server-side */ }
+    }, OFFICE_CLOCK_SEND_POLL_MS);
+  }, [periodEnd, load]);
+
+  const doSend = async () => {
+    if (!window.confirm(`Send pay period ending ${periodEnd} to Paycor?`)) return;
+    setSendState({ status: 'sending' });
+    try {
+      const res = await fetch('/.netlify/functions/office-clock-review', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'send', periodEnd }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { showAlert && showAlert('error', j?.error || 'Could not start send.'); setSendState(null); return; }
+      setSendState({ status: 'running' });
+      pollSendStatus();
+    } catch {
+      showAlert && showAlert('error', 'Network error — could not start send.');
+      setSendState(null);
+    }
+  };
+
+  // ── Comparison (Task 7) — folded in here as a secondary section, not a separate screen ──
+  const [compareData, setCompareData] = React.useState(null);
+  const [compareLoading, setCompareLoading] = React.useState(false);
+  const [compareError, setCompareError] = React.useState(null);
+  const runCompare = async () => {
+    setCompareLoading(true); setCompareError(null);
+    const start = officeClockParseDate(periodEnd);
+    start.setUTCDate(start.getUTCDate() - 13); // 14-day period, inclusive both ends
+    const startDate = officeClockDateStr(start);
+    try {
+      const res = await fetch('/.netlify/functions/office-clock-compare', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'compare', startDate, endDate: periodEnd }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || `Compare failed (${res.status})`);
+      setCompareData(Array.isArray(j.perEmployee) ? j.perEmployee : []);
+    } catch (err) {
+      setCompareError(err.message || 'Compare failed');
+    }
+    setCompareLoading(false);
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem' }}>
+        {ICONS.officeClock(th.text)}
+        <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Office Time Clock — Pay Period Review</h1>
+      </div>
+      <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
+        Review, edit, and send one closed biweekly pay period to Paycor. Edits lock automatically the Tuesday night after the period closes.
+      </p>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <label style={{ fontSize: '0.8rem', color: th.muted }}>
+          Pay period ending{' '}
+          <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} style={inp(th)} />
+        </label>
+        {data && <span style={pill(data.locked ? '#6b7280' : '#22c55e')}>{data.locked ? 'Locked' : 'Open for edits'}</span>}
+      </div>
+
+      {loadError && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: '#e03131', fontSize: '0.85rem' }}>{loadError}</div>}
+      {!data && !loadError && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>Loading…</div>}
+
+      {data && !loadError && (
+        <>
+          {!data.locked && (
+            <div style={{ marginBottom: '1rem' }}>
+              <button type="button" disabled={sendState?.status === 'running' || sendState?.status === 'sending'}
+                onClick={doSend} style={btn(th, { padding: '0.5rem 1.1rem' })}>
+                {sendState?.status === 'running' || sendState?.status === 'sending' ? 'Sending…' : 'Send to Paycor'}
+              </button>
+              {sendState && sendState.status && sendState.status !== 'sending' && (
+                <span style={{ marginLeft: '0.7rem', fontSize: '0.8rem', color: th.muted }}>
+                  {sendState.status === 'running' && 'Sending to Paycor…'}
+                  {sendState.status === 'pending_retry' && 'Waiting on Paycor confirmation…'}
+                  {sendState.status === 'done' && `Done — ${sendState.confirmed || 0} confirmed, ${sendState.failed || 0} failed${sendState.unmatched ? `, ${sendState.unmatched} unmatched` : ''}.`}
+                  {sendState.status === 'error' && `Error: ${sendState.error || 'send failed'}`}
+                </span>
+              )}
+            </div>
+          )}
+
+          {byEmployee.length === 0 && (
+            <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>No punches for this pay period.</div>
+          )}
+
+          {byEmployee.map(emp => (
+            <div key={emp.userId} style={{ ...card(th), padding: '0.9rem 1rem', marginBottom: '0.7rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontWeight: 800, color: th.text, fontSize: '0.88rem' }}>{emp.userName}</span>
+                {!data.locked && (
+                  <button type="button" onClick={() => startAdd(emp.userId)} style={btn(th, { padding: '0.25rem 0.6rem', fontSize: '0.72rem' })}>+ Add punch</button>
+                )}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                  <thead>
+                    <tr>{['Type', 'Time', 'Paycor Status', ''].map(h => <th key={h} style={{ ...thCell(th), textAlign: 'left' }}>{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {emp.punches.map(p => {
+                      const day = p.capturedAt.slice(0, 10);
+                      const flagged = incompleteByDay.has(`${emp.userId}:${day}`);
+                      const isEditing = editingId === p.id;
+                      return (
+                        <tr key={p.id} style={{ borderTop: `1px solid ${th.cardBorder}`, background: flagged ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
+                          {isEditing ? (
+                            <>
+                              <td style={tdCell(th)}>
+                                <select value={editForm.punchType} onChange={e => setEditForm(f => ({ ...f, punchType: e.target.value }))} style={inp(th)}>
+                                  {OFFICE_CLOCK_PUNCH_TYPES.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
+                                </select>
+                              </td>
+                              <td style={tdCell(th)}>
+                                <input type="datetime-local" value={editForm.capturedAt} onChange={e => setEditForm(f => ({ ...f, capturedAt: e.target.value }))} style={inp(th)} />
+                              </td>
+                              <td style={tdCell(th)}>{p.paycorStatus}</td>
+                              <td style={tdCell(th)}>
+                                <button type="button" disabled={saving} onClick={() => saveEdit(emp.userId, p.id)} style={btn(th, { padding: '0.25rem 0.6rem', fontSize: '0.72rem', marginRight: '0.3rem' })}>Save</button>
+                                <button type="button" onClick={cancelEdit} style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: '0.25rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer' }}>Cancel</button>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td style={{ ...tdCell(th), fontWeight: 700, color: th.text }}>{OFFICE_CLOCK_PUNCH_TYPES.find(b => b.key === p.punchType)?.label || p.punchType}</td>
+                              <td style={tdCell(th)}>{new Date(p.capturedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{flagged ? ' ⚠' : ''}</td>
+                              <td style={tdCell(th)}>{p.paycorStatus}</td>
+                              <td style={tdCell(th)}>
+                                {!data.locked && <button type="button" onClick={() => startEdit(p)} style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: '0.2rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer' }}>Edit</button>}
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
+                    {editingId === `new:${emp.userId}` && (
+                      <tr style={{ borderTop: `1px solid ${th.cardBorder}` }}>
+                        <td style={tdCell(th)}>
+                          <select value={editForm.punchType} onChange={e => setEditForm(f => ({ ...f, punchType: e.target.value }))} style={inp(th)}>
+                            {OFFICE_CLOCK_PUNCH_TYPES.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
+                          </select>
+                        </td>
+                        <td style={tdCell(th)}>
+                          <input type="datetime-local" value={editForm.capturedAt} onChange={e => setEditForm(f => ({ ...f, capturedAt: e.target.value }))} style={inp(th)} />
+                        </td>
+                        <td style={tdCell(th)}>—</td>
+                        <td style={tdCell(th)}>
+                          <button type="button" disabled={saving} onClick={() => saveEdit(emp.userId, null)} style={btn(th, { padding: '0.25rem 0.6rem', fontSize: '0.72rem', marginRight: '0.3rem' })}>Save</button>
+                          <button type="button" onClick={cancelEdit} style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: '0.25rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer' }}>Cancel</button>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* ── Comparison (Task 7) — secondary section, not a separate screen ── */}
+      <div style={{ ...card(th), padding: '1rem', marginTop: '1.2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <span style={{ fontWeight: 800, color: th.text, fontSize: '0.88rem' }}>Paycor Comparison</span>
+          <button type="button" disabled={compareLoading} onClick={runCompare} style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.76rem' })}>
+            {compareLoading ? 'Comparing…' : 'Run Comparison'}
+          </button>
+        </div>
+        <p style={{ color: th.muted, fontSize: '0.76rem', marginTop: 0 }}>
+          Checks this period's app punches against what Paycor itself reports, for every linked account — a spot-check, not a cutover gate.
+        </p>
+        {compareError && <div style={{ color: '#e03131', fontSize: '0.8rem' }}>{compareError}</div>}
+        {compareData && (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+              <thead>
+                <tr>{['Name', 'App Punches', 'Paycor Punches', 'Mismatched Days'].map(h => <th key={h} style={{ ...thCell(th), textAlign: 'left' }}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {compareData.map(r => (
+                  <tr key={r.userId} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
+                    <td style={{ ...tdCell(th), fontWeight: 700, color: th.text }}>{r.name}</td>
+                    <td style={tdCell(th)}>{r.appPunchCount}</td>
+                    <td style={tdCell(th)}>{r.paycorError ? `— (${r.paycorError})` : r.paycorPunchCount}</td>
+                    <td style={{ ...tdCell(th), color: r.mismatchDays?.length ? '#e03131' : th.muted }}>
+                      {r.paycorError ? '—' : (r.mismatchDays?.length ? r.mismatchDays.map(m => `${m.day} (${m.appCount}/${m.paycorCount})`).join(', ') : 'None')}
+                    </td>
+                  </tr>
+                ))}
+                {compareData.length === 0 && (
+                  <tr><td colSpan={4} style={{ ...tdCell(th), textAlign: 'center', color: th.muted }}>No linked accounts to compare.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Business Expenses Tab (own-receipts submit + log; Task 4 adds admin section) ──
 const BIZ_EXPENSE_CATEGORIES = ['Gas', 'Food', 'Tools', 'Supplies', 'Repairs', 'Office', 'Other'];
 
@@ -21580,6 +22170,9 @@ const HUB_SUBITEMS = {
     { id: 'district-alignment', label: 'District Alignment' },
     { id: 'incident-reports', label: 'Incident Reports' },
     { id: 'minor-timecard', label: 'Minor Timecard Compliance' },
+    { id: 'office-clock', label: 'Office Time Clock' },
+    { id: 'office-clock-admin', label: 'Office Time Clock — Link Accounts' },
+    { id: 'office-clock-review', label: 'Office Time Clock — Pay Period Review' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -27588,6 +28181,9 @@ const computeRoleTabs = (user) => {
     { id: "audits",    label: "Audits",        icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
+    { id: "office-clock", label: "Office Time Clock", icon: (c) => ICONS.officeClock(c) },
+    { id: "office-clock-admin", label: "Office Time Clock — Link Accounts", icon: (c) => ICONS.officeClock(c) },
+    { id: "office-clock-review", label: "Office Time Clock — Pay Period Review", icon: (c) => ICONS.officeClock(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -27620,6 +28216,7 @@ const computeRoleTabs = (user) => {
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
+    { id: "office-clock", label: "Office Time Clock", icon: (c) => ICONS.officeClock(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
@@ -29023,7 +29620,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.21";
+const APP_VERSION = "v21.22";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -52569,6 +53166,9 @@ function PCGPortal() {
               { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'district-alignment'), icon: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></> },
               { id: 'incident-reports', name: 'Incident Reports', sub: 'File and review Workplace Incident Reports — case info, witnesses, photo/video evidence, PDF export.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'incident-reports'), icon: <>{ICONS.incident(TOOLS)}</> },
               { id: 'minor-timecard', name: 'Minor Timecard Compliance', sub: 'Weekly PA minor-labor-law timecard review — who needs a fix, and who\'s already been notified.', show: ['executive','it','office_staff','dm','manager'].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'minor-timecard'), icon: <>{ICONS.minorTimecard(TOOLS)}</> },
+              { id: 'office-clock', name: 'Office Time Clock', sub: 'Clock in/out and track meal breaks for office/corporate staff.', show: ['executive','it','office_staff'].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock'), icon: <>{ICONS.officeClock(TOOLS)}</> },
+              { id: 'office-clock-admin', name: 'Office Time Clock — Link Accounts', sub: 'Link office_staff Portal accounts to their Paycor identity to enable punching.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-admin'), icon: <>{ICONS.officeClock(TOOLS)}</> },
+              { id: 'office-clock-review', name: 'Office Time Clock — Pay Period Review', sub: 'Review, edit, and send a closed biweekly pay period to Paycor.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-review'), icon: <>{ICONS.officeClock(TOOLS)}</> },
             ].filter(t => t.show);
             return (
               <div>
@@ -52601,6 +53201,9 @@ function PCGPortal() {
           {tab === "expenses" && <ExpensesTab user={user} th={th} stores={stores} />}
           {tab === "incident-reports" && <IncidentReportsTab user={user} th={th} stores={stores} showAlert={showAlert} />}
           {tab === "minor-timecard" && <MinorTimecardComplianceTab user={user} th={th} showAlert={showAlert} />}
+          {tab === "office-clock" && ['executive','it','office_staff'].includes(user?.userType) && <OfficeClockTab user={user} th={th} showAlert={showAlert} />}
+          {tab === "office-clock-admin" && isFullAdmin(user) && <OfficeClockAdmin user={user} th={th} showAlert={showAlert} users={users} setUsers={setUsers} />}
+          {tab === "office-clock-review" && isFullAdmin(user) && <OfficeClockReview user={user} th={th} showAlert={showAlert} />}
           {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}
           {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
           </Guard>

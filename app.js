@@ -60,7 +60,12 @@
     // Minor Timecard Compliance — a narrow punch-card with a clock badge beside it.
     // Deliberately NOT the plain `clock` glyph (one big centred dial) nor `staffSchedule`
     // (calendar + person): the tall card + detached corner dial is its own silhouette.
-    minorTimecard: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "9", height: "18", rx: "1.5" }), /* @__PURE__ */ React.createElement("line", { x1: "5.6", y1: "8", x2: "9.4", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "5.6", y1: "12.5", x2: "9.4", y2: "12.5" }), /* @__PURE__ */ React.createElement("circle", { cx: "18", cy: "17", r: "4.5" }), /* @__PURE__ */ React.createElement("polyline", { points: "18 14.4 18 17 19.9 18.1" }))
+    minorTimecard: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "9", height: "18", rx: "1.5" }), /* @__PURE__ */ React.createElement("line", { x1: "5.6", y1: "8", x2: "9.4", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "5.6", y1: "12.5", x2: "9.4", y2: "12.5" }), /* @__PURE__ */ React.createElement("circle", { cx: "18", cy: "17", r: "4.5" }), /* @__PURE__ */ React.createElement("polyline", { points: "18 14.4 18 17 19.9 18.1" })),
+    // Office Hourly Time Clock — an ID-badge silhouette (lanyard clip on top) with a
+    // clock face set into it. Deliberately distinct from `clock` (plain centred dial),
+    // `staffSchedule` (calendar + person + dial) and `minorTimecard` (tall punch-card +
+    // detached corner dial) — this one reads as "my own badge", not a shared schedule.
+    officeClock: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1z" }), /* @__PURE__ */ React.createElement("rect", { x: "4", y: "6", width: "16", height: "15", rx: "2" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "14", r: "4.3" }), /* @__PURE__ */ React.createElement("polyline", { points: "12 11.7 12 14 13.8 15.2" }))
   };
   var BTN = {
     edit: /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement("path", { d: "M12 20h9" }), React.createElement("path", { d: "M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" })),
@@ -208,7 +213,7 @@
     );
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/bufferToBase64URLString.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/bufferToBase64URLString.js
   function bufferToBase64URLString(buffer) {
     const bytes = new Uint8Array(buffer);
     let str = "";
@@ -219,7 +224,7 @@
     return base64String.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/base64URLStringToBuffer.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/base64URLStringToBuffer.js
   function base64URLStringToBuffer(base64URLString) {
     const base64 = base64URLString.replace(/-/g, "+").replace(/_/g, "/");
     const padLength = (4 - base64.length % 4) % 4;
@@ -233,7 +238,7 @@
     return buffer;
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthn.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthn.js
   function browserSupportsWebAuthn() {
     return _browserSupportsWebAuthnInternals.stubThis(globalThis?.PublicKeyCredential !== void 0 && typeof globalThis.PublicKeyCredential === "function");
   }
@@ -241,7 +246,7 @@
     stubThis: (value) => value
   };
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/toPublicKeyCredentialDescriptor.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/toPublicKeyCredentialDescriptor.js
   function toPublicKeyCredentialDescriptor(descriptor) {
     const { id } = descriptor;
     return {
@@ -256,7 +261,7 @@
     };
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/isValidDomain.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/isValidDomain.js
   function isValidDomain(hostname) {
     return (
       // Consider localhost valid as well since it's okay wrt Secure Contexts
@@ -265,7 +270,7 @@
     );
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/webAuthnError.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/webAuthnError.js
   var WebAuthnError = class extends Error {
     constructor({ message, code, cause, name }) {
       super(message, { cause });
@@ -280,7 +285,7 @@
     }
   };
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/identifyRegistrationError.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/identifyRegistrationError.js
   function identifyRegistrationError({ error, options }) {
     const { publicKey } = options;
     if (!publicKey) {
@@ -376,7 +381,7 @@
     return error;
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/webAuthnAbortService.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/webAuthnAbortService.js
   var BaseWebAuthnAbortService = class {
     constructor() {
       Object.defineProperty(this, "controller", {
@@ -407,7 +412,7 @@
   };
   var WebAuthnAbortService = new BaseWebAuthnAbortService();
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/toAuthenticatorAttachment.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/toAuthenticatorAttachment.js
   var attachments = ["cross-platform", "platform"];
   function toAuthenticatorAttachment(attachment) {
     if (!attachment) {
@@ -419,7 +424,7 @@
     return attachment;
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/methods/startRegistration.js
+  // node_modules/@simplewebauthn/browser/esm/methods/startRegistration.js
   async function startRegistration(options) {
     if (!options.optionsJSON && options.challenge) {
       console.warn("startRegistration() was not called correctly. It will try to continue with the provided options, but this call should be refactored to use the expected call structure instead. See https://simplewebauthn.dev/docs/packages/browser#typeerror-cannot-read-properties-of-undefined-reading-challenge for more information.");
@@ -506,7 +511,7 @@
 `, cause);
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthnAutofill.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/browserSupportsWebAuthnAutofill.js
   function browserSupportsWebAuthnAutofill() {
     if (!browserSupportsWebAuthn()) {
       return _browserSupportsWebAuthnAutofillInternals.stubThis(new Promise((resolve) => resolve(false)));
@@ -521,7 +526,7 @@
     stubThis: (value) => value
   };
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/helpers/identifyAuthenticationError.js
+  // node_modules/@simplewebauthn/browser/esm/helpers/identifyAuthenticationError.js
   function identifyAuthenticationError({ error, options }) {
     const { publicKey } = options;
     if (!publicKey) {
@@ -566,7 +571,7 @@
     return error;
   }
 
-  // ../../../node_modules/@simplewebauthn/browser/esm/methods/startAuthentication.js
+  // node_modules/@simplewebauthn/browser/esm/methods/startAuthentication.js
   async function startAuthentication(options) {
     if (!options.optionsJSON && options.challenge) {
       console.warn("startAuthentication() was not called correctly. It will try to continue with the provided options, but this call should be refactored to use the expected call structure instead. See https://simplewebauthn.dev/docs/packages/browser#typeerror-cannot-read-properties-of-undefined-reading-challenge for more information.");
@@ -17511,6 +17516,370 @@ ${t2.slice(0, 300)}`);
       )));
     })));
   }
+  var OFFICE_LEGAL_ENTITY_ID = "193872";
+  var OFFICE_CLOCK_PUNCH_TYPES = [
+    { key: "clock_in", label: "Clock In" },
+    { key: "meal_start", label: "Start Meal" },
+    { key: "meal_end", label: "End Meal" },
+    { key: "clock_out", label: "Clock Out" }
+  ];
+  function officeClockNextAllowed(lastType) {
+    if (!lastType || lastType === "clock_out") return ["clock_in"];
+    if (lastType === "clock_in") return ["meal_start", "clock_out"];
+    if (lastType === "meal_start") return ["meal_end"];
+    if (lastType === "meal_end") return ["meal_start", "clock_out"];
+    return ["clock_in"];
+  }
+  var officeClockTime = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d) ? "\u2014" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  };
+  function OfficeClockTab({ user, th, showAlert: showAlert2 }) {
+    const linked = !!(user?.paycorEmployeeId && user?.paycorDepartmentId);
+    const [punches, setPunches] = React.useState(null);
+    const [busyType, setBusyType] = React.useState(null);
+    const loadToday = React.useCallback(() => {
+      fetch("/.netlify/functions/office-clock-punch", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "today" })
+      }).then((res) => res.json().catch(() => ({}))).then((j) => setPunches(Array.isArray(j.punches) ? j.punches : [])).catch(() => setPunches([]));
+    }, []);
+    React.useEffect(() => {
+      if (!linked) {
+        setPunches([]);
+        return;
+      }
+      loadToday();
+    }, [linked, loadToday]);
+    const lastType = punches && punches.length ? punches[punches.length - 1].punchType : null;
+    const allowed = new Set(officeClockNextAllowed(lastType));
+    const doPunch = async (punchType) => {
+      setBusyType(punchType);
+      try {
+        const res = await fetch("/.netlify/functions/office-clock-punch", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "punch", punchType })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (res.ok && j?.ok) {
+          loadToday();
+        } else if (res.status === 409) {
+          showAlert2 && showAlert2("error", j?.error || "You're not set up for time clock yet \u2014 contact IT.");
+        } else {
+          showAlert2 && showAlert2("error", j?.error || "Could not record punch \u2014 try again.");
+        }
+      } catch {
+        showAlert2 && showAlert2("error", "Network error \u2014 could not record punch.");
+      }
+      setBusyType(null);
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClock(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Time Clock")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Clock in/out and track meal breaks \u2014 today's punches only."), !linked && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.88rem" } }, "You're not set up for time clock yet \u2014 contact IT."), linked && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.6rem", marginBottom: "1.2rem" } }, OFFICE_CLOCK_PUNCH_TYPES.map((b) => {
+      const enabled = punches !== null && allowed.has(b.key);
+      const busy = busyType === b.key;
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: b.key,
+          type: "button",
+          disabled: !enabled || busy,
+          onClick: () => doPunch(b.key),
+          style: btn(th, {
+            padding: "1rem 0.6rem",
+            fontSize: "0.95rem",
+            fontWeight: 800,
+            opacity: !enabled ? 0.4 : busy ? 0.7 : 1,
+            cursor: !enabled || busy ? "default" : "pointer"
+          })
+        },
+        busy ? "Saving\u2026" : b.label
+      );
+    })), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.4rem" } }, "Today's punches"), punches === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Loading\u2026"), punches !== null && punches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.82rem", textAlign: "center" } }, "No punches yet today."), punches !== null && punches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, punches.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: { ...card(th), padding: "0.6rem 0.9rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === p.punchType)?.label || p.punchType), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, officeClockTime(p.capturedAt)))))));
+  }
+  function OfficeClockAdmin({ user, th, showAlert: showAlert2, users, setUsers }) {
+    const [employees, setEmployees] = React.useState(null);
+    const [loadError, setLoadError] = React.useState(null);
+    const [busyId, setBusyId] = React.useState(null);
+    const load = React.useCallback(() => {
+      setLoadError(null);
+      fetch("/.netlify/functions/office-clock-roster", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "linkable", legalEntityId: OFFICE_LEGAL_ENTITY_ID })
+      }).then(async (res) => {
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j?.error || `Load failed (${res.status})`);
+        setEmployees(Array.isArray(j.employees) ? j.employees : []);
+      }).catch((err) => {
+        setEmployees([]);
+        setLoadError(err.message || "Load failed");
+      });
+    }, []);
+    React.useEffect(() => {
+      load();
+    }, [load]);
+    const userById = React.useMemo(() => {
+      const m = /* @__PURE__ */ new Map();
+      (users || []).forEach((u) => m.set(u.id, u));
+      return m;
+    }, [users]);
+    const setLink = async (emp, link) => {
+      if (!emp.linkedUserId) return;
+      setBusyId(emp.paycorEmployeeId);
+      try {
+        const patch = link ? { paycorEmployeeId: String(emp.paycorEmployeeId), paycorDepartmentId: String(emp.departmentId || "") } : { paycorEmployeeId: null, paycorDepartmentId: null };
+        const res = await fetch("/.netlify/functions/users", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "update", id: emp.linkedUserId, patch })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showAlert2 && showAlert2("error", j?.error || "Could not update link.");
+          setBusyId(null);
+          return;
+        }
+        setUsers && setUsers((us) => us.map((u) => u.id === emp.linkedUserId ? { ...u, ...j.user } : u));
+        setEmployees((prev) => (prev || []).map((e) => e.paycorEmployeeId === emp.paycorEmployeeId ? { ...e, alreadyLinked: link } : e));
+        showAlert2 && showAlert2("success", link ? "Account linked." : "Account unlinked.");
+      } catch {
+        showAlert2 && showAlert2("error", "Network error \u2014 could not update link.");
+      }
+      setBusyId(null);
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClock(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Link Accounts")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Office/corporate Paycor employees \u2014 link an office_staff Portal account to enable their time clock. Unlinking disables punching immediately; there is no separate on/off switch."), employees === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, loadError), employees !== null && !loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Name", "Job Title", "Type", "Portal Account", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, employees.map((e) => {
+      const acct = e.linkedUserId ? userById.get(e.linkedUserId) : null;
+      const busy = busyId === e.paycorEmployeeId;
+      return /* @__PURE__ */ React.createElement("tr", { key: e.paycorEmployeeId, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, e.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, e.jobTitle || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, e.isHourly ? "Hourly" : "Salaried"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, acct ? acct.name || acct.username : e.linkedUserId ? `User #${e.linkedUserId}` : "No office_staff account found"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, !e.linkedUserId ? null : e.alreadyLinked ? /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          disabled: busy,
+          onClick: () => setLink(e, false),
+          style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.76rem", opacity: busy ? 0.6 : 1 })
+        },
+        busy ? "\u2026" : "Unlink"
+      ) : /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          disabled: busy,
+          onClick: () => setLink(e, true),
+          style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.76rem", opacity: busy ? 0.6 : 1 })
+        },
+        busy ? "\u2026" : "Link"
+      )));
+    }), employees.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, style: { ...tdCell(th), textAlign: "center", color: th.muted } }, "No active office employees found in Paycor."))))));
+  }
+  var OFFICE_CLOCK_BIWEEKLY_ANCHOR_END = "2026-08-15";
+  function officeClockParseDate(s) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  }
+  function officeClockDateStr(d) {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
+  function officeClockPeriodEndFor(dateStr) {
+    const anchor = officeClockParseDate(OFFICE_CLOCK_BIWEEKLY_ANCHOR_END);
+    const target = officeClockParseDate(dateStr);
+    const diffDays = Math.round((target - anchor) / 864e5);
+    const periodIndex = Math.ceil(diffDays / 14);
+    const end = new Date(anchor);
+    end.setUTCDate(end.getUTCDate() + periodIndex * 14);
+    return officeClockDateStr(end);
+  }
+  function officeClockIsLocked(periodEnd, now) {
+    const end = officeClockParseDate(periodEnd);
+    const lockAt = new Date(end);
+    lockAt.setUTCDate(lockAt.getUTCDate() + 4);
+    return now.getTime() >= lockAt.getTime();
+  }
+  function officeClockDefaultPeriodEnd() {
+    const now = /* @__PURE__ */ new Date();
+    const current = officeClockPeriodEndFor(officeClockDateStr(now));
+    if (officeClockIsLocked(current, now)) return current;
+    const prev = officeClockParseDate(current);
+    prev.setUTCDate(prev.getUTCDate() - 14);
+    return officeClockDateStr(prev);
+  }
+  var OFFICE_CLOCK_SEND_POLL_MS = 5e3;
+  function OfficeClockReview({ user, th, showAlert: showAlert2 }) {
+    const [periodEnd, setPeriodEnd] = React.useState(officeClockDefaultPeriodEnd());
+    const [data, setData] = React.useState(null);
+    const [loadError, setLoadError] = React.useState(null);
+    const [editingId, setEditingId] = React.useState(null);
+    const [editForm, setEditForm] = React.useState({ punchType: "clock_in", capturedAt: "" });
+    const [saving, setSaving] = React.useState(false);
+    const [sendState, setSendState] = React.useState(null);
+    const pollRef = React.useRef(null);
+    const load = React.useCallback(() => {
+      setLoadError(null);
+      fetch("/.netlify/functions/office-clock-review", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "period", periodEnd })
+      }).then(async (res) => {
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j?.error || `Load failed (${res.status})`);
+        setData(j);
+      }).catch((err) => {
+        setData(null);
+        setLoadError(err.message || "Load failed");
+      });
+    }, [periodEnd]);
+    React.useEffect(() => {
+      load();
+      setEditingId(null);
+    }, [load]);
+    React.useEffect(() => () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    }, []);
+    const byEmployee = React.useMemo(() => {
+      const m = /* @__PURE__ */ new Map();
+      (data?.punches || []).forEach((p) => {
+        if (!m.has(p.userId)) m.set(p.userId, { userName: p.userName, punches: [] });
+        m.get(p.userId).punches.push(p);
+      });
+      return [...m.entries()].map(([userId, v]) => ({ userId, ...v })).sort((a, b) => (a.userName || "").localeCompare(b.userName || ""));
+    }, [data]);
+    const incompleteByDay = React.useMemo(() => {
+      const s = /* @__PURE__ */ new Set();
+      (data?.incompleteDays || []).forEach((i) => s.add(`${i.userId}:${i.day}`));
+      return s;
+    }, [data]);
+    const startEdit = (p) => {
+      setEditingId(p.id);
+      setEditForm({ punchType: p.punchType, capturedAt: p.capturedAt.slice(0, 16) });
+    };
+    const startAdd = (userId) => {
+      setEditingId(`new:${userId}`);
+      setEditForm({ punchType: "clock_in", capturedAt: "" });
+    };
+    const cancelEdit = () => setEditingId(null);
+    const saveEdit = async (userId, punchId) => {
+      if (!editForm.capturedAt) {
+        showAlert2 && showAlert2("error", "Pick a date/time.");
+        return;
+      }
+      setSaving(true);
+      try {
+        const res = await fetch("/.netlify/functions/office-clock-review", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({
+            action: "edit",
+            periodEnd,
+            punchId: punchId || void 0,
+            userId,
+            punchType: editForm.punchType,
+            capturedAt: new Date(editForm.capturedAt).toISOString()
+          })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showAlert2 && showAlert2("error", j?.error || "Save failed.");
+          setSaving(false);
+          return;
+        }
+        setEditingId(null);
+        load();
+        showAlert2 && showAlert2("success", "Punch saved.");
+      } catch {
+        showAlert2 && showAlert2("error", "Network error \u2014 save failed.");
+      }
+      setSaving(false);
+    };
+    const pollSendStatus = React.useCallback(() => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await fetch("/.netlify/functions/office-clock-review", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ action: "sendStatus", periodEnd })
+          });
+          const j = await res.json().catch(() => ({}));
+          setSendState(j);
+          if (j?.status === "done" || j?.status === "error") {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+            load();
+          }
+        } catch {
+        }
+      }, OFFICE_CLOCK_SEND_POLL_MS);
+    }, [periodEnd, load]);
+    const doSend = async () => {
+      if (!window.confirm(`Send pay period ending ${periodEnd} to Paycor?`)) return;
+      setSendState({ status: "sending" });
+      try {
+        const res = await fetch("/.netlify/functions/office-clock-review", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "send", periodEnd })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showAlert2 && showAlert2("error", j?.error || "Could not start send.");
+          setSendState(null);
+          return;
+        }
+        setSendState({ status: "running" });
+        pollSendStatus();
+      } catch {
+        showAlert2 && showAlert2("error", "Network error \u2014 could not start send.");
+        setSendState(null);
+      }
+    };
+    const [compareData, setCompareData] = React.useState(null);
+    const [compareLoading, setCompareLoading] = React.useState(false);
+    const [compareError, setCompareError] = React.useState(null);
+    const runCompare = async () => {
+      setCompareLoading(true);
+      setCompareError(null);
+      const start = officeClockParseDate(periodEnd);
+      start.setUTCDate(start.getUTCDate() - 13);
+      const startDate = officeClockDateStr(start);
+      try {
+        const res = await fetch("/.netlify/functions/office-clock-compare", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "compare", startDate, endDate: periodEnd })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j?.error || `Compare failed (${res.status})`);
+        setCompareData(Array.isArray(j.perEmployee) ? j.perEmployee : []);
+      } catch (err) {
+        setCompareError(err.message || "Compare failed");
+      }
+      setCompareLoading(false);
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClock(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Pay Period Review")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Review, edit, and send one closed biweekly pay period to Paycor. Edits lock automatically the Tuesday night after the period closes."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.8rem", color: th.muted } }, "Pay period ending", " ", /* @__PURE__ */ React.createElement("input", { type: "date", value: periodEnd, onChange: (e) => setPeriodEnd(e.target.value), style: inp(th) })), data && /* @__PURE__ */ React.createElement("span", { style: pill(data.locked ? "#6b7280" : "#22c55e") }, data.locked ? "Locked" : "Open for edits")), loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, loadError), !data && !loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), data && !loadError && /* @__PURE__ */ React.createElement(React.Fragment, null, !data.locked && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        disabled: sendState?.status === "running" || sendState?.status === "sending",
+        onClick: doSend,
+        style: btn(th, { padding: "0.5rem 1.1rem" })
+      },
+      sendState?.status === "running" || sendState?.status === "sending" ? "Sending\u2026" : "Send to Paycor"
+    ), sendState && sendState.status && sendState.status !== "sending" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.7rem", fontSize: "0.8rem", color: th.muted } }, sendState.status === "running" && "Sending to Paycor\u2026", sendState.status === "pending_retry" && "Waiting on Paycor confirmation\u2026", sendState.status === "done" && `Done \u2014 ${sendState.confirmed || 0} confirmed, ${sendState.failed || 0} failed${sendState.unmatched ? `, ${sendState.unmatched} unmatched` : ""}.`, sendState.status === "error" && `Error: ${sendState.error || "send failed"}`)), byEmployee.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No punches for this pay period."), byEmployee.map((emp) => /* @__PURE__ */ React.createElement("div", { key: emp.userId, style: { ...card(th), padding: "0.9rem 1rem", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: th.text, fontSize: "0.88rem" } }, emp.userName), !data.locked && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => startAdd(emp.userId), style: btn(th, { padding: "0.25rem 0.6rem", fontSize: "0.72rem" }) }, "+ Add punch")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Type", "Time", "Paycor Status", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, emp.punches.map((p) => {
+      const day = p.capturedAt.slice(0, 10);
+      const flagged = incompleteByDay.has(`${emp.userId}:${day}`);
+      const isEditing = editingId === p.id;
+      return /* @__PURE__ */ React.createElement("tr", { key: p.id, style: { borderTop: `1px solid ${th.cardBorder}`, background: flagged ? "rgba(239,68,68,0.08)" : "transparent" } }, isEditing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("select", { value: editForm.punchType, onChange: (e) => setEditForm((f) => ({ ...f, punchType: e.target.value })), style: inp(th) }, OFFICE_CLOCK_PUNCH_TYPES.map((b) => /* @__PURE__ */ React.createElement("option", { key: b.key, value: b.key }, b.label)))), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("input", { type: "datetime-local", value: editForm.capturedAt, onChange: (e) => setEditForm((f) => ({ ...f, capturedAt: e.target.value })), style: inp(th) })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, p.paycorStatus), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("button", { type: "button", disabled: saving, onClick: () => saveEdit(emp.userId, p.id), style: btn(th, { padding: "0.25rem 0.6rem", fontSize: "0.72rem", marginRight: "0.3rem" }) }, "Save"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: cancelEdit, style: { background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: "0.25rem 0.6rem", fontSize: "0.72rem", cursor: "pointer" } }, "Cancel"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === p.punchType)?.label || p.punchType), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, new Date(p.capturedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }), flagged ? " \u26A0" : ""), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, p.paycorStatus), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, !data.locked && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => startEdit(p), style: { background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: "0.2rem 0.6rem", fontSize: "0.72rem", cursor: "pointer" } }, "Edit"))));
+    }), editingId === `new:${emp.userId}` && /* @__PURE__ */ React.createElement("tr", { style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("select", { value: editForm.punchType, onChange: (e) => setEditForm((f) => ({ ...f, punchType: e.target.value })), style: inp(th) }, OFFICE_CLOCK_PUNCH_TYPES.map((b) => /* @__PURE__ */ React.createElement("option", { key: b.key, value: b.key }, b.label)))), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("input", { type: "datetime-local", value: editForm.capturedAt, onChange: (e) => setEditForm((f) => ({ ...f, capturedAt: e.target.value })), style: inp(th) })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement("button", { type: "button", disabled: saving, onClick: () => saveEdit(emp.userId, null), style: btn(th, { padding: "0.25rem 0.6rem", fontSize: "0.72rem", marginRight: "0.3rem" }) }, "Save"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: cancelEdit, style: { background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: "0.25rem 0.6rem", fontSize: "0.72rem", cursor: "pointer" } }, "Cancel"))))))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginTop: "1.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: th.text, fontSize: "0.88rem" } }, "Paycor Comparison"), /* @__PURE__ */ React.createElement("button", { type: "button", disabled: compareLoading, onClick: runCompare, style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.76rem" }) }, compareLoading ? "Comparing\u2026" : "Run Comparison")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.76rem", marginTop: 0 } }, "Checks this period's app punches against what Paycor itself reports, for every linked account \u2014 a spot-check, not a cutover gate."), compareError && /* @__PURE__ */ React.createElement("div", { style: { color: "#e03131", fontSize: "0.8rem" } }, compareError), compareData && /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Name", "App Punches", "Paycor Punches", "Mismatched Days"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, compareData.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.userId, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, r.name), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, r.appPunchCount), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, r.paycorError ? `\u2014 (${r.paycorError})` : r.paycorPunchCount), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: r.mismatchDays?.length ? "#e03131" : th.muted } }, r.paycorError ? "\u2014" : r.mismatchDays?.length ? r.mismatchDays.map((m) => `${m.day} (${m.appCount}/${m.paycorCount})`).join(", ") : "None"))), compareData.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 4, style: { ...tdCell(th), textAlign: "center", color: th.muted } }, "No linked accounts to compare.")))))));
+  }
   var BIZ_EXPENSE_CATEGORIES = ["Gas", "Food", "Tools", "Supplies", "Repairs", "Office", "Other"];
   function ExpensesTab({ user, th, stores }) {
     const isBizExpenseAdmin = user?.userType === "executive" || user?.userType === "it" || user?.userType === "office_staff";
@@ -18087,7 +18456,10 @@ ${t2.slice(0, 300)}`);
     "tools-hub": [
       { id: "district-alignment", label: "District Alignment" },
       { id: "incident-reports", label: "Incident Reports" },
-      { id: "minor-timecard", label: "Minor Timecard Compliance" }
+      { id: "minor-timecard", label: "Minor Timecard Compliance" },
+      { id: "office-clock", label: "Office Time Clock" },
+      { id: "office-clock-admin", label: "Office Time Clock \u2014 Link Accounts" },
+      { id: "office-clock-review", label: "Office Time Clock \u2014 Pay Period Review" }
     ],
     finance: [
       { id: "pnl", label: "P&L" },
@@ -22395,6 +22767,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
       { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
+      { id: "office-clock", label: "Office Time Clock", icon: (c) => ICONS.officeClock(c) },
+      { id: "office-clock-admin", label: "Office Time Clock \u2014 Link Accounts", icon: (c) => ICONS.officeClock(c) },
+      { id: "office-clock-review", label: "Office Time Clock \u2014 Pay Period Review", icon: (c) => ICONS.officeClock(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -22426,6 +22801,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
       { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
+      { id: "office-clock", label: "Office Time Clock", icon: (c) => ICONS.officeClock(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "users", label: "Users", icon: (c) => ICONS.users(c) },
@@ -23403,7 +23779,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.21";
+  var APP_VERSION = "v21.22";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -40036,10 +40412,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const toolsTiles = [
         { id: "district-alignment", name: "District Alignment", sub: "Draft district/DM groupings, sales snapshots, and store spacing \u2014 a sandbox that never touches real Locations data.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "district-alignment"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7", rx: "1" })) },
         { id: "incident-reports", name: "Incident Reports", sub: "File and review Workplace Incident Reports \u2014 case info, witnesses, photo/video evidence, PDF export.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "incident-reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.incident(TOOLS)) },
-        { id: "minor-timecard", name: "Minor Timecard Compliance", sub: "Weekly PA minor-labor-law timecard review \u2014 who needs a fix, and who's already been notified.", show: ["executive", "it", "office_staff", "dm", "manager"].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "minor-timecard"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.minorTimecard(TOOLS)) }
+        { id: "minor-timecard", name: "Minor Timecard Compliance", sub: "Weekly PA minor-labor-law timecard review \u2014 who needs a fix, and who's already been notified.", show: ["executive", "it", "office_staff", "dm", "manager"].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "minor-timecard"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.minorTimecard(TOOLS)) },
+        { id: "office-clock", name: "Office Time Clock", sub: "Clock in/out and track meal breaks for office/corporate staff.", show: ["executive", "it", "office_staff"].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClock(TOOLS)) },
+        { id: "office-clock-admin", name: "Office Time Clock \u2014 Link Accounts", sub: "Link office_staff Portal accounts to their Paycor identity to enable punching.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-admin"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClock(TOOLS)) },
+        { id: "office-clock-review", name: "Office Time Clock \u2014 Pay Period Review", sub: "Review, edit, and send a closed biweekly pay period to Paycor.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-review"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClock(TOOLS)) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
-    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && ["executive", "it", "office_staff"].includes(user?.userType) && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
 })();

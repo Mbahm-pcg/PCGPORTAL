@@ -81,6 +81,19 @@ netlify/functions/
                                 resolves, escalates to DM + office staff from the Monday after the
                                 week closes, 7-day exec backstop; merges onto a fresh blob read
   minor-timecard-resolve.mjs  — Manual "Mark Resolved" endpoint (exec/IT/DM, DM district-scoped)
+  # ── Office Hourly Time Clock (office/corporate staff, Paycor legal entity 193872) ──
+  office-clock-punch.mjs      — office_staff's own punch (clock in/meal/clock out) + today's list;
+                                409s if the caller isn't linked (paycor_employee_id + paycor_department_id
+                                both set) — the only enablement gate in the feature, re-checked live
+  office-clock-roster.mjs     — exec/IT: lists office/corporate Paycor employees + match status, for
+                                the account-linking admin screen (never creates an account itself)
+  office-clock-review.mjs     — exec/IT: pay-period review/edit + fires the background Paycor send;
+                                a period locks automatically the Tuesday night after it closes
+  office-clock-send-background.mjs — the actual Paycor CreatePunches batch write + async result
+                                polling (15-min budget); re-checks exec/IT auth itself, since its own
+                                URL needs only `{ periodEnd }`
+  office-clock-compare.mjs    — exec/IT: read-only validation — app punch counts vs. Paycor's own
+                                employeePunches for the same linked employees/date range
   # ── Orion Analyst (AI) ──
   analyst.js                  — Analyst entry
   analyst-cron.js             — Scheduled analyst runs (DM briefs, anomaly scans, exec reports)
@@ -202,6 +215,15 @@ HTTP POST to functions has a **26-second timeout** (Pro plan). Heavy jobs (labor
 Tables: `users`, `tickets`, `ticket_comments`, `business_cases`, `chat_messages`, `chat_channels`, `notifications`, `audit_log`.
 - Client: `netlify/functions/db.js` → `neon(process.env.NEON_DATABASE_URL)`
 - Migrations: `db-migrate.js` (manual trigger) / drizzle-kit → `netlify/database/migrations`
+- Office Hourly Time Clock adds 3 self-created tables (same `CREATE TABLE IF NOT EXISTS` pattern as
+  `tickets.mjs`/`incident-reports.mjs` — not in `db/schema.ts`, created lazily by the functions that
+  use them): `office_clock_punches` (every punch — live, manual edit, or admin-inserted; `paycor_status`
+  tracks unsent/confirmed/failed), `office_clock_activity_types` (cached Work/Meal Paycor
+  ActivityTypeId GUIDs per legal entity), `office_clock_pay_period_sends` (audit trail of each "Send to
+  Paycor" attempt). A pay period (biweekly, same anchor as Paycor's own pay-group frequency) locks
+  automatically the Tuesday night after it closes — `office-clock-review.mjs`'s `edit`/`send` actions
+  409 once locked; `isPeriodLocked`/`payPeriodEndFor` in `src/office-clock-lib.mjs` are the single
+  source of truth for that boundary, shared by the punch, review, and send-background functions.
 
 ### Netlify Blobs (`pcg-portal` store)
 All blobs use `{ savedAt, data }` wrapper for `cloudLoad` compatibility.

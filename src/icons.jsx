@@ -73,6 +73,11 @@ const ICONS = {
   // Deliberately NOT the plain `clock` glyph (one big centred dial) nor `staffSchedule`
   // (calendar + person): the tall card + detached corner dial is its own silhouette.
   minorTimecard: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="9" height="18" rx="1.5"/><line x1="5.6" y1="8" x2="9.4" y2="8"/><line x1="5.6" y1="12.5" x2="9.4" y2="12.5"/><circle cx="18" cy="17" r="4.5"/><polyline points="18 14.4 18 17 19.9 18.1"/></svg>,
+  // Office Hourly Time Clock — an ID-badge silhouette (lanyard clip on top) with a
+  // clock face set into it. Deliberately distinct from `clock` (plain centred dial),
+  // `staffSchedule` (calendar + person + dial) and `minorTimecard` (tall punch-card +
+  // detached corner dial) — this one reads as "my own badge", not a shared schedule.
+  officeClock: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1z"/><rect x="4" y="6" width="16" height="15" rx="2"/><circle cx="12" cy="14" r="4.3"/><polyline points="12 11.7 12 14 13.8 15.2"/></svg>,
 
 };
 
