@@ -390,7 +390,14 @@ export function payPeriodEndFor(dateStr) {
   const anchor = parseDateOnly(BIWEEKLY_ANCHOR_END);
   const target = parseDateOnly(dateStr);
   const diffDays = Math.round((target - anchor) / 86400000);
-  const periodIndex = Math.floor(diffDays / 14);
+  // Math.ceil, not Math.floor: we want the smallest anchor-aligned period-end
+  // Saturday at or after the target date, not the previous one. floor() gets
+  // this backwards for any date that isn't itself a period-closing Saturday —
+  // e.g. target = anchor + 1 day (the first day of the NEXT period) needs
+  // periodIndex = 1 (ceil(1/14)=1), but floor(1/14)=0 would wrongly map it
+  // back onto the anchor's own period. (Found via Task 2's real test suite —
+  // this file's own test cases below would fail against floor().)
+  const periodIndex = Math.ceil(diffDays / 14);
   const end = new Date(anchor);
   end.setUTCDate(end.getUTCDate() + periodIndex * 14);
   return toDateStr(end);
