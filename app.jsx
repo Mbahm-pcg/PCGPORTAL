@@ -21054,6 +21054,13 @@ function OfficeClockReview({ user, th, showAlert }) {
 
   const byEmployee = React.useMemo(() => {
     const m = new Map();
+    // Seed from every LINKED user first (office-clock-review.mjs's `period`
+    // action now always returns this list) so someone with zero punches this
+    // period still gets a row — and therefore a "+ Add punch" button — not
+    // just the employees who happen to already have a punch in range.
+    (data?.linkedUsers || []).forEach(u => {
+      if (!m.has(u.userId)) m.set(u.userId, { userName: u.userName, punches: [] });
+    });
     (data?.punches || []).forEach(p => {
       if (!m.has(p.userId)) m.set(p.userId, { userName: p.userName, punches: [] });
       m.get(p.userId).punches.push(p);
@@ -21198,7 +21205,7 @@ function OfficeClockReview({ user, th, showAlert }) {
           )}
 
           {byEmployee.length === 0 && (
-            <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>No punches for this pay period.</div>
+            <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>No employees are linked to Paycor yet — link an office_staff account under Admin · Office Time Clock first.</div>
           )}
 
           {byEmployee.map(emp => (
@@ -21215,6 +21222,11 @@ function OfficeClockReview({ user, th, showAlert }) {
                     <tr>{['Type', 'Time', 'Paycor Status', ''].map(h => <th key={h} style={{ ...thCell(th), textAlign: 'left' }}>{h}</th>)}</tr>
                   </thead>
                   <tbody>
+                    {emp.punches.length === 0 && editingId !== `new:${emp.userId}` && (
+                      <tr>
+                        <td colSpan={4} style={{ ...tdCell(th), textAlign: 'center', color: th.muted, fontStyle: 'italic' }}>No punches yet</td>
+                      </tr>
+                    )}
                     {emp.punches.map(p => {
                       // ET calendar day, matching findIncompleteDays' own bucketing (src/office-clock-lib.mjs)
                       // and the etDayOf idiom used elsewhere in this feature (office-clock-compare.mjs) — a raw
@@ -29672,7 +29684,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.26";
+const APP_VERSION = "v21.27";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

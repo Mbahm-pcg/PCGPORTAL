@@ -17781,6 +17781,9 @@ ${t2.slice(0, 300)}`);
     }, []);
     const byEmployee = React.useMemo(() => {
       const m = /* @__PURE__ */ new Map();
+      (data?.linkedUsers || []).forEach((u) => {
+        if (!m.has(u.userId)) m.set(u.userId, { userName: u.userName, punches: [] });
+      });
       (data?.punches || []).forEach((p) => {
         if (!m.has(p.userId)) m.set(p.userId, { userName: p.userName, punches: [] });
         m.get(p.userId).punches.push(p);
@@ -17912,7 +17915,7 @@ ${t2.slice(0, 300)}`);
         style: btn(th, { padding: "0.5rem 1.1rem" })
       },
       sendState?.status === "running" || sendState?.status === "sending" ? "Sending\u2026" : "Send to Paycor"
-    ), sendState && sendState.status && sendState.status !== "sending" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.7rem", fontSize: "0.8rem", color: th.muted } }, sendState.status === "running" && "Sending to Paycor\u2026", sendState.status === "pending_retry" && "Waiting on Paycor confirmation\u2026", sendState.status === "done" && `Done \u2014 ${sendState.confirmed || 0} confirmed, ${sendState.failed || 0} failed${sendState.unmatched ? `, ${sendState.unmatched} unmatched` : ""}.`, sendState.status === "error" && `Error: ${sendState.error || "send failed"}`)), byEmployee.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No punches for this pay period."), byEmployee.map((emp) => /* @__PURE__ */ React.createElement("div", { key: emp.userId, style: { ...card(th), padding: "0.9rem 1rem", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: th.text, fontSize: "0.88rem" } }, emp.userName), !data.locked && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => startAdd(emp.userId), style: btn(th, { padding: "0.25rem 0.6rem", fontSize: "0.72rem" }) }, "+ Add punch")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Type", "Time", "Paycor Status", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, emp.punches.map((p) => {
+    ), sendState && sendState.status && sendState.status !== "sending" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.7rem", fontSize: "0.8rem", color: th.muted } }, sendState.status === "running" && "Sending to Paycor\u2026", sendState.status === "pending_retry" && "Waiting on Paycor confirmation\u2026", sendState.status === "done" && `Done \u2014 ${sendState.confirmed || 0} confirmed, ${sendState.failed || 0} failed${sendState.unmatched ? `, ${sendState.unmatched} unmatched` : ""}.`, sendState.status === "error" && `Error: ${sendState.error || "send failed"}`)), byEmployee.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No employees are linked to Paycor yet \u2014 link an office_staff account under Admin \xB7 Office Time Clock first."), byEmployee.map((emp) => /* @__PURE__ */ React.createElement("div", { key: emp.userId, style: { ...card(th), padding: "0.9rem 1rem", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: th.text, fontSize: "0.88rem" } }, emp.userName), !data.locked && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => startAdd(emp.userId), style: btn(th, { padding: "0.25rem 0.6rem", fontSize: "0.72rem" }) }, "+ Add punch")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Type", "Time", "Paycor Status", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, emp.punches.length === 0 && editingId !== `new:${emp.userId}` && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 4, style: { ...tdCell(th), textAlign: "center", color: th.muted, fontStyle: "italic" } }, "No punches yet")), emp.punches.map((p) => {
       const day = new Date(p.capturedAt).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
       const flagged = incompleteByDay.has(`${emp.userId}:${day}`);
       const isEditing = editingId === p.id;
@@ -23822,7 +23825,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.26";
+  var APP_VERSION = "v21.27";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

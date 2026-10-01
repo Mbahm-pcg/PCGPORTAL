@@ -225,6 +225,23 @@ export default async (request) => {
       const { periodEnd } = payload;
       if (!periodEnd) return json(400, { error: 'Missing periodEnd' });
 
+      // Every LINKED user (paycor_employee_id AND paycor_department_id both
+      // set) must appear in this screen even with zero punches this period —
+      // otherwise there is no way to add a first punch for someone who
+      // forgot their phone, was out all period, or was just linked. Same
+      // "linked" definition and query shape as office-clock-compare.mjs's
+      // `compare` action (its one other "every linked account" query).
+      const linkedUsers = await db`
+        SELECT id, name
+        FROM users
+        WHERE paycor_employee_id IS NOT NULL AND paycor_department_id IS NOT NULL
+        ORDER BY name`;
+
+      // Punches are still queried independently (not via a LEFT JOIN off
+      // linkedUsers) so a user who had punches this period but has since been
+      // unlinked doesn't lose their historical rows from this screen — same
+      // behavior as before this fix, just no longer the ONLY source of which
+      // employees render.
       const rows = await db`
         SELECT cp.*, u.name, u.paycor_employee_id, u.paycor_department_id
         FROM office_clock_punches cp
@@ -236,7 +253,13 @@ export default async (request) => {
       // Group by employee and run findIncompleteDays per employee — it's
       // defined over one person's punch sequence, not the whole period mixed
       // together, and expects the camelCase { punchType, capturedAt } shape.
+      // Seed the map with every linked user first (empty punch array) so
+      // someone with zero punches this period still gets a byUser entry —
+      // findIncompleteDays over an empty array just reports no issues, so
+      // this is a no-op for incompleteDays but is what lets the frontend
+      // render their row via linkedUsers below regardless.
       const byUser = new Map();
+      for (const u of linkedUsers) byUser.set(u.id, { userName: u.name, punches: [] });
       for (const p of punches) {
         if (!byUser.has(p.userId)) byUser.set(p.userId, { userName: p.userName, punches: [] });
         byUser.get(p.userId).punches.push({ punchType: p.punchType, capturedAt: p.capturedAt });
@@ -251,6 +274,7 @@ export default async (request) => {
       return json(200, {
         locked: await isPeriodFinalized(db, periodEnd),
         punches,
+        linkedUsers: linkedUsers.map(u => ({ userId: u.id, userName: u.name })),
         incompleteDays,
       });
     }
