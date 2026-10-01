@@ -573,7 +573,9 @@ git commit -m "feat(office-clock): add office roster + account-matching endpoint
 - Create: `netlify/functions/office-clock-punch.mjs`
 
 **Interfaces:**
-- Consumes: `requireActiveUser`, `payPeriodEndFor` (from `../src/office-clock-lib.mjs`)
+- Consumes: `requireActiveUser`, `payPeriodEndFor` (from `../../src/office-clock-lib.mjs` —
+  `netlify/functions/` is two levels below repo root, not one; confirmed by Task 5's
+  own import-resolution smoke test failing against the wrong `../src/...` path first)
 - Produces:
   - `POST { action: 'punch', punchType }` (authenticated `office_staff` user with
     `paycor_employee_id`/`paycor_department_id` both set) → `{ ok: true, punch: {...} }`
@@ -635,8 +637,8 @@ git commit -m "feat(office-clock): add live punch capture endpoint"
 
 **Interfaces:**
 - Consumes: `isPeriodLocked`, `findIncompleteDays`, `punchStatusAndActivity` (from
-  `../src/office-clock-lib.mjs`), `resolvePunchLogResponse` (from
-  `../src/paycor-punch-resolve.mjs`), `createPunches`/`punchErrorLog` Paycor actions
+  `../../src/office-clock-lib.mjs`), `resolvePunchLogResponse` (from
+  `../../src/paycor-punch-resolve.mjs`), `createPunches`/`punchErrorLog` Paycor actions
 - Produces:
   - `POST { action: 'period', periodEnd }` (exec/it) →
     `{ locked, punches: [...], incompleteDays: [...] }` across every linked user
