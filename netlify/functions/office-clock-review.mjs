@@ -251,10 +251,29 @@ export default async (request) => {
       // manual-invocation timeout (see labor-cron.mjs:1376's identical
       // dispatch-and-don't-await-the-body shape). sendStatus then polls the
       // result blob the background function writes.
+      //
+      // Forward the triggering admin's own Authorization header (or, absent
+      // that, the pcg_session cookie — require-user.js's own `bearer()`
+      // accepts either) so office-clock-send-background.mjs can run its own
+      // requireActiveUser check against this exact caller before it writes
+      // anything to Paycor. This is the one piece of real auth this endpoint
+      // needs: office-clock-send-background.mjs's URL takes only
+      // `{ periodEnd }`, which is trivially derivable
+      // (payPeriodEndFor(today) off a published anchor date), so without this
+      // forward, anyone who reaches that URL directly could push a whole pay
+      // period to Paycor without ever going through this file's review/edit
+      // gate. No new auth mechanism — just reusing the real inbound request's
+      // own already-verified credential one call further.
+      const inboundAuth = request.headers.get('authorization');
+      const inboundCookie = request.headers.get('cookie');
+      const forwardHeaders = { 'Content-Type': 'application/json' };
+      if (inboundAuth) forwardHeaders['Authorization'] = inboundAuth;
+      if (inboundCookie) forwardHeaders['Cookie'] = inboundCookie;
+
       const base = process.env.URL || process.env.DEPLOY_PRIME_URL || 'https://pcg-ops.netlify.app';
       fetch(`${base}/.netlify/functions/office-clock-send-background`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: forwardHeaders,
         body: JSON.stringify({ periodEnd }),
       }).catch(() => {});
 

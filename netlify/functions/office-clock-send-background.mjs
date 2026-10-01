@@ -2,13 +2,23 @@
 // actual batch write to Paycor's CreatePunches API, plus async error-log
 // polling to find out what really happened.
 //
-// Fired fire-and-forget by office-clock-review.mjs's `send` action, which is
-// already exec/it-gated one layer up — this file does no auth of its own,
-// matching every other *-background.mjs in this codebase (labor-cron-
-// background.mjs, tips-report-refresh-background.mjs, minor-timecard-detect-
-// cron-background.mjs — none of them re-check a session token either; a
-// background function's trust boundary is "whoever can reach this URL",
-// accepted elsewhere in this codebase, not something this task introduces).
+// Fired fire-and-forget by office-clock-review.mjs's `send` action. UNLIKE
+// this codebase's other *-background.mjs jobs (labor-cron-background.mjs,
+// tips-report-refresh-background.mjs, minor-timecard-detect-cron-
+// background.mjs), which only ever redo an internal recompute if someone
+// reaches their URL without authorization, THIS file is the literal function
+// that pushes real punches to production Paycor payroll — the same stakes
+// category no-clockin.mjs (this codebase's own "Manual exec/IT endpoint")
+// already treats as needing its own `requireActiveUser` check, not the
+// recompute-job category. Its own URL takes nothing more secret than
+// `{ periodEnd }` — trivially derivable (`payPeriodEndFor(today)` off a
+// published anchor date) — so without its own auth check, reaching this URL
+// directly would push a whole pay period to Paycor while completely
+// bypassing office-clock-review.mjs's IT review/edit/lock step. Re-checked
+// here via the SAME `requireActiveUser` mechanism both files already import —
+// no new auth code, just also calling it from this file — against the
+// Authorization header / pcg_session cookie office-clock-review.mjs's `send`
+// action forwards from the real triggering admin's own request.
 //
 // Calls Paycor directly via paycor.mjs's own exported `callPaycor` (the same
 // raw OAuth-wrapped HTTP call paycor.mjs's own in-file actions use) instead of
@@ -20,6 +30,7 @@
 // directly elsewhere in this codebase with no auth re-check either.
 import { sql } from './_shared/db.mjs';
 import { getStore } from '@netlify/blobs';
+import { requireActiveUser } from './auth-lib/require-user.js';
 import { punchStatusAndActivity } from '../../src/office-clock-lib.mjs';
 import { resolvePunchLogResponse } from '../../src/paycor-punch-resolve.mjs';
 import { callPaycor } from './paycor.mjs';
@@ -47,13 +58,23 @@ export default async (request) => {
   if (!periodEnd) return new Response(JSON.stringify({ error: 'Missing periodEnd' }), { status: 400 });
 
   const blobKey = `pcg_office_clock_send_${periodEnd}`;
+  const db = sql();
+
+  // Auth gate (see header comment for why this file needs its own, unlike
+  // this codebase's other *-background.mjs jobs) — same shape as office-
+  // clock-review.mjs's own exec/it check. Checked before anything else,
+  // including the OFFICE_LEGAL_ENTITY_ID check below, so an unauthorized
+  // caller learns nothing about this function's configuration state either.
+  const authedUser = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db);
+  if (!authedUser || (authedUser.userType !== 'executive' && authedUser.userType !== 'it')) {
+    return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
+  }
+
   const legalEntityId = process.env.OFFICE_LEGAL_ENTITY_ID;
   if (!legalEntityId) {
     await blobSave(blobKey, { status: 'error', error: 'OFFICE_LEGAL_ENTITY_ID is not configured', finishedAt: new Date().toISOString() });
     return new Response(JSON.stringify({ ok: false }), { status: 500 });
   }
-
-  const db = sql();
 
   try {
     await blobSave(blobKey, { status: 'running', step: 'activityTypes', startedAt: new Date().toISOString() });
@@ -64,12 +85,28 @@ export default async (request) => {
     const { workActivityTypeId, mealActivityTypeId } = await ensureActivityTypes(db, legalEntityId);
     const activityTypeIdFor = (activity) => (activity === 'Work' ? workActivityTypeId : mealActivityTypeId);
 
+    // Atomic claim: SELECT-then-UPDATE would let two overlapping `send`
+    // invocations (a double-click, or two exec/it users within seconds of
+    // each other) both read the same 'unsent' rows before either UPDATE
+    // commits, submitting the same punches to Paycor twice. A single
+    // UPDATE ... WHERE paycor_status = 'unsent' ... RETURNING * closes that
+    // window completely — Postgres row-level locking means only one
+    // invocation's UPDATE can ever actually flip a given row, so a second,
+    // overlapping invocation's claim simply returns fewer (or zero) rows for
+    // whatever the first one already took. The punch batch below is built
+    // from what THIS UPDATE actually returned, never from a separate prior
+    // SELECT.
     const rows = await db`
-      SELECT cp.*, u.paycor_employee_id, u.paycor_department_id
-      FROM office_clock_punches cp
-      JOIN users u ON u.id = cp.user_id
-      WHERE cp.pay_period_end = ${periodEnd} AND cp.paycor_status = 'unsent'
-      ORDER BY cp.captured_at`;
+      WITH claimed AS (
+        UPDATE office_clock_punches
+        SET paycor_status = 'pending', paycor_tracking_id = NULL
+        WHERE pay_period_end = ${periodEnd} AND paycor_status = 'unsent'
+        RETURNING *
+      )
+      SELECT claimed.*, u.paycor_employee_id, u.paycor_department_id
+      FROM claimed
+      JOIN users u ON u.id = claimed.user_id
+      ORDER BY claimed.captured_at`;
 
     if (!rows.length) {
       await blobSave(blobKey, { status: 'done', total: 0, confirmed: 0, failed: 0, finishedAt: new Date().toISOString() });
@@ -80,12 +117,21 @@ export default async (request) => {
     // punching and sending. office-clock-punch.mjs's own enablement gate
     // should make this impossible for a NEW punch, but it says nothing about
     // punches already sitting unsent from before a revoke — never silently
-    // drop these from the count, report them as skipped instead.
+    // drop these from the count, report them as skipped instead. These rows
+    // were already claimed ('pending') by the UPDATE above along with
+    // everything else for this period, so they're reverted back to 'unsent'
+    // here rather than left stuck 'pending' forever with nothing actually
+    // sent — a future send (once re-linked, or by IT fixing the link) can
+    // pick them up normally.
     const sendable = [];
     const skippedUnlinked = [];
     for (const r of rows) {
       if (!r.paycor_employee_id || !r.paycor_department_id) skippedUnlinked.push(r);
       else sendable.push(r);
+    }
+    if (skippedUnlinked.length) {
+      const skippedIds = skippedUnlinked.map((r) => r.id);
+      await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE id = ANY(${skippedIds})`;
     }
 
     if (!sendable.length) {
@@ -116,8 +162,14 @@ export default async (request) => {
       return obj;
     });
 
+    const sendableIds = sendable.map((r) => r.id);
+
     const createRes = await callPaycor(`/legalentities/${legalEntityId}/CreatePunches`, 'POST', punchObjects);
     if (createRes.status < 200 || createRes.status >= 300) {
+      // Nothing was actually accepted by Paycor — release the claim so these
+      // rows are eligible for a normal retry instead of stuck 'pending'
+      // forever with no tracking ID to ever poll for.
+      await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE id = ANY(${sendableIds})`;
       await blobSave(blobKey, {
         status: 'error', error: `CreatePunches failed: HTTP ${createRes.status}`, detail: createRes.data,
         finishedAt: new Date().toISOString(),
@@ -127,6 +179,7 @@ export default async (request) => {
     const trackingId = createRes.data?.trackingId || createRes.data?.TrackingId
       || createRes.data?.id || createRes.data?.Id;
     if (!trackingId) {
+      await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE id = ANY(${sendableIds})`;
       await blobSave(blobKey, {
         status: 'error', error: 'CreatePunches response had no tracking ID', detail: createRes.data,
         finishedAt: new Date().toISOString(),
@@ -134,8 +187,9 @@ export default async (request) => {
       return new Response(JSON.stringify({ ok: false }), { status: 502 });
     }
 
-    const sendableIds = sendable.map((r) => r.id);
-    await db`UPDATE office_clock_punches SET paycor_status = 'pending', paycor_tracking_id = ${trackingId} WHERE id = ANY(${sendableIds})`;
+    // Rows are already 'pending' from the atomic claim above — just attach
+    // the tracking ID now that Paycor has actually accepted the batch.
+    await db`UPDATE office_clock_punches SET paycor_tracking_id = ${trackingId} WHERE id = ANY(${sendableIds})`;
     await blobSave(blobKey, {
       status: 'running', step: 'polling', trackingId, total: sendable.length,
       skippedUnlinked: skippedUnlinked.length, startedAt: new Date().toISOString(),
@@ -178,12 +232,19 @@ export default async (request) => {
       return new Response(JSON.stringify({ ok: true, pending: true }), { status: 200 });
     }
 
+    // ⚠️ GO-LIVE CHECKLIST ITEM — NOT YET VERIFIED AT BATCH SCALE ⚠️
     // Match each resolved record back to the row it came from. The real
     // response shape confirmed in Task 1's Controlled Test returns per-record
     // results in the same order the punches were submitted — matched
-    // primarily by request-order position. If a given response's record count
-    // doesn't match what was sent (order can't be trusted), fall back to
-    // matching on EmployeeId + PunchDateTime instead of guessing.
+    // primarily by request-order position. BUT that Controlled Test only ever
+    // sent ONE punch; request-order preservation for a real multi-record
+    // CreatePunches batch has never been confirmed against production Paycor.
+    // The EmployeeId + PunchDateTime fallback below is a reasonable safety
+    // net if a given response's record count doesn't match what was sent, but
+    // it is not a substitute for actually checking: before the very first
+    // live biweekly send, verify this matching logic against a real
+    // multi-record batch the same deliberate way Task 1's Controlled Test
+    // validated the single-punch case — don't let this go live unverified.
     const { succeeded, failed } = finalState;
     const outcomes = [
       ...succeeded.map((record) => ({ record, ok: true })),
