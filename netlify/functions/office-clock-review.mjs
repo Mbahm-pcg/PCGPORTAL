@@ -131,10 +131,11 @@ export async function ensureActivityTypes(db, legalEntityId) {
   return { workActivityTypeId: row.work_activity_type_id, mealActivityTypeId: row.meal_activity_type_id };
 }
 
-// A pay period is "finalized" (read-only) once BOTH of these are true:
+// A pay period is "finalized" (read-only) once ALL of these are true:
 //   1. at least one send has actually been triggered for it — a row exists
-//      in office_clock_pay_period_sends for this pay_period_end, and
-//   2. every punch in office_clock_punches for this period is 'confirmed' —
+//      in office_clock_pay_period_sends for this pay_period_end,
+//   2. the period actually has at least one punch at all, and
+//   3. every punch in office_clock_punches for this period is 'confirmed' —
 //      zero rows with paycor_status in ('unsent', 'pending', 'failed').
 //
 // This replaces the old time-based `isPeriodLocked` (a Tuesday-night
@@ -147,10 +148,13 @@ export async function ensureActivityTypes(db, legalEntityId) {
 //
 // If a send was triggered but some punches are still unsent/pending/failed,
 // the period stays OPEN so IT can fix the problem and resend — that's
-// exactly the workflow this feature exists for. A period with literally zero
-// punches (nobody worked it) is never finalized just because "no outstanding
-// punches" is vacuously true for an empty set — condition 1 (a send was
-// actually triggered) guards against that.
+// exactly the workflow this feature exists for. Condition 2 is its own
+// explicit guard (not left to fall out of condition 3's vacuous truth on an
+// empty set): office-clock-send-background.mjs happily writes a
+// `status: 'done', total: 0` sends-table row even when a send is triggered on
+// a period with zero punches, so condition 1 alone is NOT enough to rule out
+// an empty period — condition 2 requires a real punch to exist before a
+// period can ever be called finalized.
 //
 // Exported so office-clock-send-background.mjs's own I1 lock check (added in
 // the final review's fix wave) calls this exact same function rather than a
@@ -160,6 +164,8 @@ export async function isPeriodFinalized(db, periodEnd) {
   await ensureTables(db);
   const sent = await db`SELECT 1 FROM office_clock_pay_period_sends WHERE pay_period_end = ${periodEnd} LIMIT 1`;
   if (!sent.length) return false;
+  const anyPunches = await db`SELECT 1 FROM office_clock_punches WHERE pay_period_end = ${periodEnd} LIMIT 1`;
+  if (!anyPunches.length) return false;
   const outstanding = await db`
     SELECT 1 FROM office_clock_punches
     WHERE pay_period_end = ${periodEnd} AND paycor_status IN ('unsent', 'pending', 'failed')
