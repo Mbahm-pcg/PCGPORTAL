@@ -85,10 +85,13 @@ netlify/functions/
   office-clock-punch.mjs      — office_staff's own punch (clock in/meal/clock out) + today's list;
                                 409s if the caller isn't linked (paycor_employee_id + paycor_department_id
                                 both set) — the only enablement gate in the feature, re-checked live
-  office-clock-roster.mjs     — exec/IT: lists office/corporate Paycor employees + match status, for
-                                the account-linking admin screen (never creates an account itself)
   office-clock-review.mjs     — exec/IT: pay-period review/edit + fires the background Paycor send;
-                                a period locks automatically the Tuesday night after it closes
+                                no deadline — a period locks (read-only) only once it's been fully sent
+                                and every punch is `confirmed` (`isPeriodFinalized`, shared with the
+                                background send function below); linking an office_staff account to
+                                Paycor is manual (exec/IT pastes the Employee ID + Department ID
+                                copied from Paycor directly) via `users.mjs`'s `update` action — no
+                                dedicated roster-lookup function
   office-clock-send-background.mjs — the actual Paycor CreatePunches batch write + async result
                                 polling (15-min budget); re-checks exec/IT auth itself, since its own
                                 URL needs only `{ periodEnd }`
@@ -347,7 +350,7 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
 | `NO_CLOCKIN_LIVE` / `NO_CLOCKIN_SHADOW_USER` / `TEXTBELT_API_KEY` | no-clockin-cron mode: unset = log-only, `shadow` = alerts go ONLY to the username in `NO_CLOCKIN_SHADOW_USER` (labelled with who they'd reach), `true` = real managers/DMs; Textbelt SMS key (what sms.mjs / pulse-notify / no-clockin actually use) |
 | `MINOR_TIMECARD_LIVE` / `MINOR_TIMECARD_SHADOW_EMAIL` | Minor-timecard cron mode (same 3-state shape as `NO_CLOCKIN_LIVE`): unset = log-only (detects + logs, sends nothing, writes nothing — safe to deploy unconfigured), `shadow` = every email redirected to `MINOR_TIMECARD_SHADOW_EMAIL` labelled with who it would have reached (issue state still written), `true` = real manager/DM/office-staff/exec. **Before switching `shadow` → `true`, clear the `pcg_minor_timecard_issues_v1` blob** — shadow runs write real `escalatedAt` and real `exec_backstop` notification records, which would otherwise suppress the real backstop and make a manager's first-ever email an already-escalated "Day 12" notice. Full runbook in `minor-timecard-followup-cron.mjs`'s header |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL` / `VAPID_SUBJECT` | Web push |
-| `OFFICE_LEGAL_ENTITY_ID` | Office Hourly Time Clock: the office/corporate Paycor legal entity ID (`193872`, "People Capital Group LLC") — read server-side only, in `office-clock-roster.mjs` and `office-clock-send-background.mjs`; never client-supplied. The `linkable` roster action 500s if this is unset. |
+| `OFFICE_LEGAL_ENTITY_ID` | Office Hourly Time Clock: the office/corporate Paycor legal entity ID (`193872`, "People Capital Group LLC") — read server-side only, in `office-clock-send-background.mjs`; never client-supplied. |
 
 ---
 

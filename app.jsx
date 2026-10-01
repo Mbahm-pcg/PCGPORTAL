@@ -20907,7 +20907,20 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
     setBusyId(null);
   };
 
-  const canSubmit = selectedUserId && empIdInput.trim() && deptIdInput.trim() && busyId === null;
+  // Guard against accidentally linking two different Portal accounts to the
+  // same Paycor employee ID — the old roster table structurally prevented
+  // this (one row per Paycor employee); the manual form has no such
+  // structure, so it's checked explicitly against every other office_staff
+  // user's existing paycorEmployeeId. Punching and sending both key off
+  // paycor_employee_id per user row, so a silent collision here is a real
+  // data-integrity risk, not just a UX nicety.
+  const duplicateEmpIdUser = React.useMemo(() => {
+    const typed = empIdInput.trim();
+    if (!typed) return null;
+    return (users || []).find(u => u.userType === 'office_staff' && String(u.id) !== String(selectedUserId) && String(u.paycorEmployeeId || '') === typed) || null;
+  }, [users, empIdInput, selectedUserId]);
+
+  const canSubmit = selectedUserId && empIdInput.trim() && deptIdInput.trim() && busyId === null && !duplicateEmpIdUser;
 
   return (
     <div>
@@ -20945,6 +20958,11 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
               placeholder="Paste from Paycor" style={inp(th)}
             />
             <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.25rem' }}>Copied directly from the employee's record in Paycor's admin UI.</div>
+            {duplicateEmpIdUser && (
+              <div style={{ color: '#e03131', fontSize: '0.72rem', marginTop: '0.3rem', fontWeight: 600 }}>
+                This Employee ID is already linked to {duplicateEmpIdUser.name || duplicateEmpIdUser.username} — a Paycor employee can only be linked to one Portal account.
+              </div>
+            )}
           </div>
           <div>
             <label style={{ ...microLabel(th), display: 'block', marginBottom: '0.3rem' }}>Paycor Department ID</label>

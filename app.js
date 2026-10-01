@@ -17690,7 +17690,12 @@ ${t2.slice(0, 300)}`);
       }
       setBusyId(null);
     };
-    const canSubmit = selectedUserId && empIdInput.trim() && deptIdInput.trim() && busyId === null;
+    const duplicateEmpIdUser = React.useMemo(() => {
+      const typed = empIdInput.trim();
+      if (!typed) return null;
+      return (users || []).find((u) => u.userType === "office_staff" && String(u.id) !== String(selectedUserId) && String(u.paycorEmployeeId || "") === typed) || null;
+    }, [users, empIdInput, selectedUserId]);
+    const canSubmit = selectedUserId && empIdInput.trim() && deptIdInput.trim() && busyId === null && !duplicateEmpIdUser;
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClockLink(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Link Accounts")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Link an office_staff Portal account to a Paycor identity to enable their time clock. Unlinking disables punching immediately; there is no separate on/off switch."), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.2rem", marginBottom: "1.2rem" } }, /* @__PURE__ */ React.createElement("h2", { style: sectionTitle(th, { marginTop: 0, marginBottom: "0.9rem" }) }, "Add Employee"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.9rem", maxWidth: "26rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Portal Account"), /* @__PURE__ */ React.createElement(
       "select",
       {
@@ -17709,7 +17714,7 @@ ${t2.slice(0, 300)}`);
         placeholder: "Paste from Paycor",
         style: inp(th)
       }
-    ), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Copied directly from the employee's record in Paycor's admin UI.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Department ID"), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Copied directly from the employee's record in Paycor's admin UI."), duplicateEmpIdUser && /* @__PURE__ */ React.createElement("div", { style: { color: "#e03131", fontSize: "0.72rem", marginTop: "0.3rem", fontWeight: 600 } }, "This Employee ID is already linked to ", duplicateEmpIdUser.name || duplicateEmpIdUser.username, " \u2014 a Paycor employee can only be linked to one Portal account.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Department ID"), /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "text",
