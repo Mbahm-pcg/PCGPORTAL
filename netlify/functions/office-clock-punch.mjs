@@ -62,7 +62,13 @@ function rowToPunch(r) {
     userId: r.user_id,
     punchType: r.punch_type,
     capturedAt: new Date(r.captured_at).toISOString(),
-    payPeriodEnd: r.pay_period_end,
+    // The neon driver parses `date` columns (OID 1082) into native JS Date
+    // objects, same as timestamptz — left as-is, `payPeriodEnd` would
+    // serialize as a full ISO-8601 datetime instead of the plain
+    // "YYYY-MM-DD" string payPeriodEndFor() actually produces and that
+    // Task 6 compares/groups by. Normalize it the same way capturedAt/
+    // createdAt already are.
+    payPeriodEnd: new Date(r.pay_period_end).toISOString().slice(0, 10),
     source: r.source,
     editedBy: r.edited_by ?? undefined,
     paycorStatus: r.paycor_status,
