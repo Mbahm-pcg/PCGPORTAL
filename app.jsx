@@ -20858,71 +20858,56 @@ function OfficeClockTab({ user, th, showAlert }) {
 
 // ── OfficeClockAdmin — link office_staff Portal accounts to Paycor identity (exec/it only) ──
 function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
-  const [employees, setEmployees] = React.useState(null); // null = loading
-  const [loadError, setLoadError] = React.useState(null);
-  const [busyId, setBusyId] = React.useState(null);
+  const [busyId, setBusyId] = React.useState(null); // id of user currently being linked/unlinked
+  const [selectedUserId, setSelectedUserId] = React.useState('');
+  const [empIdInput, setEmpIdInput] = React.useState('');
+  const [deptIdInput, setDeptIdInput] = React.useState('');
 
-  const load = React.useCallback(() => {
-    setLoadError(null);
-    fetch('/.netlify/functions/office-clock-roster', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ action: 'linkable' }),
-    })
-      .then(async res => {
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || `Load failed (${res.status})`);
-        setEmployees(Array.isArray(j.employees) ? j.employees : []);
-      })
-      .catch(err => { setEmployees([]); setLoadError(err.message || 'Load failed'); });
-  }, []);
-
-  React.useEffect(() => { load(); }, [load]);
-
-  const userById = React.useMemo(() => {
-    const m = new Map();
-    (users || []).forEach(u => m.set(u.id, u));
-    return m;
+  // Office staff accounts not yet linked — the only accounts selectable in
+  // the Add Employee form. Deliberately sourced from the `users` prop only
+  // (no roster fetch): this ensures IT can only link a real, existing
+  // Portal account, never type a name freehand.
+  const unlinkedOfficeStaff = React.useMemo(() => {
+    return (users || [])
+      .filter(u => u.userType === 'office_staff' && !(u.paycorEmployeeId && u.paycorDepartmentId))
+      .sort((a, b) => (a.name || a.username || '').localeCompare(b.name || b.username || ''));
   }, [users]);
 
-  const setLink = async (emp, link) => {
-    if (!emp.linkedUserId) return;
-    // I6 — a Paycor employee with no department on file can never actually
-    // punch (office-clock-punch.mjs's enablement gate requires both fields),
-    // so Link is refused client-side before even calling users.mjs — the
-    // server-side `|| null` coercion on an empty string would otherwise make
-    // this "succeed" into an unusable half-link.
-    if (link && !emp.departmentId) {
-      showAlert && showAlert('error', 'This employee has no department on file in Paycor — cannot link until that is set.');
-      return;
-    }
-    setBusyId(emp.paycorEmployeeId);
+  const linkedOfficeStaff = React.useMemo(() => {
+    return (users || [])
+      .filter(u => u.userType === 'office_staff' && u.paycorEmployeeId && u.paycorDepartmentId)
+      .sort((a, b) => (a.name || a.username || '').localeCompare(b.name || b.username || ''));
+  }, [users]);
+
+  const setLink = async (targetUserId, link) => {
+    setBusyId(targetUserId);
     try {
       const patch = link
-        ? { paycorEmployeeId: String(emp.paycorEmployeeId), paycorDepartmentId: String(emp.departmentId || '') }
+        ? { paycorEmployeeId: empIdInput.trim(), paycorDepartmentId: deptIdInput.trim() }
         : { paycorEmployeeId: null, paycorDepartmentId: null };
       const res = await fetch('/.netlify/functions/users', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ action: 'update', id: emp.linkedUserId, patch }),
+        body: JSON.stringify({ action: 'update', id: targetUserId, patch }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { showAlert && showAlert('error', j?.error || 'Could not update link.'); setBusyId(null); return; }
-      setUsers && setUsers(us => us.map(u => u.id === emp.linkedUserId ? { ...u, ...j.user } : u));
-      // I6 — `alreadyLinked` is derived from the server's ACTUAL returned
-      // user fields (both paycorEmployeeId AND paycorDepartmentId present),
-      // never from the boolean the admin merely requested. A write that
-      // "succeeded" with a null department (e.g. a stale/odd response) must
-      // not show as linked when the user still can't punch.
+      setUsers && setUsers(us => us.map(u => u.id === targetUserId ? { ...u, ...j.user } : u));
       const savedUser = j?.user || {};
       const actuallyLinked = !!(savedUser.paycorEmployeeId && savedUser.paycorDepartmentId);
-      setEmployees(prev => (prev || []).map(e => e.paycorEmployeeId === emp.paycorEmployeeId ? { ...e, alreadyLinked: actuallyLinked } : e));
+      if (link && actuallyLinked) {
+        setSelectedUserId('');
+        setEmpIdInput('');
+        setDeptIdInput('');
+      }
       showAlert && showAlert('success', actuallyLinked ? 'Account linked.' : 'Account unlinked.');
     } catch {
       showAlert && showAlert('error', 'Network error — could not update link.');
     }
     setBusyId(null);
   };
+
+  const canSubmit = selectedUserId && empIdInput.trim() && deptIdInput.trim() && busyId === null;
 
   return (
     <div>
@@ -20931,68 +20916,88 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
         <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Office Time Clock — Link Accounts</h1>
       </div>
       <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
-        Office/corporate Paycor employees — link an office_staff Portal account to enable their time clock. Unlinking disables punching immediately; there is no separate on/off switch.
+        Link an office_staff Portal account to a Paycor identity to enable their time clock. Unlinking disables punching immediately; there is no separate on/off switch.
       </p>
 
-      {employees === null && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>Loading…</div>}
-      {loadError && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: '#e03131', fontSize: '0.85rem' }}>{loadError}</div>}
-
-      {employees !== null && !loadError && (
-        <div style={{ ...card(th), overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
-              <tr>
-                {['Name', 'Job Title', 'Type', 'Portal Account', ''].map(h => (
-                  <th key={h} style={{ ...thCell(th), textAlign: 'left' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {employees.map(e => {
-                const acct = e.linkedUserId ? userById.get(e.linkedUserId) : null;
-                const busy = busyId === e.paycorEmployeeId;
-                return (
-                  <tr key={e.paycorEmployeeId} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
-                    <td style={{ ...tdCell(th), fontWeight: 700, color: th.text }}>{e.name || '—'}</td>
-                    <td style={{ ...tdCell(th), color: th.muted }}>{e.jobTitle || '—'}</td>
-                    <td style={tdCell(th)}>{e.isHourly ? 'Hourly' : 'Salaried'}</td>
-                    <td style={{ ...tdCell(th), color: th.muted }}>
-                      {acct ? (acct.name || acct.username) : (e.linkedUserId ? `User #${e.linkedUserId}` : 'No office_staff account found')}
-                    </td>
-                    <td style={tdCell(th)}>
-                      {!e.linkedUserId ? null : e.alreadyLinked ? (
-                        <button type="button" disabled={busy} onClick={() => setLink(e, false)}
-                          style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.76rem', opacity: busy ? 0.6 : 1 })}>
-                          {busy ? '…' : 'Unlink'}
-                        </button>
-                      ) : (
-                        // I6 — Link is disabled (with a visible reason) when
-                        // this employee has no department on file in Paycor:
-                        // office-clock-punch.mjs's enablement gate requires
-                        // BOTH paycor_employee_id and paycor_department_id,
-                        // so linking without a department would "succeed" but
-                        // leave the account unable to ever actually punch.
-                        <span title={!e.departmentId ? 'No department on file in Paycor — cannot link' : undefined}>
-                          <button type="button" disabled={busy || !e.departmentId} onClick={() => setLink(e, true)}
-                            style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.76rem', opacity: (busy || !e.departmentId) ? 0.5 : 1, cursor: (busy || !e.departmentId) ? 'default' : 'pointer' })}>
-                            {busy ? '…' : 'Link'}
-                          </button>
-                          {!e.departmentId && (
-                            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.2rem' }}>No department on file</div>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {employees.length === 0 && (
-                <tr><td colSpan={5} style={{ ...tdCell(th), textAlign: 'center', color: th.muted }}>No active office employees found in Paycor.</td></tr>
-              )}
-            </tbody>
-          </table>
+      <div style={{ ...card(th), padding: '1.2rem', marginBottom: '1.2rem' }}>
+        <h2 style={sectionTitle(th, { marginTop: 0, marginBottom: '0.9rem' })}>Add Employee</h2>
+        <div style={{ display: 'grid', gap: '0.9rem', maxWidth: '26rem' }}>
+          <div>
+            <label style={{ ...microLabel(th), display: 'block', marginBottom: '0.3rem' }}>Portal Account</label>
+            <select
+              value={selectedUserId}
+              onChange={e => setSelectedUserId(e.target.value)}
+              style={inp(th)}
+            >
+              <option value="">Select an office_staff account…</option>
+              {unlinkedOfficeStaff.map(u => (
+                <option key={u.id} value={u.id}>{u.name || u.username}</option>
+              ))}
+            </select>
+            {unlinkedOfficeStaff.length === 0 && (
+              <div style={{ color: th.muted, fontSize: '0.72rem', marginTop: '0.3rem' }}>No unlinked office_staff accounts available.</div>
+            )}
+          </div>
+          <div>
+            <label style={{ ...microLabel(th), display: 'block', marginBottom: '0.3rem' }}>Paycor Employee ID</label>
+            <input
+              type="text" value={empIdInput} onChange={e => setEmpIdInput(e.target.value)}
+              placeholder="Paste from Paycor" style={inp(th)}
+            />
+            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.25rem' }}>Copied directly from the employee's record in Paycor's admin UI.</div>
+          </div>
+          <div>
+            <label style={{ ...microLabel(th), display: 'block', marginBottom: '0.3rem' }}>Paycor Department ID</label>
+            <input
+              type="text" value={deptIdInput} onChange={e => setDeptIdInput(e.target.value)}
+              placeholder="Paste from Paycor" style={inp(th)}
+            />
+            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.25rem' }}>Copied directly from the employee's department in Paycor's admin UI.</div>
+          </div>
+          <div>
+            <button
+              type="button"
+              disabled={!canSubmit}
+              onClick={() => setLink(Number(selectedUserId), true)}
+              style={btn(th, { padding: '0.55rem 1.3rem', fontSize: '0.85rem', opacity: canSubmit ? 1 : 0.5, cursor: canSubmit ? 'pointer' : 'default' })}
+            >
+              {busyId === Number(selectedUserId) ? '…' : 'Link'}
+            </button>
+          </div>
         </div>
-      )}
+      </div>
+
+      <div style={{ ...card(th), overflowX: 'auto' }}>
+        <h2 style={sectionTitle(th, { margin: '1.2rem 0 0.6rem 1.2rem' })}>Currently Linked</h2>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead>
+            <tr>
+              {['Name', ''].map(h => (
+                <th key={h} style={{ ...thCell(th), textAlign: 'left' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {linkedOfficeStaff.map(u => {
+              const busy = busyId === u.id;
+              return (
+                <tr key={u.id} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
+                  <td style={{ ...tdCell(th), fontWeight: 700, color: th.text }}>{u.name || u.username}</td>
+                  <td style={tdCell(th)}>
+                    <button type="button" disabled={busy} onClick={() => setLink(u.id, false)}
+                      style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.76rem', opacity: busy ? 0.6 : 1 })}>
+                      {busy ? '…' : 'Unlink'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+            {linkedOfficeStaff.length === 0 && (
+              <tr><td colSpan={2} style={{ ...tdCell(th), textAlign: 'center', color: th.muted }}>No linked accounts yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -29684,7 +29689,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.27";
+const APP_VERSION = "v21.28";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

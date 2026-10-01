@@ -17650,47 +17650,25 @@ ${t2.slice(0, 300)}`);
     })), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.4rem" } }, "Today's punches"), punches === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Loading\u2026"), punches !== null && punches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.82rem", textAlign: "center" } }, "No punches yet today."), punches !== null && punches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, punches.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: { ...card(th), padding: "0.6rem 0.9rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === p.punchType)?.label || p.punchType), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, officeClockTime(p.capturedAt)))))));
   }
   function OfficeClockAdmin({ user, th, showAlert: showAlert2, users, setUsers }) {
-    const [employees, setEmployees] = React.useState(null);
-    const [loadError, setLoadError] = React.useState(null);
     const [busyId, setBusyId] = React.useState(null);
-    const load = React.useCallback(() => {
-      setLoadError(null);
-      fetch("/.netlify/functions/office-clock-roster", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({ action: "linkable" })
-      }).then(async (res) => {
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || `Load failed (${res.status})`);
-        setEmployees(Array.isArray(j.employees) ? j.employees : []);
-      }).catch((err) => {
-        setEmployees([]);
-        setLoadError(err.message || "Load failed");
-      });
-    }, []);
-    React.useEffect(() => {
-      load();
-    }, [load]);
-    const userById = React.useMemo(() => {
-      const m = /* @__PURE__ */ new Map();
-      (users || []).forEach((u) => m.set(u.id, u));
-      return m;
+    const [selectedUserId, setSelectedUserId] = React.useState("");
+    const [empIdInput, setEmpIdInput] = React.useState("");
+    const [deptIdInput, setDeptIdInput] = React.useState("");
+    const unlinkedOfficeStaff = React.useMemo(() => {
+      return (users || []).filter((u) => u.userType === "office_staff" && !(u.paycorEmployeeId && u.paycorDepartmentId)).sort((a, b) => (a.name || a.username || "").localeCompare(b.name || b.username || ""));
     }, [users]);
-    const setLink = async (emp, link) => {
-      if (!emp.linkedUserId) return;
-      if (link && !emp.departmentId) {
-        showAlert2 && showAlert2("error", "This employee has no department on file in Paycor \u2014 cannot link until that is set.");
-        return;
-      }
-      setBusyId(emp.paycorEmployeeId);
+    const linkedOfficeStaff = React.useMemo(() => {
+      return (users || []).filter((u) => u.userType === "office_staff" && u.paycorEmployeeId && u.paycorDepartmentId).sort((a, b) => (a.name || a.username || "").localeCompare(b.name || b.username || ""));
+    }, [users]);
+    const setLink = async (targetUserId, link) => {
+      setBusyId(targetUserId);
       try {
-        const patch = link ? { paycorEmployeeId: String(emp.paycorEmployeeId), paycorDepartmentId: String(emp.departmentId || "") } : { paycorEmployeeId: null, paycorDepartmentId: null };
+        const patch = link ? { paycorEmployeeId: empIdInput.trim(), paycorDepartmentId: deptIdInput.trim() } : { paycorEmployeeId: null, paycorDepartmentId: null };
         const res = await fetch("/.netlify/functions/users", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json", ...authHeader() },
-          body: JSON.stringify({ action: "update", id: emp.linkedUserId, patch })
+          body: JSON.stringify({ action: "update", id: targetUserId, patch })
         });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -17698,47 +17676,70 @@ ${t2.slice(0, 300)}`);
           setBusyId(null);
           return;
         }
-        setUsers && setUsers((us) => us.map((u) => u.id === emp.linkedUserId ? { ...u, ...j.user } : u));
+        setUsers && setUsers((us) => us.map((u) => u.id === targetUserId ? { ...u, ...j.user } : u));
         const savedUser = j?.user || {};
         const actuallyLinked = !!(savedUser.paycorEmployeeId && savedUser.paycorDepartmentId);
-        setEmployees((prev) => (prev || []).map((e) => e.paycorEmployeeId === emp.paycorEmployeeId ? { ...e, alreadyLinked: actuallyLinked } : e));
+        if (link && actuallyLinked) {
+          setSelectedUserId("");
+          setEmpIdInput("");
+          setDeptIdInput("");
+        }
         showAlert2 && showAlert2("success", actuallyLinked ? "Account linked." : "Account unlinked.");
       } catch {
         showAlert2 && showAlert2("error", "Network error \u2014 could not update link.");
       }
       setBusyId(null);
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClockLink(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Link Accounts")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Office/corporate Paycor employees \u2014 link an office_staff Portal account to enable their time clock. Unlinking disables punching immediately; there is no separate on/off switch."), employees === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, loadError), employees !== null && !loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Name", "Job Title", "Type", "Portal Account", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, employees.map((e) => {
-      const acct = e.linkedUserId ? userById.get(e.linkedUserId) : null;
-      const busy = busyId === e.paycorEmployeeId;
-      return /* @__PURE__ */ React.createElement("tr", { key: e.paycorEmployeeId, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, e.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, e.jobTitle || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, e.isHourly ? "Hourly" : "Salaried"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, acct ? acct.name || acct.username : e.linkedUserId ? `User #${e.linkedUserId}` : "No office_staff account found"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, !e.linkedUserId ? null : e.alreadyLinked ? /* @__PURE__ */ React.createElement(
+    const canSubmit = selectedUserId && empIdInput.trim() && deptIdInput.trim() && busyId === null;
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClockLink(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Link Accounts")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Link an office_staff Portal account to a Paycor identity to enable their time clock. Unlinking disables punching immediately; there is no separate on/off switch."), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.2rem", marginBottom: "1.2rem" } }, /* @__PURE__ */ React.createElement("h2", { style: sectionTitle(th, { marginTop: 0, marginBottom: "0.9rem" }) }, "Add Employee"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.9rem", maxWidth: "26rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Portal Account"), /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        value: selectedUserId,
+        onChange: (e) => setSelectedUserId(e.target.value),
+        style: inp(th)
+      },
+      /* @__PURE__ */ React.createElement("option", { value: "" }, "Select an office_staff account\u2026"),
+      unlinkedOfficeStaff.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id, value: u.id }, u.name || u.username))
+    ), unlinkedOfficeStaff.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", marginTop: "0.3rem" } }, "No unlinked office_staff accounts available.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Employee ID"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "text",
+        value: empIdInput,
+        onChange: (e) => setEmpIdInput(e.target.value),
+        placeholder: "Paste from Paycor",
+        style: inp(th)
+      }
+    ), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Copied directly from the employee's record in Paycor's admin UI.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Department ID"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "text",
+        value: deptIdInput,
+        onChange: (e) => setDeptIdInput(e.target.value),
+        placeholder: "Paste from Paycor",
+        style: inp(th)
+      }
+    ), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Copied directly from the employee's department in Paycor's admin UI.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        disabled: !canSubmit,
+        onClick: () => setLink(Number(selectedUserId), true),
+        style: btn(th, { padding: "0.55rem 1.3rem", fontSize: "0.85rem", opacity: canSubmit ? 1 : 0.5, cursor: canSubmit ? "pointer" : "default" })
+      },
+      busyId === Number(selectedUserId) ? "\u2026" : "Link"
+    )))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("h2", { style: sectionTitle(th, { margin: "1.2rem 0 0.6rem 1.2rem" }) }, "Currently Linked"), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Name", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, linkedOfficeStaff.map((u) => {
+      const busy = busyId === u.id;
+      return /* @__PURE__ */ React.createElement("tr", { key: u.id, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, u.name || u.username), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(
         "button",
         {
           type: "button",
           disabled: busy,
-          onClick: () => setLink(e, false),
+          onClick: () => setLink(u.id, false),
           style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.76rem", opacity: busy ? 0.6 : 1 })
         },
         busy ? "\u2026" : "Unlink"
-      ) : (
-        // I6 — Link is disabled (with a visible reason) when
-        // this employee has no department on file in Paycor:
-        // office-clock-punch.mjs's enablement gate requires
-        // BOTH paycor_employee_id and paycor_department_id,
-        // so linking without a department would "succeed" but
-        // leave the account unable to ever actually punch.
-        /* @__PURE__ */ React.createElement("span", { title: !e.departmentId ? "No department on file in Paycor \u2014 cannot link" : void 0 }, /* @__PURE__ */ React.createElement(
-          "button",
-          {
-            type: "button",
-            disabled: busy || !e.departmentId,
-            onClick: () => setLink(e, true),
-            style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.76rem", opacity: busy || !e.departmentId ? 0.5 : 1, cursor: busy || !e.departmentId ? "default" : "pointer" })
-          },
-          busy ? "\u2026" : "Link"
-        ), !e.departmentId && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.2rem" } }, "No department on file"))
       )));
-    }), employees.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, style: { ...tdCell(th), textAlign: "center", color: th.muted } }, "No active office employees found in Paycor."))))));
+    }), linkedOfficeStaff.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), textAlign: "center", color: th.muted } }, "No linked accounts yet."))))));
   }
   var OFFICE_CLOCK_BIWEEKLY_ANCHOR_END = "2026-08-15";
   function officeClockDefaultPeriodEnd() {
@@ -23825,7 +23826,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.27";
+  var APP_VERSION = "v21.28";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
