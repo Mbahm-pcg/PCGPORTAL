@@ -29809,7 +29809,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.30";
+const APP_VERSION = "v21.31";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -52037,6 +52037,26 @@ function PCGPortal() {
         onOpenChat={() => { togglePortalMode(true); setTab('chat'); }}
         onLogout={handleLogout}
       />
+    );
+  }
+
+  if (user.userType === "office_staff" && isMobile && !preferFullPortal) {
+    return (
+      <div style={{ minHeight:"100vh", background:th.bg, color:th.text, transition:"background .3s, color .3s" }}>
+        <div style={{ display:"flex", justifyContent:"flex-end", padding:"1rem 1rem 0" }}>
+          <button
+            onClick={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }}
+            style={{
+              background:th.card3, border:`1px solid ${th.cardBorder}`, borderRadius:"0.5rem",
+              padding:"0.5rem 0.9rem", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.375rem",
+              color:th.text, fontSize:"0.8rem", fontWeight:700, fontFamily:"'Source Sans 3'"
+            }}
+          >
+            Open Full Portal
+          </button>
+        </div>
+        <OfficeClockTab user={user} th={th} showAlert={showAlert} />
+      </div>
     );
   }
 

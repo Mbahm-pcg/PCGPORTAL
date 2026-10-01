@@ -23885,7 +23885,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.30";
+  var APP_VERSION = "v21.31";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -39296,6 +39296,32 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           onLogout: handleLogout
         }
       );
+    }
+    if (user.userType === "office_staff" && isMobile && !preferFullPortal) {
+      return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", background: th.bg, color: th.text, transition: "background .3s, color .3s" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", padding: "1rem 1rem 0" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            togglePortalMode(true);
+            setTab(MOBILE_LAUNCHER_TAB_ID);
+          },
+          style: {
+            background: th.card3,
+            border: `1px solid ${th.cardBorder}`,
+            borderRadius: "0.5rem",
+            padding: "0.5rem 0.9rem",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.375rem",
+            color: th.text,
+            fontSize: "0.8rem",
+            fontWeight: 700,
+            fontFamily: "'Source Sans 3'"
+          }
+        },
+        "Open Full Portal"
+      )), /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }));
     }
     if (user.userType === "manager" && (isMobile && !preferFullPortal)) {
       return /* @__PURE__ */ React.createElement(
