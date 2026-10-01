@@ -12,6 +12,7 @@ import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWe
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
 import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid.mjs';
 import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
+import { parseDateOnly, toDateStr, payPeriodEndFor, isPeriodLocked, defaultClosedPeriodEnd } from './src/office-clock-period-math.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -20727,6 +20728,19 @@ const officeClockTime = (iso) => {
   const d = new Date(iso);
   return isNaN(d) ? '—' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 };
+// A UTC ISO string -> the value a `<input type="datetime-local">` needs, using
+// the BROWSER'S OWN local timezone (via Date's local getters), never raw UTC
+// digits. This has to be the exact inverse of how the browser itself will
+// re-parse that same zone-less string on save (`new Date(str)` interprets a
+// zone-less datetime-local string as local time) — using UTC digits here
+// would silently shift the saved instant by the local UTC offset the moment
+// an admin edits a punch's type/note without touching its prefilled time.
+const officeClockToLocalInput = (iso) => {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
 function OfficeClockTab({ user, th, showAlert }) {
   // The ONLY enablement signal on this screen — mirrors office-clock-
@@ -20950,41 +20964,25 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
   );
 }
 
-// Duplicated pure period-math (same anchor/formula as src/office-clock-
-// lib.mjs's payPeriodEndFor/isPeriodLocked, itself anchored to tips-report-
-// cron-background.mjs's BIWEEKLY_ANCHOR_END) — not imported directly because
-// that chain pulls in Netlify-function-only (Node/Blobs) dependencies that
-// don't belong in this browser bundle. Keep the anchor date in sync if it
-// ever changes — same duplication-across-files tradeoff this codebase
-// already accepts for per-store config (CLAUDE.md gotcha #9).
+// The period/lock FORMULA (payPeriodEndFor/isPeriodLocked/defaultClosedPeriodEnd)
+// is imported from the shared, pure, zero-dependency src/office-clock-period-
+// math.mjs — the same module src/office-clock-lib.mjs's server-side
+// payPeriodEndFor/isPeriodLocked delegate to — so there is exactly ONE copy of
+// that math in the whole codebase. The only thing duplicated here is the
+// ANCHOR DATE VALUE itself: app.jsx can't import office-clock-lib.mjs (it
+// pulls in tips-report-cron-background.mjs's Node/Netlify-Blobs-only
+// dependencies, unsafe for this browser bundle), so this is its own literal
+// copy of that file's real BIWEEKLY_ANCHOR_END. If that anchor date ever
+// changes, update both this constant and tips-report-cron-background.mjs's
+// BIWEEKLY_ANCHOR_END together.
 const OFFICE_CLOCK_BIWEEKLY_ANCHOR_END = '2026-08-15';
-function officeClockParseDate(s) { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
-function officeClockDateStr(d) { return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; }
-function officeClockPeriodEndFor(dateStr) {
-  const anchor = officeClockParseDate(OFFICE_CLOCK_BIWEEKLY_ANCHOR_END);
-  const target = officeClockParseDate(dateStr);
-  const diffDays = Math.round((target - anchor) / 86400000);
-  const periodIndex = Math.ceil(diffDays / 14);
-  const end = new Date(anchor);
-  end.setUTCDate(end.getUTCDate() + periodIndex * 14);
-  return officeClockDateStr(end);
-}
-function officeClockIsLocked(periodEnd, now) {
-  const end = officeClockParseDate(periodEnd);
-  const lockAt = new Date(end);
-  lockAt.setUTCDate(lockAt.getUTCDate() + 4);
-  return now.getTime() >= lockAt.getTime();
-}
-// Most recently CLOSED period — the current anchor-aligned period if it's
-// already locked, otherwise the one before it (always guaranteed locked).
-function officeClockDefaultPeriodEnd() {
-  const now = new Date();
-  const current = officeClockPeriodEndFor(officeClockDateStr(now));
-  if (officeClockIsLocked(current, now)) return current;
-  const prev = officeClockParseDate(current);
-  prev.setUTCDate(prev.getUTCDate() - 14);
-  return officeClockDateStr(prev);
-}
+function officeClockPeriodEndFor(dateStr) { return payPeriodEndFor(dateStr, OFFICE_CLOCK_BIWEEKLY_ANCHOR_END); }
+function officeClockIsLocked(periodEnd, now) { return isPeriodLocked(periodEnd, now); }
+function officeClockDefaultPeriodEnd() { return defaultClosedPeriodEnd(OFFICE_CLOCK_BIWEEKLY_ANCHOR_END, new Date()); }
+// Thin local aliases kept for readability at call sites below — the real
+// parse/format helpers also come from office-clock-period-math.mjs.
+const officeClockParseDate = parseDateOnly;
+const officeClockDateStr = toDateStr;
 
 const OFFICE_CLOCK_SEND_POLL_MS = 5000;
 
@@ -21032,7 +21030,7 @@ function OfficeClockReview({ user, th, showAlert }) {
     return s;
   }, [data]);
 
-  const startEdit = (p) => { setEditingId(p.id); setEditForm({ punchType: p.punchType, capturedAt: p.capturedAt.slice(0, 16) }); };
+  const startEdit = (p) => { setEditingId(p.id); setEditForm({ punchType: p.punchType, capturedAt: officeClockToLocalInput(p.capturedAt) }); };
   const startAdd = (userId) => { setEditingId(`new:${userId}`); setEditForm({ punchType: 'clock_in', capturedAt: '' }); };
   const cancelEdit = () => setEditingId(null);
 
@@ -29620,7 +29618,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.22";
+const APP_VERSION = "v21.23";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

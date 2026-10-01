@@ -2,6 +2,14 @@
 import {
   isBiweekBoundary, weekEndForTrigger, dateRangeEndingAt, BIWEEKLY_ANCHOR_END,
 } from '../netlify/functions/tips-report-cron-background.mjs';
+// The actual period/lock FORMULA lives in office-clock-period-math.mjs (pure,
+// zero-dependency) so it can be shared with app.jsx's browser bundle, which
+// can't import this file directly (the import above pulls in Node/Netlify-
+// Blobs-only dependencies). This file still owns the single real
+// BIWEEKLY_ANCHOR_END value and passes it in below — app.jsx instead passes
+// its own duplicated literal copy of that same anchor date. See that file's
+// OFFICE_CLOCK_BIWEEKLY_ANCHOR_END for the one place that duplication lives.
+import { payPeriodEndFor as pmPayPeriodEndFor, isPeriodLocked as pmIsPeriodLocked } from './office-clock-period-math.mjs';
 
 const BUTTON_MAP = {
   clock_in: { status: 'In', activity: 'Work' },
@@ -16,28 +24,14 @@ export function punchStatusAndActivity(buttonType) {
   return { ...m };
 }
 
-function parseDateOnly(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d));
-}
-function toDateStr(d) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
-
 // The Saturday that closes the biweekly pay period containing dateStr. Walks
 // forward/backward from BIWEEKLY_ANCHOR_END in 14-day steps rather than
 // re-deriving the anchor math independently, so this can never drift out of
-// sync with tips-report-cron-background.mjs's own period boundaries.
+// sync with tips-report-cron-background.mjs's own period boundaries. Same
+// single-argument public signature as before this was split out — only the
+// formula itself moved to office-clock-period-math.mjs.
 export function payPeriodEndFor(dateStr) {
-  const anchor = parseDateOnly(BIWEEKLY_ANCHOR_END);
-  const target = parseDateOnly(dateStr);
-  const diffDays = Math.round((target - anchor) / 86400000);
-  // Math.ceil, not floor: we need the smallest anchor-aligned period-end at or after the target.
-  // floor() reverses this for dates between period boundaries (e.g., Aug 2 would wrongly map to Aug 1).
-  const periodIndex = Math.ceil(diffDays / 14);
-  const end = new Date(anchor);
-  end.setUTCDate(end.getUTCDate() + periodIndex * 14);
-  return toDateStr(end);
+  return pmPayPeriodEndFor(dateStr, BIWEEKLY_ANCHOR_END);
 }
 
 // True once "now" is past the Tuesday-night deadline that closes out editing/
@@ -45,10 +39,7 @@ export function payPeriodEndFor(dateStr) {
 // Saturday; "night" is the end of that Tuesday in UTC (00:00:00 UTC the
 // following Wednesday) — a plain, unambiguous UTC boundary.
 export function isPeriodLocked(periodEndDate, now) {
-  const end = parseDateOnly(periodEndDate);
-  const lockAt = new Date(end);
-  lockAt.setUTCDate(lockAt.getUTCDate() + 4);
-  return now.getTime() >= lockAt.getTime();
+  return pmIsPeriodLocked(periodEndDate, now);
 }
 
 // Flags days where a punch sequence is incomplete: an open clock-in with no

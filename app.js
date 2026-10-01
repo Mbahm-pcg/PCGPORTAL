@@ -1291,6 +1291,37 @@
     return pw.split("").sort(() => Math.random() - 0.5).join("");
   }
 
+  // src/office-clock-period-math.mjs
+  function parseDateOnly(dateStr) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  }
+  function toDateStr(d) {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
+  function payPeriodEndFor(dateStr, anchorEnd) {
+    const anchor = parseDateOnly(anchorEnd);
+    const target = parseDateOnly(dateStr);
+    const diffDays = Math.round((target - anchor) / 864e5);
+    const periodIndex = Math.ceil(diffDays / 14);
+    const end = new Date(anchor);
+    end.setUTCDate(end.getUTCDate() + periodIndex * 14);
+    return toDateStr(end);
+  }
+  function isPeriodLocked(periodEndDate, now) {
+    const end = parseDateOnly(periodEndDate);
+    const lockAt = new Date(end);
+    lockAt.setUTCDate(lockAt.getUTCDate() + 4);
+    return now.getTime() >= lockAt.getTime();
+  }
+  function defaultClosedPeriodEnd(anchorEnd, now) {
+    const current = payPeriodEndFor(toDateStr(now), anchorEnd);
+    if (isPeriodLocked(current, now)) return current;
+    const prev = parseDateOnly(current);
+    prev.setUTCDate(prev.getUTCDate() - 14);
+    return toDateStr(prev);
+  }
+
   // app.jsx
   var { useState, useRef, useCallback, useEffect } = React;
   var Guard = class extends React.Component {
@@ -17534,6 +17565,12 @@ ${t2.slice(0, 300)}`);
     const d = new Date(iso);
     return isNaN(d) ? "\u2014" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   };
+  var officeClockToLocalInput = (iso) => {
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
   function OfficeClockTab({ user, th, showAlert: showAlert2 }) {
     const linked = !!(user?.paycorEmployeeId && user?.paycorDepartmentId);
     const [punches, setPunches] = React.useState(null);
@@ -17677,36 +17714,11 @@ ${t2.slice(0, 300)}`);
     }), employees.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, style: { ...tdCell(th), textAlign: "center", color: th.muted } }, "No active office employees found in Paycor."))))));
   }
   var OFFICE_CLOCK_BIWEEKLY_ANCHOR_END = "2026-08-15";
-  function officeClockParseDate(s) {
-    const [y, m, d] = s.split("-").map(Number);
-    return new Date(Date.UTC(y, m - 1, d));
-  }
-  function officeClockDateStr(d) {
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-  }
-  function officeClockPeriodEndFor(dateStr) {
-    const anchor = officeClockParseDate(OFFICE_CLOCK_BIWEEKLY_ANCHOR_END);
-    const target = officeClockParseDate(dateStr);
-    const diffDays = Math.round((target - anchor) / 864e5);
-    const periodIndex = Math.ceil(diffDays / 14);
-    const end = new Date(anchor);
-    end.setUTCDate(end.getUTCDate() + periodIndex * 14);
-    return officeClockDateStr(end);
-  }
-  function officeClockIsLocked(periodEnd, now) {
-    const end = officeClockParseDate(periodEnd);
-    const lockAt = new Date(end);
-    lockAt.setUTCDate(lockAt.getUTCDate() + 4);
-    return now.getTime() >= lockAt.getTime();
-  }
   function officeClockDefaultPeriodEnd() {
-    const now = /* @__PURE__ */ new Date();
-    const current = officeClockPeriodEndFor(officeClockDateStr(now));
-    if (officeClockIsLocked(current, now)) return current;
-    const prev = officeClockParseDate(current);
-    prev.setUTCDate(prev.getUTCDate() - 14);
-    return officeClockDateStr(prev);
+    return defaultClosedPeriodEnd(OFFICE_CLOCK_BIWEEKLY_ANCHOR_END, /* @__PURE__ */ new Date());
   }
+  var officeClockParseDate = parseDateOnly;
+  var officeClockDateStr = toDateStr;
   var OFFICE_CLOCK_SEND_POLL_MS = 5e3;
   function OfficeClockReview({ user, th, showAlert: showAlert2 }) {
     const [periodEnd, setPeriodEnd] = React.useState(officeClockDefaultPeriodEnd());
@@ -17755,7 +17767,7 @@ ${t2.slice(0, 300)}`);
     }, [data]);
     const startEdit = (p) => {
       setEditingId(p.id);
-      setEditForm({ punchType: p.punchType, capturedAt: p.capturedAt.slice(0, 16) });
+      setEditForm({ punchType: p.punchType, capturedAt: officeClockToLocalInput(p.capturedAt) });
     };
     const startAdd = (userId) => {
       setEditingId(`new:${userId}`);
@@ -23779,7 +23791,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.22";
+  var APP_VERSION = "v21.23";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
