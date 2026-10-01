@@ -21212,7 +21212,11 @@ function OfficeClockReview({ user, th, showAlert }) {
                   </thead>
                   <tbody>
                     {emp.punches.map(p => {
-                      const day = p.capturedAt.slice(0, 10);
+                      // ET calendar day, matching findIncompleteDays' own bucketing (src/office-clock-lib.mjs)
+                      // and the etDayOf idiom used elsewhere in this feature (office-clock-compare.mjs) — a raw
+                      // UTC slice here would silently fail to match any punch at/after ~8pm ET, making the
+                      // incomplete-day warning vanish for exactly the evening-shift pattern the ET fix covers.
+                      const day = new Date(p.capturedAt).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
                       const flagged = incompleteByDay.has(`${emp.userId}:${day}`);
                       const isEditing = editingId === p.id;
                       return (
@@ -29664,7 +29668,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.24";
+const APP_VERSION = "v21.25";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
