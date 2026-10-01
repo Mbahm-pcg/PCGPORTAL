@@ -51,6 +51,34 @@ function paycorDayOf(p) {
   return typeof t === 'string' && t.length >= 10 ? t.slice(0, 10) : null;
 }
 
+// Paycor has a confirmed failure mode where an ERROR is returned as valid
+// JSON with HTTP 200 and no `records` array at all — just a
+// Title/CorrelationId (2026-08-19 Westchester incident; same guard lives in
+// minor-timecard-detect-cron-background.mjs's extractPunchRecords() and
+// tips-report-cron-background.mjs's fetchStoreCrew/fetchAllEmployees).
+// Reading that as "this employee punched zero times" here would silently
+// manufacture a false mismatch (or mask a real one) for every app-side punch
+// that period, which is exactly the class of bug `paycorError` exists to
+// prevent — so this is thrown, not returned as an empty array, and the
+// caller's try/catch turns it into a `paycorError` same as any other Paycor
+// failure.
+function extractPunchRecords(data) {
+  if (data == null || typeof data !== 'object') {
+    throw new Error('Paycor returned a non-JSON punches payload');
+  }
+  if (!Array.isArray(data.records) && !Array.isArray(data) && (data.Title || data.CorrelationId)) {
+    throw new Error(`Paycor error response: ${data.Title || 'unknown'} — ${data.Detail || ''}`);
+  }
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.records)) return data.records;
+  // Object with neither a records array nor an error marker — genuinely
+  // ambiguous. Treated as empty (matching the other two call sites'
+  // convention) but logged, so a never-before-seen response shape is visible
+  // rather than silently reported as a clean zero.
+  console.warn('[office-clock-compare] employeePunches: unrecognised payload shape, treating as zero punches');
+  return [];
+}
+
 export default async (request) => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...headers, 'Access-Control-Max-Age': '86400' } });
   if (request.method !== 'POST') return json(405, { error: 'Method Not Allowed' });
@@ -113,8 +141,9 @@ export default async (request) => {
       try {
         const res = await callPaycor(`/employees/${u.paycor_employee_id}/employeePunches?startDate=${startDate}&endDate=${endDate}`);
         if (res.status >= 200 && res.status < 300) {
-          paycorRecords = Array.isArray(res.data?.records) ? res.data.records
-            : (Array.isArray(res.data) ? res.data : []);
+          // Not just an HTTP-status check — Paycor can return a 200 with a
+          // disguised error body (see extractPunchRecords() above).
+          paycorRecords = extractPunchRecords(res.data);
         } else {
           paycorError = `Paycor HTTP ${res.status}`;
         }
