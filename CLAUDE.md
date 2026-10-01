@@ -222,9 +222,10 @@ Tables: `users`, `tickets`, `ticket_comments`, `business_cases`, `chat_messages`
   ActivityTypeId GUIDs per legal entity), `office_clock_pay_period_sends` (audit trail of each "Send to
   Paycor" attempt). A pay period (biweekly, same anchor as Paycor's own pay-group frequency) has no
   time-based deadline — IT/exec reviews and sends whenever ready. It becomes read-only ("finalized")
-  only once a send has actually been triggered AND every punch for that period is `confirmed` in
-  Paycor (`isPeriodFinalized`, a DB-backed check in `office-clock-review.mjs`, shared with
-  `office-clock-send-background.mjs`); a send with any `unsent`/`pending`/`failed` punches left over
+  only once a send has actually been triggered, at least one punch exists for the period (an empty
+  period is never "finalized" just because nothing was outstanding), AND every punch for that period
+  is `confirmed` in Paycor (`isPeriodFinalized`, a DB-backed check in `office-clock-review.mjs`,
+  shared with `office-clock-send-background.mjs`); a send with any `unsent`/`pending`/`failed` punches left over
   keeps the period open so IT can fix and resend. `payPeriodEndFor` in `src/office-clock-lib.mjs` is
   still the single source of truth for period boundaries, shared by the punch, review, and
   send-background functions.
