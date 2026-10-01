@@ -220,10 +220,14 @@ Tables: `users`, `tickets`, `ticket_comments`, `business_cases`, `chat_messages`
   use them): `office_clock_punches` (every punch — live, manual edit, or admin-inserted; `paycor_status`
   tracks unsent/confirmed/failed), `office_clock_activity_types` (cached Work/Meal Paycor
   ActivityTypeId GUIDs per legal entity), `office_clock_pay_period_sends` (audit trail of each "Send to
-  Paycor" attempt). A pay period (biweekly, same anchor as Paycor's own pay-group frequency) locks
-  automatically the Tuesday night after it closes — `office-clock-review.mjs`'s `edit`/`send` actions
-  409 once locked; `isPeriodLocked`/`payPeriodEndFor` in `src/office-clock-lib.mjs` are the single
-  source of truth for that boundary, shared by the punch, review, and send-background functions.
+  Paycor" attempt). A pay period (biweekly, same anchor as Paycor's own pay-group frequency) has no
+  time-based deadline — IT/exec reviews and sends whenever ready. It becomes read-only ("finalized")
+  only once a send has actually been triggered AND every punch for that period is `confirmed` in
+  Paycor (`isPeriodFinalized`, a DB-backed check in `office-clock-review.mjs`, shared with
+  `office-clock-send-background.mjs`); a send with any `unsent`/`pending`/`failed` punches left over
+  keeps the period open so IT can fix and resend. `payPeriodEndFor` in `src/office-clock-lib.mjs` is
+  still the single source of truth for period boundaries, shared by the punch, review, and
+  send-background functions.
 
 ### Netlify Blobs (`pcg-portal` store)
 All blobs use `{ savedAt, data }` wrapper for `cloudLoad` compatibility.

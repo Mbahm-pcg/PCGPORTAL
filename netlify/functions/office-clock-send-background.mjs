@@ -31,10 +31,10 @@
 import { sql } from './_shared/db.mjs';
 import { getStore } from '@netlify/blobs';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { punchStatusAndActivity, isPeriodLocked } from '../../src/office-clock-lib.mjs';
+import { punchStatusAndActivity } from '../../src/office-clock-lib.mjs';
 import { resolvePunchLogResponse } from '../../src/paycor-punch-resolve.mjs';
 import { callPaycor } from './paycor.mjs';
-import { ensureActivityTypes } from './office-clock-review.mjs';
+import { ensureActivityTypes, isPeriodFinalized } from './office-clock-review.mjs';
 
 function getBlobStore() {
   return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
@@ -70,15 +70,20 @@ export default async (request) => {
     return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
   }
 
-  // I1 — this file's own lock check, not just office-clock-review.mjs's.
-  // That file's `send` action already rejects a locked period with a 409,
+  // I1 — this file's own finalized check, not just office-clock-review.mjs's.
+  // That file's `send` action already rejects a finalized period with a 409,
   // but this function's own URL takes nothing more secret than
-  // `{ periodEnd }` (see header comment), so without checking the lock here
-  // too, any exec/it caller who reaches THIS url directly could bypass that
-  // 409 and push a locked period to Paycor anyway. Checked right after auth,
-  // before any DB claim/write.
-  if (isPeriodLocked(periodEnd, new Date())) {
-    return new Response(JSON.stringify({ error: 'Pay period is locked' }), { status: 409 });
+  // `{ periodEnd }` (see header comment), so without checking here too, any
+  // exec/it caller who reaches THIS url directly could bypass that 409 and
+  // re-push an already-fully-confirmed period to Paycor anyway. Checked right
+  // after auth, before any DB claim/write. Uses the same shared
+  // isPeriodFinalized office-clock-review.mjs exports (not a second copy) —
+  // see that function's header comment for the full finalization rule (a
+  // period stays open, and sendable, while a send has been triggered but some
+  // punches are still unsent/pending/failed; that's this feature's own
+  // fix-and-resend workflow, not a bug).
+  if (await isPeriodFinalized(db, periodEnd)) {
+    return new Response(JSON.stringify({ error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' }), { status: 409 });
   }
 
   const legalEntityId = process.env.OFFICE_LEGAL_ENTITY_ID;

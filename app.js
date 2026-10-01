@@ -1320,7 +1320,7 @@
     end.setUTCDate(end.getUTCDate() + periodIndex * 14);
     return toDateStr(end);
   }
-  function isPeriodLocked(periodEndDate, now) {
+  function isPastTuesdayNightHeuristic(periodEndDate, now) {
     const end = parseDateOnly(periodEndDate);
     const lockAt = new Date(end);
     lockAt.setUTCDate(lockAt.getUTCDate() + 4);
@@ -1328,7 +1328,7 @@
   }
   function defaultClosedPeriodEnd(anchorEnd, now) {
     const current = payPeriodEndFor(toDateStr(now), anchorEnd);
-    if (isPeriodLocked(current, now)) return current;
+    if (isPastTuesdayNightHeuristic(current, now)) return current;
     const prev = parseDateOnly(current);
     prev.setUTCDate(prev.getUTCDate() - 14);
     return toDateStr(prev);
@@ -17903,7 +17903,7 @@ ${t2.slice(0, 300)}`);
       }
       setCompareLoading(false);
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClockReview(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Pay Period Review")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Review, edit, and send one closed biweekly pay period to Paycor. Edits lock automatically the Tuesday night after the period closes."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.8rem", color: th.muted } }, "Pay period ending", " ", /* @__PURE__ */ React.createElement("input", { type: "date", value: periodEnd, onChange: (e) => setPeriodEnd(e.target.value), style: inp(th) })), data && /* @__PURE__ */ React.createElement("span", { style: pill(data.locked ? "#6b7280" : "#22c55e") }, data.locked ? "Locked" : "Open for edits")), loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, loadError), !data && !loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), data && !loadError && /* @__PURE__ */ React.createElement(React.Fragment, null, !data.locked && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClockReview(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Pay Period Review")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Review, edit, and send one biweekly pay period to Paycor whenever you're ready \u2014 there's no deadline. A period becomes read-only once it's been fully sent and every punch is confirmed by Paycor."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.8rem", color: th.muted } }, "Pay period ending", " ", /* @__PURE__ */ React.createElement("input", { type: "date", value: periodEnd, onChange: (e) => setPeriodEnd(e.target.value), style: inp(th) })), data && /* @__PURE__ */ React.createElement("span", { style: pill(data.locked ? "#6b7280" : "#22c55e") }, data.locked ? "Locked \u2014 fully sent to Paycor" : "Open for edits")), loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, loadError), !data && !loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), data && !loadError && /* @__PURE__ */ React.createElement(React.Fragment, null, !data.locked && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -23822,7 +23822,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.25";
+  var APP_VERSION = "v21.26";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

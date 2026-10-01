@@ -38,24 +38,31 @@ export function payPeriodEndFor(dateStr, anchorEnd) {
   return toDateStr(end);
 }
 
-// True once "now" is past the Tuesday-night deadline that closes out editing/
-// sending for the pay period ending on periodEndDate. Tuesday is 3 days after
-// Saturday; "night" is the end of that Tuesday in UTC (00:00:00 UTC the
-// following Wednesday) — a plain, unambiguous UTC boundary.
-export function isPeriodLocked(periodEndDate, now) {
+// NOT a real locking decision — that's now isPeriodFinalized (a DB-backed
+// check in office-clock-review.mjs: a period is read-only once a send has
+// actually been triggered AND every one of its punches is 'confirmed' in
+// Paycor; see that file's header comment for the full rule). This is kept
+// purely as an internal heuristic for defaultClosedPeriodEnd below, to pick a
+// sane default period to show when the review screen first loads — "has this
+// period had enough time to plausibly be closed out" — not to gate edits or
+// sends. Intentionally not exported: nothing outside this file should use it
+// as a lock check.
+function isPastTuesdayNightHeuristic(periodEndDate, now) {
   const end = parseDateOnly(periodEndDate);
   const lockAt = new Date(end);
   lockAt.setUTCDate(lockAt.getUTCDate() + 4);
   return now.getTime() >= lockAt.getTime();
 }
 
-// Given any anchor end date, the most recently CLOSED period as of `now`:
-// the current anchor-aligned period if it's already locked, otherwise the
-// one before it (always guaranteed locked, since periods lock 4 days after
-// they close and are 14 days long).
+// Given any anchor end date, a reasonable default period to show on first
+// load, as of `now`: the current anchor-aligned period once it's plausibly
+// closed out (past the Tuesday-night heuristic above), otherwise the one
+// before it. This is a UI convenience default only — it does not determine
+// whether a period can still be edited or sent; see isPeriodFinalized in
+// office-clock-review.mjs for that.
 export function defaultClosedPeriodEnd(anchorEnd, now) {
   const current = payPeriodEndFor(toDateStr(now), anchorEnd);
-  if (isPeriodLocked(current, now)) return current;
+  if (isPastTuesdayNightHeuristic(current, now)) return current;
   const prev = parseDateOnly(current);
   prev.setUTCDate(prev.getUTCDate() - 14);
   return toDateStr(prev);

@@ -1,25 +1,27 @@
 // office-clock-review.mjs — Office Hourly Time Clock, Task 6: pay period review,
 // manual edit, and batch-send trigger (exec/it only).
 //
-// Lets IT/exec review every office_staff user's punches for one closed biweekly
+// Lets IT/exec review every office_staff user's punches for one biweekly
 // pay period (everyone linked to Paycor — paycor_employee_id AND
 // paycor_department_id both set — across the single office/corporate legal
-// entity; there is no per-store loop here, unlike labor/tips), edit them up
-// until the same Tuesday-night lock the rest of this feature uses, and fire the
-// actual Paycor CreatePunches batch write as a background job
-// (office-clock-send-background.mjs). This file itself never writes a punch to
-// Paycor — only the one-time activityTypes lookup (read-only) runs here, shared
-// with the background sender via the exported `ensureActivityTypes` helper.
+// entity; there is no per-store loop here, unlike labor/tips), edit them
+// freely until the period is "finalized" (see `isPeriodFinalized` below —
+// there is no automatic time-based deadline: a period can be reviewed and
+// sent whenever IT/exec is ready), and fire the actual Paycor CreatePunches
+// batch write as a background job (office-clock-send-background.mjs). This
+// file itself never writes a punch to Paycor — only the one-time
+// activityTypes lookup (read-only) runs here, shared with the background
+// sender via the exported `ensureActivityTypes` helper.
 //
 // Four actions, all exec/it only:
 //   period     { periodEnd }                                   -> { locked, punches, incompleteDays }
-//   edit       { periodEnd, userId, punchType, capturedAt, punchId?, note? } -> { ok, punch }  (409 if locked)
-//   send       { periodEnd }                                   -> { started: true }            (409 if locked)
+//   edit       { periodEnd, userId, punchType, capturedAt, punchId?, note? } -> { ok, punch }  (409 if finalized)
+//   send       { periodEnd }                                   -> { started: true }            (409 if finalized)
 //   sendStatus { periodEnd }                                   -> the pcg_office_clock_send_{periodEnd} blob's data
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { getStore } from '@netlify/blobs';
-import { isPeriodLocked, findIncompleteDays, payPeriodEndFor } from '../../src/office-clock-lib.mjs';
+import { findIncompleteDays, payPeriodEndFor } from '../../src/office-clock-lib.mjs';
 import { callPaycor } from './paycor.mjs';
 import { ensurePunchesTable } from './office-clock-punch.mjs';
 
@@ -129,6 +131,42 @@ export async function ensureActivityTypes(db, legalEntityId) {
   return { workActivityTypeId: row.work_activity_type_id, mealActivityTypeId: row.meal_activity_type_id };
 }
 
+// A pay period is "finalized" (read-only) once BOTH of these are true:
+//   1. at least one send has actually been triggered for it — a row exists
+//      in office_clock_pay_period_sends for this pay_period_end, and
+//   2. every punch in office_clock_punches for this period is 'confirmed' —
+//      zero rows with paycor_status in ('unsent', 'pending', 'failed').
+//
+// This replaces the old time-based `isPeriodLocked` (a Tuesday-night
+// deadline, src/office-clock-period-math.mjs): the user explicitly does not
+// want an automatic cutoff — they want to review and send a period whenever
+// they're ready — but still wants a safety rail once a period has actually
+// gone to Paycor, since there is no delete/update endpoint for a punch
+// Paycor already has (CreatePunches is create-only; confirmed via this
+// build's own Controlled Test).
+//
+// If a send was triggered but some punches are still unsent/pending/failed,
+// the period stays OPEN so IT can fix the problem and resend — that's
+// exactly the workflow this feature exists for. A period with literally zero
+// punches (nobody worked it) is never finalized just because "no outstanding
+// punches" is vacuously true for an empty set — condition 1 (a send was
+// actually triggered) guards against that.
+//
+// Exported so office-clock-send-background.mjs's own I1 lock check (added in
+// the final review's fix wave) calls this exact same function rather than a
+// second copy of this logic — same sharing pattern as `ensureActivityTypes`
+// above, which that file already imports from here.
+export async function isPeriodFinalized(db, periodEnd) {
+  await ensureTables(db);
+  const sent = await db`SELECT 1 FROM office_clock_pay_period_sends WHERE pay_period_end = ${periodEnd} LIMIT 1`;
+  if (!sent.length) return false;
+  const outstanding = await db`
+    SELECT 1 FROM office_clock_punches
+    WHERE pay_period_end = ${periodEnd} AND paycor_status IN ('unsent', 'pending', 'failed')
+    LIMIT 1`;
+  return outstanding.length === 0;
+}
+
 // office_clock_punches rows come back snake_case from Postgres; the pure
 // helpers in office-clock-lib.mjs (findIncompleteDays, punchStatusAndActivity)
 // expect camelCase { punchType, capturedAt }. This maps every field this file
@@ -205,7 +243,7 @@ export default async (request) => {
       }
 
       return json(200, {
-        locked: isPeriodLocked(periodEnd, new Date()),
+        locked: await isPeriodFinalized(db, periodEnd),
         punches,
         incompleteDays,
       });
@@ -249,12 +287,12 @@ export default async (request) => {
           return json(409, { error: "This punch has already been sent to Paycor — correct it directly in Paycor's own timecard editor instead; there is no way to un-send a punch from this screen" });
         }
 
-        // I2 — lock check against the ROW's own stored pay_period_end, never
-        // the payload's periodEnd. Otherwise a caller could submit a locked
-        // punch's real id alongside an unrelated, still-open periodEnd and
-        // slip past the lock entirely.
+        // I2 — finalized check against the ROW's own stored pay_period_end,
+        // never the payload's periodEnd. Otherwise a caller could submit a
+        // finalized punch's real id alongside an unrelated, still-open
+        // periodEnd and slip past the check entirely.
         const existingPeriodEnd = new Date(existing.pay_period_end).toISOString().slice(0, 10);
-        if (isPeriodLocked(existingPeriodEnd, new Date())) return json(409, { error: 'Pay period is locked' });
+        if (await isPeriodFinalized(db, existingPeriodEnd)) return json(409, { error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
 
         // I3 — when capturedAt is changing, the new pay_period_end is derived
         // server-side from that timestamp's own ET calendar date (never
@@ -281,11 +319,11 @@ export default async (request) => {
           WHERE id = ${punchId}
           RETURNING *`;
       } else {
-        // New punch — same lock check as before (there's no existing row to
-        // key it off of), plus the same server-derived-period check as the
+        // New punch — same finalized check as before (there's no existing row
+        // to key it off of), plus the same server-derived-period check as the
         // edit path above (I3): pay_period_end comes from capturedAt's own ET
         // calendar date, not straight from the payload's periodEnd.
-        if (isPeriodLocked(periodEnd, new Date())) return json(409, { error: 'Pay period is locked' });
+        if (await isPeriodFinalized(db, periodEnd)) return json(409, { error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
         const newPayPeriodEnd = payPeriodEndFor(etDateStr(new Date(capturedAt)));
         if (newPayPeriodEnd !== periodEnd) {
           return json(400, { error: `That time falls in the pay period ending ${newPayPeriodEnd}, not ${periodEnd} — add it from that period instead` });
@@ -301,9 +339,11 @@ export default async (request) => {
     if (action === 'send') {
       const { periodEnd } = payload;
       if (!periodEnd) return json(400, { error: 'Missing periodEnd' });
-      // 409, zero override path — a period can be sent more than once before
-      // it locks (each attempt gets its own audit row below), but never after.
-      if (isPeriodLocked(periodEnd, new Date())) return json(409, { error: 'Pay period is locked' });
+      // 409, zero override path — a period can be sent more than once while
+      // still open (each attempt gets its own audit row below; this is how
+      // IT fixes a partial/failed send and resends), but never once it's
+      // fully finalized.
+      if (await isPeriodFinalized(db, periodEnd)) return json(409, { error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
 
       await db`INSERT INTO office_clock_pay_period_sends (pay_period_end, sent_by) VALUES (${periodEnd}, ${authedUser.username})`;
 

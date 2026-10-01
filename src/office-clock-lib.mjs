@@ -9,7 +9,7 @@ import {
 // BIWEEKLY_ANCHOR_END value and passes it in below — app.jsx instead passes
 // its own duplicated literal copy of that same anchor date. See that file's
 // OFFICE_CLOCK_BIWEEKLY_ANCHOR_END for the one place that duplication lives.
-import { payPeriodEndFor as pmPayPeriodEndFor, isPeriodLocked as pmIsPeriodLocked } from './office-clock-period-math.mjs';
+import { payPeriodEndFor as pmPayPeriodEndFor } from './office-clock-period-math.mjs';
 
 const BUTTON_MAP = {
   clock_in: { status: 'In', activity: 'Work' },
@@ -32,14 +32,6 @@ export function punchStatusAndActivity(buttonType) {
 // formula itself moved to office-clock-period-math.mjs.
 export function payPeriodEndFor(dateStr) {
   return pmPayPeriodEndFor(dateStr, BIWEEKLY_ANCHOR_END);
-}
-
-// True once "now" is past the Tuesday-night deadline that closes out editing/
-// sending for the pay period ending on periodEndDate. Tuesday is 3 days after
-// Saturday; "night" is the end of that Tuesday in UTC (00:00:00 UTC the
-// following Wednesday) — a plain, unambiguous UTC boundary.
-export function isPeriodLocked(periodEndDate, now) {
-  return pmIsPeriodLocked(periodEndDate, now);
 }
 
 // The ET (America/New_York) calendar date of a UTC instant, as a

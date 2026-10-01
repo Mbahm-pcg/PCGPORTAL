@@ -12,7 +12,7 @@ import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWe
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
 import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid.mjs';
 import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
-import { parseDateOnly, toDateStr, payPeriodEndFor, isPeriodLocked, defaultClosedPeriodEnd } from './src/office-clock-period-math.mjs';
+import { parseDateOnly, toDateStr, defaultClosedPeriodEnd } from './src/office-clock-period-math.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -20997,20 +20997,24 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
   );
 }
 
-// The period/lock FORMULA (payPeriodEndFor/isPeriodLocked/defaultClosedPeriodEnd)
-// is imported from the shared, pure, zero-dependency src/office-clock-period-
-// math.mjs — the same module src/office-clock-lib.mjs's server-side
-// payPeriodEndFor/isPeriodLocked delegate to — so there is exactly ONE copy of
-// that math in the whole codebase. The only thing duplicated here is the
-// ANCHOR DATE VALUE itself: app.jsx can't import office-clock-lib.mjs (it
-// pulls in tips-report-cron-background.mjs's Node/Netlify-Blobs-only
-// dependencies, unsafe for this browser bundle), so this is its own literal
-// copy of that file's real BIWEEKLY_ANCHOR_END. If that anchor date ever
-// changes, update both this constant and tips-report-cron-background.mjs's
-// BIWEEKLY_ANCHOR_END together.
+// The period-math FORMULA (defaultClosedPeriodEnd) is imported from the
+// shared, pure, zero-dependency src/office-clock-period-math.mjs — the same
+// module src/office-clock-lib.mjs's server-side payPeriodEndFor delegates to
+// — so there is exactly ONE copy of that math in the whole codebase. The
+// only thing duplicated here is the ANCHOR DATE VALUE itself: app.jsx can't
+// import office-clock-lib.mjs (it pulls in tips-report-cron-background.mjs's
+// Node/Netlify-Blobs-only dependencies, unsafe for this browser bundle), so
+// this is its own literal copy of that file's real BIWEEKLY_ANCHOR_END. If
+// that anchor date ever changes, update both this constant and tips-report-
+// cron-background.mjs's BIWEEKLY_ANCHOR_END together.
+//
+// Note: there is no client-side lock/finalization check — whether a period
+// is still editable is decided server-side only (office-clock-review.mjs's
+// `isPeriodFinalized`, a DB-backed check: a send was actually triggered AND
+// every punch for the period is confirmed in Paycor). defaultClosedPeriodEnd
+// below is purely a UI convenience — it picks a plausible default period to
+// show on first load, nothing more.
 const OFFICE_CLOCK_BIWEEKLY_ANCHOR_END = '2026-08-15';
-function officeClockPeriodEndFor(dateStr) { return payPeriodEndFor(dateStr, OFFICE_CLOCK_BIWEEKLY_ANCHOR_END); }
-function officeClockIsLocked(periodEnd, now) { return isPeriodLocked(periodEnd, now); }
 function officeClockDefaultPeriodEnd() { return defaultClosedPeriodEnd(OFFICE_CLOCK_BIWEEKLY_ANCHOR_END, new Date()); }
 // Thin local aliases kept for readability at call sites below — the real
 // parse/format helpers also come from office-clock-period-math.mjs.
@@ -21160,7 +21164,7 @@ function OfficeClockReview({ user, th, showAlert }) {
         <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Office Time Clock — Pay Period Review</h1>
       </div>
       <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
-        Review, edit, and send one closed biweekly pay period to Paycor. Edits lock automatically the Tuesday night after the period closes.
+        Review, edit, and send one biweekly pay period to Paycor whenever you're ready — there's no deadline. A period becomes read-only once it's been fully sent and every punch is confirmed by Paycor.
       </p>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
@@ -21168,7 +21172,7 @@ function OfficeClockReview({ user, th, showAlert }) {
           Pay period ending{' '}
           <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} style={inp(th)} />
         </label>
-        {data && <span style={pill(data.locked ? '#6b7280' : '#22c55e')}>{data.locked ? 'Locked' : 'Open for edits'}</span>}
+        {data && <span style={pill(data.locked ? '#6b7280' : '#22c55e')}>{data.locked ? 'Locked — fully sent to Paycor' : 'Open for edits'}</span>}
       </div>
 
       {loadError && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: '#e03131', fontSize: '0.85rem' }}>{loadError}</div>}
@@ -29668,7 +29672,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.25";
+const APP_VERSION = "v21.26";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
