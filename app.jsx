@@ -21295,6 +21295,29 @@ function OfficeClockReview({ user, th, showAlert }) {
     setSaving(false);
   };
 
+  // Removes a punch outright — for a genuine mistake (an accidental double
+  // tap, a test punch) where there's nothing to correct, only something to
+  // erase. Same server-side safety rails as editing (already-sent / finalized
+  // both 409), so this never silently diverges from what Paycor has.
+  const deletePunch = async (p) => {
+    if (!window.confirm(`Delete this ${OFFICE_CLOCK_PUNCH_TYPES.find(b => b.key === p.punchType)?.label || p.punchType} punch at ${officeClockTime(p.capturedAt)}? This can't be undone.`)) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/.netlify/functions/office-clock-review', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'delete', punchId: p.id }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { showAlert && showAlert('error', j?.error || 'Delete failed.'); setSaving(false); return; }
+      load();
+      showAlert && showAlert('success', 'Punch deleted.');
+    } catch {
+      showAlert && showAlert('error', 'Network error — delete failed.');
+    }
+    setSaving(false);
+  };
+
   const pollSendStatus = React.useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
@@ -21494,7 +21517,10 @@ function OfficeClockReview({ user, th, showAlert }) {
                                     rows), so editing it here would silently diverge from the real
                                     payroll record. Only unsent/failed rows are editable. */}
                                 {!data.locked && (p.paycorStatus === 'unsent' || p.paycorStatus === 'failed') && (
-                                  <button type="button" onClick={() => startEdit(p)} style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: '0.2rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer' }}>Edit</button>
+                                  <>
+                                    <button type="button" disabled={saving} onClick={() => startEdit(p)} style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.muted, borderRadius: RADIUS.pill, padding: '0.2rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer', marginRight: '0.3rem' }}>Edit</button>
+                                    <button type="button" disabled={saving} onClick={() => deletePunch(p)} style={{ background: 'transparent', border: '1px solid #e0313155', color: '#e03131', borderRadius: RADIUS.pill, padding: '0.2rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer' }}>Delete</button>
+                                  </>
                                 )}
                                 {!data.locked && (p.paycorStatus === 'pending' || p.paycorStatus === 'confirmed') && (
                                   <span style={{ color: th.muted, fontSize: '0.72rem' }} title="Already sent to Paycor — correct it there instead">Sent</span>
@@ -29914,7 +29940,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.38";
+const APP_VERSION = "v21.39";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

@@ -13,11 +13,13 @@
 // activityTypes lookup (read-only) runs here, shared with the background
 // sender via the exported `ensureActivityTypes` helper.
 //
-// Four actions, all exec/it only:
+// Six actions, all exec/it only:
 //   period     { periodEnd }                                   -> { locked, punches, incompleteDays }
 //   edit       { periodEnd, userId, punchType, capturedAt, punchId?, note? } -> { ok, punch }  (409 if finalized)
+//   delete     { punchId }                                     -> { ok: true }                (409 if finalized or already sent)
 //   send       { periodEnd }                                   -> { started: true }            (409 if finalized)
 //   sendStatus { periodEnd }                                   -> the pcg_office_clock_send_{periodEnd} blob's data
+//   employeeSearch { query }                                   -> { matches: [...] }
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { getStore } from '@netlify/blobs';
@@ -364,6 +366,35 @@ export default async (request) => {
           RETURNING *`;
       }
       return json(200, { ok: true, punch: rowToPunch(row) });
+    }
+
+    // delete { punchId } -> { ok: true }
+    //
+    // Removes a punch outright — for a genuine mistake (an accidental double
+    // tap, a test punch) where there's nothing sensible to "correct" via
+    // `edit`, only something to erase. Same two safety checks as `edit`'s
+    // existing-row path, checked in the same order, against the SAME row's
+    // own stored state (never the payload): a punch already sent to (or
+    // mid-send to) Paycor can't be deleted here — Paycor has no delete API
+    // either, so this would just silently diverge from the real payroll
+    // record — and a finalized period is fully read-only.
+    if (action === 'delete') {
+      const { punchId } = payload;
+      if (!punchId) return json(400, { error: 'Missing punchId' });
+
+      const existingRows = await db`SELECT * FROM office_clock_punches WHERE id = ${punchId}`;
+      const existing = existingRows[0];
+      if (!existing) return json(404, { error: 'Punch not found' });
+
+      if (existing.paycor_status === 'pending' || existing.paycor_status === 'confirmed') {
+        return json(409, { error: "This punch has already been sent to Paycor — it can't be deleted from here; correct it directly in Paycor's own timecard editor instead" });
+      }
+
+      const existingPeriodEnd = new Date(existing.pay_period_end).toISOString().slice(0, 10);
+      if (await isPeriodFinalized(db, existingPeriodEnd)) return json(409, { error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
+
+      await db`DELETE FROM office_clock_punches WHERE id = ${punchId}`;
+      return json(200, { ok: true });
     }
 
     if (action === 'send') {
