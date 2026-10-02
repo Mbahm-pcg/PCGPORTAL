@@ -17559,11 +17559,14 @@ ${t2.slice(0, 300)}`);
       )));
     })));
   }
+  var OFFICE_CLOCK_GREEN = "#22c55e";
+  var OFFICE_CLOCK_AMBER = "#f59e0b";
+  var OfficeClockArrowInIcon = ({ color, size = 18 }) => /* @__PURE__ */ React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" }), /* @__PURE__ */ React.createElement("polyline", { points: "10 17 15 12 10 7" }), /* @__PURE__ */ React.createElement("line", { x1: "15", y1: "12", x2: "3", y2: "12" }));
   var OFFICE_CLOCK_PUNCH_TYPES = [
-    { key: "clock_in", label: "Clock In" },
-    { key: "meal_start", label: "Start Meal" },
-    { key: "meal_end", label: "End Meal" },
-    { key: "clock_out", label: "Clock Out" }
+    { key: "clock_in", label: "Clock In", sub: "Start of shift", color: OFFICE_CLOCK_GREEN, icon: (c) => /* @__PURE__ */ React.createElement(OfficeClockArrowInIcon, { color: c }) },
+    { key: "meal_start", label: "Start Meal", sub: "Meal break", color: OFFICE_CLOCK_AMBER, icon: (c) => ICONS.coffee(c) },
+    { key: "meal_end", label: "End Meal", sub: "Back from break", color: OFFICE_CLOCK_GREEN, icon: (c) => /* @__PURE__ */ React.createElement(OfficeClockArrowInIcon, { color: c }) },
+    { key: "clock_out", label: "Clock Out", sub: "End of shift", color: O, icon: (c) => ICONS.logout(c) }
   ];
   function officeClockNextAllowed(lastType) {
     if (!lastType || lastType === "clock_out") return ["clock_in"];
@@ -17630,28 +17633,51 @@ ${t2.slice(0, 300)}`);
     const m = totalMinutes % 60;
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   }
+  function officeClockInProgressMinutes(todaysPunches) {
+    const clockIn = todaysPunches.find((p) => p.punchType === "clock_in");
+    if (!clockIn) return null;
+    const now = Date.now();
+    let totalMs = now - new Date(clockIn.capturedAt).getTime();
+    const sorted = [...todaysPunches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
+    let mealStart = null;
+    for (const p of sorted) {
+      if (p.punchType === "meal_start") mealStart = p;
+      if (p.punchType === "meal_end" && mealStart) {
+        totalMs -= new Date(p.capturedAt).getTime() - new Date(mealStart.capturedAt).getTime();
+        mealStart = null;
+      }
+    }
+    if (mealStart) totalMs -= now - new Date(mealStart.capturedAt).getTime();
+    return Math.max(0, Math.round(totalMs / 6e4));
+  }
   function OfficeClockTab({ user, th, showAlert: showAlert2 }) {
     const [linked, setLinked] = React.useState(null);
-    const [punches, setPunches] = React.useState(null);
+    const [periodPunches, setPeriodPunches] = React.useState(null);
     const [busyType, setBusyType] = React.useState(null);
-    const loadToday = React.useCallback(() => {
+    const loadHistory = React.useCallback(() => {
       return fetch("/.netlify/functions/office-clock-punch", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({ action: "today" })
+        body: JSON.stringify({ action: "history" })
       }).then((res) => res.json().catch(() => ({}))).then((j) => {
         setLinked(!!j.linked);
-        setPunches(Array.isArray(j.punches) ? j.punches : []);
+        setPeriodPunches(Array.isArray(j.punches) ? j.punches : []);
       }).catch(() => {
         setLinked(false);
-        setPunches([]);
+        setPeriodPunches([]);
       });
     }, []);
     React.useEffect(() => {
-      loadToday();
-    }, [loadToday]);
-    const lastType = punches && punches.length ? punches[punches.length - 1].punchType : null;
+      loadHistory();
+    }, [loadHistory]);
+    const todayStr = React.useMemo(() => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), []);
+    const todaysPunches = React.useMemo(
+      () => (periodPunches || []).filter((p) => new Date(p.capturedAt).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) === todayStr),
+      [periodPunches, todayStr]
+    );
+    const lastPunch = periodPunches && periodPunches.length ? periodPunches[periodPunches.length - 1] : null;
+    const lastType = lastPunch ? lastPunch.punchType : null;
     const allowed = new Set(officeClockNextAllowed(lastType));
     const doPunch = async (punchType) => {
       setBusyType(punchType);
@@ -17664,7 +17690,7 @@ ${t2.slice(0, 300)}`);
         });
         const j = await res.json().catch(() => ({}));
         if (res.ok && j?.ok) {
-          await loadToday();
+          await loadHistory();
         } else if (res.status === 409) {
           showAlert2 && showAlert2("error", j?.error || "You're not set up for time clock yet \u2014 contact IT.");
         } else {
@@ -17675,27 +17701,92 @@ ${t2.slice(0, 300)}`);
       }
       setBusyType(null);
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClock(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Time Clock")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Clock in/out and track meal breaks \u2014 today's punches only."), linked === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), linked === false && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.88rem" } }, "You're not set up for time clock yet \u2014 contact IT."), linked === true && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.6rem", marginBottom: "1.2rem" } }, OFFICE_CLOCK_PUNCH_TYPES.map((b) => {
-      const enabled = punches !== null && allowed.has(b.key);
-      const busy = busyType === b.key;
-      return /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          key: b.key,
-          type: "button",
-          disabled: !enabled || busy,
-          onClick: () => doPunch(b.key),
-          style: btn(th, {
-            padding: "1rem 0.6rem",
-            fontSize: "0.95rem",
-            fontWeight: 800,
-            opacity: !enabled ? 0.4 : busy ? 0.7 : 1,
-            cursor: !enabled || busy ? "default" : "pointer"
-          })
-        },
-        busy ? "Saving\u2026" : b.label
-      );
-    })), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.4rem" } }, "Today's punches"), punches === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Loading\u2026"), punches !== null && punches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.82rem", textAlign: "center" } }, "No punches yet today."), punches !== null && punches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, punches.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, style: { ...card(th), padding: "0.6rem 0.9rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === p.punchType)?.label || p.punchType), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, officeClockTime(p.capturedAt)))))));
+    const status = lastType === "meal_start" ? "break" : lastType === "clock_in" || lastType === "meal_end" ? "in" : "out";
+    const statusMeta = {
+      out: { label: "Clocked Out", color: th.muted, icon: (c) => ICONS.officeClock(c) },
+      in: { label: "Clocked In", color: OFFICE_CLOCK_GREEN, icon: (c) => /* @__PURE__ */ React.createElement(OfficeClockArrowInIcon, { color: c }) },
+      break: { label: "On Break", color: OFFICE_CLOCK_AMBER, icon: (c) => ICONS.coffee(c) }
+    }[status];
+    const primaryType = status === "out" ? "clock_in" : status === "break" ? "meal_end" : "clock_out";
+    const primaryDef = OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === primaryType);
+    const canStartMeal = status === "in" && allowed.has("meal_start");
+    const dailyHours = React.useMemo(() => officeClockDailyHours(periodPunches || []), [periodPunches]);
+    const todayRow = dailyHours.find((d) => d.day === todayStr);
+    const todayMinutes = todayRow?.totalMinutes ?? (status !== "out" ? officeClockInProgressMinutes(todaysPunches) : null);
+    const todayIsInProgress = status !== "out" && todayRow?.totalMinutes == null;
+    const todayBreakMinutes = React.useMemo(() => {
+      const sorted = [...todaysPunches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
+      let total = 0, mealStart = null;
+      for (const p of sorted) {
+        if (p.punchType === "meal_start") mealStart = p;
+        if (p.punchType === "meal_end" && mealStart) {
+          total += Math.round((new Date(p.capturedAt).getTime() - new Date(mealStart.capturedAt).getTime()) / 6e4);
+          mealStart = null;
+        }
+      }
+      return total;
+    }, [todaysPunches]);
+    const dayLabel = (iso) => {
+      const d = officeClockParseDate(iso);
+      return d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.officeClock(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Time Clock"))), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Clock in/out and track your hours \u2014 today's punches only."), linked === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), linked === false && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.88rem" } }, "You're not set up for time clock yet \u2014 contact IT."), linked === true && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th, statusMeta.color), padding: "1rem", marginBottom: "0.9rem", display: "flex", alignItems: "center", gap: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 44, height: 44, borderRadius: "50%", background: `${statusMeta.color}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, statusMeta.icon(statusMeta.color)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.1rem" } }, "Current Status"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.15rem", color: th.text } }, statusMeta.label), lastPunch && status !== "out" && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.76rem" } }, "Since ", officeClockTime(lastPunch.capturedAt))), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        disabled: periodPunches === null || busyType !== null,
+        onClick: () => doPunch(primaryType),
+        style: btn(th, {
+          background: primaryDef.color,
+          padding: "0.65rem 1.2rem",
+          fontSize: "0.88rem",
+          fontWeight: 800,
+          opacity: busyType !== null ? 0.7 : 1,
+          cursor: busyType !== null ? "default" : "pointer",
+          flexShrink: 0
+        })
+      },
+      busyType === primaryType ? "Saving\u2026" : primaryDef.label
+    )), canStartMeal && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        disabled: busyType !== null,
+        onClick: () => doPunch("meal_start"),
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.5rem",
+          width: "100%",
+          background: "transparent",
+          border: `1px solid ${OFFICE_CLOCK_AMBER}55`,
+          color: OFFICE_CLOCK_AMBER,
+          borderRadius: RADIUS.control,
+          padding: "0.6rem",
+          fontSize: "0.85rem",
+          fontWeight: 700,
+          marginBottom: "1.1rem",
+          cursor: busyType !== null ? "default" : "pointer",
+          opacity: busyType !== null ? 0.6 : 1
+        }
+      },
+      ICONS.coffee(OFFICE_CLOCK_AMBER),
+      " ",
+      busyType === "meal_start" ? "Saving\u2026" : "Start Meal"
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.6rem", marginBottom: "1.2rem" } }, [
+      { label: "Total Hours", value: todayMinutes != null ? officeClockFmtHours(todayMinutes) + (todayIsInProgress ? "*" : "") : "\u2014", icon: (c) => ICONS.officeClock(c) },
+      { label: "Total Breaks", value: todayBreakMinutes > 0 ? officeClockFmtHours(todayBreakMinutes) : "0h", icon: (c) => ICONS.coffee(c) },
+      { label: "Work Days", value: String(dailyHours.length), icon: (c) => /* @__PURE__ */ React.createElement(OfficeClockArrowInIcon, { color: c }) }
+    ].map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.75rem 0.6rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", marginBottom: "0.3rem" } }, s.icon(th.muted)), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, s.value), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), fontSize: "0.62rem" } }, s.label)))), todayIsInProgress && todayMinutes != null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "-0.9rem", marginBottom: "1rem" } }, "* so far today \u2014 still clocked in"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.4rem" } }, ICONS.officeClock(th.muted), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Today's Punches")), periodPunches === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Loading\u2026"), periodPunches !== null && todaysPunches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.82rem", textAlign: "center" } }, "No punches yet today."), periodPunches !== null && todaysPunches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.3rem" } }, todaysPunches.map((p) => {
+      const def = OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === p.punchType);
+      return /* @__PURE__ */ React.createElement("div", { key: p.id, style: { ...card(th), padding: "0.65rem 0.9rem", display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 34, height: 34, borderRadius: "50%", background: `${def?.color || th.muted}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, def?.icon ? def.icon(def.color) : null), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, def?.label || p.punchType), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, def?.sub)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem", flexShrink: 0 } }, officeClockTime(p.capturedAt)));
+    })), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.4rem" } }, "Days Worked This Period"), periodPunches !== null && dailyHours.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.82rem", textAlign: "center" } }, "No punches yet this period."), dailyHours.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, [...dailyHours].reverse().map((d) => {
+      const isToday = d.day === todayStr;
+      const minutes = isToday ? todayMinutes : d.totalMinutes;
+      const label = minutes != null ? officeClockFmtHours(minutes) + (isToday && todayIsInProgress ? "*" : "") : "Incomplete";
+      return /* @__PURE__ */ React.createElement("div", { key: d.day, style: { ...card(th), padding: "0.55rem 0.9rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontSize: "0.82rem", fontWeight: isToday ? 700 : 400 } }, dayLabel(d.day), isToday ? " (Today)" : ""), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.85rem", color: minutes != null ? th.text : "#e03131" } }, label));
+    }))));
   }
   function OfficeClockAdmin({ user, th, showAlert: showAlert2, users, setUsers }) {
     const [busyId, setBusyId] = React.useState(null);
@@ -23967,7 +24058,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.39";
+  var APP_VERSION = "v21.41";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -37595,7 +37686,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     });
     const togglePortalMode = (full) => {
       const onMobile = window.innerWidth <= 768;
-      const mobileShellUser = user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it" || user?.userType === "manager" || user?.userType === "maintenance";
+      const mobileShellUser = user?.userType === "dm" || user?.userType === "executive" || user?.userType === "it" || user?.userType === "manager" || user?.userType === "maintenance" || user?.userType === "office_staff";
       if (user?.userType !== "construction" && !(onMobile && mobileShellUser)) {
         try {
           localStorage.setItem("pcg_prefer_full_portal", full ? "true" : "false");
@@ -37612,7 +37703,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     useEffect(() => {
       if (!user) return;
       const onMobile = window.innerWidth <= 768;
-      if (onMobile && (user.userType === "manager" || user.userType === "maintenance") && preferFullPortal) {
+      if (onMobile && (user.userType === "manager" || user.userType === "maintenance" || user.userType === "office_staff") && preferFullPortal) {
         try {
           localStorage.removeItem("pcg_prefer_full_portal");
         } catch {

@@ -20706,11 +20706,31 @@ function MinorTimecardComplianceTab({ user, th, showAlert }) {
 // roster.mjs's `linkable` action and office-clock-send-background.mjs. The
 // client never needs it and never sends it.
 
+// Brand orange (O, from src/theme.js) stays the app-wide button/CTA color
+// everywhere else, so the primary action button here (Clock In/Out) keeps
+// using it too — consistent with every other button in the app. Green and
+// amber are used only for the small status/history icon accents (an
+// "entering work" vs. "on a break" distinction), not as new button colors.
+const OFFICE_CLOCK_GREEN = '#22c55e'; // same green already used for the Manager section's "My Store" accent
+const OFFICE_CLOCK_AMBER = '#f59e0b';
+
+// Small inline icons for the status card and punch-history rows — a "log
+// in"/arrow-into-a-door shape (the mirror of ICONS.logout, which already
+// exists) for "entering work" (clock_in, meal_end), reusing ICONS.coffee for
+// a break, and ICONS.logout itself for leaving at the end of the day.
+const OfficeClockArrowInIcon = ({ color, size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+    <polyline points="10 17 15 12 10 7" />
+    <line x1="15" y1="12" x2="3" y2="12" />
+  </svg>
+);
+
 const OFFICE_CLOCK_PUNCH_TYPES = [
-  { key: 'clock_in', label: 'Clock In' },
-  { key: 'meal_start', label: 'Start Meal' },
-  { key: 'meal_end', label: 'End Meal' },
-  { key: 'clock_out', label: 'Clock Out' },
+  { key: 'clock_in', label: 'Clock In', sub: 'Start of shift', color: OFFICE_CLOCK_GREEN, icon: (c) => <OfficeClockArrowInIcon color={c} /> },
+  { key: 'meal_start', label: 'Start Meal', sub: 'Meal break', color: OFFICE_CLOCK_AMBER, icon: (c) => ICONS.coffee(c) },
+  { key: 'meal_end', label: 'End Meal', sub: 'Back from break', color: OFFICE_CLOCK_GREEN, icon: (c) => <OfficeClockArrowInIcon color={c} /> },
+  { key: 'clock_out', label: 'Clock Out', sub: 'End of shift', color: O, icon: (c) => ICONS.logout(c) },
 ];
 // Which punch types make sense next, given the last punch of the day (or no
 // punches yet). Pure display/UX logic only — office-clock-punch.mjs doesn't
@@ -20813,6 +20833,31 @@ function officeClockFmtHours(totalMinutes) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+// Best-effort "hours so far" for a day that's still open (no clock-out yet)
+// — NOT a substitute for officeClockDailyHours' exact, no-estimates total,
+// which takes over the instant a clock-out exists. Subtracts completed meal
+// breaks, and time spent on a break that's still open right now (never
+// worked time either way). Ticks forward only on punch/refresh, not a live
+// per-second timer — this feature's own "exact, no estimates" principle is
+// about the FINAL number, not about simulating a stopwatch.
+function officeClockInProgressMinutes(todaysPunches) {
+  const clockIn = todaysPunches.find(p => p.punchType === 'clock_in');
+  if (!clockIn) return null;
+  const now = Date.now();
+  let totalMs = now - new Date(clockIn.capturedAt).getTime();
+  const sorted = [...todaysPunches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
+  let mealStart = null;
+  for (const p of sorted) {
+    if (p.punchType === 'meal_start') mealStart = p;
+    if (p.punchType === 'meal_end' && mealStart) {
+      totalMs -= (new Date(p.capturedAt).getTime() - new Date(mealStart.capturedAt).getTime());
+      mealStart = null;
+    }
+  }
+  if (mealStart) totalMs -= (now - new Date(mealStart.capturedAt).getTime());
+  return Math.max(0, Math.round(totalMs / 60000));
+}
+
 function OfficeClockTab({ user, th, showAlert }) {
   // The ONLY enablement signal on this screen — mirrors office-clock-
   // punch.mjs's own server-side 409 check (Task 5). Deliberately NOT derived
@@ -20820,35 +20865,49 @@ function OfficeClockTab({ user, th, showAlert }) {
   // object (from portal-auth.mjs's `issue()`/`me`) never carries those fields
   // at all — only users.mjs's own projection (used by the admin screens) does
   // — so that would show "not set up" forever even for a correctly linked
-  // user. Instead this is a fresh server read every load, via `today`'s own
+  // user. Instead this is a fresh server read every load, via `history`'s own
   // `linked` field (C1), which also stays correct if a link is revoked
   // mid-session. `null` = still loading (not yet known either way).
   const [linked, setLinked] = React.useState(null);
-  const [punches, setPunches] = React.useState(null); // null = loading
+  // The CURRENT pay period's punches (not just today) — lets this screen show
+  // worked-days history, not only today's punches. Today's status/list and
+  // the history section below are both derived from this one array.
+  const [periodPunches, setPeriodPunches] = React.useState(null); // null = loading
   const [busyType, setBusyType] = React.useState(null);
 
   // Returns the fetch promise (not fire-and-forget) — doPunch below awaits
   // it before releasing the busy lock. Without that, a punch's button
   // re-enabled the instant the POST itself returned, before this refresh had
   // actually caught up — a real window where the UI still showed the OLD
-  // allowed-buttons state (from the stale `punches`) even though the punch
-  // had already been recorded server-side. A second tap landing in that gap
-  // fired a genuine second punch, not a blocked duplicate — confirmed live
-  // 2026-10-02 (two real "Clock Out" rows one minute apart from one person).
-  const loadToday = React.useCallback(() => {
+  // allowed-buttons state (from the stale `periodPunches`) even though the
+  // punch had already been recorded server-side. A second tap landing in
+  // that gap fired a genuine second punch, not a blocked duplicate —
+  // confirmed live 2026-10-02 (two real "Clock Out" rows one minute apart
+  // from one person).
+  const loadHistory = React.useCallback(() => {
     return fetch('/.netlify/functions/office-clock-punch', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ action: 'today' }),
+      body: JSON.stringify({ action: 'history' }),
     })
       .then(res => res.json().catch(() => ({})))
-      .then(j => { setLinked(!!j.linked); setPunches(Array.isArray(j.punches) ? j.punches : []); })
-      .catch(() => { setLinked(false); setPunches([]); });
+      .then(j => { setLinked(!!j.linked); setPeriodPunches(Array.isArray(j.punches) ? j.punches : []); })
+      .catch(() => { setLinked(false); setPeriodPunches([]); });
   }, []);
 
-  React.useEffect(() => { loadToday(); }, [loadToday]);
+  React.useEffect(() => { loadHistory(); }, [loadHistory]);
 
-  const lastType = punches && punches.length ? punches[punches.length - 1].punchType : null;
+  const todayStr = React.useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), []);
+  const todaysPunches = React.useMemo(
+    () => (periodPunches || []).filter(p => new Date(p.capturedAt).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) === todayStr),
+    [periodPunches, todayStr]
+  );
+
+  // The most recent punch OVERALL (not just today's) decides current status
+  // — if someone's last punch was days ago, they're still correctly shown as
+  // clocked out, not stuck mid-loading.
+  const lastPunch = periodPunches && periodPunches.length ? periodPunches[periodPunches.length - 1] : null;
+  const lastType = lastPunch ? lastPunch.punchType : null;
   const allowed = new Set(officeClockNextAllowed(lastType));
 
   const doPunch = async (punchType) => {
@@ -20861,7 +20920,7 @@ function OfficeClockTab({ user, th, showAlert }) {
       });
       const j = await res.json().catch(() => ({}));
       if (res.ok && j?.ok) {
-        await loadToday(); // keep the button locked until the refreshed state actually lands
+        await loadHistory(); // keep the button locked until the refreshed state actually lands
       } else if (res.status === 409) {
         showAlert && showAlert('error', j?.error || "You're not set up for time clock yet — contact IT.");
       } else {
@@ -20873,14 +20932,58 @@ function OfficeClockTab({ user, th, showAlert }) {
     setBusyType(null);
   };
 
+  // status: 'out' (not working) | 'in' (clocked in, working) | 'break' (on a meal)
+  const status = lastType === 'meal_start' ? 'break' : (lastType === 'clock_in' || lastType === 'meal_end') ? 'in' : 'out';
+  const statusMeta = {
+    out:   { label: 'Clocked Out', color: th.muted, icon: (c) => ICONS.officeClock(c) },
+    in:    { label: 'Clocked In',  color: OFFICE_CLOCK_GREEN, icon: (c) => <OfficeClockArrowInIcon color={c} /> },
+    break: { label: 'On Break',    color: OFFICE_CLOCK_AMBER, icon: (c) => ICONS.coffee(c) },
+  }[status];
+  // The single primary action for the current status — matches this app's
+  // one-CTA-per-screen convention. "Start Meal" is deliberately a smaller
+  // secondary action below it (only offered while actually clocked in),
+  // never promoted to primary — Clock Out is always the more likely next
+  // real action once someone's already working.
+  const primaryType = status === 'out' ? 'clock_in' : status === 'break' ? 'meal_end' : 'clock_out';
+  const primaryDef = OFFICE_CLOCK_PUNCH_TYPES.find(b => b.key === primaryType);
+  const canStartMeal = status === 'in' && allowed.has('meal_start');
+
+  // Reuses the EXACT same exact-to-the-minute, no-guessing math the admin
+  // Pay Period Review screen uses (officeClockDailyHours) — one shared
+  // calculation, not a second copy with its own rounding quirks.
+  const dailyHours = React.useMemo(() => officeClockDailyHours(periodPunches || []), [periodPunches]);
+  const todayRow = dailyHours.find(d => d.day === todayStr);
+  const todayMinutes = todayRow?.totalMinutes ?? (status !== 'out' ? officeClockInProgressMinutes(todaysPunches) : null);
+  const todayIsInProgress = status !== 'out' && (todayRow?.totalMinutes == null);
+
+  const todayBreakMinutes = React.useMemo(() => {
+    const sorted = [...todaysPunches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
+    let total = 0, mealStart = null;
+    for (const p of sorted) {
+      if (p.punchType === 'meal_start') mealStart = p;
+      if (p.punchType === 'meal_end' && mealStart) {
+        total += Math.round((new Date(p.capturedAt).getTime() - new Date(mealStart.capturedAt).getTime()) / 60000);
+        mealStart = null;
+      }
+    }
+    return total;
+  }, [todaysPunches]);
+
+  const dayLabel = (iso) => {
+    const d = officeClockParseDate(iso);
+    return d.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem' }}>
-        {ICONS.officeClock(th.text)}
-        <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Time Clock</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', marginBottom: '0.2rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          {ICONS.officeClock(th.text)}
+          <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Time Clock</h1>
+        </div>
       </div>
       <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
-        Clock in/out and track meal breaks — today's punches only.
+        Clock in/out and track your hours — today's punches only.
       </p>
 
       {linked === null && (
@@ -20895,39 +20998,105 @@ function OfficeClockTab({ user, th, showAlert }) {
 
       {linked === true && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.6rem', marginBottom: '1.2rem' }}>
-            {OFFICE_CLOCK_PUNCH_TYPES.map(b => {
-              const enabled = punches !== null && allowed.has(b.key);
-              const busy = busyType === b.key;
-              return (
-                <button key={b.key} type="button" disabled={!enabled || busy}
-                  onClick={() => doPunch(b.key)}
-                  style={btn(th, {
-                    padding: '1rem 0.6rem', fontSize: '0.95rem', fontWeight: 800,
-                    opacity: !enabled ? 0.4 : (busy ? 0.7 : 1),
-                    cursor: !enabled || busy ? 'default' : 'pointer',
-                  })}>
-                  {busy ? 'Saving…' : b.label}
-                </button>
-              );
-            })}
+          {/* Current status card — one big colored status icon + label + a single primary action */}
+          <div style={{ ...accentCard(th, statusMeta.color), padding: '1rem', marginBottom: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: `${statusMeta.color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {statusMeta.icon(statusMeta.color)}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ ...microLabel(th), marginBottom: '0.1rem' }}>Current Status</div>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.15rem', color: th.text }}>{statusMeta.label}</div>
+              {lastPunch && status !== 'out' && (
+                <div style={{ color: th.muted, fontSize: '0.76rem' }}>Since {officeClockTime(lastPunch.capturedAt)}</div>
+              )}
+            </div>
+            <button type="button" disabled={periodPunches === null || busyType !== null}
+              onClick={() => doPunch(primaryType)}
+              style={btn(th, {
+                background: primaryDef.color, padding: '0.65rem 1.2rem', fontSize: '0.88rem', fontWeight: 800,
+                opacity: busyType !== null ? 0.7 : 1, cursor: busyType !== null ? 'default' : 'pointer', flexShrink: 0,
+              })}>
+              {busyType === primaryType ? 'Saving…' : primaryDef.label}
+            </button>
           </div>
 
-          <div style={{ ...microLabel(th), marginBottom: '0.4rem' }}>Today's punches</div>
-          {punches === null && <div style={{ color: th.muted, fontSize: '0.82rem' }}>Loading…</div>}
-          {punches !== null && punches.length === 0 && (
+          {/* Secondary action — only offered while actually clocked in (not on a break, not out) */}
+          {canStartMeal && (
+            <button type="button" disabled={busyType !== null} onClick={() => doPunch('meal_start')}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: '100%',
+                background: 'transparent', border: `1px solid ${OFFICE_CLOCK_AMBER}55`, color: OFFICE_CLOCK_AMBER,
+                borderRadius: RADIUS.control, padding: '0.6rem', fontSize: '0.85rem', fontWeight: 700,
+                marginBottom: '1.1rem', cursor: busyType !== null ? 'default' : 'pointer', opacity: busyType !== null ? 0.6 : 1,
+              }}>
+              {ICONS.coffee(OFFICE_CLOCK_AMBER)} {busyType === 'meal_start' ? 'Saving…' : 'Start Meal'}
+            </button>
+          )}
+
+          {/* Stat summary row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.6rem', marginBottom: '1.2rem' }}>
+            {[
+              { label: 'Total Hours', value: todayMinutes != null ? officeClockFmtHours(todayMinutes) + (todayIsInProgress ? '*' : '') : '—', icon: (c) => ICONS.officeClock(c) },
+              { label: 'Total Breaks', value: todayBreakMinutes > 0 ? officeClockFmtHours(todayBreakMinutes) : '0h', icon: (c) => ICONS.coffee(c) },
+              { label: 'Work Days', value: String(dailyHours.length), icon: (c) => <OfficeClockArrowInIcon color={c} /> },
+            ].map((s, i) => (
+              <div key={i} style={{ ...card(th), padding: '0.75rem 0.6rem', textAlign: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.3rem' }}>{s.icon(th.muted)}</div>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.05rem', color: th.text }}>{s.value}</div>
+                <div style={{ ...microLabel(th), fontSize: '0.62rem' }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          {todayIsInProgress && todayMinutes != null && (
+            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '-0.9rem', marginBottom: '1rem' }}>* so far today — still clocked in</div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
+            {ICONS.officeClock(th.muted)}
+            <div style={{ ...microLabel(th) }}>Today's Punches</div>
+          </div>
+          {periodPunches === null && <div style={{ color: th.muted, fontSize: '0.82rem' }}>Loading…</div>}
+          {periodPunches !== null && todaysPunches.length === 0 && (
             <div style={{ ...card(th), padding: '1rem', color: th.muted, fontSize: '0.82rem', textAlign: 'center' }}>No punches yet today.</div>
           )}
-          {punches !== null && punches.length > 0 && (
+          {periodPunches !== null && todaysPunches.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.3rem' }}>
+              {todaysPunches.map(p => {
+                const def = OFFICE_CLOCK_PUNCH_TYPES.find(b => b.key === p.punchType);
+                return (
+                  <div key={p.id} style={{ ...card(th), padding: '0.65rem 0.9rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: `${def?.color || th.muted}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {def?.icon ? def.icon(def.color) : null}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: th.text, fontSize: '0.85rem' }}>{def?.label || p.punchType}</div>
+                      <div style={{ color: th.muted, fontSize: '0.72rem' }}>{def?.sub}</div>
+                    </div>
+                    <span style={{ color: th.muted, fontSize: '0.82rem', flexShrink: 0 }}>{officeClockTime(p.capturedAt)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Worked-days history — this pay period, most recent first */}
+          <div style={{ ...microLabel(th), marginBottom: '0.4rem' }}>Days Worked This Period</div>
+          {periodPunches !== null && dailyHours.length === 0 && (
+            <div style={{ ...card(th), padding: '1rem', color: th.muted, fontSize: '0.82rem', textAlign: 'center' }}>No punches yet this period.</div>
+          )}
+          {dailyHours.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              {punches.map(p => (
-                <div key={p.id} style={{ ...card(th), padding: '0.6rem 0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700, color: th.text, fontSize: '0.85rem' }}>
-                    {OFFICE_CLOCK_PUNCH_TYPES.find(b => b.key === p.punchType)?.label || p.punchType}
-                  </span>
-                  <span style={{ color: th.muted, fontSize: '0.82rem' }}>{officeClockTime(p.capturedAt)}</span>
-                </div>
-              ))}
+              {[...dailyHours].reverse().map(d => {
+                const isToday = d.day === todayStr;
+                const minutes = isToday ? todayMinutes : d.totalMinutes;
+                const label = minutes != null ? officeClockFmtHours(minutes) + (isToday && todayIsInProgress ? '*' : '') : 'Incomplete';
+                return (
+                  <div key={d.day} style={{ ...card(th), padding: '0.55rem 0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: th.text, fontSize: '0.82rem', fontWeight: isToday ? 700 : 400 }}>{dayLabel(d.day)}{isToday ? ' (Today)' : ''}</span>
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: minutes != null ? th.text : '#e03131' }}>{label}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </>
@@ -29940,7 +30109,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.39";
+const APP_VERSION = "v21.41";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -50349,13 +50518,16 @@ function PCGPortal() {
   const [managerMode, setManagerMode] = useState(null);
   const [preferFullPortal, setPreferFullPortal] = useState(() => { try { return localStorage.getItem('pcg_prefer_full_portal') === 'true'; } catch { return false; } });
   const togglePortalMode = (full) => {
-    // Mobile DM/exec/IT/manager/maintenance users: never persist — next login on mobile
-    // should always start in the mobile shell. Construction users: same (session-only).
-    // Desktop users: persist normally. (Manager/maintenance tap-through cards — Tasks,
-    // Tickets, Pulse, Labor, Open CAPs — all call togglePortalMode(true); without this
-    // exemption the very first tap permanently locked that device into full-portal mode.)
+    // Mobile DM/exec/IT/manager/maintenance/office_staff users: never persist — next
+    // login on mobile should always start in the mobile shell. Construction users:
+    // same (session-only). Desktop users: persist normally. (Manager/maintenance
+    // tap-through cards — Tasks, Tickets, Pulse, Labor, Open CAPs — all call
+    // togglePortalMode(true); without this exemption the very first tap permanently
+    // locked that device into full-portal mode. office_staff added 2026-10-02 after
+    // the exact same lockout was confirmed live for the Office Time Clock's own
+    // "Open Full Portal" button.)
     const onMobile = window.innerWidth <= 768;
-    const mobileShellUser = user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it' || user?.userType === 'manager' || user?.userType === 'maintenance';
+    const mobileShellUser = user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it' || user?.userType === 'manager' || user?.userType === 'maintenance' || user?.userType === 'office_staff';
     if (user?.userType !== 'construction' && !(onMobile && mobileShellUser)) {
       try { localStorage.setItem('pcg_prefer_full_portal', full ? 'true' : 'false'); } catch {}
     } else {
@@ -50363,15 +50535,17 @@ function PCGPortal() {
     }
     setPreferFullPortal(full);
   };
-  // One-time self-heal: managers/maintenance who tapped a mobile-dashboard card (Tasks,
-  // Tickets, Pulse, Labor, Open CAPs) before manager/maintenance were added to the
-  // never-persist allowlist above got permanently locked into full-portal mode on that
-  // device. Clear the stale flag for them so they land back in their mobile shell —
-  // without this they'd need IT to manually clear browser storage per device.
+  // One-time self-heal: managers/maintenance/office_staff who tapped a mobile-dashboard
+  // card (Tasks, Tickets, Pulse, Labor, Open CAPs, Open Full Portal) before their role
+  // was added to the never-persist allowlist above got permanently locked into
+  // full-portal mode on that device. Clear the stale flag for them so they land back
+  // in their mobile shell — without this they'd need IT to manually clear browser
+  // storage per device. office_staff added 2026-10-02 (same bug, confirmed live via
+  // the Office Time Clock's own "Open Full Portal" button).
   useEffect(() => {
     if (!user) return;
     const onMobile = window.innerWidth <= 768;
-    if (onMobile && (user.userType === 'manager' || user.userType === 'maintenance') && preferFullPortal) {
+    if (onMobile && (user.userType === 'manager' || user.userType === 'maintenance' || user.userType === 'office_staff') && preferFullPortal) {
       try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
       setPreferFullPortal(false);
     }

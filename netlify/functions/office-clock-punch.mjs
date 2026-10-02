@@ -6,9 +6,12 @@
 // that batch-send step is Task 6 (office-clock-review.mjs / office-clock-send-
 // background.mjs).
 //
-// Two actions only, both scoped to the calling office_staff user's own punches:
-//   punch { punchType } -> { ok: true, punch: {...} }
-//   today {}            -> { punches: [...] }   (today = the ET calendar day)
+// Three actions, all scoped to the calling office_staff user's own punches:
+//   punch   { punchType } -> { ok: true, punch: {...} }
+//   today   {}            -> { linked, punches: [...] }   (today = the ET calendar day)
+//   history {}            -> { linked, periodEnd, punches: [...] } (the current biweekly
+//                             pay period containing today — lets the employee see their
+//                             own worked days/hours so far this period, not just today)
 //
 // The 409 "not linked to Paycor yet" check inside `punch` is the ONLY enablement
 // gate in this whole feature — there is no boolean "enabled" flag anywhere (see
@@ -188,6 +191,25 @@ export default async (request) => {
           AND captured_at >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')
         ORDER BY captured_at ASC`;
       return json(200, { linked, punches: rows.map(rowToPunch) });
+    }
+
+    if (action === 'history') {
+      // Same `linked` check as `today` — fresh, never trusted from the
+      // session token (see that action's comment above for why).
+      const linked = await isLinkedToPaycor(db, authedUser.sub);
+
+      // The current biweekly pay period containing today, keyed by
+      // pay_period_end (the same column every punch is already bucketed
+      // into, not a separately-computed date range) — guarantees this
+      // lines up exactly with how office-clock-review.mjs buckets the same
+      // data for IT/exec, with no risk of a day falling on the wrong side
+      // of a range boundary the two features computed slightly differently.
+      const periodEnd = payPeriodEndFor(etDateStr(new Date()));
+      const rows = await db`
+        SELECT * FROM office_clock_punches
+        WHERE user_id = ${authedUser.sub} AND pay_period_end = ${periodEnd}
+        ORDER BY captured_at ASC`;
+      return json(200, { linked, periodEnd, punches: rows.map(rowToPunch) });
     }
 
     return json(400, { error: `Unknown action: ${action}` });
