@@ -18718,6 +18718,37 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
     && (u.name || '').toLowerCase().includes(nameQuery.trim().toLowerCase())
     && (u.email || u.phone)
   ).slice(0, 8);
+
+  // Add-by-role: typing a role keyword ("manager", "dm"...) offers a single
+  // suggestion that adds every active person in that role at once — a label
+  // that expands to its members on pick (Gmail-group-style), not a live
+  // group reference: each person lands as their own normal, removable entry,
+  // same as adding them one at a time via nameMatches above.
+  const roleMatches = React.useMemo(() => {
+    const q = nameQuery.trim().toLowerCase();
+    if (!q || !(users || []).length) return [];
+    return ROLE_GROUP_LABELS
+      .filter(r => r.id.includes(q) || r.label.toLowerCase().includes(q))
+      .map(r => ({ ...r, members: users.filter(u => u.active !== false && u.userType === r.id && (u.email || u.phone)) }))
+      .filter(r => r.members.length > 0);
+  }, [nameQuery, users]);
+  const addRoleGroup = (role) => {
+    let nextEmails = emails || [], nextEmailOwners = emailOwners || [];
+    let nextPhones = phones || [], nextPhoneOwners = phoneOwners || [];
+    let addedCount = 0;
+    for (const u of role.members) {
+      if (u.email && !nextEmails.some(e => e.toLowerCase() === u.email.toLowerCase())) {
+        nextEmails = [...nextEmails, u.email]; nextEmailOwners = [...nextEmailOwners, u.id]; addedCount++;
+      }
+      if (u.phone && !nextPhones.includes(u.phone)) {
+        nextPhones = [...nextPhones, u.phone]; nextPhoneOwners = [...nextPhoneOwners, u.id];
+      }
+    }
+    persist(nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners);
+    showAlert && showAlert(addedCount > 0 ? `Added ${addedCount} ${role.label} (already-added people skipped).` : `Everyone in ${role.label} is already on this list.`, 'success');
+    setNameQuery('');
+    setShowSuggestions(false);
+  };
   const addPerson = (u) => {
     const nextEmails = u.email && !(emails || []).some(e => e.toLowerCase() === u.email.toLowerCase())
       ? [...(emails || []), u.email] : (emails || []);
@@ -18762,16 +18793,27 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
     <div>
       <p style={{ fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" }}>{description}</p>
 
-      {/* Add by name — adds a matched Portal user's email + phone together */}
+      {/* Add by name or role — a name adds one person's email + phone together;
+          a role keyword ("manager", "dm"...) offers a group suggestion that
+          adds everyone in that role at once, Gmail-group-style. */}
       {users && (
         <div style={{ position: 'relative', marginBottom: '1rem' }}>
-          <input style={{ ...inp(th), width: '100%' }} placeholder="🔎 Add by name (fills in email + phone together)"
+          <input style={{ ...inp(th), width: '100%' }} placeholder={'🔎 Add by name, or type a role (e.g. "manager") to add everyone in it'}
             value={nameQuery}
             onChange={e => { setNameQuery(e.target.value); setShowSuggestions(true); }}
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)} />
-          {showSuggestions && nameMatches.length > 0 && (
+          {showSuggestions && (roleMatches.length > 0 || nameMatches.length > 0) && (
             <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+              {roleMatches.map(r => (
+                <div key={r.id} onMouseDown={() => addRoleGroup(r)}
+                  style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}`, background: O + '0c' }}
+                  onMouseEnter={e => e.currentTarget.style.background = O + '22'}
+                  onMouseLeave={e => e.currentTarget.style.background = O + '0c'}>
+                  <div style={{ fontSize: '0.83rem', fontWeight: 700, color: O }}>👥 All {r.label} ({r.members.length})</div>
+                  <div style={{ fontSize: '0.7rem', color: th.muted }}>Adds everyone in this role at once — each stays individually removable after.</div>
+                </div>
+              ))}
               {nameMatches.map(u => (
                 <div key={u.id} onMouseDown={() => addPerson(u)}
                   style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}` }}
@@ -22658,6 +22700,12 @@ const ROLE_META = {
   kiosk_pulse:  { label: 'Kiosk TV',       admin: false, scope: 'Pulse TV display only — no portal access.' },
   kiosk_upload: { label: 'Kiosk Upload',   admin: false, scope: 'Upload-only kiosk — no portal access.' },
 };
+// Role-group quick-add (ManualNotifyListPanel's "add by role" suggestion) —
+// derived from ROLE_META rather than a second hand-written label set, so the
+// two can never drift apart. `id` doubles as the match keyword (typing
+// "manager" or "dm" matches on the role id itself; the label match below
+// also catches "office" -> "Office Staff", etc.).
+const ROLE_GROUP_LABELS = Object.entries(ROLE_META).map(([id, meta]) => ({ id, label: meta.label }));
 
 // Sub-items inside each "hub" tile-grid tab, for the Access matrix's expand/
 // collapse view — mirrors the tile ids/labels in the ops-hub/team-hub/
@@ -30146,7 +30194,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.44";
+const APP_VERSION = "v21.45";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33533,7 +33581,38 @@ const SHELLY_SENSOR_LABELS = {
   // '201': 'Walk-in Freezer',
 };
 
-function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert, users }) {
+function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert, users, searchTabs }) {
+  // Quick-nav search — "min" finds "Minor Timecard Compliance", etc. Built
+  // directly from `searchTabs` (the caller's own tabsForUser(user) output,
+  // i.e. TABS) rather than re-deriving role/access rules here: every tab id
+  // that role can actually see is already in that one list (tools-hub/
+  // finance/ops-hub/team-hub sub-items like Incident Reports or Minor
+  // Timecard Compliance are ALSO placed directly in computeRoleTabs for
+  // every role eligible to see them, not reachable only through a hub grid),
+  // so this can never suggest a destination the user doesn't have access to.
+  const [navQuery, setNavQuery] = useState('');
+  const [navShowSuggestions, setNavShowSuggestions] = useState(false);
+  const navMatches = React.useMemo(() => {
+    const q = navQuery.trim().toLowerCase();
+    if (!q) return [];
+    return (searchTabs || [])
+      .filter(t => t.label && t.label.toLowerCase().includes(q))
+      // Exact-prefix matches first ("min" -> "Minor..." before anything that
+      // merely contains "min" mid-word), then alphabetical within each group.
+      .sort((a, b) => {
+        const aPrefix = a.label.toLowerCase().startsWith(q) ? 0 : 1;
+        const bPrefix = b.label.toLowerCase().startsWith(q) ? 0 : 1;
+        if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+        return a.label.localeCompare(b.label);
+      })
+      .slice(0, 8);
+  }, [navQuery, searchTabs]);
+  const goToNavMatch = (t) => {
+    setTab(t.id);
+    setNavQuery('');
+    setNavShowSuggestions(false);
+  };
+
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (user?.name || "").split(" ")[0];
@@ -33730,6 +33809,42 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
 
   return (
     <div className="fade-in">
+      {/* ─── Quick-nav search — type a few letters of any tab/feature name ─── */}
+      <div style={{ position: 'relative', marginBottom: '1.1rem' }}>
+        <div style={{ position: 'relative' }}>
+          <span style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: th.muted, pointerEvents: 'none' }}>
+            {ICONS.search(th.muted)}
+          </span>
+          <input
+            type="text" value={navQuery}
+            onChange={e => { setNavQuery(e.target.value); setNavShowSuggestions(true); }}
+            onFocus={() => setNavShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setNavShowSuggestions(false), 150)}
+            onKeyDown={e => { if (e.key === 'Enter' && navMatches[0]) goToNavMatch(navMatches[0]); if (e.key === 'Escape') { setNavQuery(''); setNavShowSuggestions(false); } }}
+            placeholder="Quick find — try typing a feature name…"
+            style={{ ...inp(th), paddingLeft: '2.5rem', width: '100%' }}
+          />
+        </div>
+        {navShowSuggestions && navMatches.length > 0 && (
+          <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.7rem', boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden' }}>
+            {navMatches.map(t => (
+              <div key={t.id} onMouseDown={() => goToNavMatch(t)}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.9rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}` }}
+                onMouseEnter={e => e.currentTarget.style.background = th.card2}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <span style={{ flexShrink: 0, display: 'flex' }}>{typeof t.icon === 'function' ? t.icon(th.muted) : t.icon}</span>
+                <span style={{ fontSize: '0.86rem', fontWeight: 600, color: th.text }}>{t.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {navShowSuggestions && navQuery.trim().length > 0 && navMatches.length === 0 && (
+          <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.7rem', padding: '0.7rem 0.9rem', fontSize: '0.82rem', color: th.muted }}>
+            No matching tab found.
+          </div>
+        )}
+      </div>
+
       {/* ─── Hero: Greeting · Weather · Quote ────────────────────────────────
           A single elevated panel that anchors the page. Ambient orange glow
           blobs at the corners + a subtle gradient give depth without noise.
@@ -53686,7 +53801,7 @@ function PCGPortal() {
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
           <Guard key={tab} name="tab-content" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"2rem auto", maxWidth:520, textAlign:"center", color:th.muted }}>This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.</div>}>
           {tab === MOBILE_LAUNCHER_TAB_ID && <MobileAppLauncher user={user} th={th} dark={dark} tabs={TABS} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} navBadge={navBadge} onOpenProfile={() => setShowProfile(true)} onToggleTheme={handleToggle} onLogout={handleLogout} />}
-          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
+          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} searchTabs={TABS} /></Guard>}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
