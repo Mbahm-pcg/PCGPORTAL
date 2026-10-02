@@ -421,6 +421,62 @@ export default async (request) => {
       return json(200, raw.data !== undefined ? raw.data : raw);
     }
 
+    // employeeSearch { query } -> { matches: [{ employeeId, employeeNumber, name, status, departmentId, departmentName }] }
+    //
+    // Added 2026-10-02 after a real production CreatePunches 400: "Add
+    // Employee"'s original manual-paste form let IT type whatever Paycor's UI
+    // shows for "Employee ID" / "Department" — Paycor's own displayed
+    // employee number (e.g. "3407942469") and department label (e.g. "105 -
+    // Payroll - Administration") — neither of which is the internal GUID
+    // CreatePunches actually requires for EmployeeId/DepartmentId. Paycor
+    // rejected the batch with "Error converting value ... to type
+    // System.Guid" for exactly those two fields. This action is the fix:
+    // IT searches by name/employee number here, and the REAL GUIDs (e.id /
+    // e.department.id) are what actually gets returned and ultimately saved
+    // — never anything typed free-hand again.
+    if (action === 'employeeSearch') {
+      const q = (payload.query || '').trim();
+      if (q.length < 2) return json(400, { error: 'Type at least 2 characters.' });
+      const legalEntityId = process.env.OFFICE_LEGAL_ENTITY_ID;
+      if (!legalEntityId) return json(500, { error: 'OFFICE_LEGAL_ENTITY_ID is not configured' });
+
+      // Paycor's /employees endpoint has no server-side name filter — same
+      // full-paginate-then-filter shape paycor.mjs's own laborSummary action
+      // already uses for store legal entities.
+      let allEmployees = [];
+      let continuationToken = null;
+      do {
+        let path = `/legalentities/${legalEntityId}/employees?include=All`;
+        if (continuationToken) path += `&continuationToken=${continuationToken}`;
+        const res = await callPaycor(path);
+        if (res.status !== 200) return json(res.status, { error: 'Failed to fetch employees from Paycor', detail: res.data });
+        const records = res.data?.records || res.data || [];
+        allEmployees = allEmployees.concat(records);
+        continuationToken = res.data?.continuationToken || null;
+      } while (continuationToken);
+
+      const qLower = q.toLowerCase();
+      const matches = allEmployees
+        .filter(e => {
+          const fullName = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
+          return fullName.includes(qLower) || String(e.employeeNumber || '').includes(q);
+        })
+        // GUIDs only — an employee record missing either real GUID can never
+        // be sent to CreatePunches successfully, so it's excluded here rather
+        // than offered as a selectable (and silently broken) result.
+        .filter(e => e.id && e.department?.id)
+        .slice(0, 15)
+        .map(e => ({
+          employeeId: e.id,
+          employeeNumber: e.employeeNumber || '',
+          name: `${e.firstName || ''} ${e.lastName || ''}`.trim(),
+          status: e.statusData?.status || e.status || '',
+          departmentId: e.department.id,
+          departmentName: e.department.name || '',
+        }));
+      return json(200, { matches });
+    }
+
     return json(400, { error: `Unknown action: ${action}` });
   } catch (err) {
     return json(500, { error: err.message });

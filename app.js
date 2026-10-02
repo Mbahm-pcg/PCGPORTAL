@@ -17702,6 +17702,55 @@ ${t2.slice(0, 300)}`);
     const [selectedUserId, setSelectedUserId] = React.useState("");
     const [empIdInput, setEmpIdInput] = React.useState("");
     const [deptIdInput, setDeptIdInput] = React.useState("");
+    const [selectedEmp, setSelectedEmp] = React.useState(null);
+    const [empSearchQuery, setEmpSearchQuery] = React.useState("");
+    const [empSearchResults, setEmpSearchResults] = React.useState([]);
+    const [empSearchLoading, setEmpSearchLoading] = React.useState(false);
+    const [empSearchError, setEmpSearchError] = React.useState(null);
+    React.useEffect(() => {
+      const q = empSearchQuery.trim();
+      if (selectedEmp || q.length < 2) {
+        setEmpSearchResults([]);
+        setEmpSearchError(null);
+        return;
+      }
+      setEmpSearchLoading(true);
+      const t = setTimeout(async () => {
+        try {
+          const res = await fetch("/.netlify/functions/office-clock-review", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ action: "employeeSearch", query: q })
+          });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setEmpSearchError(j?.error || "Search failed.");
+            setEmpSearchResults([]);
+          } else {
+            setEmpSearchResults(j?.matches || []);
+            setEmpSearchError(null);
+          }
+        } catch {
+          setEmpSearchError("Network error \u2014 search failed.");
+          setEmpSearchResults([]);
+        }
+        setEmpSearchLoading(false);
+      }, 350);
+      return () => clearTimeout(t);
+    }, [empSearchQuery, selectedEmp]);
+    const pickEmp = (emp) => {
+      setSelectedEmp(emp);
+      setEmpIdInput(emp.employeeId);
+      setDeptIdInput(emp.departmentId);
+      setEmpSearchQuery("");
+      setEmpSearchResults([]);
+    };
+    const clearEmpSelection = () => {
+      setSelectedEmp(null);
+      setEmpIdInput("");
+      setDeptIdInput("");
+    };
     const unlinkedOfficeStaff = React.useMemo(() => {
       return (users || []).filter((u) => u.userType === "office_staff" && !(u.paycorEmployeeId && u.paycorDepartmentId)).sort((a, b) => (a.name || a.username || "").localeCompare(b.name || b.username || ""));
     }, [users]);
@@ -17731,6 +17780,7 @@ ${t2.slice(0, 300)}`);
           setSelectedUserId("");
           setEmpIdInput("");
           setDeptIdInput("");
+          setSelectedEmp(null);
         }
         showAlert2 && showAlert2("success", actuallyLinked ? "Account linked." : "Account unlinked.");
       } catch {
@@ -17753,25 +17803,27 @@ ${t2.slice(0, 300)}`);
       },
       /* @__PURE__ */ React.createElement("option", { value: "" }, "Select an office_staff account\u2026"),
       unlinkedOfficeStaff.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id, value: u.id }, u.name || u.username))
-    ), unlinkedOfficeStaff.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", marginTop: "0.3rem" } }, "No unlinked office_staff accounts available.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Employee ID"), /* @__PURE__ */ React.createElement(
+    ), unlinkedOfficeStaff.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", marginTop: "0.3rem" } }, "No unlinked office_staff accounts available.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Employee"), selectedEmp ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.7rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, selectedEmp.name || "(no name on record)"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, selectedEmp.departmentName || "Unknown department", selectedEmp.employeeNumber ? ` \xB7 #${selectedEmp.employeeNumber}` : "", selectedEmp.status ? ` \xB7 ${selectedEmp.status}` : "")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clearEmpSelection, style: btn(th, { padding: "0.3rem 0.7rem", fontSize: "0.72rem" }) }, "Change")) : /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "text",
-        value: empIdInput,
-        onChange: (e) => setEmpIdInput(e.target.value),
-        placeholder: "Paste from Paycor",
+        value: empSearchQuery,
+        onChange: (e) => setEmpSearchQuery(e.target.value),
+        placeholder: "Type a name or employee number\u2026",
         style: inp(th)
       }
-    ), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Copied directly from the employee's record in Paycor's admin UI."), duplicateEmpIdUser && /* @__PURE__ */ React.createElement("div", { style: { color: "#e03131", fontSize: "0.72rem", marginTop: "0.3rem", fontWeight: 600 } }, "This Employee ID is already linked to ", duplicateEmpIdUser.name || duplicateEmpIdUser.username, " \u2014 a Paycor employee can only be linked to one Portal account.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Department ID"), /* @__PURE__ */ React.createElement(
-      "input",
+    ), empSearchLoading && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Searching Paycor\u2026"), empSearchError && /* @__PURE__ */ React.createElement("div", { style: { color: "#e03131", fontSize: "0.72rem", marginTop: "0.3rem" } }, empSearchError), empSearchResults.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", marginTop: "0.3rem", overflow: "hidden" } }, empSearchResults.map((emp) => /* @__PURE__ */ React.createElement(
+      "div",
       {
-        type: "text",
-        value: deptIdInput,
-        onChange: (e) => setDeptIdInput(e.target.value),
-        placeholder: "Paste from Paycor",
-        style: inp(th)
-      }
-    ), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Copied directly from the employee's department in Paycor's admin UI.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
+        key: emp.employeeId,
+        onClick: () => pickEmp(emp),
+        style: { padding: "0.5rem 0.7rem", cursor: "pointer", borderBottom: `1px solid ${th.cardBorder}`, background: th.card2 },
+        onMouseEnter: (e) => e.currentTarget.style.background = th.card3,
+        onMouseLeave: (e) => e.currentTarget.style.background = th.card2
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, emp.name || "(no name on record)"),
+      /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, emp.departmentName || "Unknown department", emp.employeeNumber ? ` \xB7 #${emp.employeeNumber}` : "", emp.status ? ` \xB7 ${emp.status}` : "")
+    ))), !empSearchLoading && !empSearchError && empSearchQuery.trim().length >= 2 && empSearchResults.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", marginTop: "0.3rem" } }, "No matching Paycor employees found.")), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Searches the office/corporate Paycor roster directly \u2014 the real IDs are pulled automatically, never typed."), duplicateEmpIdUser && /* @__PURE__ */ React.createElement("div", { style: { color: "#e03131", fontSize: "0.72rem", marginTop: "0.3rem", fontWeight: 600 } }, "This Paycor employee is already linked to ", duplicateEmpIdUser.name || duplicateEmpIdUser.username, " \u2014 a Paycor employee can only be linked to one Portal account.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -23885,7 +23937,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.31";
+  var APP_VERSION = "v21.33";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -37832,6 +37884,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!canDeals) t = t.filter((x) => x.id !== "deals");
       const ov = accessOverrides[u?.userType];
       if (ov) t = t.filter((x) => BASE_TAB_IDS.includes(x.id) || ov[x.id] !== false || x.id === "admin" && isFullAdmin(u));
+      const TOOLS_HUB_SUBIDS = new Set((HUB_SUBITEMS["tools-hub"] || []).map((s) => s.id));
+      t = t.filter((x) => !TOOLS_HUB_SUBIDS.has(x.id) || accessSubOn(accessOverrides, u?.userType, "tools-hub", x.id));
       return t;
     };
     const TABS = tabsForUser(user);

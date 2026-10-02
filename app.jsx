@@ -20932,8 +20932,55 @@ function OfficeClockTab({ user, th, showAlert }) {
 function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
   const [busyId, setBusyId] = React.useState(null); // id of user currently being linked/unlinked
   const [selectedUserId, setSelectedUserId] = React.useState('');
+  // Hold the REAL Paycor GUIDs only — never free-typed. A prior version of
+  // this form let IT paste whatever Paycor's UI displays (employee number,
+  // department label); Paycor's CreatePunches API requires actual GUIDs for
+  // both and rejects anything else with a 400 (confirmed live 2026-10-02:
+  // "Error converting value ... to type System.Guid" for exactly those two
+  // fields). empSearch below is the only way these two ever get set now.
   const [empIdInput, setEmpIdInput] = React.useState('');
   const [deptIdInput, setDeptIdInput] = React.useState('');
+  const [selectedEmp, setSelectedEmp] = React.useState(null); // { employeeId, employeeNumber, name, status, departmentId, departmentName }
+  const [empSearchQuery, setEmpSearchQuery] = React.useState('');
+  const [empSearchResults, setEmpSearchResults] = React.useState([]);
+  const [empSearchLoading, setEmpSearchLoading] = React.useState(false);
+  const [empSearchError, setEmpSearchError] = React.useState(null);
+
+  React.useEffect(() => {
+    const q = empSearchQuery.trim();
+    if (selectedEmp || q.length < 2) { setEmpSearchResults([]); setEmpSearchError(null); return; }
+    setEmpSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch('/.netlify/functions/office-clock-review', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ action: 'employeeSearch', query: q }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { setEmpSearchError(j?.error || 'Search failed.'); setEmpSearchResults([]); }
+        else { setEmpSearchResults(j?.matches || []); setEmpSearchError(null); }
+      } catch {
+        setEmpSearchError('Network error — search failed.');
+        setEmpSearchResults([]);
+      }
+      setEmpSearchLoading(false);
+    }, 350); // debounce — avoids a Paycor round trip per keystroke
+    return () => clearTimeout(t);
+  }, [empSearchQuery, selectedEmp]);
+
+  const pickEmp = (emp) => {
+    setSelectedEmp(emp);
+    setEmpIdInput(emp.employeeId);
+    setDeptIdInput(emp.departmentId);
+    setEmpSearchQuery('');
+    setEmpSearchResults([]);
+  };
+  const clearEmpSelection = () => {
+    setSelectedEmp(null);
+    setEmpIdInput('');
+    setDeptIdInput('');
+  };
 
   // Office staff accounts not yet linked — the only accounts selectable in
   // the Add Employee form. Deliberately sourced from the `users` prop only
@@ -20971,6 +21018,7 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
         setSelectedUserId('');
         setEmpIdInput('');
         setDeptIdInput('');
+        setSelectedEmp(null);
       }
       showAlert && showAlert('success', actuallyLinked ? 'Account linked.' : 'Account unlinked.');
     } catch {
@@ -21024,25 +21072,54 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
             )}
           </div>
           <div>
-            <label style={{ ...microLabel(th), display: 'block', marginBottom: '0.3rem' }}>Paycor Employee ID</label>
-            <input
-              type="text" value={empIdInput} onChange={e => setEmpIdInput(e.target.value)}
-              placeholder="Paste from Paycor" style={inp(th)}
-            />
-            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.25rem' }}>Copied directly from the employee's record in Paycor's admin UI.</div>
-            {duplicateEmpIdUser && (
-              <div style={{ color: '#e03131', fontSize: '0.72rem', marginTop: '0.3rem', fontWeight: 600 }}>
-                This Employee ID is already linked to {duplicateEmpIdUser.name || duplicateEmpIdUser.username} — a Paycor employee can only be linked to one Portal account.
+            <label style={{ ...microLabel(th), display: 'block', marginBottom: '0.3rem' }}>Paycor Employee</label>
+            {selectedEmp ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0.7rem', border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', background: th.card2 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, color: th.text, fontSize: '0.85rem' }}>{selectedEmp.name || '(no name on record)'}</div>
+                  <div style={{ color: th.muted, fontSize: '0.72rem' }}>
+                    {selectedEmp.departmentName || 'Unknown department'}{selectedEmp.employeeNumber ? ` · #${selectedEmp.employeeNumber}` : ''}{selectedEmp.status ? ` · ${selectedEmp.status}` : ''}
+                  </div>
+                </div>
+                <button type="button" onClick={clearEmpSelection} style={btn(th, { padding: '0.3rem 0.7rem', fontSize: '0.72rem' })}>Change</button>
+              </div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text" value={empSearchQuery} onChange={e => setEmpSearchQuery(e.target.value)}
+                  placeholder="Type a name or employee number…" style={inp(th)}
+                />
+                {empSearchLoading && <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.25rem' }}>Searching Paycor…</div>}
+                {empSearchError && <div style={{ color: '#e03131', fontSize: '0.72rem', marginTop: '0.3rem' }}>{empSearchError}</div>}
+                {empSearchResults.length > 0 && (
+                  <div style={{ border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', marginTop: '0.3rem', overflow: 'hidden' }}>
+                    {empSearchResults.map(emp => (
+                      <div
+                        key={emp.employeeId}
+                        onClick={() => pickEmp(emp)}
+                        style={{ padding: '0.5rem 0.7rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}`, background: th.card2 }}
+                        onMouseEnter={e => e.currentTarget.style.background = th.card3}
+                        onMouseLeave={e => e.currentTarget.style.background = th.card2}
+                      >
+                        <div style={{ fontWeight: 700, color: th.text, fontSize: '0.85rem' }}>{emp.name || '(no name on record)'}</div>
+                        <div style={{ color: th.muted, fontSize: '0.72rem' }}>
+                          {emp.departmentName || 'Unknown department'}{emp.employeeNumber ? ` · #${emp.employeeNumber}` : ''}{emp.status ? ` · ${emp.status}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!empSearchLoading && !empSearchError && empSearchQuery.trim().length >= 2 && empSearchResults.length === 0 && (
+                  <div style={{ color: th.muted, fontSize: '0.72rem', marginTop: '0.3rem' }}>No matching Paycor employees found.</div>
+                )}
               </div>
             )}
-          </div>
-          <div>
-            <label style={{ ...microLabel(th), display: 'block', marginBottom: '0.3rem' }}>Paycor Department ID</label>
-            <input
-              type="text" value={deptIdInput} onChange={e => setDeptIdInput(e.target.value)}
-              placeholder="Paste from Paycor" style={inp(th)}
-            />
-            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.25rem' }}>Copied directly from the employee's department in Paycor's admin UI.</div>
+            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '0.25rem' }}>Searches the office/corporate Paycor roster directly — the real IDs are pulled automatically, never typed.</div>
+            {duplicateEmpIdUser && (
+              <div style={{ color: '#e03131', fontSize: '0.72rem', marginTop: '0.3rem', fontWeight: 600 }}>
+                This Paycor employee is already linked to {duplicateEmpIdUser.name || duplicateEmpIdUser.username} — a Paycor employee can only be linked to one Portal account.
+              </div>
+            )}
           </div>
           <div>
             <button
@@ -29809,7 +29886,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.31";
+const APP_VERSION = "v21.33";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -50471,6 +50548,21 @@ function PCGPortal() {
     // lose the Admin tab, even if it's toggled off for their role.
     const ov = accessOverrides[u?.userType];
     if (ov) t = t.filter(x => BASE_TAB_IDS.includes(x.id) || ov[x.id] !== false || (x.id === 'admin' && isFullAdmin(u)));
+    // Tools-hub sub-items (Incident Reports, Minor Timecard Compliance, Office
+    // Time Clock*, District Alignment) are ALSO listed as their own standalone
+    // tab for roles that get direct nav access to them (e.g. computeRoleTabs
+    // puts "incident-reports" straight in a DM's or Manager's tab list) — but
+    // the bare `ov[x.id]` check above only ever looks up a plain id, while the
+    // Access Matrix's real on/off switch for a hub sub-item is the compound
+    // "tools-hub:<id>" key that accessSubOn reads. That mismatch meant
+    // disabling one of these tools in the matrix never actually removed the
+    // standalone tab — it kept showing in the mobile app launcher and the
+    // per-role sidebar sections regardless (2026-10-01: confirmed live for
+    // Incident Reports on DM/Manager). Enforce the real toggle here too, so
+    // it disappears everywhere the tab list is consumed, not just the
+    // Tools-hub grid page (which already called accessSubOn directly).
+    const TOOLS_HUB_SUBIDS = new Set((HUB_SUBITEMS['tools-hub'] || []).map(s => s.id));
+    t = t.filter(x => !TOOLS_HUB_SUBIDS.has(x.id) || accessSubOn(accessOverrides, u?.userType, 'tools-hub', x.id));
     return t;
   };
   const TABS = tabsForUser(user);
