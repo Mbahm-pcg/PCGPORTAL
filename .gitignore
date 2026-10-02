@@ -10,3 +10,4 @@ paycor-search.md
 deno.lock
 index 2.html
 .worktrees/
+.scratch/

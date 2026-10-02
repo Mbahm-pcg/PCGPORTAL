@@ -16608,7 +16608,8 @@ ${t2.slice(0, 300)}`);
       { id: "ticket", icon: "\u{1F3AB}", label: "Ticket", count: (ticketNotifyEmails || []).length },
       ...isFullAdmin(user) ? [{ id: "fleet", icon: "\u{1F697}", label: "Car", count: null }] : [],
       ...isFullAdmin(user) ? [{ id: "foodLicense", icon: "\u{1F4CB}", label: "Food License", count: null }] : [],
-      ...isFullAdmin(user) ? [{ id: "systemHealth", icon: "\u{1FA7A}", label: "System Health", count: null }] : []
+      ...isFullAdmin(user) ? [{ id: "systemHealth", icon: "\u{1FA7A}", label: "System Health", count: null }] : [],
+      ...isFullAdmin(user) ? [{ id: "minorTimecard", icon: "\u23F0", label: "Minor Timecard", count: null }] : []
     ].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -16709,6 +16710,16 @@ ${t2.slice(0, 300)}`);
         blobKey: "pcg_system_health_notify_v1",
         seedUserTypes: ["executive", "it"],
         description: "These email addresses receive System Health DOWN / recovered alerts (push goes to anyone added by name). By default that's every active VP and IT user \u2014 remove anyone here to stop their alerts; from your first change on, only this list gets them."
+      }
+    ), notifSubTab === "minorTimecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_minor_timecard_notify_v1",
+        description: "These email addresses receive the Monday escalation for a Minor Timecard Compliance issue that's still open (PA under-18 break violations) \u2014 manager and DM still get their own copy regardless of this list; this is specifically the office-side recipients. Empty until you add someone."
       }
     )), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
       "button",
@@ -24060,7 +24071,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.43";
+  var APP_VERSION = "v21.44";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

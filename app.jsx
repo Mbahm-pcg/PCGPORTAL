@@ -19066,6 +19066,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             ...(isFullAdmin(user) ? [{ id: 'fleet', icon: '🚗', label: 'Car', count: null }] : []),
             ...(isFullAdmin(user) ? [{ id: 'foodLicense', icon: '📋', label: 'Food License', count: null }] : []),
             ...(isFullAdmin(user) ? [{ id: 'systemHealth', icon: '🩺', label: 'System Health', count: null }] : []),
+            ...(isFullAdmin(user) ? [{ id: 'minorTimecard', icon: '⏰', label: 'Minor Timecard', count: null }] : []),
           ].map(t => (
             <button key={t.id} onClick={() => setNotifSubTab(t.id)}
               style={{
@@ -19204,6 +19205,16 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {notifSubTab === 'systemHealth' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_system_health_notify_v1" seedUserTypes={['executive', 'it']}
           description="These email addresses receive System Health DOWN / recovered alerts (push goes to anyone added by name). By default that's every active VP and IT user — remove anyone here to stop their alerts; from your first change on, only this list gets them." />
+      )}
+
+      {/* Minor Timecard — full admins only. Read by minor-timecard-detect-
+          cron-background.mjs and minor-timecard-followup-cron.mjs
+          (resolveNotificationRecipients) once an issue escalates past its
+          manager/DM — replaces the old "every active office_staff account"
+          blast with exactly who's added here, nobody else. */}
+      {notifSubTab === 'minorTimecard' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_minor_timecard_notify_v1"
+          description="These email addresses receive the Monday escalation for a Minor Timecard Compliance issue that's still open (PA under-18 break violations) — manager and DM still get their own copy regardless of this list; this is specifically the office-side recipients. Empty until you add someone." />
       )}
       </div>
 
@@ -30135,7 +30146,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.43";
+const APP_VERSION = "v21.44";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

@@ -59,22 +59,52 @@ test('resolveNotificationRecipients: manager only before escalation', () => {
   assert.deepEqual(recipients, [{ role: 'manager', email: 'mgr@x.com' }]);
 });
 
-test('resolveNotificationRecipients: manager + DM + all active office_staff once escalated', () => {
+// Added 2026-10-02 — the Rosemore/Hatboro gap: no manager user record with
+// this store's PC set meant zero recipients at all before escalation. Now
+// falls back to the DM immediately instead of notifying nobody.
+test('resolveNotificationRecipients: no manager on file falls back to DM immediately, even before escalation', () => {
+  const issue = { pc: '340538', district: 5, escalatedAt: null };
+  const users = [
+    { userType: 'dm', storePC: null, district: 5, email: 'dm@x.com', active: true },
+    { userType: 'office_staff', email: 'office1@x.com', active: true },
+  ];
+  const recipients = resolveNotificationRecipients(issue, users);
+  assert.deepEqual(recipients, [{ role: 'dm', email: 'dm@x.com' }]);
+});
+
+test('resolveNotificationRecipients: no manager AND no DM on file is genuinely zero recipients', () => {
+  const issue = { pc: '340538', district: 5, escalatedAt: null };
+  const users = [{ userType: 'office_staff', email: 'office1@x.com', active: true }];
+  assert.deepEqual(resolveNotificationRecipients(issue, users), []);
+});
+
+// Replaced "all active office_staff" with the manually-curated notify list
+// (ManualNotifyListPanel / pcg_minor_timecard_notify_v1) — specific addresses
+// IT explicitly added, not every office_staff account.
+test('resolveNotificationRecipients: manager + DM + the curated notify list once escalated', () => {
   const issue = { pc: '340538', district: 5, escalatedAt: '2026-09-21T10:00:00Z' };
   const users = [
     { userType: 'manager', storePC: '340538', district: 5, email: 'mgr@x.com', active: true },
     { userType: 'dm', storePC: null, district: 5, email: 'dm@x.com', active: true },
-    { userType: 'office_staff', email: 'office1@x.com', active: true },
-    { userType: 'office_staff', email: 'office2@x.com', active: true },
-    { userType: 'office_staff', email: '', active: true }, // no email on file — excluded
-    { userType: 'office_staff', email: 'inactive@x.com', active: false }, // inactive — excluded
+    { userType: 'office_staff', email: 'office1@x.com', active: true }, // NOT on the curated list — excluded
   ];
-  const recipients = resolveNotificationRecipients(issue, users);
+  const notifyEmails = ['maria@x.com', 'ella@x.com'];
+  const recipients = resolveNotificationRecipients(issue, users, notifyEmails);
   assert.deepEqual(recipients, [
     { role: 'manager', email: 'mgr@x.com' },
     { role: 'dm', email: 'dm@x.com' },
-    { role: 'office_staff', email: 'office1@x.com' },
-    { role: 'office_staff', email: 'office2@x.com' },
+    { role: 'minor_timecard_notify', email: 'maria@x.com' },
+    { role: 'minor_timecard_notify', email: 'ella@x.com' },
+  ]);
+});
+
+test('resolveNotificationRecipients: no-manager DM fallback + escalation never double-lists the DM', () => {
+  const issue = { pc: '340538', district: 5, escalatedAt: '2026-09-21T10:00:00Z' };
+  const users = [{ userType: 'dm', storePC: null, district: 5, email: 'dm@x.com', active: true }];
+  const recipients = resolveNotificationRecipients(issue, users, ['maria@x.com']);
+  assert.deepEqual(recipients, [
+    { role: 'dm', email: 'dm@x.com' },
+    { role: 'minor_timecard_notify', email: 'maria@x.com' },
   ]);
 });
 

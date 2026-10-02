@@ -75,11 +75,19 @@ netlify/functions/
   no-clockin-lib/run.mjs      — Shared engine used by both
   # ── Minor Timecard Compliance (PA minor labor law) ──
   minor-timecard-detect-cron-background.mjs — Sunday: scans every store's under-18 crew for the
-                                closed week, flags 5+ consecutive hrs with no 30-min break, emails
-                                the manager (`-background` = 15-min budget; it WILL exceed 60s)
-  minor-timecard-followup-cron.mjs — Daily: re-checks each open issue against live Paycor, auto-
-                                resolves, escalates to DM + office staff from the Monday after the
-                                week closes, 7-day exec backstop; merges onto a fresh blob read
+                                closed week, flags hours strictly OVER 5 (exactly 5.0h is the limit,
+                                not a violation of it) with no qualifying 30-min break, emails the
+                                manager — or the DM immediately if the store has no manager account/
+                                email on file at all, rather than silently notifying nobody until
+                                Monday (`-background` = 15-min budget; it WILL exceed 60s)
+  minor-timecard-followup-cron.mjs — Daily: re-checks each open issue against live Paycor (same
+                                strictly-over-5-hours rule), auto-resolves, escalates from the Monday
+                                after the week closes to DM + the manually-curated "Minor Timecard"
+                                notify list (Admin · Notifications tab, `pcg_minor_timecard_notify_v1`
+                                — NOT every office_staff account; add/remove exactly who should get
+                                it), 7-day exec backstop; merges onto a fresh blob read. See
+                                `resolveNotificationRecipients` (src/minor-timecard-lifecycle.mjs) for
+                                the exact manager/DM-fallback/escalation recipient logic.
   minor-timecard-resolve.mjs  — Manual "Mark Resolved" endpoint (exec/IT/DM, DM district-scoped)
   # ── Office Hourly Time Clock (office/corporate staff, Paycor legal entity 193872) ──
   office-clock-punch.mjs      — office_staff's own punch (clock in/meal/clock out) + today's list;

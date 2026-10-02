@@ -196,9 +196,13 @@ export default async (request) => {
   const now = new Date();
   const todayDateStr = now.toISOString().slice(0, 10);
 
-  const [issuesRaw, usersRaw] = await Promise.all([blobLoad(ISSUES_KEY), blobLoad('pcg_users_v1')]);
+  const [issuesRaw, usersRaw, notifyListRaw] = await Promise.all([blobLoad(ISSUES_KEY), blobLoad('pcg_users_v1'), blobLoad('pcg_minor_timecard_notify_v1')]);
   const issues = Array.isArray(issuesRaw) ? issuesRaw : [];
   const users = Array.isArray(usersRaw) ? usersRaw : [];
+  // Manually-curated recipient list (Admin · Notifications · Minor Timecard
+  // tab, ManualNotifyListPanel) — replaces the old blanket "every active
+  // office_staff user" query on escalation. See resolveNotificationRecipients.
+  const notifyEmails = Array.isArray(notifyListRaw?.emails) ? notifyListRaw.emails : [];
   const signatureAtLoad = new Map(issues.map(i => [i.id, issueSignature(i)]));
 
   // Group open issues (not first-flagged today — see the file's own schedule
@@ -254,7 +258,7 @@ export default async (request) => {
       const representativeIssue = anyEscalated ? storeIssues.find(({ issue }) => issue.escalatedAt).issue : storeIssues[0].issue;
       const oldestFlagged = storeIssues.reduce((min, { issue }) => issue.firstFlaggedAt < min ? issue.firstFlaggedAt : min, storeIssues[0].issue.firstFlaggedAt);
       const dayN = daysBetween(oldestFlagged.slice(0, 10), todayDateStr) + 1;
-      const realRecipients = resolveNotificationRecipients(representativeIssue, users);
+      const realRecipients = resolveNotificationRecipients(representativeIssue, users, notifyEmails);
       const { recipients, subject, html } = applyShadowMode(realRecipients, buildEmailSubject(storeName, anyEscalated, anyEscalated ? dayN : null), buildDigestEmailHtml(storeName, storeIssues), mode);
       if (mode === 'off') {
         console.log(`[minor-timecard-followup] (log-only) ${storeName}: ${storeIssues.length} open issue(s)${anyEscalated ? ` (escalated, day ${dayN})` : ''}; would email ${realRecipients.map(r => `${r.role}: ${r.email}`).join(', ') || '(no recipients)'}`);

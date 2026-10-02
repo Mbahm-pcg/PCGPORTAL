@@ -55,16 +55,40 @@ export function execBackstopDue(issue, todayDateStr) {
   return todayDateStr >= addDays(escalatedDateStr, EXEC_BACKSTOP_DAYS);
 }
 
-export function resolveNotificationRecipients(issue, users) {
+// `notifyEmails` is the manually-curated "Minor Timecard" list (Admin ·
+// Notifications tab, ManualNotifyListPanel / pcg_minor_timecard_notify_v1) —
+// specific addresses IT explicitly added, not every office_staff account.
+// Replaces the old blanket "every active office_staff user" query (2026-10-02,
+// per explicit direction: pick exactly who is and isn't on it, the same
+// add/remove pattern Project/Ticket/Food License/System Health already use).
+export function resolveNotificationRecipients(issue, users, notifyEmails = []) {
   const list = users || [];
   const out = [];
+  const seen = new Set();
+  const push = (role, email) => {
+    const key = email.toLowerCase();
+    if (seen.has(key)) return; // de-dupe: DM can land here via both the no-manager fallback and the escalation add
+    seen.add(key);
+    out.push({ role, email });
+  };
   const manager = list.find(u => u.active !== false && u.userType === 'manager' && String(u.storePC) === String(issue.pc) && u.email);
-  if (manager) out.push({ role: 'manager', email: manager.email });
+  const dm = list.find(u => u.active !== false && u.userType === 'dm' && String(u.district) === String(issue.district) && u.email);
+  if (manager) {
+    push('manager', manager.email);
+  } else if (dm) {
+    // No manager account/email on file for this store at all — email the DM
+    // immediately (day of detection), rather than silently notifying nobody
+    // until the Monday escalation. This was the exact Rosemore/Hatboro gap:
+    // a store with no manager user record previously got zero emails for
+    // days until the next Monday's formal escalation added the DM.
+    push('dm', dm.email);
+  }
   if (issue.escalatedAt) {
-    const dm = list.find(u => u.active !== false && u.userType === 'dm' && String(u.district) === String(issue.district) && u.email);
-    if (dm) out.push({ role: 'dm', email: dm.email });
-    list.filter(u => u.active !== false && u.userType === 'office_staff' && u.email)
-      .forEach(u => out.push({ role: 'office_staff', email: u.email }));
+    // Ensure the DM is included once formally escalated even when a manager
+    // WAS found above (so the no-manager branch never fired) — de-duped by
+    // `push` if the fallback already added them.
+    if (dm) push('dm', dm.email);
+    (notifyEmails || []).forEach((email) => { if (email) push('minor_timecard_notify', email); });
   }
   return out;
 }

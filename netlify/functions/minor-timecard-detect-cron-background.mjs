@@ -214,13 +214,19 @@ export default async (request) => {
   const now = new Date();
   const { weekStart, weekEnd } = weekRangeEndingYesterday(now);
 
-  const [rosterCache, existingIssuesRaw, usersRaw] = await Promise.all([
+  const [rosterCache, existingIssuesRaw, usersRaw, notifyListRaw] = await Promise.all([
     blobLoad('pcg_minor_roster_v1'),
     blobLoad(ISSUES_KEY),
     blobLoad('pcg_users_v1'),
+    blobLoad('pcg_minor_timecard_notify_v1'),
   ]);
   const existingIssues = Array.isArray(existingIssuesRaw) ? existingIssuesRaw : [];
   const users = Array.isArray(usersRaw) ? usersRaw : [];
+  // Manually-curated recipient list (Admin · Notifications · Minor Timecard
+  // tab, ManualNotifyListPanel) — replaces the old blanket "every active
+  // office_staff user" query once an issue escalates. Empty until IT adds
+  // anyone, matching every other ManualNotifyListPanel-backed list.
+  const notifyEmails = Array.isArray(notifyListRaw?.emails) ? notifyListRaw.emails : [];
   const existingIds = new Set(existingIssues.map(i => i.id));
   const newRosterCache = { ...(rosterCache || {}) };
 
@@ -261,7 +267,7 @@ export default async (request) => {
         }
         if (!storeNewIssues.length) return;
 
-        const realRecipients = resolveNotificationRecipients(storeNewIssues[0].issue, users); // manager-only pre-escalation, same for every issue at this store today
+        const realRecipients = resolveNotificationRecipients(storeNewIssues[0].issue, users, notifyEmails); // manager (or DM, if no manager on file) pre-escalation — same for every issue at this store today
         const { recipients, subject, html } = applyShadowMode(realRecipients, buildEmailSubject(store.name, false, null), buildDigestEmailHtml(store.name, storeNewIssues), mode);
         const notifications = [];
         if (mode === 'off') {
