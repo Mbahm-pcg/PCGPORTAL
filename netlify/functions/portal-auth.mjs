@@ -537,7 +537,8 @@ export default async (request, context) => {
               SELECT u.id, u.username, u.name, u.email, u.user_type, u.district, u.store_pc, u.active,
                      u.is_admin, u.region, u.initials, u.must_setup, u.dark_mode,
                      u.must_change, u.two_factor_required, u.two_factor_enabled, u.two_factor_secret,
-                     u.audits_access, c.credential_id, c.public_key, c.counter
+                     u.audits_access, u.paycor_employee_id, u.paycor_department_id,
+                     c.credential_id, c.public_key, c.counter
               FROM users u
               JOIN webauthn_credentials c ON c.user_id = u.id AND c.credential_id = ${body.credential.id}
               WHERE u.username = ${username} AND u.active = true
@@ -546,7 +547,8 @@ export default async (request, context) => {
               SELECT u.id, u.username, u.name, u.email, u.user_type, u.district, u.store_pc, u.active,
                      u.is_admin, u.region, u.initials, u.must_setup, u.dark_mode,
                      u.must_change, u.two_factor_required, u.two_factor_enabled, u.two_factor_secret,
-                     u.audits_access, c.credential_id, c.public_key, c.counter
+                     u.audits_access, u.paycor_employee_id, u.paycor_department_id,
+                     c.credential_id, c.public_key, c.counter
               FROM users u
               JOIN webauthn_credentials c ON c.user_id = u.id AND c.credential_id = ${body.credential.id}
               WHERE u.id = ${Number(userIdFromHandle)} AND u.active = true
