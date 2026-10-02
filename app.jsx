@@ -20827,8 +20827,16 @@ function OfficeClockTab({ user, th, showAlert }) {
   const [punches, setPunches] = React.useState(null); // null = loading
   const [busyType, setBusyType] = React.useState(null);
 
+  // Returns the fetch promise (not fire-and-forget) — doPunch below awaits
+  // it before releasing the busy lock. Without that, a punch's button
+  // re-enabled the instant the POST itself returned, before this refresh had
+  // actually caught up — a real window where the UI still showed the OLD
+  // allowed-buttons state (from the stale `punches`) even though the punch
+  // had already been recorded server-side. A second tap landing in that gap
+  // fired a genuine second punch, not a blocked duplicate — confirmed live
+  // 2026-10-02 (two real "Clock Out" rows one minute apart from one person).
   const loadToday = React.useCallback(() => {
-    fetch('/.netlify/functions/office-clock-punch', {
+    return fetch('/.netlify/functions/office-clock-punch', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ action: 'today' }),
@@ -20853,7 +20861,7 @@ function OfficeClockTab({ user, th, showAlert }) {
       });
       const j = await res.json().catch(() => ({}));
       if (res.ok && j?.ok) {
-        loadToday();
+        await loadToday(); // keep the button locked until the refreshed state actually lands
       } else if (res.status === 409) {
         showAlert && showAlert('error', j?.error || "You're not set up for time clock yet — contact IT.");
       } else {
@@ -29906,7 +29914,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.37";
+const APP_VERSION = "v21.38";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

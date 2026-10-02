@@ -17635,7 +17635,7 @@ ${t2.slice(0, 300)}`);
     const [punches, setPunches] = React.useState(null);
     const [busyType, setBusyType] = React.useState(null);
     const loadToday = React.useCallback(() => {
-      fetch("/.netlify/functions/office-clock-punch", {
+      return fetch("/.netlify/functions/office-clock-punch", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", ...authHeader() },
@@ -17664,7 +17664,7 @@ ${t2.slice(0, 300)}`);
         });
         const j = await res.json().catch(() => ({}));
         if (res.ok && j?.ok) {
-          loadToday();
+          await loadToday();
         } else if (res.status === 409) {
           showAlert2 && showAlert2("error", j?.error || "You're not set up for time clock yet \u2014 contact IT.");
         } else {
@@ -23944,7 +23944,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.37";
+  var APP_VERSION = "v21.38";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
