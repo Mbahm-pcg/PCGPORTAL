@@ -2724,7 +2724,7 @@
         return;
       }
       if (res.ok) {
-        found = localAcct || (res.user ? {
+        found = localAcct ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false } : res.user ? {
           id: res.user.id,
           username: res.user.username,
           name: res.user.name,
@@ -2740,8 +2740,9 @@
           twoFactorEnabled: res.user.twoFactorEnabled || false,
           twoFactorSecret: res.twoFactorSecret || null,
           mustSetup: res.user.mustSetup || false,
+          officeClockLinked: res.user.officeClockLinked || false,
           active: true
-        } : null);
+        } : null;
       }
       if (found) {
         const trusted = localAcct ? deviceTrusted : await isTwoFactorDeviceTrusted(found).catch(() => false);
@@ -2771,7 +2772,7 @@
       }
       const uname = res.user?.username || "";
       const localAcct = uname ? users.find((u) => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false) : null;
-      const found = localAcct || (res.user ? {
+      const found = localAcct ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false } : res.user ? {
         id: res.user.id,
         username: res.user.username,
         name: res.user.name,
@@ -2787,8 +2788,9 @@
         twoFactorEnabled: res.user.twoFactorEnabled || false,
         twoFactorSecret: res.twoFactorSecret || null,
         mustSetup: res.user.mustSetup || false,
+        officeClockLinked: res.user.officeClockLinked || false,
         active: true
-      } : null);
+      } : null;
       if (!found) return;
       const trusted = await isTwoFactorDeviceTrusted(found).catch(() => false);
       if (isTwoFactorRequired(found) && !trusted) {
@@ -2854,8 +2856,8 @@
                 setErr("Google login worked, but this email is not active in the portal users list.");
                 return;
               }
-              await portalLoginGoogleAccess(tokenResponse.access_token);
-              let enrichedFound = { ...found, googleAccessToken: tokenResponse.access_token };
+              const portalSessionRes = await portalLoginGoogleAccess(tokenResponse.access_token);
+              let enrichedFound = { ...found, googleAccessToken: tokenResponse.access_token, officeClockLinked: portalSessionRes?.user?.officeClockLinked || false };
               if (isTwoFactorRequired(found) && found.twoFactorEnabled && !found.twoFactorSecret) {
                 try {
                   const s2fa = await fetch("/.netlify/functions/portal-auth", {
@@ -24058,7 +24060,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.41";
+  var APP_VERSION = "v21.42";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

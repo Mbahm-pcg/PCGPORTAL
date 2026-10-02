@@ -979,7 +979,22 @@ function Login({ onLogin, dark, toggleDark, users }) {
     if (res.ok) {
       // Server verified + issued a token. Prefer the rich local identity if available;
       // otherwise synthesize from the server response (which now includes all key fields).
-      found = localAcct || (res.user ? {
+      //
+      // Real bug found 2026-10-02: `localAcct` (whenever the account is already known
+      // locally — true for essentially every real login) completely REPLACED res.user,
+      // silently dropping any field that only ever lives in the fresh server response
+      // and never on the local cached record — officeClockLinked (portal-auth.mjs's
+      // issue()) being exactly that kind of field. The synthesized fallback branch had
+      // the identical problem from the other direction: an explicit field allowlist
+      // that simply never knew this field existed. Confirmed live: a genuine fresh
+      // password login still failed to show the Office Time Clock tile because of
+      // this, even after three rounds of fixing the backend session-issuing code,
+      // which was never actually the problem. Server-only fields that don't exist on
+      // the local record must be explicitly merged onto EITHER branch's result, not
+      // assumed to come along for free.
+      found = localAcct
+        ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false }
+        : (res.user ? {
         id: res.user.id,
         username: res.user.username,
         name: res.user.name,
@@ -995,6 +1010,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
         twoFactorEnabled: res.user.twoFactorEnabled || false,
         twoFactorSecret: res.twoFactorSecret || null,
         mustSetup: res.user.mustSetup || false,
+        officeClockLinked: res.user.officeClockLinked || false,
         active: true,
       } : null);
     }
@@ -1037,13 +1053,19 @@ function Login({ onLogin, dark, toggleDark, users }) {
     }
     const uname = res.user?.username || "";
     const localAcct = uname ? users.find(u => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false) : null;
-    const found = localAcct || (res.user ? {
+    // Same bug/fix as the password-login branch below (found 2026-10-02):
+    // localAcct completely replaced res.user, silently dropping any
+    // server-only field (officeClockLinked) that doesn't exist on the local
+    // cached record.
+    const found = localAcct
+      ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false }
+      : (res.user ? {
       id: res.user.id, username: res.user.username, name: res.user.name, userType: res.user.userType,
       district: res.user.district, email: res.user.email, isAdmin: res.user.isAdmin || false,
       storePC: res.user.storePC || null, region: res.user.region || null, darkMode: res.user.darkMode || false,
       initials: res.user.initials || null, twoFactorRequired: res.user.twoFactorRequired || false,
       twoFactorEnabled: res.user.twoFactorEnabled || false, twoFactorSecret: res.twoFactorSecret || null,
-      mustSetup: res.user.mustSetup || false, active: true,
+      mustSetup: res.user.mustSetup || false, officeClockLinked: res.user.officeClockLinked || false, active: true,
     } : null);
     if (!found) return;
     const trusted = await isTwoFactorDeviceTrusted(found).catch(() => false);
@@ -1113,11 +1135,15 @@ function Login({ onLogin, dark, toggleDark, users }) {
             // Exchange the Google access token for a server-signed portal session so
             // hardened endpoints (users, audits) authenticate — same token password
             // logins get. Best-effort: on failure the legacy grace flow still works.
-            await portalLoginGoogleAccess(tokenResponse.access_token);
+            const portalSessionRes = await portalLoginGoogleAccess(tokenResponse.access_token);
             // Carry the live Google access token onto the user object — it's the caller's
             // only proof of identity for deal-auth (Google logins hold no portal session
             // token). Only needed by IT/Exec (Deal Pipeline), harmless for everyone else.
-            let enrichedFound = { ...found, googleAccessToken: tokenResponse.access_token };
+            // officeClockLinked only ever exists on the fresh server response
+            // (portal-auth.mjs's issue()), never on the local `users` list `found`
+            // came from — same bug/fix as the password and WebAuthn login branches:
+            // without merging it explicitly here, a Google login would never carry it.
+            let enrichedFound = { ...found, googleAccessToken: tokenResponse.access_token, officeClockLinked: portalSessionRes?.user?.officeClockLinked || false };
             // If 2FA is required and already set up but we don't have the secret locally
             // (API list excludes it for security), fetch it now using the Google access token.
             if (isTwoFactorRequired(found) && found.twoFactorEnabled && !found.twoFactorSecret) {
@@ -30109,7 +30135,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.41";
+const APP_VERSION = "v21.42";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
