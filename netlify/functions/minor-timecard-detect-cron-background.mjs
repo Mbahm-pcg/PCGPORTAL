@@ -267,7 +267,24 @@ export default async (request) => {
         if (mode === 'off') {
           console.log(`[minor-timecard-detect] (log-only) ${store.name}: ${storeNewIssues.length} new issue(s); would email ${realRecipients.map(r => `${r.role}: ${r.email}`).join(', ') || '(no recipients)'}`);
         } else {
-          if (!realRecipients.length) console.warn(`[minor-timecard-detect] ${store.name} has ${storeNewIssues.length} new issue(s) but no resolvable recipients — NOBODY was notified`);
+          // Misleading wording fixed 2026-10-02 (live-tested 2026-09-30, see
+          // [[project_minor_timecard_compliance]]): this fires whenever no REAL
+          // recipient could be resolved (no manager record with this store's PC
+          // set) — but in shadow mode, applyShadowMode above unconditionally
+          // redirects to MINOR_TIMECARD_SHADOW_EMAIL regardless of whether
+          // realRecipients was empty, so the email DOES still send in that case.
+          // Confirmed live: Ahmed received the Rosemore/Hatboro shadow test
+          // emails despite this exact warning firing for both. Only claim
+          // "NOBODY was notified" when that's actually true — i.e. the final
+          // post-shadow-mode `recipients` list (not `realRecipients`) is also
+          // empty, which only happens in live ('true') mode.
+          if (!realRecipients.length) {
+            if (recipients.length) {
+              console.warn(`[minor-timecard-detect] ${store.name} has ${storeNewIssues.length} new issue(s) but no resolvable REAL recipient (no manager record with this store's PC set) — shadow mode redirected the email to ${recipients.map(r => r.email).join(', ')} instead, so it DID send, just not to a real manager`);
+            } else {
+              console.warn(`[minor-timecard-detect] ${store.name} has ${storeNewIssues.length} new issue(s) but no resolvable recipients — NOBODY was notified`);
+            }
+          }
           for (const r of recipients) {
             const status = await sendEmail(r.email, subject, html);
             notifications.push({ recipientRole: r.role, recipientEmail: r.email, sentAt: now.toISOString(), success: status >= 200 && status < 300, error: status >= 200 && status < 300 ? null : `HTTP ${status}` });

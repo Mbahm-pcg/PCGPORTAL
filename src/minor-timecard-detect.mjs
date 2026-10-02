@@ -123,6 +123,11 @@ export function analyzeDayForViolation(dayPunches) {
     // is what any downstream display of "did they get a break" must use.
     longestGapMinutes,
     violationGapMinutes,
-    violates: maxStretchHours >= VIOLATION_HOURS,
+    // Strictly greater than, not >=: exactly 5.0 hours is the limit itself,
+    // not a violation of it — only a stretch that actually exceeds 5 hours
+    // (5.01+) requires the break. Confirmed explicitly 2026-10-02 after a
+    // real false-positive flag on an employee who worked exactly 5.0h
+    // straight through with no break and should not have been flagged.
+    violates: maxStretchHours > VIOLATION_HOURS,
   };
 }

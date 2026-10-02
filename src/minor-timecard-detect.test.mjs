@@ -87,10 +87,23 @@ test('analyzeDayForViolation: a break under 30 minutes does not reset the clock 
   assert.ok(result.consecutiveHours > 5.0);
 });
 
-test('analyzeDayForViolation: exactly 5.0 hours is a violation (>=, not >)', () => {
+// Changed 2026-10-02: exactly 5.0 hours is the limit itself, not a violation
+// of it — only a stretch that actually EXCEEDS 5 hours requires the break.
+// Confirmed explicitly after a real false-positive flag on an employee who
+// worked exactly 5.0h straight through with no break.
+test('analyzeDayForViolation: exactly 5.0 hours is NOT a violation (>, not >=)', () => {
   const result = analyzeDayForViolation([
     { punchDateTime: '2026-09-19T06:00:00' },
     { punchDateTime: '2026-09-19T11:00:00' },
+  ]);
+  assert.equal(Math.round(result.consecutiveHours * 100) / 100, 5.0);
+  assert.equal(result.violates, false);
+});
+
+test('analyzeDayForViolation: 5.01 hours (one minute over) IS a violation', () => {
+  const result = analyzeDayForViolation([
+    { punchDateTime: '2026-09-19T06:00:00' },
+    { punchDateTime: '2026-09-19T11:01:00' },
   ]);
   assert.equal(result.violates, true);
 });
