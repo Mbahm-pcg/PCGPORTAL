@@ -1,55 +1,72 @@
-// office-clock-send-background.mjs — Office Hourly Time Clock, Task 6: the
-// actual batch write to Paycor's CreatePunches API, plus async error-log
-// polling to find out what really happened.
+// office-clock-send-background.mjs — Office Hourly Time Clock: stages each
+// linked office_staff employee's exact worked hours into Paycor's paygrid
+// (stagePayrollHours, v2, employeeId-keyed) for the closed biweekly period.
 //
-// Fired fire-and-forget by office-clock-review.mjs's `send` action. UNLIKE
-// this codebase's other *-background.mjs jobs (labor-cron-background.mjs,
-// tips-report-refresh-background.mjs, minor-timecard-detect-cron-
-// background.mjs), which only ever redo an internal recompute if someone
-// reaches their URL without authorization, THIS file is the literal function
-// that pushes real punches to production Paycor payroll — the same stakes
-// category no-clockin.mjs (this codebase's own "Manual exec/IT endpoint")
-// already treats as needing its own `requireActiveUser` check, not the
-// recompute-job category. Its own URL takes nothing more secret than
-// `{ periodEnd }` — trivially derivable (`payPeriodEndFor(today)` off a
-// published anchor date) — so without its own auth check, reaching this URL
-// directly would push a whole pay period to Paycor while completely
-// bypassing office-clock-review.mjs's IT review/edit/lock step. Re-checked
-// here via the SAME `requireActiveUser` mechanism both files already import —
-// no new auth code, just also calling it from this file — against the
-// Authorization header / pcg_session cookie office-clock-review.mjs's `send`
-// action forwards from the real triggering admin's own request.
+// Switched 2026-10-02 from writing real Paycor punches (CreatePunches) to
+// this paygrid-staging approach, matching the pattern already proven live in
+// production for tips (see paycor.mjs's stagePayrollHours action and
+// app.jsx's sendToPaycor). Reasons for the switch:
+//   - CreatePunches for this legal entity (193872) returned inconsistent,
+//     undocumented errors tied to a "tparnerhubapi" partner-hub component —
+//     a confirmed-valid, correctly-scoped EmployeeId was rejected outright,
+//     and a later attempt returned an ambiguous 2xx with no tracking ID,
+//     followed by a "duplicate request" rejection on retry, with nothing
+//     ever actually created. CreatePunches also has NO delete/undo API.
+//   - stagePayrollHours is synchronous (no tracking-ID/polling dance), and
+//     per Paycor's own confirmation, only STAGES data into the paygrid for
+//     human review — it does not submit payroll. A human still has to
+//     review and hit submit in Paycor's own UI, and a re-stage with the same
+//     processId + replaceData:true safely corrects a prior mistake any time
+//     before that real submit happens. This is a STRICTLY SAFER failure mode
+//     than CreatePunches ever was.
 //
-// Calls Paycor directly via paycor.mjs's own exported `callPaycor` (the same
-// raw OAuth-wrapped HTTP call paycor.mjs's own in-file actions use) instead of
-// looping back through paycor.mjs's public HTTP `createPunches` action. That
-// action's own exec/it `requireActiveUser` gate protects direct public HTTP
-// access to /.netlify/functions/paycor; it is not a gate this already-
-// privileged, server-internal call needs to satisfy a second time — same
-// trust boundary as labor-cron.mjs's own already-exported `callPaycor`, reused
-// directly elsewhere in this codebase with no auth re-check either.
+// Real worked hours still come entirely from the exact clock-in/clock-out
+// data (src/office-clock-lib.mjs's dailyHoursFromPunches — same no-
+// estimates math as the review screen's "Daily Hours" table). The one thing
+// this file's write path is now responsible for that CreatePunches would
+// have left to Paycor's own Time Policy engine: splitting each of the
+// period's two Sunday-Saturday workweeks into Reg (<=40 hrs) / OT (>40 hrs)
+// at the standard FLSA weekly threshold (weeklyRegOtFromPunches) — per
+// explicit direction, never combined across the two weeks of a period.
+//
+// Fired fire-and-forget by office-clock-review.mjs's `send` action. Needs
+// its own requireActiveUser check for the same reason this always has: its
+// own URL takes nothing more secret than `{ periodEnd }`, so without a check
+// here a direct hit would stage a whole period's pay to Paycor while
+// bypassing office-clock-review.mjs's IT review/edit/lock step.
 import { sql } from './_shared/db.mjs';
 import { getStore } from '@netlify/blobs';
+import { createHash } from 'node:crypto';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { punchStatusAndActivity } from '../../src/office-clock-lib.mjs';
-import { resolvePunchLogResponse } from '../../src/paycor-punch-resolve.mjs';
+import { weeklyRegOtFromPunches } from '../../src/office-clock-lib.mjs';
 import { callPaycor } from './paycor.mjs';
-import { ensureActivityTypes, isPeriodFinalized } from './office-clock-review.mjs';
+import { isPeriodFinalized } from './office-clock-review.mjs';
 
 function getBlobStore() {
   return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 }
-// Standard { savedAt, data } wrapper for cloudLoad compatibility, same shape
-// as minor-timecard-detect-cron-background.mjs's blobSave.
 async function blobSave(key, data) {
   await getBlobStore().setJSON(key, { savedAt: new Date().toISOString(), data });
 }
 
-const POLL_INTERVAL_MS = 5000;
-const MAX_POLLS = 60; // 5 minutes of polling; leaves well over half of the 15-min budget unused
-const UNRESOLVED_LOG_CAP = 10; // cap repeated "still unresolved" log lines, don't spam on a long stretch
+const EARNING_CODE_REG = 'Reg';
+const EARNING_CODE_OT = 'OT';
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Deterministic (not random) UUID per employee+period — the server-side twin
+// of app.jsx's tipsStableProcessId (same version-5-style construction, built
+// with Node's built-in crypto instead of the browser's Web Crypto, since
+// this runs in a Netlify Function, not a page). Keyed per EMPLOYEE, not per
+// legal entity, so one employee's re-stage/correction never touches another
+// employee's already-staged batch, and a re-send for the same employee+
+// period overwrites (replaceData:true) rather than stacking a duplicate.
+function stableProcessId(seed) {
+  const hash = createHash('sha256').update(seed).digest();
+  const bytes = Uint8Array.prototype.slice.call(hash, 0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50; // version 5 (name-based)
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 export default async (request) => {
   let payload = {};
@@ -60,28 +77,11 @@ export default async (request) => {
   const blobKey = `pcg_office_clock_send_${periodEnd}`;
   const db = sql();
 
-  // Auth gate (see header comment for why this file needs its own, unlike
-  // this codebase's other *-background.mjs jobs) — same shape as office-
-  // clock-review.mjs's own exec/it check. Checked before anything else,
-  // including the OFFICE_LEGAL_ENTITY_ID check below, so an unauthorized
-  // caller learns nothing about this function's configuration state either.
   const authedUser = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db);
   if (!authedUser || (authedUser.userType !== 'executive' && authedUser.userType !== 'it')) {
     return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
   }
 
-  // I1 — this file's own finalized check, not just office-clock-review.mjs's.
-  // That file's `send` action already rejects a finalized period with a 409,
-  // but this function's own URL takes nothing more secret than
-  // `{ periodEnd }` (see header comment), so without checking here too, any
-  // exec/it caller who reaches THIS url directly could bypass that 409 and
-  // re-push an already-fully-confirmed period to Paycor anyway. Checked right
-  // after auth, before any DB claim/write. Uses the same shared
-  // isPeriodFinalized office-clock-review.mjs exports (not a second copy) —
-  // see that function's header comment for the full finalization rule (a
-  // period stays open, and sendable, while a send has been triggered but some
-  // punches are still unsent/pending/failed; that's this feature's own
-  // fix-and-resend workflow, not a bug).
   if (await isPeriodFinalized(db, periodEnd)) {
     return new Response(JSON.stringify({ error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' }), { status: 409 });
   }
@@ -93,224 +93,172 @@ export default async (request) => {
   }
 
   try {
-    await blobSave(blobKey, { status: 'running', step: 'activityTypes', startedAt: new Date().toISOString() });
+    await blobSave(blobKey, { status: 'running', step: 'claiming', startedAt: new Date().toISOString() });
 
-    // Same cache office-clock-review.mjs's own handler reads/writes — calling
-    // the shared helper (not a second copy of this logic) so both files agree
-    // on the GUIDs and on the "throw rather than cache a partial mapping" rule.
-    const { workActivityTypeId, mealActivityTypeId } = await ensureActivityTypes(db, legalEntityId);
-    const activityTypeIdFor = (activity) => (activity === 'Work' ? workActivityTypeId : mealActivityTypeId);
-
-    // Atomic claim: SELECT-then-UPDATE would let two overlapping `send`
-    // invocations (a double-click, or two exec/it users within seconds of
-    // each other) both read the same 'unsent' rows before either UPDATE
-    // commits, submitting the same punches to Paycor twice. A single
-    // UPDATE ... WHERE paycor_status = 'unsent' ... RETURNING * closes that
-    // window completely — Postgres row-level locking means only one
-    // invocation's UPDATE can ever actually flip a given row, so a second,
-    // overlapping invocation's claim simply returns fewer (or zero) rows for
-    // whatever the first one already took. The punch batch below is built
-    // from what THIS UPDATE actually returned, never from a separate prior
-    // SELECT.
-    const rows = await db`
-      WITH claimed AS (
+    // Atomic claim: same purpose as the old CreatePunches flow — a single
+    // UPDATE ... WHERE paycor_status = 'unsent' ... RETURNING * closes the
+    // double-submit race window a double-click or two near-simultaneous
+    // admins could otherwise open. This determines WHICH USERS have
+    // outstanding changes worth re-staging this round (a user with nothing
+    // newly claimed is skipped — no need to re-call Paycor for someone
+    // whose data hasn't changed since their last successful stage).
+    const claimed = await db`
+      WITH touched AS (
         UPDATE office_clock_punches
-        SET paycor_status = 'pending', paycor_tracking_id = NULL
+        SET paycor_status = 'pending'
         WHERE pay_period_end = ${periodEnd} AND paycor_status = 'unsent'
-        RETURNING *
+        RETURNING user_id
       )
-      SELECT claimed.*, u.paycor_employee_id, u.paycor_department_id
-      FROM claimed
-      JOIN users u ON u.id = claimed.user_id
-      ORDER BY claimed.captured_at`;
+      SELECT DISTINCT user_id FROM touched`;
 
-    if (!rows.length) {
+    if (!claimed.length) {
       await blobSave(blobKey, { status: 'done', total: 0, confirmed: 0, failed: 0, finishedAt: new Date().toISOString() });
       return new Response(JSON.stringify({ ok: true, total: 0 }), { status: 200 });
     }
 
-    // Defensive: a user's Paycor link can in principle be revoked between
-    // punching and sending. office-clock-punch.mjs's own enablement gate
-    // should make this impossible for a NEW punch, but it says nothing about
-    // punches already sitting unsent from before a revoke — never silently
-    // drop these from the count, report them as skipped instead. These rows
-    // were already claimed ('pending') by the UPDATE above along with
-    // everything else for this period, so they're reverted back to 'unsent'
-    // here rather than left stuck 'pending' forever with nothing actually
-    // sent — a future send (once re-linked, or by IT fixing the link) can
-    // pick them up normally.
-    const sendable = [];
-    const skippedUnlinked = [];
+    const claimedUserIds = claimed.map((r) => r.user_id);
+
+    // Fetch each claimed user's COMPLETE punch set for the period — not just
+    // the newly-claimed subset — because stagePayrollHours' replaceData:true
+    // always replaces the FULL current picture for that employee+period, the
+    // same way tips' re-send always submits the full current total rather
+    // than an incremental delta. Computing hours from only the new rows
+    // would silently drop any already-confirmed hours from earlier in the
+    // period out of the total.
+    const rows = await db`
+      SELECT p.*, u.name, u.paycor_employee_id, u.paycor_department_id
+      FROM office_clock_punches p
+      JOIN users u ON u.id = p.user_id
+      WHERE p.pay_period_end = ${periodEnd} AND p.user_id = ANY(${claimedUserIds})
+      ORDER BY p.captured_at`;
+
+    const byUser = new Map();
     for (const r of rows) {
-      if (!r.paycor_employee_id || !r.paycor_department_id) skippedUnlinked.push(r);
-      else sendable.push(r);
-    }
-    if (skippedUnlinked.length) {
-      const skippedIds = skippedUnlinked.map((r) => r.id);
-      await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE id = ANY(${skippedIds})`;
+      if (!byUser.has(r.user_id)) byUser.set(r.user_id, { name: r.name, paycorEmployeeId: r.paycor_employee_id, paycorDepartmentId: r.paycor_department_id, rows: [] });
+      byUser.get(r.user_id).rows.push(r);
     }
 
-    if (!sendable.length) {
-      await blobSave(blobKey, {
-        status: 'done', total: rows.length, confirmed: 0, failed: 0,
-        skippedUnlinked: skippedUnlinked.length, finishedAt: new Date().toISOString(),
-      });
+    // A user's Paycor link can in principle be revoked between punching and
+    // sending. Never silently drop these — revert to unsent (resendable
+    // once re-linked) and report as skipped.
+    const skippedUnlinked = [];
+    const toProcess = [];
+    for (const [userId, u] of byUser) {
+      if (!u.paycorEmployeeId || !u.paycorDepartmentId) { skippedUnlinked.push(u.name || userId); continue; }
+      toProcess.push([userId, u]);
+    }
+    if (skippedUnlinked.length) {
+      const unlinkedIds = [...byUser.entries()].filter(([, u]) => !u.paycorEmployeeId || !u.paycorDepartmentId).map(([id]) => id);
+      await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE pay_period_end = ${periodEnd} AND user_id = ANY(${unlinkedIds})`;
+    }
+
+    if (!toProcess.length) {
+      await blobSave(blobKey, { status: 'done', total: 0, confirmed: 0, failed: 0, skippedUnlinked: skippedUnlinked.length, finishedAt: new Date().toISOString() });
       return new Response(JSON.stringify({ ok: true, total: 0 }), { status: 200 });
     }
 
-    // Build one punch object per sendable row. IsTransfer is REQUIRED on every
-    // record — confirmed against real production Paycor during this feature's
-    // Controlled Test: the first attempt without it got a genuine 400 back
-    // ("The IsTransfer field is required"), contradicting earlier secondhand
-    // docs that called it optional. Always `false` here; this feature never
-    // represents a location transfer.
-    const punchObjects = sendable.map((r) => {
-      const { status, activity } = punchStatusAndActivity(r.punch_type);
-      const obj = {
-        EmployeeId: r.paycor_employee_id,
-        DepartmentId: r.paycor_department_id,
-        PunchDateTime: new Date(r.captured_at).toISOString(),
-        PunchStatusType: status,
-        ActivityTypeId: activityTypeIdFor(activity),
-        IsTransfer: false,
-      };
-      if (r.note) obj.Note = r.note;
-      return obj;
-    });
-
-    const sendableIds = sendable.map((r) => r.id);
-
-    const createRes = await callPaycor(`/legalentities/${legalEntityId}/CreatePunches`, 'POST', punchObjects);
-    if (createRes.status < 200 || createRes.status >= 300) {
-      // Nothing was actually accepted by Paycor — release the claim so these
-      // rows are eligible for a normal retry instead of stuck 'pending'
-      // forever with no tracking ID to ever poll for.
-      await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE id = ANY(${sendableIds})`;
-      await blobSave(blobKey, {
-        status: 'error', error: `CreatePunches failed: HTTP ${createRes.status}`, detail: createRes.data,
-        finishedAt: new Date().toISOString(),
-      });
-      return new Response(JSON.stringify({ ok: false }), { status: 502 });
+    // Department GUID -> numeric departmentCode. stagePayrollHours' schema
+    // requires the numeric code (confirmed live 2026-10-02: GUID
+    // b55f12af-c3d0-0000-0000-000050f50200 = code "105", "Payroll -
+    // Administration") — a different identifier than the department GUID
+    // already stored as paycor_department_id for the (now unused for this
+    // feature) CreatePunches write. Small, legal-entity-wide list — fetched
+    // fresh each send rather than cached, same as payGroupId below.
+    const deptRes = await callPaycor(`/legalentities/${legalEntityId}/departments`);
+    if (deptRes.status < 200 || deptRes.status >= 300) {
+      throw new Error(`Paycor departments lookup failed: HTTP ${deptRes.status}`);
     }
-    const trackingId = createRes.data?.trackingId || createRes.data?.TrackingId
-      || createRes.data?.id || createRes.data?.Id;
-    if (!trackingId) {
-      await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE id = ANY(${sendableIds})`;
-      await blobSave(blobKey, {
-        status: 'error', error: 'CreatePunches response had no tracking ID', detail: createRes.data,
-        finishedAt: new Date().toISOString(),
-      });
-      return new Response(JSON.stringify({ ok: false }), { status: 502 });
-    }
+    const deptRecords = Array.isArray(deptRes.data?.records) ? deptRes.data.records : (Array.isArray(deptRes.data) ? deptRes.data : []);
+    const deptCodeByGuid = new Map(deptRecords.map((d) => [d.id, d.code]));
 
-    // Rows are already 'pending' from the atomic claim above — just attach
-    // the tracking ID now that Paycor has actually accepted the batch.
-    await db`UPDATE office_clock_punches SET paycor_tracking_id = ${trackingId} WHERE id = ANY(${sendableIds})`;
-    await blobSave(blobKey, {
-      status: 'running', step: 'polling', trackingId, total: sendable.length,
-      skippedUnlinked: skippedUnlinked.length, startedAt: new Date().toISOString(),
-    });
+    // payGroupId — one per legal entity, required on every earning entry.
+    const payGroupRes = await callPaycor(`/legalentities/${legalEntityId}/paygroups`);
+    const payGroupRecords = Array.isArray(payGroupRes.data?.records) ? payGroupRes.data.records : (Array.isArray(payGroupRes.data) ? payGroupRes.data : []);
+    const payGroupId = payGroupRecords[0]?.payGroupId || null;
+    if (!payGroupId) throw new Error("Couldn't look up this legal entity's Paycor pay group");
 
-    // Poll punchErrorLog via resolvePunchLogResponse's exact semantics:
-    // 'pending' (404) keeps polling; 'unresolved' (anything non-2xx, non-404 —
-    // e.g. a transient 401/403/500) keeps polling too, but is NEVER read as
-    // success — rows stay 'pending' the whole time this loop runs, only a real
-    // 'resolved' (2xx) moves them to confirmed/failed. If the loop exhausts
-    // its budget still unresolved, rows are deliberately left 'pending' for a
-    // later retry rather than inventing a fake terminal failure.
-    let finalState = null;
-    let unresolvedLogged = 0;
-    for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
-      await sleep(POLL_INTERVAL_MS);
-      const logRes = await callPaycor(`/legalentities/${legalEntityId}/punchErrorLog/${trackingId}`);
-      const resolution = resolvePunchLogResponse(logRes.status, logRes.data);
+    let confirmedCount = 0;
+    let failedCount = 0;
+    let skippedZeroHours = 0;
+    const perUserResults = [];
 
-      if (resolution.state === 'pending') continue;
+    for (const [userId, u] of toProcess) {
+      const userRows = u.rows.map((r) => ({ punchType: r.punch_type, capturedAt: new Date(r.captured_at).toISOString() }));
+      const weeks = weeklyRegOtFromPunches(userRows, periodEnd);
 
-      if (resolution.state === 'unresolved') {
-        unresolvedLogged++;
-        if (unresolvedLogged <= UNRESOLVED_LOG_CAP) {
-          console.warn(`[office-clock-send] punchErrorLog unresolved on attempt ${attempt + 1}/${MAX_POLLS} (tracking ${trackingId}): ${resolution.reason}`);
-        }
+      if (weeks.some((w) => w.incomplete)) {
+        await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE pay_period_end = ${periodEnd} AND user_id = ${userId}`;
+        perUserResults.push({ userId, name: u.name, ok: false, reason: 'Incomplete punches this period (a missing clock-out or unmatched meal punch) — fix before resending' });
+        failedCount++;
         continue;
       }
 
-      finalState = resolution; // 'resolved'
-      break;
-    }
-
-    if (!finalState) {
-      await blobSave(blobKey, {
-        status: 'pending_retry', total: sendable.length, skippedUnlinked: skippedUnlinked.length, trackingId,
-        note: 'punchErrorLog never resolved within the polling window — rows left pending for a later retry',
-        finishedAt: new Date().toISOString(),
-      });
-      return new Response(JSON.stringify({ ok: true, pending: true }), { status: 200 });
-    }
-
-    // ⚠️ GO-LIVE CHECKLIST ITEM — NOT YET VERIFIED AT BATCH SCALE ⚠️
-    // Match each resolved record back to the row it came from. The real
-    // response shape confirmed in Task 1's Controlled Test returns per-record
-    // results in the same order the punches were submitted — matched
-    // primarily by request-order position. BUT that Controlled Test only ever
-    // sent ONE punch; request-order preservation for a real multi-record
-    // CreatePunches batch has never been confirmed against production Paycor.
-    // The EmployeeId + PunchDateTime fallback below is a reasonable safety
-    // net if a given response's record count doesn't match what was sent, but
-    // it is not a substitute for actually checking: before the very first
-    // live biweekly send, verify this matching logic against a real
-    // multi-record batch the same deliberate way Task 1's Controlled Test
-    // validated the single-punch case — don't let this go live unverified.
-    const { succeeded, failed } = finalState;
-    const outcomes = [
-      ...succeeded.map((record) => ({ record, ok: true })),
-      ...failed.map(({ record, errors }) => ({ record, ok: false, errors })),
-    ];
-
-    const matchedIds = new Set();
-    let confirmedCount = 0;
-    let failedCount = 0;
-    const matchByOrder = outcomes.length === sendable.length;
-
-    for (let i = 0; i < outcomes.length; i++) {
-      const outcome = outcomes[i];
-      let row = null;
-      if (matchByOrder) {
-        row = sendable[i];
-      } else {
-        const rec = outcome.record || {};
-        const recEmployeeId = rec.EmployeeId ?? rec.employeeId;
-        const recPunchDateTime = rec.PunchDateTime ?? rec.punchDateTime;
-        row = sendable.find((r) => !matchedIds.has(r.id)
-          && String(r.paycor_employee_id) === String(recEmployeeId)
-          && recPunchDateTime != null
-          && new Date(r.captured_at).toISOString() === new Date(recPunchDateTime).toISOString());
+      const deptCode = deptCodeByGuid.get(u.paycorDepartmentId);
+      if (!deptCode) {
+        await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE pay_period_end = ${periodEnd} AND user_id = ${userId}`;
+        perUserResults.push({ userId, name: u.name, ok: false, reason: `No Paycor department code found for this employee's department (GUID ${u.paycorDepartmentId})` });
+        failedCount++;
+        continue;
       }
-      if (!row) continue;
-      matchedIds.add(row.id);
 
-      if (outcome.ok) {
-        await db`UPDATE office_clock_punches SET paycor_status = 'confirmed' WHERE id = ${row.id}`;
-        confirmedCount++;
-      } else {
-        const errNote = `Paycor error: ${JSON.stringify(outcome.errors)}`;
-        await db`UPDATE office_clock_punches SET paycor_status = 'failed', note = COALESCE(note || ' | ', '') || ${errNote} WHERE id = ${row.id}`;
+      const importEarnings = [];
+      for (const w of weeks) {
+        if (w.regHours > 0) importEarnings.push({ departmentCode: Number(deptCode), earningCode: EARNING_CODE_REG, earningHours: w.regHours, businessStartDate: `${w.weekStart}T00:00:00Z`, businessEndDate: `${w.weekEnd}T23:59:59Z`, payGroupId });
+        if (w.otHours > 0) importEarnings.push({ departmentCode: Number(deptCode), earningCode: EARNING_CODE_OT, earningHours: w.otHours, businessStartDate: `${w.weekStart}T00:00:00Z`, businessEndDate: `${w.weekEnd}T23:59:59Z`, payGroupId });
+      }
+
+      if (!importEarnings.length) {
+        // Genuinely zero hours this period (e.g. a zero-duration test punch,
+        // or no real shifts worked) — nothing meaningful to stage. Confirmed
+        // without ever calling Paycor, rather than staging an empty/zero
+        // earning entry.
+        await db`UPDATE office_clock_punches SET paycor_status = 'confirmed' WHERE pay_period_end = ${periodEnd} AND user_id = ${userId}`;
+        perUserResults.push({ userId, name: u.name, ok: true, reason: 'No hours to stage this period' });
+        skippedZeroHours++;
+        continue;
+      }
+
+      const processId = stableProcessId(`office-clock_${u.paycorEmployeeId}_${periodEnd}`);
+      try {
+        const res = await callPaycor(
+          `/legalentities/${legalEntityId}/payrollhours?replaceData=true`,
+          'POST',
+          { integrationVendor: 'PCG Portal', processId, importEmployees: [{ employeeId: u.paycorEmployeeId, importEarnings }] },
+          'v2',
+        );
+        if (res.status >= 200 && res.status < 300) {
+          await db`UPDATE office_clock_punches SET paycor_status = 'confirmed' WHERE pay_period_end = ${periodEnd} AND user_id = ${userId}`;
+          perUserResults.push({ userId, name: u.name, ok: true, weeks });
+          confirmedCount++;
+        } else {
+          await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE pay_period_end = ${periodEnd} AND user_id = ${userId}`;
+          perUserResults.push({ userId, name: u.name, ok: false, reason: res.data?.Detail || res.data?.message || `HTTP ${res.status}`, detail: res.data });
+          failedCount++;
+        }
+      } catch (err) {
+        await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE pay_period_end = ${periodEnd} AND user_id = ${userId}`;
+        perUserResults.push({ userId, name: u.name, ok: false, reason: err.message });
         failedCount++;
       }
     }
 
-    // Any sendable row never matched to a record at all is left 'pending'
-    // (not silently assumed confirmed) — a resolved response with fewer
-    // records than were sent is a real anomaly worth surfacing, not hiding.
-    const unmatchedCount = sendable.filter((r) => !matchedIds.has(r.id)).length;
-
     await blobSave(blobKey, {
-      status: 'done', total: sendable.length, confirmed: confirmedCount, failed: failedCount,
-      unmatched: unmatchedCount, skippedUnlinked: skippedUnlinked.length, trackingId,
+      status: 'done', total: toProcess.length, confirmed: confirmedCount, failed: failedCount,
+      skippedZeroHours, skippedUnlinked: skippedUnlinked.length, results: perUserResults,
       finishedAt: new Date().toISOString(),
     });
-    return new Response(JSON.stringify({ ok: true, confirmed: confirmedCount, failed: failedCount, unmatched: unmatchedCount }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, confirmed: confirmedCount, failed: failedCount }), { status: 200 });
   } catch (err) {
+    // Any failure before a given user's own try/catch resolves them (e.g.
+    // the departments/paygroups lookups above throwing on a Paycor network
+    // blip, before the per-user loop even starts) would otherwise leave
+    // their rows stuck at 'pending' forever — not retryable by a future
+    // send, since the atomic claim only ever picks up 'unsent' rows. This
+    // sweep is idempotent and precise: it only touches rows still genuinely
+    // 'pending' (unresolved), never a row the per-user loop already
+    // resolved to 'confirmed' or reverted to 'unsent' earlier in this same
+    // invocation.
+    try { await db`UPDATE office_clock_punches SET paycor_status = 'unsent' WHERE pay_period_end = ${periodEnd} AND paycor_status = 'pending'`; } catch { /* best-effort cleanup */ }
     await blobSave(blobKey, { status: 'error', error: err.message, finishedAt: new Date().toISOString() });
     return new Response(JSON.stringify({ ok: false, error: err.message }), { status: 500 });
   }

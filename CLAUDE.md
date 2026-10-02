@@ -89,12 +89,28 @@ netlify/functions/
                                 no deadline — a period locks (read-only) only once it's been fully sent
                                 and every punch is `confirmed` (`isPeriodFinalized`, shared with the
                                 background send function below); linking an office_staff account to
-                                Paycor is manual (exec/IT pastes the Employee ID + Department ID
-                                copied from Paycor directly) via `users.mjs`'s `update` action — no
-                                dedicated roster-lookup function
-  office-clock-send-background.mjs — the actual Paycor CreatePunches batch write + async result
-                                polling (15-min budget); re-checks exec/IT auth itself, since its own
-                                URL needs only `{ periodEnd }`
+                                Paycor is a live name/employee-number search against Paycor's own
+                                roster (`employeeSearch` action) — IT picks a match, the real
+                                employee/department GUIDs are saved via `users.mjs`'s `update` action,
+                                never hand-typed (an earlier paste-the-display-value form caused a
+                                real CreatePunches 400 — Paycor's GUID isn't what its own UI shows)
+  office-clock-send-background.mjs — stages each linked employee's exact worked hours into Paycor's
+                                PAYGRID (`stagePayrollHours`, v2, employeeId-keyed) — NOT CreatePunches
+                                (switched 2026-10-02: CreatePunches for this legal entity returned
+                                inconsistent "tparnerhubapi"-tagged errors, including a confirmed-valid
+                                EmployeeId rejected outright and a request that returned an ambiguous
+                                2xx then "duplicate request" on retry with nothing ever created, and
+                                has no delete/undo API at all). Paygrid staging is synchronous (no
+                                tracking-ID/polling) and, per Paycor's own confirmation, only stages
+                                data for human review — a human still reviews/submits in Paycor's own
+                                UI, and a re-stage (stable processId + replaceData:true) safely
+                                corrects a mistake any time before that real submit — strictly safer
+                                than CreatePunches ever was. Hours still come entirely from the real
+                                clock-in/clock-out data; this file's own added responsibility is
+                                splitting each of the period's two Sunday-Saturday workweeks into
+                                Reg (<=40 hrs) / OT (>40 hrs) independently at the standard weekly
+                                FLSA threshold (`weeklyRegOtFromPunches`, src/office-clock-lib.mjs) —
+                                CreatePunches would have left that to Paycor's own Time Policy engine
   office-clock-compare.mjs    — exec/IT: read-only validation — app punch counts vs. Paycor's own
                                 employeePunches for the same linked employees/date range
   # ── Orion Analyst (AI) ──
@@ -221,17 +237,23 @@ Tables: `users`, `tickets`, `ticket_comments`, `business_cases`, `chat_messages`
 - Office Hourly Time Clock adds 3 self-created tables (same `CREATE TABLE IF NOT EXISTS` pattern as
   `tickets.mjs`/`incident-reports.mjs` — not in `db/schema.ts`, created lazily by the functions that
   use them): `office_clock_punches` (every punch — live, manual edit, or admin-inserted; `paycor_status`
-  tracks unsent/confirmed/failed), `office_clock_activity_types` (cached Work/Meal Paycor
-  ActivityTypeId GUIDs per legal entity), `office_clock_pay_period_sends` (audit trail of each "Send to
-  Paycor" attempt). A pay period (biweekly, same anchor as Paycor's own pay-group frequency) has no
-  time-based deadline — IT/exec reviews and sends whenever ready. It becomes read-only ("finalized")
-  only once a send has actually been triggered, at least one punch exists for the period (an empty
-  period is never "finalized" just because nothing was outstanding), AND every punch for that period
-  is `confirmed` in Paycor (`isPeriodFinalized`, a DB-backed check in `office-clock-review.mjs`,
-  shared with `office-clock-send-background.mjs`); a send with any `unsent`/`pending`/`failed` punches left over
-  keeps the period open so IT can fix and resend. `payPeriodEndFor` in `src/office-clock-lib.mjs` is
-  still the single source of truth for period boundaries, shared by the punch, review, and
-  send-background functions.
+  tracks unsent/confirmed/failed — set per-user from a paygrid stage result, not per-punch from Paycor,
+  since staging is one call per employee covering their whole period, not one call per punch),
+  `office_clock_activity_types` (cached Work/Meal Paycor ActivityTypeId GUIDs per legal entity — a
+  leftover from the original CreatePunches write path, unused by the current paygrid-staging path but
+  kept in case CreatePunches is ever revisited), `office_clock_pay_period_sends` (audit trail of each
+  "Send to Paycor" attempt). A pay period (biweekly, same anchor as Paycor's own pay-group frequency)
+  has no time-based deadline — IT/exec reviews and sends whenever ready. It becomes read-only
+  ("finalized") only once a send has actually been triggered, at least one punch exists for the period
+  (an empty period is never "finalized" just because nothing was outstanding), AND every punch for that
+  period is `confirmed` (`isPeriodFinalized`, a DB-backed check in `office-clock-review.mjs`, shared
+  with `office-clock-send-background.mjs`) — "confirmed" here means Paycor accepted that employee's
+  staged paygrid entry, NOT that a human has reviewed/submitted it in Paycor's own UI (that real
+  payroll-submit step still happens there, outside this app, by design — paygrid staging is
+  deliberately non-destructive and correctable via the same stable processId + `replaceData:true` any
+  time before it does). A send with any `unsent`/`pending`/`failed` punches left over keeps the period
+  open so IT can fix and resend. `payPeriodEndFor` in `src/office-clock-lib.mjs` is still the single
+  source of truth for period boundaries, shared by the punch, review, and send-background functions.
 
 ### Netlify Blobs (`pcg-portal` store)
 All blobs use `{ savedAt, data }` wrapper for `cloudLoad` compatibility.

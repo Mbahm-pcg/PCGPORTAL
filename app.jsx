@@ -20975,6 +20975,20 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
     setDeptIdInput(emp.departmentId);
     setEmpSearchQuery('');
     setEmpSearchResults([]);
+    // Convenience auto-match: if exactly one unlinked office_staff account's
+    // name matches the Paycor employee just picked, select it automatically
+    // instead of making IT pick the same person twice. The dropdown stays
+    // visible and overridable — Paycor's name isn't guaranteed to exactly
+    // match a Portal account's display name (nicknames, a Portal account
+    // using a different name, two people sharing a name), so this is a
+    // best-effort default, never a silent/forced link.
+    if (!selectedUserId) {
+      const empNameLower = (emp.name || '').trim().toLowerCase();
+      if (empNameLower) {
+        const nameMatches = unlinkedOfficeStaff.filter(u => (u.name || u.username || '').trim().toLowerCase() === empNameLower);
+        if (nameMatches.length === 1) setSelectedUserId(String(nameMatches[0].id));
+      }
+    }
   };
   const clearEmpSelection = () => {
     setSelectedEmp(null);
@@ -21367,11 +21381,17 @@ function OfficeClockReview({ user, th, showAlert }) {
               </button>
               {sendState && sendState.status && sendState.status !== 'sending' && (
                 <span style={{ marginLeft: '0.7rem', fontSize: '0.8rem', color: th.muted }}>
-                  {sendState.status === 'running' && 'Sending to Paycor…'}
-                  {sendState.status === 'pending_retry' && 'Waiting on Paycor confirmation…'}
-                  {sendState.status === 'done' && `Done — ${sendState.confirmed || 0} confirmed, ${sendState.failed || 0} failed${sendState.unmatched ? `, ${sendState.unmatched} unmatched` : ''}.`}
+                  {sendState.status === 'running' && 'Staging to Paycor…'}
+                  {sendState.status === 'done' && `Done — ${sendState.confirmed || 0} staged, ${sendState.failed || 0} failed${sendState.skippedZeroHours ? `, ${sendState.skippedZeroHours} had no hours this period` : ''}. Still needs human review/submit in Paycor's own paygrid.`}
                   {sendState.status === 'error' && `Error: ${sendState.error || 'send failed'}`}
                 </span>
+              )}
+              {sendState?.status === 'done' && (sendState.results || []).some(r => !r.ok) && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#e03131' }}>
+                  {(sendState.results || []).filter(r => !r.ok).map((r, i) => (
+                    <div key={i}>{r.name || r.userId}: {r.reason}</div>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -29886,7 +29906,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.34";
+const APP_VERSION = "v21.36";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

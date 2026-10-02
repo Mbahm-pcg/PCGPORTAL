@@ -8,9 +8,18 @@
 // table against what Paycor's own employeePunches read endpoint reports for
 // the same employee over the same date range, and flags any day where the
 // two counts disagree. Nothing here writes anything, anywhere — not to
-// Postgres, not to Paycor. Useful as a spot-check after the first few
-// office-clock-review.mjs sends; there is no "cutover" to validate against,
-// since there's no physical clock being replaced in this feature.
+// Postgres, not to Paycor.
+//
+// STALE since 2026-10-02: office-clock-send-background.mjs no longer writes
+// real Paycor punches (switched to stagePayrollHours paygrid-staging — see
+// that file's header comment for why). Paycor's employeePunches will now
+// correctly show ZERO punches for every office_staff employee forever,
+// since this feature no longer creates any — this comparison will report
+// a permanent, expected 100% mismatch, not a real discrepancy. Left in
+// place (harmless, still accurate about what it actually checks) rather
+// than deleted; a future rework could instead compare against the
+// `payrollHours` v2 read action (what was actually staged) if this view is
+// still wanted. Not rebuilt today — out of scope for the paygrid switch.
 //
 // Single action:
 //   compare { startDate, endDate } (YYYY-MM-DD, inclusive both ends)

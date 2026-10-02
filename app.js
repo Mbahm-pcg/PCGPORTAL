@@ -17745,6 +17745,13 @@ ${t2.slice(0, 300)}`);
       setDeptIdInput(emp.departmentId);
       setEmpSearchQuery("");
       setEmpSearchResults([]);
+      if (!selectedUserId) {
+        const empNameLower = (emp.name || "").trim().toLowerCase();
+        if (empNameLower) {
+          const nameMatches = unlinkedOfficeStaff.filter((u) => (u.name || u.username || "").trim().toLowerCase() === empNameLower);
+          if (nameMatches.length === 1) setSelectedUserId(String(nameMatches[0].id));
+        }
+      }
     };
     const clearEmpSelection = () => {
       setSelectedEmp(null);
@@ -18021,7 +18028,7 @@ ${t2.slice(0, 300)}`);
         style: btn(th, { padding: "0.5rem 1.1rem" })
       },
       sendState?.status === "running" || sendState?.status === "sending" ? "Sending\u2026" : "Send to Paycor"
-    ), sendState && sendState.status && sendState.status !== "sending" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.7rem", fontSize: "0.8rem", color: th.muted } }, sendState.status === "running" && "Sending to Paycor\u2026", sendState.status === "pending_retry" && "Waiting on Paycor confirmation\u2026", sendState.status === "done" && `Done \u2014 ${sendState.confirmed || 0} confirmed, ${sendState.failed || 0} failed${sendState.unmatched ? `, ${sendState.unmatched} unmatched` : ""}.`, sendState.status === "error" && `Error: ${sendState.error || "send failed"}`)), byEmployee.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No employees are linked to Paycor yet \u2014 link an office_staff account under Admin \xB7 Office Time Clock first."), byEmployee.map((emp) => {
+    ), sendState && sendState.status && sendState.status !== "sending" && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.7rem", fontSize: "0.8rem", color: th.muted } }, sendState.status === "running" && "Staging to Paycor\u2026", sendState.status === "done" && `Done \u2014 ${sendState.confirmed || 0} staged, ${sendState.failed || 0} failed${sendState.skippedZeroHours ? `, ${sendState.skippedZeroHours} had no hours this period` : ""}. Still needs human review/submit in Paycor's own paygrid.`, sendState.status === "error" && `Error: ${sendState.error || "send failed"}`), sendState?.status === "done" && (sendState.results || []).some((r) => !r.ok) && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", fontSize: "0.78rem", color: "#e03131" } }, (sendState.results || []).filter((r) => !r.ok).map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i }, r.name || r.userId, ": ", r.reason)))), byEmployee.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No employees are linked to Paycor yet \u2014 link an office_staff account under Admin \xB7 Office Time Clock first."), byEmployee.map((emp) => {
       const dailyHours = officeClockDailyHours(emp.punches);
       return /* @__PURE__ */ React.createElement("div", { key: emp.userId, style: { ...card(th), padding: "0.9rem 1rem", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: th.text, fontSize: "0.88rem" } }, emp.userName), !data.locked && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => startAdd(emp.userId), style: btn(th, { padding: "0.25rem 0.6rem", fontSize: "0.72rem" }) }, "+ Add punch")), dailyHours.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", fontWeight: 700, color: th.muted, marginBottom: "0.2rem", textTransform: "uppercase", letterSpacing: "0.02em" } }, "Daily Hours"), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Date", "Clock In", "Clock Out", "Total Hours"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, dailyHours.map((d) => {
         const label = officeClockFmtHours(d.totalMinutes);
@@ -23937,7 +23944,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.34";
+  var APP_VERSION = "v21.36";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
