@@ -147,6 +147,18 @@ function issue(row, mustChange) {
     storePC: row.store_pc || row.storePC || null,
     region: row.region || null,
     auditsAccess: row.audits_access ?? row.auditsAccess ?? null,
+    // Whether this person has a real Paycor identity linked — the SAME
+    // "linked" test office-clock-punch.mjs's own enablement gate and
+    // office-clock-review.mjs's period query already use. A boolean only,
+    // never the actual GUIDs — the session user object is otherwise never
+    // given Paycor identifiers. Exists purely so the client can decide
+    // whether to show the Office Time Clock tile/tab AT ALL (per-person,
+    // not just per-role) without a separate round trip; the real enablement
+    // check on an actual punch attempt stays server-side and live
+    // (office-clock-punch.mjs re-checks fresh every time) — this flag can
+    // go stale within a session (e.g. unlinked mid-session) exactly like
+    // every other session field here (userType, storePC, etc.) already can.
+    officeClockLinked: !!(row.paycor_employee_id && row.paycor_department_id),
   };
   const token = signToken(claims, secret, { ttlSeconds: TTL });
   const user = {
@@ -160,6 +172,7 @@ function issue(row, mustChange) {
     storePC: claims.storePC,
     region: claims.region,
     auditsAccess: claims.auditsAccess,
+    officeClockLinked: claims.officeClockLinked,
     twoFactorRequired: row.two_factor_required || row.twoFactorRequired || false,
     twoFactorEnabled: row.two_factor_enabled || row.twoFactorEnabled || false,
     mustSetup: row.must_setup || row.mustSetup || false,
@@ -229,7 +242,7 @@ export default async (request, context) => {
           SELECT id, username, name, email, user_type, district, store_pc, active,
                  is_admin, region, initials, must_setup, dark_mode,
                  must_change, two_factor_required, two_factor_enabled, two_factor_secret,
-                 audits_access
+                 audits_access, paycor_employee_id, paycor_department_id
           FROM users WHERE lower(email) = ${email} AND active = true LIMIT 1
         `;
 
@@ -268,7 +281,7 @@ export default async (request, context) => {
         SELECT id, username, name, email, user_type, district, store_pc, active,
                is_admin, region, initials, must_setup, dark_mode,
                password_hash, must_change, two_factor_required, two_factor_enabled, two_factor_secret,
-               failed_attempts, locked, audits_access
+               failed_attempts, locked, audits_access, paycor_employee_id, paycor_department_id
         FROM users WHERE username = ${username}
       `;
 

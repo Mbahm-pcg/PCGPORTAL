@@ -29906,7 +29906,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.36";
+const APP_VERSION = "v21.37";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -42856,6 +42856,15 @@ function MobileAppLauncher({ user, th, dark, tabs, onNavigate, pinnedNavIds, tog
   ['ops-hub', 'team-hub', 'system-hub', 'tools-hub'].forEach(hubId => {
     if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach(s => hubDupeIds.add(s.id));
   });
+  // Office Time Clock is office_staff's own dedicated tool (not a shared
+  // admin tool like the rest of tools-hub's sub-items) — keep it as its own
+  // direct, visible tile for them specifically instead of folding it into
+  // the generic "Tools" grid like Incident Reports/Minor Timecard. Still
+  // reachable via Tools too (nothing removed there) — just not ONLY
+  // reachable that way, matching that it's the one thing in Tools that's
+  // actually core to their daily workflow. Other roles' tools-hub entries
+  // (office-clock-admin/-review for exec/IT) are untouched.
+  if (user?.userType === 'office_staff') hubDupeIds.delete('office-clock');
   const pinned = tabs.filter(t => pinnedNavIds?.includes(t.id));
   const rest = tabs.filter(t => !pinnedNavIds?.includes(t.id) && !hubDupeIds.has(t.id));
   const workspace = rest.filter(t => !LAUNCHER_ADMIN_IDS.has(t.id));
@@ -50583,6 +50592,15 @@ function PCGPortal() {
     // Tools-hub grid page (which already called accessSubOn directly).
     const TOOLS_HUB_SUBIDS = new Set((HUB_SUBITEMS['tools-hub'] || []).map(s => s.id));
     t = t.filter(x => !TOOLS_HUB_SUBIDS.has(x.id) || accessSubOn(accessOverrides, u?.userType, 'tools-hub', x.id));
+    // Office Time Clock is additionally gated per-PERSON, not just per-role:
+    // only an office_staff account actually linked to a Paycor identity
+    // (officeClockLinked, set at login from paycor_employee_id/
+    // paycor_department_id — see portal-auth.mjs's issue()) ever sees this
+    // tab at all. Per explicit direction: whoever IT links should be the
+    // only ones who see the clock, not every office_staff account —
+    // someone not yet linked has nothing to do there anyway (the punch
+    // screen's own server-side check would just 409 them).
+    if (u?.userType === 'office_staff') t = t.filter(x => x.id !== 'office-clock' || u?.officeClockLinked);
     return t;
   };
   const TABS = tabsForUser(user);
@@ -52152,7 +52170,7 @@ function PCGPortal() {
     );
   }
 
-  if (user.userType === "office_staff" && isMobile && !preferFullPortal) {
+  if (user.userType === "office_staff" && user.officeClockLinked && isMobile && !preferFullPortal) {
     return (
       <div style={{ minHeight:"100vh", background:th.bg, color:th.text, transition:"background .3s, color .3s" }}>
         <div style={{ display:"flex", justifyContent:"flex-end", padding:"1rem 1rem 0" }}>
@@ -53491,7 +53509,7 @@ function PCGPortal() {
               // never punch, and office-clock-punch.mjs's own auth check only
               // allows office_staff, so this tile would 403 for exec/it. The
               // two admin screens below are a separate, unchanged gate.
-              { id: 'office-clock', name: 'Office Time Clock', sub: 'Clock in/out and track meal breaks for office/corporate staff.', show: user?.userType === 'office_staff' && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock'), icon: <>{ICONS.officeClock(TOOLS)}</> },
+              { id: 'office-clock', name: 'Office Time Clock', sub: 'Clock in/out and track meal breaks for office/corporate staff.', show: user?.userType === 'office_staff' && user?.officeClockLinked && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock'), icon: <>{ICONS.officeClock(TOOLS)}</> },
               { id: 'office-clock-admin', name: 'Office Time Clock — Link Accounts', sub: 'Link office_staff Portal accounts to their Paycor identity to enable punching.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-admin'), icon: <>{ICONS.officeClockLink(TOOLS)}</> },
               { id: 'office-clock-review', name: 'Office Time Clock — Pay Period Review', sub: 'Review, edit, and send a closed biweekly pay period to Paycor.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-review'), icon: <>{ICONS.officeClockReview(TOOLS)}</> },
             ].filter(t => t.show);

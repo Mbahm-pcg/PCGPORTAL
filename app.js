@@ -23944,7 +23944,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.36";
+  var APP_VERSION = "v21.37";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -32349,6 +32349,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
       if (tabIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
     });
+    if (user?.userType === "office_staff") hubDupeIds.delete("office-clock");
     const pinned = tabs.filter((t) => pinnedNavIds?.includes(t.id));
     const rest = tabs.filter((t) => !pinnedNavIds?.includes(t.id) && !hubDupeIds.has(t.id));
     const workspace = rest.filter((t) => !LAUNCHER_ADMIN_IDS.has(t.id));
@@ -37893,6 +37894,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ov) t = t.filter((x) => BASE_TAB_IDS.includes(x.id) || ov[x.id] !== false || x.id === "admin" && isFullAdmin(u));
       const TOOLS_HUB_SUBIDS = new Set((HUB_SUBITEMS["tools-hub"] || []).map((s) => s.id));
       t = t.filter((x) => !TOOLS_HUB_SUBIDS.has(x.id) || accessSubOn(accessOverrides, u?.userType, "tools-hub", x.id));
+      if (u?.userType === "office_staff") t = t.filter((x) => x.id !== "office-clock" || u?.officeClockLinked);
       return t;
     };
     const TABS = tabsForUser(user);
@@ -39358,7 +39360,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       );
     }
-    if (user.userType === "office_staff" && isMobile && !preferFullPortal) {
+    if (user.userType === "office_staff" && user.officeClockLinked && isMobile && !preferFullPortal) {
       return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", background: th.bg, color: th.text, transition: "background .3s, color .3s" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", padding: "1rem 1rem 0" } }, /* @__PURE__ */ React.createElement(
         "button",
         {
@@ -40610,7 +40612,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         // never punch, and office-clock-punch.mjs's own auth check only
         // allows office_staff, so this tile would 403 for exec/it. The
         // two admin screens below are a separate, unchanged gate.
-        { id: "office-clock", name: "Office Time Clock", sub: "Clock in/out and track meal breaks for office/corporate staff.", show: user?.userType === "office_staff" && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClock(TOOLS)) },
+        { id: "office-clock", name: "Office Time Clock", sub: "Clock in/out and track meal breaks for office/corporate staff.", show: user?.userType === "office_staff" && user?.officeClockLinked && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClock(TOOLS)) },
         { id: "office-clock-admin", name: "Office Time Clock \u2014 Link Accounts", sub: "Link office_staff Portal accounts to their Paycor identity to enable punching.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-admin"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClockLink(TOOLS)) },
         { id: "office-clock-review", name: "Office Time Clock \u2014 Pay Period Review", sub: "Review, edit, and send a closed biweekly pay period to Paycor.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-review"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClockReview(TOOLS)) }
       ].filter((t) => t.show);

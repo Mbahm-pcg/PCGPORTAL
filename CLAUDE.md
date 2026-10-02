@@ -84,7 +84,14 @@ netlify/functions/
   # ── Office Hourly Time Clock (office/corporate staff, Paycor legal entity 193872) ──
   office-clock-punch.mjs      — office_staff's own punch (clock in/meal/clock out) + today's list;
                                 409s if the caller isn't linked (paycor_employee_id + paycor_department_id
-                                both set) — the only enablement gate in the feature, re-checked live
+                                both set) — the real enablement gate in the feature, re-checked live.
+                                Tab/tile VISIBILITY is also per-person now (2026-10-02, not just role):
+                                `user.officeClockLinked` (set at login in portal-auth.mjs's `issue()`
+                                from those same two columns) decides whether an office_staff account
+                                sees the tab/mobile-landing/tile at all — someone not yet linked sees
+                                nothing to click, rather than a tile that would just 409. Stale until
+                                next login/token refresh if linked/unlinked mid-session, same as every
+                                other session field here.
   office-clock-review.mjs     — exec/IT: pay-period review/edit + fires the background Paycor send;
                                 no deadline — a period locks (read-only) only once it's been fully sent
                                 and every punch is `confirmed` (`isPeriodFinalized`, shared with the
