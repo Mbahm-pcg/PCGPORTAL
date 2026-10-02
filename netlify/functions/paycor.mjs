@@ -582,9 +582,13 @@ export default async (request, context) => {
 
     // ── Proxy: employee pay stubs ──
     if (action === 'payStubs') {
-      const { employeeId } = payload;
+      const { employeeId, startCheckDate, endCheckDate } = payload;
       if (!employeeId) return new Response(JSON.stringify({ error: 'Missing employeeId' }), { status: 400, headers });
-      const res = await callPaycor(`/employees/${employeeId}/paystubs`);
+      // Paycor requires EITHER a valid check date / process date / plannerUid
+      // OR a startCheckDate/endCheckDate range — a bare employeeId 400s.
+      let path = `/employees/${employeeId}/paystubs`;
+      if (startCheckDate && endCheckDate) path += `?startCheckDate=${startCheckDate}&endCheckDate=${endCheckDate}`;
+      const res = await callPaycor(path);
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
