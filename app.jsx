@@ -30135,7 +30135,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.42";
+const APP_VERSION = "v21.43";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -53739,11 +53739,13 @@ function PCGPortal() {
               { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'district-alignment'), icon: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></> },
               { id: 'incident-reports', name: 'Incident Reports', sub: 'File and review Workplace Incident Reports — case info, witnesses, photo/video evidence, PDF export.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'incident-reports'), icon: <>{ICONS.incident(TOOLS)}</> },
               { id: 'minor-timecard', name: 'Minor Timecard Compliance', sub: 'Weekly PA minor-labor-law timecard review — who needs a fix, and who\'s already been notified.', show: ['executive','it','office_staff','dm','manager'].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'minor-timecard'), icon: <>{ICONS.minorTimecard(TOOLS)}</> },
-              // I8 — eligible roles narrowed to office_staff only: exec/it
-              // never punch, and office-clock-punch.mjs's own auth check only
-              // allows office_staff, so this tile would 403 for exec/it. The
-              // two admin screens below are a separate, unchanged gate.
-              { id: 'office-clock', name: 'Office Time Clock', sub: 'Clock in/out and track meal breaks for office/corporate staff.', show: user?.userType === 'office_staff' && user?.officeClockLinked && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock'), icon: <>{ICONS.officeClock(TOOLS)}</> },
+              // No "Office Time Clock" tile here — MobileAppLauncher always
+              // promotes it to its own direct tile for a linked office_staff
+              // account (not folded into this grid like other tools-hub
+              // sub-items), so a second copy here just reads as a visible
+              // duplicate, not a convenience. Confirmed live 2026-10-02
+              // ("Twice glitch again"). office-clock-admin/-review below are
+              // a separate, exec/IT-only gate, untouched by this.
               { id: 'office-clock-admin', name: 'Office Time Clock — Link Accounts', sub: 'Link office_staff Portal accounts to their Paycor identity to enable punching.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-admin'), icon: <>{ICONS.officeClockLink(TOOLS)}</> },
               { id: 'office-clock-review', name: 'Office Time Clock — Pay Period Review', sub: 'Review, edit, and send a closed biweekly pay period to Paycor.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-review'), icon: <>{ICONS.officeClockReview(TOOLS)}</> },
             ].filter(t => t.show);

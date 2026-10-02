@@ -24060,7 +24060,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.42";
+  var APP_VERSION = "v21.43";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -40724,11 +40724,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "district-alignment", name: "District Alignment", sub: "Draft district/DM groupings, sales snapshots, and store spacing \u2014 a sandbox that never touches real Locations data.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "district-alignment"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7", rx: "1" })) },
         { id: "incident-reports", name: "Incident Reports", sub: "File and review Workplace Incident Reports \u2014 case info, witnesses, photo/video evidence, PDF export.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "incident-reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.incident(TOOLS)) },
         { id: "minor-timecard", name: "Minor Timecard Compliance", sub: "Weekly PA minor-labor-law timecard review \u2014 who needs a fix, and who's already been notified.", show: ["executive", "it", "office_staff", "dm", "manager"].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "minor-timecard"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.minorTimecard(TOOLS)) },
-        // I8 — eligible roles narrowed to office_staff only: exec/it
-        // never punch, and office-clock-punch.mjs's own auth check only
-        // allows office_staff, so this tile would 403 for exec/it. The
-        // two admin screens below are a separate, unchanged gate.
-        { id: "office-clock", name: "Office Time Clock", sub: "Clock in/out and track meal breaks for office/corporate staff.", show: user?.userType === "office_staff" && user?.officeClockLinked && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClock(TOOLS)) },
+        // No "Office Time Clock" tile here — MobileAppLauncher always
+        // promotes it to its own direct tile for a linked office_staff
+        // account (not folded into this grid like other tools-hub
+        // sub-items), so a second copy here just reads as a visible
+        // duplicate, not a convenience. Confirmed live 2026-10-02
+        // ("Twice glitch again"). office-clock-admin/-review below are
+        // a separate, exec/IT-only gate, untouched by this.
         { id: "office-clock-admin", name: "Office Time Clock \u2014 Link Accounts", sub: "Link office_staff Portal accounts to their Paycor identity to enable punching.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-admin"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClockLink(TOOLS)) },
         { id: "office-clock-review", name: "Office Time Clock \u2014 Pay Period Review", sub: "Review, edit, and send a closed biweekly pay period to Paycor.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-review"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClockReview(TOOLS)) }
       ].filter((t) => t.show);
