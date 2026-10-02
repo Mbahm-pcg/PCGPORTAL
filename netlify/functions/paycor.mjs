@@ -714,6 +714,20 @@ export default async (request, context) => {
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
+    // ── Proxy: departments for a legal entity ──
+    // Needed for stagePayrollHours' required `departmentCode` field — a
+    // numeric code, NOT the department GUID already stored as
+    // paycor_department_id (used for the unrelated CreatePunches write).
+    // Added 2026-10-02 for the Office Hourly Time Clock's paygrid-staging
+    // path: it needs to map each employee's department GUID (from the
+    // `employees` action) to the numeric code this endpoint expects.
+    if (action === 'departments') {
+      const { legalEntityId } = payload;
+      if (!legalEntityId) return new Response(JSON.stringify({ error: 'Missing legalEntityId' }), { status: 400, headers });
+      const res = await callPaycor(`/legalentities/${legalEntityId}/departments`);
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
     // ── Proxy: employee punches (newer endpoint, may include open punches) ──
     if (action === 'employeePunches') {
       const { employeeId, startDate, endDate } = payload;
