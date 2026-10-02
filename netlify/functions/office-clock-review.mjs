@@ -421,19 +421,31 @@ export default async (request) => {
       return json(200, raw.data !== undefined ? raw.data : raw);
     }
 
-    // employeeSearch { query } -> { matches: [{ employeeId, employeeNumber, name, status, departmentId, departmentName }] }
+    // employeeSearch { query } -> { matches: [{ employeeId, employeeNumber, name, status, departmentId, jobTitle }] }
     //
     // Added 2026-10-02 after a real production CreatePunches 400: "Add
     // Employee"'s original manual-paste form let IT type whatever Paycor's UI
     // shows for "Employee ID" / "Department" — Paycor's own displayed
-    // employee number (e.g. "3407942469") and department label (e.g. "105 -
-    // Payroll - Administration") — neither of which is the internal GUID
-    // CreatePunches actually requires for EmployeeId/DepartmentId. Paycor
-    // rejected the batch with "Error converting value ... to type
-    // System.Guid" for exactly those two fields. This action is the fix:
-    // IT searches by name/employee number here, and the REAL GUIDs (e.id /
-    // e.department.id) are what actually gets returned and ultimately saved
-    // — never anything typed free-hand again.
+    // employee number and department label — neither of which is the
+    // internal GUID CreatePunches actually requires for EmployeeId/
+    // DepartmentId. Paycor rejected the batch with "Error converting value
+    // ... to type System.Guid" for exactly those two fields. This action is
+    // the fix: IT searches by name/employee number here, and the REAL GUIDs
+    // (e.id / e.department.id) are what actually gets returned and
+    // ultimately saved — never anything typed free-hand again.
+    //
+    // Two field-name gotchas confirmed against this legal entity's real data
+    // (2026-10-02, Miralben Shukla):
+    // - Paycor's UI "Employee Number" is `alternateEmployeeNumber` on the API
+    //   record, NOT `employeeNumber` (a different, internal-only number IT
+    //   never sees) — search and display both, so whichever one someone
+    //   copies from Paycor's screen still matches.
+    // - The employee record's `department` object is only `{ id, url }` —
+    //   Paycor's write-side employee list has no department NAME anywhere on
+    //   it (confirmed: no `department.name` field exists). `positionData.
+    //   jobTitle` (e.g. "Administration") is shown instead to help IT
+    //   confirm they picked the right person — it is not the department
+    //   name, just the closest human-readable context actually available.
     if (action === 'employeeSearch') {
       const q = (payload.query || '').trim();
       if (q.length < 2) return json(400, { error: 'Type at least 2 characters.' });
@@ -459,7 +471,9 @@ export default async (request) => {
       const matches = allEmployees
         .filter(e => {
           const fullName = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
-          return fullName.includes(qLower) || String(e.employeeNumber || '').includes(q);
+          return fullName.includes(qLower)
+            || String(e.employeeNumber || '').includes(q)
+            || String(e.alternateEmployeeNumber || '').includes(q);
         })
         // GUIDs only — an employee record missing either real GUID can never
         // be sent to CreatePunches successfully, so it's excluded here rather
@@ -468,11 +482,11 @@ export default async (request) => {
         .slice(0, 15)
         .map(e => ({
           employeeId: e.id,
-          employeeNumber: e.employeeNumber || '',
+          employeeNumber: e.alternateEmployeeNumber || e.employeeNumber || '',
           name: `${e.firstName || ''} ${e.lastName || ''}`.trim(),
           status: e.statusData?.status || e.status || '',
           departmentId: e.department.id,
-          departmentName: e.department.name || '',
+          jobTitle: e.positionData?.jobTitle || '',
         }));
       return json(200, { matches });
     }

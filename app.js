@@ -17803,7 +17803,7 @@ ${t2.slice(0, 300)}`);
       },
       /* @__PURE__ */ React.createElement("option", { value: "" }, "Select an office_staff account\u2026"),
       unlinkedOfficeStaff.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id, value: u.id }, u.name || u.username))
-    ), unlinkedOfficeStaff.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", marginTop: "0.3rem" } }, "No unlinked office_staff accounts available.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Employee"), selectedEmp ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.7rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, selectedEmp.name || "(no name on record)"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, selectedEmp.departmentName || "Unknown department", selectedEmp.employeeNumber ? ` \xB7 #${selectedEmp.employeeNumber}` : "", selectedEmp.status ? ` \xB7 ${selectedEmp.status}` : "")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clearEmpSelection, style: btn(th, { padding: "0.3rem 0.7rem", fontSize: "0.72rem" }) }, "Change")) : /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
+    ), unlinkedOfficeStaff.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", marginTop: "0.3rem" } }, "No unlinked office_staff accounts available.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { ...microLabel(th), display: "block", marginBottom: "0.3rem" } }, "Paycor Employee"), selectedEmp ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.7rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, selectedEmp.name || "(no name on record)"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, selectedEmp.jobTitle || "No job title on record", selectedEmp.employeeNumber ? ` \xB7 #${selectedEmp.employeeNumber}` : "", selectedEmp.status ? ` \xB7 ${selectedEmp.status}` : "")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clearEmpSelection, style: btn(th, { padding: "0.3rem 0.7rem", fontSize: "0.72rem" }) }, "Change")) : /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "text",
@@ -17822,7 +17822,7 @@ ${t2.slice(0, 300)}`);
         onMouseLeave: (e) => e.currentTarget.style.background = th.card2
       },
       /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, emp.name || "(no name on record)"),
-      /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, emp.departmentName || "Unknown department", emp.employeeNumber ? ` \xB7 #${emp.employeeNumber}` : "", emp.status ? ` \xB7 ${emp.status}` : "")
+      /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, emp.jobTitle || "No job title on record", emp.employeeNumber ? ` \xB7 #${emp.employeeNumber}` : "", emp.status ? ` \xB7 ${emp.status}` : "")
     ))), !empSearchLoading && !empSearchError && empSearchQuery.trim().length >= 2 && empSearchResults.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem", marginTop: "0.3rem" } }, "No matching Paycor employees found.")), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "0.25rem" } }, "Searches the office/corporate Paycor roster directly \u2014 the real IDs are pulled automatically, never typed."), duplicateEmpIdUser && /* @__PURE__ */ React.createElement("div", { style: { color: "#e03131", fontSize: "0.72rem", marginTop: "0.3rem", fontWeight: 600 } }, "This Paycor employee is already linked to ", duplicateEmpIdUser.name || duplicateEmpIdUser.username, " \u2014 a Paycor employee can only be linked to one Portal account.")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -23937,7 +23937,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.33";
+  var APP_VERSION = "v21.34";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

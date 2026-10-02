@@ -20940,7 +20940,7 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
   // fields). empSearch below is the only way these two ever get set now.
   const [empIdInput, setEmpIdInput] = React.useState('');
   const [deptIdInput, setDeptIdInput] = React.useState('');
-  const [selectedEmp, setSelectedEmp] = React.useState(null); // { employeeId, employeeNumber, name, status, departmentId, departmentName }
+  const [selectedEmp, setSelectedEmp] = React.useState(null); // { employeeId, employeeNumber, name, status, departmentId, jobTitle }
   const [empSearchQuery, setEmpSearchQuery] = React.useState('');
   const [empSearchResults, setEmpSearchResults] = React.useState([]);
   const [empSearchLoading, setEmpSearchLoading] = React.useState(false);
@@ -21078,7 +21078,7 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, color: th.text, fontSize: '0.85rem' }}>{selectedEmp.name || '(no name on record)'}</div>
                   <div style={{ color: th.muted, fontSize: '0.72rem' }}>
-                    {selectedEmp.departmentName || 'Unknown department'}{selectedEmp.employeeNumber ? ` · #${selectedEmp.employeeNumber}` : ''}{selectedEmp.status ? ` · ${selectedEmp.status}` : ''}
+                    {selectedEmp.jobTitle || 'No job title on record'}{selectedEmp.employeeNumber ? ` · #${selectedEmp.employeeNumber}` : ''}{selectedEmp.status ? ` · ${selectedEmp.status}` : ''}
                   </div>
                 </div>
                 <button type="button" onClick={clearEmpSelection} style={btn(th, { padding: '0.3rem 0.7rem', fontSize: '0.72rem' })}>Change</button>
@@ -21103,7 +21103,7 @@ function OfficeClockAdmin({ user, th, showAlert, users, setUsers }) {
                       >
                         <div style={{ fontWeight: 700, color: th.text, fontSize: '0.85rem' }}>{emp.name || '(no name on record)'}</div>
                         <div style={{ color: th.muted, fontSize: '0.72rem' }}>
-                          {emp.departmentName || 'Unknown department'}{emp.employeeNumber ? ` · #${emp.employeeNumber}` : ''}{emp.status ? ` · ${emp.status}` : ''}
+                          {emp.jobTitle || 'No job title on record'}{emp.employeeNumber ? ` · #${emp.employeeNumber}` : ''}{emp.status ? ` · ${emp.status}` : ''}
                         </div>
                       </div>
                     ))}
@@ -29886,7 +29886,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.33";
+const APP_VERSION = "v21.34";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
