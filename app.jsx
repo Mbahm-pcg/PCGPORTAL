@@ -4071,6 +4071,16 @@ function StoreMap({ stores, th, setTab, users, height }) {
   const mapRef        = React.useRef(null);
   const markersRef    = React.useRef([]);
   const heatRef       = React.useRef([]);
+  // Confirmed real bug (2026-10-05, full-app audit): callers pass `stores`
+  // as a freshly-filtered/mapped array on every one of THEIR renders (e.g.
+  // `stores.filter(...)` built inline in the tab router) — a brand-new
+  // reference even when the actual content hasn't changed. Both effects
+  // below depended on that raw array, so they tore down and rebuilt the
+  // live-heat poll and every map marker on every unrelated app re-render
+  // (chat poll, notifications poll, etc.), not just on a real store-data
+  // change. A cheap content fingerprint lets React's dependency check
+  // correctly treat "same stores, new reference" as unchanged.
+  const storesFingerprint = React.useMemo(() => stores.map(s => `${s.pc}:${s.status}`).join('|'), [stores]);
   const tileRef       = React.useRef(null);
   const selectRef     = React.useRef(null);
   const tileSwapReady = React.useRef(false);
@@ -4143,7 +4153,7 @@ function StoreMap({ stores, th, setTab, users, height }) {
     fetchLiveHeat();
     const id = setInterval(fetchLiveHeat, 15 * 60 * 1000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [stores]);
+  }, [storesFingerprint]);
 
   // Load hourly sales history when a pin is selected (for daypart heatmap)
   React.useEffect(() => {
@@ -4392,7 +4402,7 @@ function StoreMap({ stores, th, setTab, users, height }) {
         });
       markersRef.current.push(marker);
     });
-  }, [stores, ticketCounts, laborData, filterPerf, liveHeat]);
+  }, [storesFingerprint, ticketCounts, laborData, filterPerf, liveHeat]);
 
 
   // Style zoom controls to match theme
@@ -6613,6 +6623,13 @@ function AdminDistricts({ districts, setDistricts, stores, setStores, users, th 
   const [moveStore, setMoveStore] = useState(null); // { storeId, fromDist } for reassigning
 
   const distList = Object.values(districts).sort((a,b) => a.num - b.num);
+  // Confirmed real crash (2026-10-05, full-app audit): the expanded store-row
+  // below calls mgrOf(s), which was never actually defined in THIS component
+  // — only a same-named local inside the unrelated AdminLocations component
+  // existed. Expanding any district's store list threw a ReferenceError for
+  // every admin/office user, 100% reproducible. Same helper, same shape as
+  // every other call site in the file (storeMgrName(s, users)).
+  const mgrOf = (s) => storeMgrName(s, users);
 
   const saveEdit = () => {
     setDistricts(ds => ({ ...ds, [editDist]: { ...ds[editDist], ...distForm } }));
@@ -7942,6 +7959,19 @@ function emitSync(state, key) {
   try { window.dispatchEvent(new CustomEvent('pcg:sync', { detail: { state, key } })); } catch {}
 }
 
+// Cheap content-equality check for the "did a poll's fresh JSON actually
+// change" guard used by every periodic background refresh below (chat poll,
+// reports poll, …) — cloudLoad/JSON.parse hands back a brand-new array/object
+// reference every single call even when the underlying data is byte-identical,
+// so a plain setState(fresh) on an unconditional poll re-renders the entire
+// app every tick forever, with nothing on screen having actually changed.
+// Confirmed real (2026-10-05): this was read as the sidebar "flickering" /
+// "reloading itself" — a 12-second chat poll was doing exactly this across 6
+// separate pieces of state. Not a deep-equal in the general sense, just good
+// enough for comparing two JSON-shaped blobs, which is all every caller here
+// ever has.
+function sameJSON(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+
 // ── Maintenance tickets now live in Neon Postgres (tickets.mjs), not the
 //    `pcg_tickets_v1` Netlify Blob. The cloud helpers below transparently route
 //    that one key to the DB so every existing caller keeps using the same
@@ -8903,11 +8933,27 @@ function ManagerPulse({ stores, th, user, txnDeepLinkRef, initialTab }) {
 // ManagerSchedule below does that, for the one store a manager owns).
 function AdminSchedule({ stores, th, user }) {
   const [selectedStore, setSelectedStore] = useState(null);
+  const [search, setSearch] = useState('');
+  const [filterDistrict, setFilterDistrict] = useState('All');
   const isDM = user?.userType === 'dm';
   const visibleStores = React.useMemo(() => {
     if (isDM && user?.district != null) return (stores || []).filter(s => String(s.district) === String(user.district));
     return stores || [];
   }, [stores, isDM, user]);
+
+  // District dropdown is populated from whatever districts actually appear
+  // in `visibleStores` (not a separate districts prop/global list) — self-
+  // contained, and automatically correct for a DM already scoped to one.
+  const districtOptions = React.useMemo(() => [...new Set(visibleStores.map(s => s.district))].sort((a, b) => Number(a) - Number(b)), [visibleStores]);
+
+  const filteredStores = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return visibleStores.filter(s => {
+      if (filterDistrict !== 'All' && String(s.district) !== filterDistrict) return false;
+      if (q && !`${s.name} ${s.pc}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [visibleStores, search, filterDistrict]);
 
   if (selectedStore) {
     return (
@@ -8920,16 +8966,47 @@ function AdminSchedule({ stores, th, user }) {
 
   return (
     <div style={{ padding: '1rem' }}>
-      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Schedule</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
-        {visibleStores.map(s => (
-          <div key={s.pc} onClick={() => setSelectedStore(s)}
-            style={{ ...card(th), padding: '1rem', cursor: 'pointer' }}>
-            <div style={{ fontWeight: 700, color: th.text }}>{s.name}</div>
-            <div style={{ fontSize: '0.75rem', color: th.muted }}>PC# {s.pc} · District {s.district}</div>
-          </div>
-        ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
+        {ICONS.staffSchedule(th.text)}
+        <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 }}>Schedule</h2>
       </div>
+
+      {/* Search + district filter + live count */}
+      <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap', background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.75rem', padding: '0.7rem 0.9rem', marginBottom: '1rem' }}>
+        <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
+          <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: th.muted, pointerEvents: 'none', display: 'flex' }}>{ICONS.search(th.muted)}</span>
+          <input
+            style={{ ...inp(th), paddingLeft: '2.3rem', width: '100%' }}
+            placeholder="Search stores…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        {!isDM && districtOptions.length > 1 && (
+          <select style={{ ...inp(th), maxWidth: 200 }} value={filterDistrict} onChange={e => setFilterDistrict(e.target.value)}>
+            <option value="All">All Districts</option>
+            {districtOptions.map(d => <option key={d} value={String(d)}>District {d}</option>)}
+          </select>
+        )}
+        <span style={{ fontSize: '0.78rem', color: th.muted, fontWeight: 600, whiteSpace: 'nowrap' }}>{filteredStores.length} store{filteredStores.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      {filteredStores.length === 0 ? (
+        <div style={{ ...card(th), padding: '2rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem' }}>No stores match your search.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+          {filteredStores.map(s => (
+            <div key={s.pc} onClick={() => setSelectedStore(s)}
+              style={{ ...card(th), padding: '1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: th.text }}>{s.name}</div>
+                <div style={{ fontSize: '0.75rem', color: th.muted }}>PC# {s.pc} · District {s.district}</div>
+              </div>
+              <span style={{ flexShrink: 0, display: 'flex', transform: 'rotate(-90deg)' }}>{ICONS.chevronDown(th.muted)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -16427,6 +16504,18 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   const [projCityLoading, setProjCityLoading] = useState(false);
   const pros = professionals || DEFAULT_PROFESSIONALS;
 
+  // Confirmed real bug (2026-10-05, full-app audit): neither of these was ever
+  // cleared when switching projects — load Project A's Philly city data/
+  // zoning lookup, switch to Project B, and A's violations/licenses/crime/
+  // zoning data stayed visually attached to B's Zoning panel until someone
+  // happened to click Refresh/Lookup again. A real data-integrity risk (a DM
+  // could read another property's L&I violations as if they were the current
+  // project's). Reset the moment the selected project actually changes.
+  useEffect(() => {
+    setProjCityData(null);
+    setZoningData(null);
+  }, [selectedProject?.id]);
+
   // Deep-link: auto-open project from email link
   useEffect(() => {
     if (deepLinkRef?.current) {
@@ -21502,6 +21591,21 @@ function OfficeClockReview({ user, th, showAlert }) {
 
   React.useEffect(() => { load(); setEditingId(null); }, [load]);
   React.useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  // Confirmed real bug (2026-10-05, full-app audit): pollSendStatus closes
+  // over whatever periodEnd was current when Send was clicked, and nothing
+  // ever stopped it (or cleared the leftover `sendState` banner) if the admin
+  // switched the "Pay period ending" date picker while a send was still in
+  // flight. The stale poll's own `load()` call — also bound to the OLD
+  // periodEnd — would then silently overwrite whatever period the admin had
+  // since navigated to and started editing, with a "Done" banner left
+  // attached to a period that was never actually sent. Switching periods now
+  // abandons any in-flight poll for the period being left.
+  React.useEffect(() => {
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      setSendState(null);
+    };
+  }, [periodEnd]);
 
   const byEmployee = React.useMemo(() => {
     const m = new Map();
@@ -30246,7 +30350,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.52";
+const APP_VERSION = "v21.62";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32018,25 +32122,34 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
       const r = await portalChangePassword(profileForm.currentPassword, profileForm.newPassword);
       if (!r.ok) { setProfileMsg({ type:"error", text: r.error || "Could not change password — check your current password." }); return; }
     }
-    // Email/phone persist server-side (users.mjs allows a user to self-edit
-    // just these two fields regardless of role) — previously this only ever
-    // updated local React state, so it looked saved but never actually
-    // reached Neon: a refresh, another device, or Admin > Users still showed
-    // the old value, and anything reading the Users table server-side (e.g.
-    // the fleet due-date reminders) never saw it either.
-    // emailNotify/smsNotify/pushNotify have no backing column in the users
-    // table at all yet — still client-only, unrelated to this fix.
+    // Email/phone/notification prefs all persist server-side now (users.mjs
+    // allows a user to self-edit these five fields regardless of role).
+    // Previously the notify toggles were sent nowhere — kept in a client-
+    // only `notifUpdate` merge after the fact — because there was no column
+    // for them at all. Confirmed real (2026-10-05): that's exactly what
+    // "doesn't get saved" looks like — toggle it, it shows on; close and
+    // reopen the modal (or log in fresh, including on another device) and
+    // it's back to default, because nothing durable ever held the new
+    // value. Fixed alongside a second real gap in the same report: the
+    // session `user` object handed out at login never carried `phone` at
+    // all (portal-auth.mjs), so even email/phone's already-working save
+    // only ever "stuck" until the next login.
     try {
       const res = await fetch('/.netlify/functions/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ action: 'update', id: user.id, patch: { email: profileForm.email, phone: profileForm.phone } }),
+        body: JSON.stringify({
+          action: 'update', id: user.id,
+          patch: {
+            email: profileForm.email, phone: profileForm.phone,
+            emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify,
+          },
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) { setProfileMsg({ type: "error", text: json.error || `Could not save (${res.status}).` }); return; }
-      const notifUpdate = { emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify };
-      setUsers(us => us.map(u => u.id === user.id ? { ...u, ...json.user, ...notifUpdate } : u));
-      setUser(prev => ({ ...prev, ...json.user, ...notifUpdate }));
+      setUsers(us => us.map(u => u.id === user.id ? { ...u, ...json.user } : u));
+      setUser(prev => ({ ...prev, ...json.user }));
       setProfileMsg({ type:"success", text:"Profile updated!" });
       setTimeout(onClose, 1200);
     } catch (err) {
@@ -33349,8 +33462,18 @@ function AnomaliesTab({ stores, th, user, setTab }) {
     }).catch(() => setLoading(false));
   }, [loadLaborData]);
 
+  // Confirmed real bug (2026-10-05, full-app audit): for DM users, the tab
+  // router passes `stores.filter(...)` built inline on every PCGPortal
+  // render — a brand-new array reference even when the actual store list
+  // hasn't changed. With `stores` as a direct dependency below, this effect
+  // re-fired (and re-ran 25 concurrent fetches) on every unrelated app
+  // re-render (e.g. the ~12s chat poll), indefinitely, for as long as a DM
+  // had this tab open. A content fingerprint fixes the over-firing; `cancelled`
+  // additionally guards against an old run's results landing after a newer one.
+  const storesFingerprint = React.useMemo(() => stores.map(s => `${s.pc}:${s.status}`).join('|'), [stores]);
   React.useEffect(() => {
     if (!laborData) return;
+    let cancelled = false;
     const candidates = stores
       .filter(s => (s.status === 'Open' || s.status === 'Remodel') && laborData[s.pc]?.today != null)
       .slice(0, 25);
@@ -33361,12 +33484,14 @@ function AnomaliesTab({ stores, th, user, setTab }) {
         .then(d => ({ pc: s.pc, daily: d?.daily || [] }))
         .catch(() => ({ pc: s.pc, daily: [] }))
     )).then(results => {
+      if (cancelled) return;
       const h = {};
       results.forEach(({ pc, daily }) => { h[pc] = daily; });
       setStoreHistories(h);
       setLoadingStores(false);
     });
-  }, [laborData, stores]);
+    return () => { cancelled = true; };
+  }, [laborData, storesFingerprint]);
 
   const todayDow = new Date().getDay();
 
@@ -39460,7 +39585,10 @@ function OpsTasks({ stores, th, user }) {
     if (!silent) setLoading(true);
     if (view === "dashboard") {
       const dashData = await api("dashboard", { store_pc: storePc, date });
-      setDash(dashData);
+      // Same unvalidated-error-response crash class as loadGps/loadRollup —
+      // a backend error object has no `totals`/`categories`, and the render
+      // dereferences both unconditionally.
+      setDash(dashData && dashData.totals && Array.isArray(dashData.categories) ? dashData : { totals: {}, open_cas: 0, categories: [] });
     } else {
       const result = await api("list", { store_pc: storePc, date });
       setData(result);
@@ -39490,7 +39618,11 @@ function OpsTasks({ stores, th, user }) {
   const loadRollup = useCallback(async () => {
     setLoading(true);
     const r = await api("rollup", { date, district: isDM ? user?.district : null });
-    setRollup(r); setLoading(false);
+    // Same unvalidated-error-response crash class as loadGps below — a
+    // backend error object has no `stores` array, and the render dereferences
+    // rollup.stores.length/.map unconditionally.
+    setRollup(r && Array.isArray(r.stores) ? r : { stores: [] });
+    setLoading(false);
   }, [api, date, isDM, user]);
 
   const loadCAs = useCallback(async () => {
@@ -39510,7 +39642,13 @@ function OpsTasks({ stores, th, user }) {
       const d = new Date(to + "T12:00:00"); d.setDate(d.getDate() - (gpsDays - 1));
       const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const r = await api("gps_audit", { from, to, store_pcs: scopeStores.map((s) => String(s.pc)) });
-      setGpsRows(r);
+      // Confirmed real crash (2026-10-05, full-app audit): `api()` never checks
+      // res.ok — a backend 500 (`{error, detail}`, no `summary`/`exceptions`)
+      // passed straight through and crashed the render on
+      // gpsRows.summary.total. Same safe-fallback shape used by loadMerch
+      // below for the identical class of failure.
+      if (r && r.summary && Array.isArray(r.exceptions)) setGpsRows(r);
+      else setGpsRows({ summary: { total: 0, onsite: 0, offsite: 0, noLocation: 0, unverified: 0 }, points: [], exceptions: [] });
     } finally { setGpsLoading(false); }
   }, [api, gpsDays, scopeStores]);
 
@@ -41025,6 +41163,14 @@ function ImpactRadar({ th, user, dark, salesWeeks }) {
     }
     map.setView([eventLatLng.lat, eventLatLng.lng], 13);
   }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
+
+  // Confirmed real bug (2026-10-05, full-app audit): unlike this file's other
+  // two Leaflet map components (StoreMap, ClosestToFinder — both call
+  // mapRef.current.remove() on unmount), this map was never torn down.
+  // Leaving/returning to this tab within the same session created a brand-new
+  // map bound to a brand-new div every time, leaking the previous map's tile/
+  // resize listeners each time.
+  useEffect(() => () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } }, []);
 
   return (
     <div style={{ padding: '1rem', color: th.text }}>
@@ -43221,10 +43367,17 @@ function QuickFindBar({ th, tabs, onNavigate }) {
           onFocus={() => setShowSuggestions(true)}
           onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
           onKeyDown={e => { if (e.key === 'Enter' && matches[0]) goToMatch(matches[0]); if (e.key === 'Escape') { setQuery(''); setShowSuggestions(false); } }}
-          placeholder="Quick find — try typing a feature name…"
+          placeholder="Search anything…"
           style={{ ...inp(th), paddingLeft: '2.5rem', width: '100%' }}
         />
       </div>
+      {/* Static helper caption — only while idle (empty query, nothing to search
+          yet) so it never competes with the suggestions dropdown below. */}
+      {query.trim().length === 0 && (
+        <div style={{ fontSize: '0.66rem', color: th.muted, opacity: 0.7, marginTop: '0.3rem', marginLeft: '0.2rem' }}>
+          Stores, employees, tasks, projects…
+        </div>
+      )}
       {showSuggestions && matches.length > 0 && (
         <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.7rem', boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden' }}>
           {matches.map(t => (
@@ -45187,22 +45340,32 @@ function ReportsTab({ th, user, showAlert, reportsIndex, reportsReadIds, setRepo
     setReportsUnreadCount(0);
   };
 
+  // Confirmed real bug (2026-10-05, full-app audit): no guard against
+  // overlapping selections — clicking report A then report B before A's
+  // cloudLoad resolves could let A's slower response land AFTER B's and
+  // overwrite reportDetail with A's body while selectedReport still (correctly)
+  // shows B's header, mismatching title and content. A simple per-call token
+  // discards any response that isn't from the most recent selection.
+  const selectReportTokenRef = useRef(0);
   const handleSelectReport = async (rpt) => {
+    const myToken = ++selectReportTokenRef.current;
     setSelectedReport(rpt);
     setLoadingReport(true);
     try {
       const detail = await cloudLoad(`analyst/reports/${rpt.id}`);
+      if (selectReportTokenRef.current !== myToken) return; // a newer selection has since started
       setReportDetail(detail);
       if (!reportsReadIds.includes(rpt.id)) {
         const updated = [...reportsReadIds, rpt.id];
         await cloudSave(`analyst/reports-read/${user.id}`, updated);
+        if (selectReportTokenRef.current !== myToken) return;
         setReportsReadIds(updated);
         setReportsUnreadCount(prev => Math.max(0, prev - 1));
       }
     } catch (e) {
-      showAlert('Failed to load report.', 'error');
+      if (selectReportTokenRef.current === myToken) showAlert('Failed to load report.', 'error');
     } finally {
-      setLoadingReport(false);
+      if (selectReportTokenRef.current === myToken) setLoadingReport(false);
     }
   };
 
@@ -46213,7 +46376,12 @@ function KnowledgeBase({ th, user, showAlert, stores }) {
 
   const filtered = articles.filter(a => {
     if (catFilter !== "All" && a.category !== catFilter) return false;
-    if (search && !a.title.toLowerCase().includes(search.toLowerCase()) && !a.description.toLowerCase().includes(search.toLowerCase())) return false;
+    // (a.description || "") — confirmed real crash (2026-10-05, full-app
+    // audit): every other read of this field in this component already
+    // guards it (`a.description && ...`), implying an article CAN lack one
+    // (e.g. seeded/migrated outside the normal create flow); unguarded here,
+    // typing anything into KB search crashed the whole article list.
+    if (search && !a.title.toLowerCase().includes(search.toLowerCase()) && !(a.description || "").toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
@@ -49470,9 +49638,12 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
   const [maintSaving,  setMaintSaving]  = React.useState(false);
 
   React.useEffect(() => {
+    // Same unconditional-setState-on-poll bug as MaintenanceCalendar's ticket
+    // refresh (confirmed real, 2026-10-05 full-app audit) — cloudLoad hands
+    // back a fresh reference every call even when nothing changed.
     const load = () => {
-      cloudLoad('pcg_tickets_v1').then(d => { if (Array.isArray(d)) setTickets(d); }).catch(() => {});
-      cloudLoad(MAINT_SCHEDULE_KEY).then(d => { if (Array.isArray(d)) setSchedules(d); }).catch(() => {});
+      cloudLoad('pcg_tickets_v1').then(d => { if (Array.isArray(d)) setTickets(prev => sameJSON(prev, d) ? prev : d); }).catch(() => {});
+      cloudLoad(MAINT_SCHEDULE_KEY).then(d => { if (Array.isArray(d)) setSchedules(prev => sameJSON(prev, d) ? prev : d); }).catch(() => {});
     };
     load();
     const interval = setInterval(load, 60000); // sync every 60s
@@ -49826,7 +49997,12 @@ function MaintenanceCalendar({ th, user, stores, todos, setTodos }) {
   const today = new Date(); today.setHours(0,0,0,0);
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
   React.useEffect(() => {
-    const refresh = () => { try { const t = JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); setTickets(t); } catch {} };
+    // Confirmed real bug (2026-10-05, full-app audit): JSON.parse returns a
+    // new array reference every tick even when the ticket data hasn't
+    // changed, so this unconditionally re-rendered the whole calendar grid
+    // every 3 seconds forever — the exact bug class `sameJSON` (app.jsx,
+    // near emitSync) was written to fix elsewhere, never applied here.
+    const refresh = () => { try { const t = JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); setTickets(prev => sameJSON(prev, t) ? prev : t); } catch {} };
     const id = setInterval(refresh, 3000);
     return () => clearInterval(id);
   }, []);
@@ -50853,6 +51029,12 @@ function PCGPortal() {
     try { const s = localStorage.getItem('pcg_sidebar_sections'); if (s) return JSON.parse(s); } catch {}
     return {};
   });
+  // Favorites "Manage" mode (2026-10-05): clicking Manage used to just show a
+  // one-off alert pointing at the pin star, which did genuinely nothing you
+  // could act on from that click itself — this instead flips every Favorites
+  // row into an explicit remove-only state (no accidental navigation while
+  // managing), with the link itself becoming "Done" to exit.
+  const [managingFavorites, setManagingFavorites] = useState(false);
   const [links, setLinks]       = useState(() => { const s=loadFromStorage(); return s?.links    || INIT_LINKS; });
   const [notes, setNotes]       = useState(() => { const s=loadFromStorage(); return s?.notes    || {}; });
   const [todos, setTodos]       = useState(() => { const s=loadFromStorage(); return s?.todos    || []; });
@@ -51306,8 +51488,11 @@ function PCGPortal() {
         if (ut === 'office_staff') return r.scope === 'network';
         return r.scope === 'network';
       });
-      setReportsIndex(visible);
-      setReportsReadIds(read);
+      // Same unconditional-setState-on-a-poll issue as the chat poll above
+      // (fresh JSON parse = new reference every call even when nothing
+      // changed) — guarded the same way.
+      setReportsIndex(prev => sameJSON(prev, visible) ? prev : visible);
+      setReportsReadIds(prev => sameJSON(prev, read) ? prev : read);
       setReportsUnreadCount(visible.filter(r => !read.includes(r.id)).length);
     }
     loadReportsState();
@@ -52083,12 +52268,23 @@ function PCGPortal() {
           cloudLoad('pcg_notifications_v1'),
         ]);
         chatPollActive.current = true;
-        if (ch && Array.isArray(ch)) setChatChannels(ch);
-        if (ms && Array.isArray(ms)) setChatMessages(ms);
-        if (rd && typeof rd === 'object' && rd !== null) setChatReadState(rd);
-        if (ann && Array.isArray(ann)) setAnnouncements(ann);
-        if (dis && typeof dis === 'object' && dis !== null) setAnnouncementsDismissed(dis);
-        if (acc && typeof acc === 'object' && !Array.isArray(acc)) setAccessOverrides(acc);
+        // Confirmed real (2026-10-05): cloudLoad parses fresh JSON every call, so
+        // even when NOTHING changed server-side, every one of these came back as
+        // a brand-new array/object reference — unconditionally calling setX(fresh)
+        // below made React treat it as changed state every single time, re-
+        // rendering the entire PCGPortal tree (sidebar included) every 12 seconds
+        // forever, which is exactly what read as the sidebar "flickering" /
+        // "reloading itself". `setNotifications` below already had the right
+        // pattern (bail out to the SAME `prev` reference when nothing new exists,
+        // which lets React skip the re-render) — applying the same guard (via
+        // the shared sameJSON helper above) to the rest here instead of a
+        // second, inconsistent fix.
+        if (ch && Array.isArray(ch)) setChatChannels(prev => sameJSON(prev, ch) ? prev : ch);
+        if (ms && Array.isArray(ms)) setChatMessages(prev => sameJSON(prev, ms) ? prev : ms);
+        if (rd && typeof rd === 'object' && rd !== null) setChatReadState(prev => sameJSON(prev, rd) ? prev : rd);
+        if (ann && Array.isArray(ann)) setAnnouncements(prev => sameJSON(prev, ann) ? prev : ann);
+        if (dis && typeof dis === 'object' && dis !== null) setAnnouncementsDismissed(prev => sameJSON(prev, dis) ? prev : dis);
+        if (acc && typeof acc === 'object' && !Array.isArray(acc)) setAccessOverrides(prev => sameJSON(prev, acc) ? prev : acc);
         // Merge in only notifications we don't already have locally (e.g. from a
         // server-side cron like pos-negative-cron) — never overwrite, since local
         // read-state for existing notifs must survive this poll.
@@ -52687,14 +52883,21 @@ function PCGPortal() {
   const isAuditor      = user?.userType === "auditor";
 
   // ─── Reusable nav button — same shape for all sections, just different color ───
-  const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin }) => {
+  const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin, favoriteTint, removeMode }) => {
     const C = accent;
     const inactiveColor = th.muted;
+    // Active rows are now a solid filled pill with white text/icon (previously
+    // a subtle tinted background with colored text) — matching the requested
+    // redesign. Favorites rows additionally keep a soft, permanent tint even
+    // while inactive (the "peach" look), instead of sitting fully transparent
+    // like every other section's rows until hovered.
+    const restBg = isActive ? C : (favoriteTint ? `${C}14` : "transparent");
+    const restColor = isActive ? "#fff" : inactiveColor;
     return (
       <button
         key={tabDef.id}
         className="nav-row"
-        onClick={onClick}
+        onClick={removeMode ? undefined : onClick}
         title={collapsed ? tabDef.label : undefined}
         style={{
           position: "relative",
@@ -52704,77 +52907,82 @@ function PCGPortal() {
           padding: collapsed ? "0.7rem 0" : "0.65rem 0.85rem",
           borderRadius: "0.625rem",
           border: "none",
-          cursor: "pointer",
+          cursor: removeMode ? "default" : "pointer",
           justifyContent: collapsed ? "center" : "flex-start",
           fontFamily: "'Source Sans 3'",
           fontSize: "0.8rem",
           fontWeight: isActive ? 700 : 500,
-          background: isActive ? `${C}18` : "transparent",
-          color: isActive ? C : inactiveColor,
+          background: restBg,
+          color: restColor,
+          boxShadow: isActive ? `0 4px 14px ${C}55` : "none",
           transition: "all .2s cubic-bezier(.4,0,.2,1)",
           marginBottom: "0.2rem",
           textAlign: "left",
           overflow: "hidden",
         }}
-        onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = th.card3; e.currentTarget.style.color = th.text; e.currentTarget.style.transform = "translateX(2px)"; } }}
-        onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = inactiveColor; e.currentTarget.style.transform = "none"; } }}
+        onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = favoriteTint ? `${C}26` : th.card3; e.currentTarget.style.color = th.text; e.currentTarget.style.transform = "translateX(2px)"; } }}
+        onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = restBg; e.currentTarget.style.color = restColor; e.currentTarget.style.transform = "none"; } }}
       >
-        {/* Active rail indicator on the left */}
-        {isActive && (
-          <span aria-hidden="true" style={{
-            position: "absolute",
-            left: collapsed ? "50%" : 0,
-            top: collapsed ? "auto" : "20%",
-            bottom: collapsed ? -2 : "20%",
-            width: collapsed ? 18 : 4,
-            height: collapsed ? 3 : "auto",
-            transform: collapsed ? "translateX(-50%)" : "none",
-            background: C,
-            borderRadius: 999,
-            boxShadow: `0 0 12px ${C}cc, 0 0 4px ${C}`,
-          }} />
-        )}
         <span style={{
           fontSize: "0.95rem",
           display: "flex", alignItems: "center", justifyContent: "center",
           flexShrink: 0,
           width: collapsed ? undefined : 18,
-          filter: isActive && glow ? `drop-shadow(0 0 6px ${C})` : "none",
+          filter: isActive && glow ? `drop-shadow(0 0 6px #fff)` : "none",
           transition: "filter .2s",
         }}>
-          {typeof tabDef.icon === "function" ? tabDef.icon(isActive ? C : inactiveColor) : tabDef.icon}
+          {typeof tabDef.icon === "function" ? tabDef.icon(isActive ? "#fff" : inactiveColor) : tabDef.icon}
         </span>
         {!collapsed && <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tabDef.label}</span>}
-        {/* Pin / unpin toggle — appears on row hover, stays lit when pinned */}
+        {/* Pin / unpin toggle — in Favorites' "Manage" mode this becomes an
+            explicit, prominent "Remove" pill instead of the small star, since
+            the whole row's normal click-to-navigate is disabled while managing. */}
         {!collapsed && onTogglePin && !tabDef.noPinToggle && (
-          <span
-            className={"nav-pin" + (pinned ? " pinned" : "")}
-            role="button"
-            title={pinned ? "Unpin from top" : "Pin to top"}
-            onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0, marginLeft: 2, width: 18, height: 18, borderRadius: 5,
-              color: pinned ? C : th.muted,
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? C : "none"} stroke={pinned ? C : "currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" />
-            </svg>
-          </span>
+          removeMode ? (
+            <button
+              role="button"
+              title="Remove from Favorites"
+              onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
+              style={{
+                display: "flex", alignItems: "center", gap: "0.25rem", flexShrink: 0,
+                padding: "0.2rem 0.5rem", borderRadius: 999, border: "1px solid #ef444455",
+                background: "#ef444418", color: "#ef4444",
+                fontSize: "0.6rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4,
+                fontFamily: "'Source Sans 3'", cursor: "pointer",
+              }}
+            >
+              ✕ Remove
+            </button>
+          ) : (
+            <span
+              className={"nav-pin" + (pinned ? " pinned" : "")}
+              role="button"
+              title={pinned ? "Unpin from top" : "Pin to top"}
+              onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0, marginLeft: 2, width: 18, height: 18, borderRadius: 5,
+                color: pinned ? (isActive ? "#fff" : C) : (isActive ? "#ffffffaa" : th.muted),
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" />
+              </svg>
+            </span>
+          )
         )}
         {/* Number badge */}
         {badge != null && badge > 0 && (
           collapsed ? (
-            <span style={{ position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: C, boxShadow: `0 0 6px ${C}` }} />
+            <span style={{ position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: isActive ? "#fff" : C, boxShadow: `0 0 6px ${C}` }} />
           ) : (
             <span style={{
               minWidth: 20, height: 18, borderRadius: 999,
-              background: C, color: "#fff",
+              background: isActive ? "rgba(255,255,255,0.3)" : C, color: "#fff",
               fontSize: "0.58rem", fontWeight: 900,
               display: "flex", alignItems: "center", justifyContent: "center",
               padding: "0 6px",
-              boxShadow: `0 2px 10px ${C}99`,
+              boxShadow: isActive ? "none" : `0 2px 10px ${C}99`,
               letterSpacing: "0.3px",
             }}>
               {badge > 99 ? "99+" : badge}
@@ -52789,45 +52997,67 @@ function PCGPortal() {
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite", flexShrink: 0 }} />
           )
         )}
+        {/* Trailing chevron — purely an affordance (every row already navigates
+            on click), matches the redesign's row style across the whole sidebar. */}
+        {!collapsed && (
+          <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", opacity: isActive ? 0.85 : 0.45, transform: "rotate(-90deg)", marginLeft: 2 }}>
+            {ICONS.chevronDown(isActive ? "#fff" : th.muted)}
+          </span>
+        )}
       </button>
     );
   };
 
   // ─── Section header divider with optional label ───
-  const SectionHeader = ({ label, accent, collapsed, onToggle, open }) => {
+  // `right` is an optional trailing action rendered after the divider line
+  // (currently just Favorites' "Manage" link) — kept generic rather than a
+  // one-off special case, in case another section wants one later.
+  const SectionHeader = ({ label, accent, collapsed, onToggle, open, right }) => {
     if (collapsed) return (
       <div style={{ height: 1, margin: "0.85rem 0.65rem", background: `linear-gradient(90deg, transparent, ${th.sidebarBorder}, transparent)` }} />
     );
     const clickable = typeof onToggle === "function";
     return (
-      <div
-        onClick={onToggle}
-        title={clickable ? (open ? "Collapse section" : "Expand section") : undefined}
-        style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }}
-      >
-        <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` }} />
-        <span style={{
-          display: "inline-flex", alignItems: "center", gap: "0.3rem",
-          fontSize: "0.55rem", fontWeight: 800,
-          color: accent, letterSpacing: 1.6, textTransform: "uppercase",
-          padding: "0.15rem 0.5rem",
-          background: `${accent}12`,
-          borderTop: `1px solid ${accent}33`,
-          borderLeft: `1px solid ${accent}33`,
-          borderRight: `1px solid ${accent}33`,
-          borderBottom: `2px solid ${accent}66`,
-          borderRadius: 999,
-        }}>
-          {label}
-          {clickable && (
-            <span style={{
-              fontSize: "0.45rem", opacity: 0.7,
-              transition: "transform 0.22s", display: "inline-block",
-              transform: open ? "rotate(90deg)" : "none",
-            }}>▶</span>
-          )}
-        </span>
-        <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` }} />
+      // `right` (currently just Favorites' "Manage" link) is positioned
+      // absolutely on its own, rather than taking flex space from the right-
+      // hand divider line — that used to shrink the line to make room, which
+      // dragged the centered label off-center toward it. This way the label
+      // stays dead-center regardless of whether `right` is present at all.
+      <div style={{ position: "relative", margin: "1rem 0.5rem 0.55rem" }}>
+        <div
+          onClick={onToggle}
+          title={clickable ? (open ? "Collapse section" : "Expand section") : undefined}
+          style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }}
+        >
+          <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` }} />
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: "0.3rem",
+            fontSize: "0.55rem", fontWeight: 800,
+            color: accent, letterSpacing: 1.6, textTransform: "uppercase",
+            padding: "0.15rem 0.5rem",
+            background: `${accent}12`,
+            borderTop: `1px solid ${accent}33`,
+            borderLeft: `1px solid ${accent}33`,
+            borderRight: `1px solid ${accent}33`,
+            borderBottom: `2px solid ${accent}66`,
+            borderRadius: 999,
+          }}>
+            {label}
+            {clickable && (
+              <span style={{
+                fontSize: "0.45rem", opacity: 0.7,
+                transition: "transform 0.22s", display: "inline-block",
+                transform: open ? "rotate(90deg)" : "none",
+              }}>▶</span>
+            )}
+          </span>
+          <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` }} />
+        </div>
+        {right && (
+          <div style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", background: th.sidebar || th.card, paddingLeft: "0.4rem" }}>
+            {right}
+          </div>
+        )}
       </div>
     );
   };
@@ -52866,8 +53096,11 @@ function PCGPortal() {
           }} />
         </div>
 
-        {/* Logo + UOP wordmark */}
-        <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: collapsed ? 0 : "0.45rem", padding: "0.25rem 0" }}>
+        {/* Logo + UOP wordmark — side-by-side (logo left, UOP over subtitle
+            stacked to its right), not a centered vertical stack, matching the
+            reference exactly. Collapsed (icon-only) width still centers just
+            the logo alone, since there's no room for the text pair there. */}
+        <div style={{ position: "relative", display: "flex", flexDirection: collapsed ? "column" : "row", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: collapsed ? 0 : "0.65rem", padding: "0.25rem 0" }}>
           <img
             ref={logoRef}
             src={LOGOS[th.logoSeal]}
@@ -52875,10 +53108,11 @@ function PCGPortal() {
             className={logoAnim ? "logo-transitioning" : ""}
             onClick={handleToggle}
             style={{
-              width: collapsed ? 40 : 64,
-              height: collapsed ? 40 : 64,
+              width: collapsed ? 40 : 52,
+              height: collapsed ? 40 : 52,
               objectFit: "contain",
               cursor: "pointer",
+              flexShrink: 0,
               transition: "filter 0.1s, width .25s, height .25s, transform .2s",
               filter: `drop-shadow(0 6px 16px ${O}55)`,
             }}
@@ -52887,11 +53121,10 @@ function PCGPortal() {
             onMouseLeave={e => e.currentTarget.style.transform = "none"}
           />
           {!collapsed && (
-            <>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem", minWidth: 0 }}>
               <div style={{
-                fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.65rem",
-                letterSpacing: -1, lineHeight: 1.05,
-                padding: "0.1rem 0.2rem",
+                fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem",
+                letterSpacing: -1, lineHeight: 1,
                 background: "linear-gradient(135deg, #FF671F 0%, #ff9055 50%, #FF671F 100%)",
                 WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
@@ -52899,13 +53132,12 @@ function PCGPortal() {
                 UOP
               </div>
               <div style={{
-                fontSize: "0.52rem", fontWeight: 800, color: th.muted,
-                letterSpacing: 1.5, textTransform: "uppercase",
+                fontSize: "0.68rem", fontWeight: 500, color: th.muted,
                 whiteSpace: "nowrap",
               }}>
                 Unified Operations Portal
               </div>
-            </>
+            </div>
           )}
         </div>
 
@@ -52948,80 +53180,96 @@ function PCGPortal() {
                 </div>
                 <div style={{ fontSize: "0.66rem", color: th.muted, marginTop: "0.1rem" }}>{user.role}</div>
               </div>
-              <span style={{ flexShrink: 0, display: "flex", alignItems: "center", opacity: 0.6 }}>{ICONS.settings(th.muted)}</span>
+              <span style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: "0.1rem", opacity: 0.6 }}>
+                {ICONS.settings(th.muted)}
+                <span style={{ display: "flex", transform: "rotate(-90deg)" }}>{ICONS.chevronDown(th.muted)}</span>
+              </span>
             </>
           )}
         </div>
 
-        {/* Quick actions row — theme toggle, export, import, sign out */}
+        {/* Quick actions row — theme toggle, export, import. Matches the
+            reference exactly: 3 across in one row (Light / Download /
+            Upload), no 4th button competing for the same space. Sign out
+            moved to its own slim line below instead of being squeezed in
+            here — it's a distinct, rarer, more consequential action anyway,
+            so giving it its own row also reads as more intentional than
+            cramming it in beside Light/Download/Upload. */}
         {!collapsed && (
-          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.7rem" }}>
+          <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.7rem" }}>
             {/* Theme switch */}
-            <div onClick={handleToggle} title="Toggle theme" style={{
-              display: "flex", alignItems: "center", gap: "0.35rem",
-              flex: 1,
-              padding: "0.4rem 0.55rem",
-              background: th.card3,
-              border: `1px solid ${th.cardBorder}`,
-              borderRadius: "0.5rem",
-              cursor: "pointer",
-              transition: "all .2s",
-            }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = `${O}55`}
-            onMouseLeave={e => e.currentTarget.style.borderColor = th.cardBorder}>
-              <div style={{
-                width: 26, height: 14, borderRadius: 999,
-                background: dark ? O : "#cbd5e1",
-                position: "relative",
-                transition: "background .25s",
-                flexShrink: 0,
-                boxShadow: dark ? `0 0 8px ${O}66` : "none",
-              }}>
-                <div style={{
-                  position: "absolute", top: 1.5, left: dark ? 13 : 1.5,
-                  width: 11, height: 11, borderRadius: "50%",
-                  background: "#fff",
-                  transition: "left .25s",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-                }} />
-              </div>
-              <span style={{ fontSize: "0.6rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>{dark ? "Dark" : "Light"}</span>
-            </div>
-            {(isFullAdmin(user) || isOfficeStaff) && (
-              <>
-                <button onClick={handleExport} title="Export data" style={{
-                  padding: "0.4rem", background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem",
-                  color: O, cursor: "pointer", display: "flex", alignItems: "center", transition: "all .2s",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.borderColor = `${O}55`; }}
-                onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>{ICONS.download(O)}</button>
-                <button onClick={() => importRef.current?.click()} title="Import data" style={{
-                  padding: "0.4rem", background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem",
-                  color: O, cursor: "pointer", display: "flex", alignItems: "center", transition: "all .2s",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.borderColor = `${O}55`; }}
-                onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>{ICONS.upload(O)}</button>
-              </>
-            )}
-            <button onClick={handleLogout} title="Sign out" style={{
-              padding: "0.4rem 0.55rem",
+            <button onClick={handleToggle} title="Toggle theme" style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem",
+              flex: 1, minWidth: 0,
+              padding: "0.4rem 0.5rem",
               background: th.card3,
               border: `1px solid ${th.cardBorder}`,
               borderRadius: "0.5rem",
               color: th.muted,
-              fontSize: "0.6rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6,
+              fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4,
               cursor: "pointer", fontFamily: "'Source Sans 3'", transition: "all .2s",
+              overflow: "hidden", whiteSpace: "nowrap",
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = "#ef444422"; e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.borderColor = "#ef444455"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.color = th.muted; e.currentTarget.style.borderColor = th.cardBorder; }}>
-              Out
+            onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.borderColor = `${O}55`; }}
+            onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>
+              {dark ? ICONS.moon(th.muted) : ICONS.sun(th.muted)}
+              {dark ? "Dark" : "Light"}
+              <span style={{ display: "flex", opacity: 0.6 }}>{ICONS.chevronDown(th.muted)}</span>
             </button>
+            {(isFullAdmin(user) || isOfficeStaff) && (
+              <>
+                <button onClick={handleExport} title="Download a backup of this data" style={{
+                  flex: 1, minWidth: 0,
+                  padding: "0.4rem 0.35rem", background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem",
+                  color: O, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.25rem",
+                  fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, fontFamily: "'Source Sans 3'",
+                  transition: "all .2s", overflow: "hidden", whiteSpace: "nowrap",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.borderColor = `${O}55`; }}
+                onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>{ICONS.download(O)}Download</button>
+                <button onClick={() => importRef.current?.click()} title="Upload data from a backup file" style={{
+                  flex: 1, minWidth: 0,
+                  padding: "0.4rem 0.35rem", background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem",
+                  color: O, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.25rem",
+                  fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, fontFamily: "'Source Sans 3'",
+                  transition: "all .2s", overflow: "hidden", whiteSpace: "nowrap",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.borderColor = `${O}55`; }}
+                onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>{ICONS.upload(O)}Upload</button>
+              </>
+            )}
           </div>
+        )}
+        {!collapsed && (
+          <button onClick={handleLogout} title="Sign out" style={{
+            width: "100%",
+            marginTop: "0.4rem",
+            padding: "0.35rem 0.55rem",
+            background: "transparent",
+            border: "none",
+            color: th.muted,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "0.35rem",
+            fontSize: "0.62rem", fontWeight: 700,
+            cursor: "pointer", fontFamily: "'Source Sans 3'", transition: "color .2s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = "#ef4444"; }}
+          onMouseLeave={e => { e.currentTarget.style.color = th.muted; }}>
+            {ICONS.logout("currentColor")}
+            Sign out
+          </button>
         )}
       </div>
 
       {/* ─── Nav body ─────────────────────────────────────────────────── */}
       <div ref={navRef} onScroll={onNavScroll} className="sidebar-nav-scroll" style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
+        {/* Quick-nav search — the actual sidebar the user sees (2026-10-05: an
+            earlier pass put this on the MOBILE icon-grid launcher's own,
+            separate "Quick Access" screen, going on a guess about which
+            "Quick Access" the request meant — this expanded desktop/tablet
+            sidebar, with its own SectionHeader "Quick Access" just below, was
+            the real one). Hidden when collapsed to icon-only width — a text
+            input has nowhere to go there. */}
+        {!collapsed && <QuickFindBar th={th} tabs={TABS} onNavigate={setTab} />}
         {/* ── Pinned favorites — surfaced at the very top, user-customizable.
              Dashboard is always pinned first (it can't be unpinned) so every role
              lands on it; store tablets use a separate view and never reach here. ── */}
@@ -53032,7 +53280,12 @@ function PCGPortal() {
           if (quickTabs.length === 0) return null;
           return (
             <>
-              <SectionHeader label="Quick Access" accent={O} collapsed={collapsed} />
+              <SectionHeader label="Favorites" accent={O} collapsed={collapsed} right={!collapsed && (
+                <span role="button" onClick={() => setManagingFavorites(m => !m)}
+                  style={{ fontSize: '0.62rem', fontWeight: 700, color: managingFavorites ? '#22c55e' : O, cursor: 'pointer', whiteSpace: 'nowrap', paddingRight: '0.2rem' }}>
+                  {managingFavorites ? 'Done ✓' : 'Manage ›'}
+                </span>
+              )} />
               {quickTabs.map(t => {
                 const C = t.cash ? (cashMissingCount > 0 ? "#ef4444" : "#00d084") : (t.green ? "#00d084" : O);
                 return (
@@ -53046,6 +53299,8 @@ function PCGPortal() {
                     glow={t.green || t.cash}
                     dotColor={C}
                     pinned
+                    favoriteTint
+                    removeMode={managingFavorites}
                     onTogglePin={togglePinNav}
                     onClick={() => { setTab(t.id); onNav && onNav(); }}
                   />
@@ -53326,17 +53581,32 @@ function PCGPortal() {
         gap: "0.5rem",
         transition: "padding .25s",
       }}>
-        {!collapsed && (
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: "0.35rem",
-            fontSize: "0.55rem", color: th.muted, fontWeight: 700, letterSpacing: 0.5,
-            opacity: 0.55,
-          }}>
-            <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" }} />
-            {APP_VERSION}
-            <SyncStatus dark={dark} />
-          </div>
-        )}
+        {!collapsed && (() => {
+          // A plain read, not a hook — this function sits after an earlier
+          // conditional `return` (store_tablet), so a new useState/useEffect
+          // here would be called inconsistently across renders. navigator
+          // .onLine is real (not decorative), just not live-reactive: it only
+          // reflects connectivity as of whenever this footer happens to
+          // re-render, which — given everything else polling in this app —
+          // is often enough for a footer status line.
+          const online = typeof navigator === "undefined" || navigator.onLine;
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", minWidth: 0 }}>
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: "0.35rem",
+                fontSize: "0.58rem", color: online ? th.muted : "#ef4444", fontWeight: 700, letterSpacing: 0.3,
+                opacity: online ? 0.7 : 0.9,
+              }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: online ? "#22c55e" : "#ef4444", boxShadow: `0 0 5px ${online ? "#22c55e" : "#ef4444"}`, animation: online ? "pulse 2s ease-in-out infinite" : "none", flexShrink: 0 }} />
+                {online ? "System operational" : "Connection lost"}
+              </div>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.55rem", color: th.muted, fontWeight: 700, letterSpacing: 0.5, opacity: 0.55 }}>
+                {APP_VERSION}
+                <SyncStatus dark={dark} />
+              </div>
+            </div>
+          );
+        })()}
         {/* Collapse toggle — desktop only */}
         {!onNav && (
           <button onClick={() => setSidebarCollapsed(c => !c)} style={{

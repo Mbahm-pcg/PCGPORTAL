@@ -5265,6 +5265,7 @@
     const mapRef = React.useRef(null);
     const markersRef = React.useRef([]);
     const heatRef = React.useRef([]);
+    const storesFingerprint = React.useMemo(() => stores.map((s) => `${s.pc}:${s.status}`).join("|"), [stores]);
     const tileRef = React.useRef(null);
     const selectRef = React.useRef(null);
     const tileSwapReady = React.useRef(false);
@@ -5350,7 +5351,7 @@
         cancelled = true;
         clearInterval(id);
       };
-    }, [stores]);
+    }, [storesFingerprint]);
     React.useEffect(() => {
       if (!selectedStore) {
         setStoreHourly(null);
@@ -5615,7 +5616,7 @@
         });
         markersRef.current.push(marker);
       });
-    }, [stores, ticketCounts, laborData, filterPerf, liveHeat]);
+    }, [storesFingerprint, ticketCounts, laborData, filterPerf, liveHeat]);
     React.useEffect(() => {
       const id = "pcg-leaflet-zoom-theme";
       let s = document.getElementById(id);
@@ -5965,7 +5966,7 @@
     })))));
   }
   function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
-    const mgrOf2 = (s) => storeMgrName(s, users);
+    const mgrOf = (s) => storeMgrName(s, users);
     const [laborData, setLaborData] = useState(null);
     useEffect(() => {
       cloudLoad("pcg_labor_v1").then((d) => {
@@ -6119,7 +6120,7 @@
         <td style="${cell}font-weight:700;">${s.name || "\u2014"}</td>
         <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
         <td style="${cell}">${dirAssetCombined(s)}</td>
-        <td style="${cell}">${mgrOf2(s) || "Unassigned"}</td>
+        <td style="${cell}">${mgrOf(s) || "Unassigned"}</td>
         <td style="${cell}">${s.email || "\u2014"}</td>
       </tr>`).join("");
       const districtsHtml = dirDistrictNums.map((dNum) => {
@@ -6557,13 +6558,13 @@
           {
             href: `tel:${s.mgrPhone.replace(/\D/g, "")}`,
             style: { fontSize: "0.8125rem", color: "#69db7c", textDecoration: "none", fontWeight: 600 },
-            title: `Call ${mgrOf2(s)}`,
+            title: `Call ${mgrOf(s)}`,
             onMouseEnter: (e) => e.currentTarget.style.textDecoration = "underline",
             onMouseLeave: (e) => e.currentTarget.style.textDecoration = "none"
           },
           "\u{1F4DE} ",
-          mgrOf2(s) || "Unassigned"
-        ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.text } }, mgrOf2(s) || "Unassigned"), s.mgrPhone && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, marginTop: "0.125rem" } }, s.mgrPhone)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.188rem" } }, "Store Email"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, wordBreak: "break-all" } }, s.email || "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.188rem" } }, "Employees"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", fontWeight: 700, color: th.text } }, Number.isFinite(employeeCountOf(s)) ? `\u{1F465} ${employeeCountOf(s)}` : "\u2014")), s.city === "Philadelphia" && (() => {
+          mgrOf(s) || "Unassigned"
+        ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.text } }, mgrOf(s) || "Unassigned"), s.mgrPhone && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, marginTop: "0.125rem" } }, s.mgrPhone)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.188rem" } }, "Store Email"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, wordBreak: "break-all" } }, s.email || "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.188rem" } }, "Employees"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", fontWeight: 700, color: th.text } }, Number.isFinite(employeeCountOf(s)) ? `\u{1F465} ${employeeCountOf(s)}` : "\u2014")), s.city === "Philadelphia" && (() => {
           const cd = cityData;
           const fmtCurr = (n) => n != null ? "$" + Number(n).toLocaleString() : "\u2014";
           const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : "\u2014";
@@ -6633,7 +6634,7 @@
         return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: { background: dc.bg } }, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { padding: "0.3rem 0.5rem", fontSize: "0.7rem", fontWeight: 800, color: dc.text } }, dNum ? `District #${dNum}${dmName ? " " + dmName : ""}` : "Unassigned"), /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { padding: "0.3rem 0.5rem", fontSize: "0.66rem", fontWeight: 700, color: dc.text, textAlign: "right" } }, dmEmail)), rows.map((s) => /* @__PURE__ */ React.createElement("tr", { key: s.id, onClick: () => {
           setCityData(null);
           setSelectedStore(s);
-        }, style: { cursor: "pointer", background: rowBg } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, s.pc), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, dirAssetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, mgrOf2(s) || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"))));
+        }, style: { cursor: "pointer", background: rowBg } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, s.pc), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.legal || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, [s.address, s.city, s.state].filter(Boolean).join(", ")), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, dirAssetCombined(s)), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, mgrOf(s) || "Unassigned"), /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.email || "\u2014"))));
       }), dirClosed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { style: { background: "#111318" } }, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { padding: "0.3rem 0.5rem", fontSize: "0.7rem", fontWeight: 800, color: "#fff", letterSpacing: 0.4 } }, "PERMANENTLY CLOSED")), /* @__PURE__ */ React.createElement("tr", { style: { background: "#e5e7eb" } }, ["PC#", "Legal Name", "Property Name", "Address", "Asset Type", "Closed Date", "", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thStyle, color: "#555" } }, h))), dirClosed.map((s) => /* @__PURE__ */ React.createElement("tr", { key: s.id, onClick: () => {
         setCityData(null);
         setSelectedStore(s);
@@ -6658,7 +6659,7 @@
         ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", padding: "0.2rem 0.6rem", borderRadius: "1rem", background: ss.bg, color: ss.color, fontWeight: 700, whiteSpace: "nowrap" } }, s.status)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: () => {
           setCityData(null);
           setSelectedStore(s);
-        }, style: { background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", width: "100%" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.05rem", fontWeight: 700, color: th.text } }, s.name || "\u2014")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" } }, nxt && /* @__PURE__ */ React.createElement(NextGenBadge, null), s.isBaskin && /* @__PURE__ */ React.createElement(BaskinBadge, null), s.isBridge && /* @__PURE__ */ React.createElement(BridgeBadge, null))), /* @__PURE__ */ React.createElement("a", { href: mapsUrl, target: "_blank", rel: "noopener noreferrer", style: { fontSize: "0.82rem", color: th.text, textDecoration: "none", display: "block" } }, "\u{1F4CD} ", s.address, s.city ? `, ${s.city}` : "", " ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip ? " " + s.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.55rem 0.85rem", paddingTop: "0.55rem", borderTop: `1px solid ${th.cardBorder}` } }, meta("District", s.district ? districtLabel(s.district, { short: true }) : "\u2014"), meta("Manager", s.mgrPhone ? /* @__PURE__ */ React.createElement("a", { href: `tel:${s.mgrPhone.replace(/\D/g, "")}`, style: { color: "#69db7c", textDecoration: "none" } }, "\u{1F4DE} ", mgrOf2(s) || "Unassigned") : mgrOf2(s) || "Unassigned"), meta("Asset", assetLabel(s.baseAsset))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => copyStoreInfo(s, e), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem", background: copiedId === s.id ? "#22c55e" : th.card3, color: copiedId === s.id ? "#fff" : th.muted, border: `1px solid ${copiedId === s.id ? "#22c55e" : th.cardBorder}` }) }, copiedId === s.id ? "\u2713 Copied" : "\u{1F4CB} Copy"), canEditLocs && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditStore({ ...s }), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem" }) }, "\u270F\uFE0F Edit")));
+        }, style: { background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", width: "100%" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.05rem", fontWeight: 700, color: th.text } }, s.name || "\u2014")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" } }, nxt && /* @__PURE__ */ React.createElement(NextGenBadge, null), s.isBaskin && /* @__PURE__ */ React.createElement(BaskinBadge, null), s.isBridge && /* @__PURE__ */ React.createElement(BridgeBadge, null))), /* @__PURE__ */ React.createElement("a", { href: mapsUrl, target: "_blank", rel: "noopener noreferrer", style: { fontSize: "0.82rem", color: th.text, textDecoration: "none", display: "block" } }, "\u{1F4CD} ", s.address, s.city ? `, ${s.city}` : "", " ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip ? " " + s.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.55rem 0.85rem", paddingTop: "0.55rem", borderTop: `1px solid ${th.cardBorder}` } }, meta("District", s.district ? districtLabel(s.district, { short: true }) : "\u2014"), meta("Manager", s.mgrPhone ? /* @__PURE__ */ React.createElement("a", { href: `tel:${s.mgrPhone.replace(/\D/g, "")}`, style: { color: "#69db7c", textDecoration: "none" } }, "\u{1F4DE} ", mgrOf(s) || "Unassigned") : mgrOf(s) || "Unassigned"), meta("Asset", assetLabel(s.baseAsset))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => copyStoreInfo(s, e), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem", background: copiedId === s.id ? "#22c55e" : th.card3, color: copiedId === s.id ? "#fff" : th.muted, border: `1px solid ${copiedId === s.id ? "#22c55e" : th.cardBorder}` }) }, copiedId === s.id ? "\u2713 Copied" : "\u{1F4CB} Copy"), canEditLocs && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditStore({ ...s }), style: btn(th, { flex: 1, minHeight: 42, fontSize: "0.78rem" }) }, "\u270F\uFE0F Edit")));
       }), filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 40, textAlign: "center", color: th.muted } }, "No stores match filters."))
     ) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: COLS, gap: "0.7rem", padding: "1rem 1.25rem", background: th.card2, borderBottom: "1px solid " + th.cardBorder, position: "sticky", top: 0, zIndex: 2 } }, /* @__PURE__ */ React.createElement(SortTh, { label: "PC #", col: "pc" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Property", col: "name" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Address", col: "address" }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Food License"), !isDM && /* @__PURE__ */ React.createElement(SortTh, { label: "District Mgr", col: "dmName" }), isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Manager"), /* @__PURE__ */ React.createElement(SortTh, { label: "Manager", col: "mgr" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Asset", col: "assetType" }), /* @__PURE__ */ React.createElement(SortTh, { label: "Status", col: "status" }), canEditLocs && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: th.muted } }, "Edit")), filtered.map((s, i) => {
       const ss = STATUS_STYLES[s.status] || STATUS_STYLES["Open"];
@@ -6717,13 +6718,13 @@
         ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "0.1rem" } }, s.city && s.city + ", ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: s.state === "PA" ? "#74c0fc" : "#b197fc" } }, s.state), s.zip && " " + s.zip)),
         /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, fontSize: "0.78rem" } }, Object.keys(foodLicenses).length === 0 ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontStyle: "italic" } }, "Not loaded") : !foodLicenses[s.pc] ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "None on file") : /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: new Date(foodLicenses[s.pc]) < /* @__PURE__ */ new Date() ? "#ef4444" : th.text } }, (/* @__PURE__ */ new Date(foodLicenses[s.pc] + "T12:00:00")).toLocaleDateString())),
         !isDM && /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.dmName || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, districtLabel(s.district))),
-        isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 } }, mgrOf2(s) || "Unassigned"),
+        isDM && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 } }, mgrOf(s) || "Unassigned"),
         s.mgrPhone ? /* @__PURE__ */ React.createElement(
           "a",
           {
             href: `tel:${s.mgrPhone.replace(/\D/g, "")}`,
             style: { fontSize: "0.8rem", color: th.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", minWidth: 0 },
-            title: `Call ${mgrOf2(s)}: ${s.mgrPhone}`,
+            title: `Call ${mgrOf(s)}: ${s.mgrPhone}`,
             onMouseEnter: (e) => {
               e.currentTarget.style.color = "#69db7c";
               e.currentTarget.style.textDecoration = "underline";
@@ -6734,8 +6735,8 @@
             }
           },
           "\u{1F4DE} ",
-          mgrOf2(s) || "Unassigned"
-        ) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", minWidth: 0 } }, mgrOf2(s) || "Unassigned"),
+          mgrOf(s) || "Unassigned"
+        ) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", minWidth: 0 } }, mgrOf(s) || "Unassigned"),
         /* @__PURE__ */ React.createElement("span", { title: s.baseAsset, style: { fontSize: "0.8rem", fontWeight: 600, color: nxt ? "#b197fc" : th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 } }, assetLabel(s.baseAsset)),
         /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "1rem", background: ss.bg, color: ss.color, fontWeight: 600, whiteSpace: "nowrap" } }, s.status),
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", alignItems: "center", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement(
@@ -7079,6 +7080,7 @@
     const [expandedDist, setExpandedDist] = useState(null);
     const [moveStore, setMoveStore] = useState(null);
     const distList = Object.values(districts).sort((a, b) => a.num - b.num);
+    const mgrOf = (s) => storeMgrName(s, users);
     const saveEdit = () => {
       setDistricts((ds) => ({ ...ds, [editDist]: { ...ds[editDist], ...distForm } }));
       setStores((ss) => ss.map((s) => s.district === editDist ? { ...s, dmName: distForm.name } : s));
@@ -8030,6 +8032,9 @@
     } catch {
     }
   }
+  function sameJSON(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
   var TICKETS_KEY = "pcg_tickets_v1";
   async function ticketsDbList() {
     const res = await fetch("/.netlify/functions/tickets", {
@@ -8937,23 +8942,42 @@ ${pendingEmail.emails.join("\n")}`,
   }
   function AdminSchedule({ stores, th, user }) {
     const [selectedStore, setSelectedStore] = useState(null);
+    const [search, setSearch] = useState("");
+    const [filterDistrict, setFilterDistrict] = useState("All");
     const isDM = user?.userType === "dm";
     const visibleStores = React.useMemo(() => {
       if (isDM && user?.district != null) return (stores || []).filter((s) => String(s.district) === String(user.district));
       return stores || [];
     }, [stores, isDM, user]);
+    const districtOptions = React.useMemo(() => [...new Set(visibleStores.map((s) => s.district))].sort((a, b) => Number(a) - Number(b)), [visibleStores]);
+    const filteredStores = React.useMemo(() => {
+      const q = search.trim().toLowerCase();
+      return visibleStores.filter((s) => {
+        if (filterDistrict !== "All" && String(s.district) !== filterDistrict) return false;
+        if (q && !`${s.name} ${s.pc}`.toLowerCase().includes(q)) return false;
+        return true;
+      });
+    }, [visibleStores, search, filterDistrict]);
     if (selectedStore) {
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedStore(null), style: { ...btn(th, { background: th.card2, color: th.text }), marginBottom: "1rem" } }, "\u2190 Back to stores"), /* @__PURE__ */ React.createElement(ScheduleBuilder, { store: selectedStore, th, mode: "view" }));
     }
-    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, "Schedule"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.75rem" } }, visibleStores.map((s) => /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" } }, ICONS.staffSchedule(th.text), /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "Schedule")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.75rem", padding: "0.7rem 0.9rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: "1 1 220px", maxWidth: 320 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)", color: th.muted, pointerEvents: "none", display: "flex" } }, ICONS.search(th.muted)), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        style: { ...inp(th), paddingLeft: "2.3rem", width: "100%" },
+        placeholder: "Search stores\u2026",
+        value: search,
+        onChange: (e) => setSearch(e.target.value)
+      }
+    )), !isDM && districtOptions.length > 1 && /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), maxWidth: 200 }, value: filterDistrict, onChange: (e) => setFilterDistrict(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "All" }, "All Districts"), districtOptions.map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, "District ", d))), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, fontWeight: 600, whiteSpace: "nowrap" } }, filteredStores.length, " store", filteredStores.length !== 1 ? "s" : "")), filteredStores.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "No stores match your search.") : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.75rem" } }, filteredStores.map((s) => /* @__PURE__ */ React.createElement(
       "div",
       {
         key: s.pc,
         onClick: () => setSelectedStore(s),
-        style: { ...card(th), padding: "1rem", cursor: "pointer" }
+        style: { ...card(th), padding: "1rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }
       },
-      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, s.name),
-      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "PC# ", s.pc, " \xB7 District ", s.district)
+      /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, s.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "PC# ", s.pc, " \xB7 District ", s.district)),
+      /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, display: "flex", transform: "rotate(-90deg)" } }, ICONS.chevronDown(th.muted))
     ))));
   }
   function ManagerSchedule({ stores, th, user }) {
@@ -14621,6 +14645,10 @@ ${t2.slice(0, 300)}`);
     const [projCityLoading, setProjCityLoading] = useState(false);
     const pros = professionals || DEFAULT_PROFESSIONALS;
     useEffect(() => {
+      setProjCityData(null);
+      setZoningData(null);
+    }, [selectedProject?.id]);
+    useEffect(() => {
       if (deepLinkRef?.current) {
         const proj = projects.find((p) => p.id === deepLinkRef.current);
         if (proj) {
@@ -18032,6 +18060,15 @@ ${t2.slice(0, 300)}`);
     React.useEffect(() => () => {
       if (pollRef.current) clearInterval(pollRef.current);
     }, []);
+    React.useEffect(() => {
+      return () => {
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+        setSendState(null);
+      };
+    }, [periodEnd]);
     const byEmployee = React.useMemo(() => {
       const m = /* @__PURE__ */ new Map();
       (data?.linkedUsers || []).forEach((u) => {
@@ -24135,7 +24172,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.52";
+  var APP_VERSION = "v21.62";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25483,16 +25520,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const res = await fetch("/.netlify/functions/users", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeader() },
-          body: JSON.stringify({ action: "update", id: user.id, patch: { email: profileForm.email, phone: profileForm.phone } })
+          body: JSON.stringify({
+            action: "update",
+            id: user.id,
+            patch: {
+              email: profileForm.email,
+              phone: profileForm.phone,
+              emailNotify: profileForm.emailNotify,
+              smsNotify: profileForm.smsNotify,
+              pushNotify: profileForm.pushNotify
+            }
+          })
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
           setProfileMsg({ type: "error", text: json.error || `Could not save (${res.status}).` });
           return;
         }
-        const notifUpdate = { emailNotify: profileForm.emailNotify, smsNotify: profileForm.smsNotify, pushNotify: profileForm.pushNotify };
-        setUsers((us) => us.map((u) => u.id === user.id ? { ...u, ...json.user, ...notifUpdate } : u));
-        setUser((prev) => ({ ...prev, ...json.user, ...notifUpdate }));
+        setUsers((us) => us.map((u) => u.id === user.id ? { ...u, ...json.user } : u));
+        setUser((prev) => ({ ...prev, ...json.user }));
         setProfileMsg({ type: "success", text: "Profile updated!" });
         setTimeout(onClose, 1200);
       } catch (err) {
@@ -26244,14 +26290,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       }).catch(() => setLoading(false));
     }, [loadLaborData]);
+    const storesFingerprint = React.useMemo(() => stores.map((s) => `${s.pc}:${s.status}`).join("|"), [stores]);
     React.useEffect(() => {
       if (!laborData) return;
+      let cancelled = false;
       const candidates = stores.filter((s) => (s.status === "Open" || s.status === "Remodel") && laborData[s.pc]?.today != null).slice(0, 25);
       if (candidates.length === 0) return;
       setLoadingStores(true);
       Promise.all(candidates.map(
         (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => ({ pc: s.pc, daily: d?.daily || [] })).catch(() => ({ pc: s.pc, daily: [] }))
       )).then((results) => {
+        if (cancelled) return;
         const h = {};
         results.forEach(({ pc, daily }) => {
           h[pc] = daily;
@@ -26259,7 +26308,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setStoreHistories(h);
         setLoadingStores(false);
       });
-    }, [laborData, stores]);
+      return () => {
+        cancelled = true;
+      };
+    }, [laborData, storesFingerprint]);
     const todayDow = (/* @__PURE__ */ new Date()).getDay();
     const anomalies = React.useMemo(() => {
       if (!laborData || Object.keys(storeHistories).length === 0) return [];
@@ -30051,7 +30103,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!silent) setLoading(true);
       if (view === "dashboard") {
         const dashData = await api("dashboard", { store_pc: storePc, date });
-        setDash(dashData);
+        setDash(dashData && dashData.totals && Array.isArray(dashData.categories) ? dashData : { totals: {}, open_cas: 0, categories: [] });
       } else {
         const result = await api("list", { store_pc: storePc, date });
         setData(result);
@@ -30082,7 +30134,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const loadRollup = useCallback(async () => {
       setLoading(true);
       const r = await api("rollup", { date, district: isDM ? user?.district : null });
-      setRollup(r);
+      setRollup(r && Array.isArray(r.stores) ? r : { stores: [] });
       setLoading(false);
     }, [api, date, isDM, user]);
     const loadCAs = useCallback(async () => {
@@ -30102,7 +30154,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         d.setDate(d.getDate() - (gpsDays - 1));
         const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
         const r = await api("gps_audit", { from, to, store_pcs: scopeStores.map((s) => String(s.pc)) });
-        setGpsRows(r);
+        if (r && r.summary && Array.isArray(r.exceptions)) setGpsRows(r);
+        else setGpsRows({ summary: { total: 0, onsite: 0, offsite: 0, noLocation: 0, unverified: 0 }, points: [], exceptions: [] });
       } finally {
         setGpsLoading(false);
       }
@@ -31164,6 +31217,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       map.setView([eventLatLng.lat, eventLatLng.lng], 13);
     }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
+    useEffect(() => () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    }, []);
     return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", color: th.text } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Raleway, sans-serif", fontWeight: 800 } }, "Impact / Cannibalization Radar"), status && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 8 } }, status), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { flex: "1 1 320px" } }, "Event address", /* @__PURE__ */ React.createElement("input", { value: eventAddr, onChange: (e) => setEventAddr(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Opening date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eventDate, onChange: (e) => setEventDate(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks before", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksBefore, onChange: (e) => setWeeksBefore(+e.target.value || 13), style: inp(th) })), /* @__PURE__ */ React.createElement("label", null, "Weeks after (blank = now)", /* @__PURE__ */ React.createElement("input", { type: "number", value: weeksAfter, onChange: (e) => setWeeksAfter(e.target.value), style: inp(th) })), /* @__PURE__ */ React.createElement("button", { onClick: geocodeEvent, disabled: busy, style: btn(th) }, "Locate & rank"), /* @__PURE__ */ React.createElement("button", { onClick: compute, disabled: busy || !impactedPc, style: btn(th) }, "Compute impact")), ranked.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ranked.length), " stores ranked by distance. Impacted (nearest):", " ", /* @__PURE__ */ React.createElement("strong", null, ranked[0].name), " (", ranked[0].distance.toFixed(2), " mi). Controls:", " ", controlPcs.map((pc) => STORES_SEED.find((s) => s.pc === pc)?.name).join(", "), "."), eventLatLng && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: th.muted } }, "Trade-area radius (mi)", " ", /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", value: radiusMi, onChange: (e) => setRadiusMi(+e.target.value || 1), style: { ...inp(th), width: 80 } })), /* @__PURE__ */ React.createElement("div", { ref: mapDiv, style: { height: 360, marginTop: 8, borderRadius: 8, overflow: "hidden" } })), results && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("button", { onClick: generatePdf, style: { ...btn(th), marginBottom: 12 } }, "\u{1F4C4} Generate PDF exhibit"), /* @__PURE__ */ React.createElement("div", { style: { height: 320, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("canvas", { ref: chartCanvas })), (() => {
       const imp = results.impacted;
       const nearestCtrl = results.controls[0];
@@ -32569,10 +32628,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             setShowSuggestions(false);
           }
         },
-        placeholder: "Quick find \u2014 try typing a feature name\u2026",
+        placeholder: "Search anything\u2026",
         style: { ...inp(th), paddingLeft: "2.5rem", width: "100%" }
       }
-    )), showSuggestions && matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.7rem", boxShadow: "0 12px 32px rgba(0,0,0,0.18)", overflow: "hidden" } }, matches.map((t) => /* @__PURE__ */ React.createElement(
+    )), query.trim().length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted, opacity: 0.7, marginTop: "0.3rem", marginLeft: "0.2rem" } }, "Stores, employees, tasks, projects\u2026"), showSuggestions && matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.7rem", boxShadow: "0 12px 32px rgba(0,0,0,0.18)", overflow: "hidden" } }, matches.map((t) => /* @__PURE__ */ React.createElement(
       "div",
       {
         key: t.id,
@@ -34069,22 +34128,26 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setReportsReadIds(allIds);
       setReportsUnreadCount(0);
     };
+    const selectReportTokenRef = useRef(0);
     const handleSelectReport = async (rpt) => {
+      const myToken = ++selectReportTokenRef.current;
       setSelectedReport(rpt);
       setLoadingReport(true);
       try {
         const detail = await cloudLoad(`analyst/reports/${rpt.id}`);
+        if (selectReportTokenRef.current !== myToken) return;
         setReportDetail(detail);
         if (!reportsReadIds.includes(rpt.id)) {
           const updated = [...reportsReadIds, rpt.id];
           await cloudSave(`analyst/reports-read/${user.id}`, updated);
+          if (selectReportTokenRef.current !== myToken) return;
           setReportsReadIds(updated);
           setReportsUnreadCount((prev) => Math.max(0, prev - 1));
         }
       } catch (e) {
-        showAlert2("Failed to load report.", "error");
+        if (selectReportTokenRef.current === myToken) showAlert2("Failed to load report.", "error");
       } finally {
-        setLoadingReport(false);
+        if (selectReportTokenRef.current === myToken) setLoadingReport(false);
       }
     };
     const pillBtn = (id, label) => /* @__PURE__ */ React.createElement("button", { key: id, onClick: () => setFilter(id), style: {
@@ -34874,7 +34937,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const filtered = articles.filter((a) => {
       if (catFilter !== "All" && a.category !== catFilter) return false;
-      if (search && !a.title.toLowerCase().includes(search.toLowerCase()) && !a.description.toLowerCase().includes(search.toLowerCase())) return false;
+      if (search && !a.title.toLowerCase().includes(search.toLowerCase()) && !(a.description || "").toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
     if (selectedArticle) {
@@ -37038,11 +37101,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     React.useEffect(() => {
       const load = () => {
         cloudLoad("pcg_tickets_v1").then((d) => {
-          if (Array.isArray(d)) setTickets(d);
+          if (Array.isArray(d)) setTickets((prev) => sameJSON(prev, d) ? prev : d);
         }).catch(() => {
         });
         cloudLoad(MAINT_SCHEDULE_KEY).then((d) => {
-          if (Array.isArray(d)) setSchedules(d);
+          if (Array.isArray(d)) setSchedules((prev) => sameJSON(prev, d) ? prev : d);
         }).catch(() => {
         });
       };
@@ -37207,7 +37270,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const refresh = () => {
         try {
           const t = JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]");
-          setTickets(t);
+          setTickets((prev) => sameJSON(prev, t) ? prev : t);
         } catch {
         }
       };
@@ -37943,6 +38006,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return {};
     });
+    const [managingFavorites, setManagingFavorites] = useState(false);
     const [links, setLinks] = useState(() => {
       const s = loadFromStorage();
       return s?.links || INIT_LINKS;
@@ -38415,8 +38479,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           if (ut === "office_staff") return r.scope === "network";
           return r.scope === "network";
         });
-        setReportsIndex(visible);
-        setReportsReadIds(read);
+        setReportsIndex((prev) => sameJSON(prev, visible) ? prev : visible);
+        setReportsReadIds((prev) => sameJSON(prev, read) ? prev : read);
         setReportsUnreadCount(visible.filter((r) => !read.includes(r.id)).length);
       }
       loadReportsState();
@@ -39126,12 +39190,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             cloudLoad("pcg_notifications_v1")
           ]);
           chatPollActive.current = true;
-          if (ch && Array.isArray(ch)) setChatChannels(ch);
-          if (ms && Array.isArray(ms)) setChatMessages(ms);
-          if (rd && typeof rd === "object" && rd !== null) setChatReadState(rd);
-          if (ann && Array.isArray(ann)) setAnnouncements(ann);
-          if (dis && typeof dis === "object" && dis !== null) setAnnouncementsDismissed(dis);
-          if (acc && typeof acc === "object" && !Array.isArray(acc)) setAccessOverrides(acc);
+          if (ch && Array.isArray(ch)) setChatChannels((prev) => sameJSON(prev, ch) ? prev : ch);
+          if (ms && Array.isArray(ms)) setChatMessages((prev) => sameJSON(prev, ms) ? prev : ms);
+          if (rd && typeof rd === "object" && rd !== null) setChatReadState((prev) => sameJSON(prev, rd) ? prev : rd);
+          if (ann && Array.isArray(ann)) setAnnouncements((prev) => sameJSON(prev, ann) ? prev : ann);
+          if (dis && typeof dis === "object" && dis !== null) setAnnouncementsDismissed((prev) => sameJSON(prev, dis) ? prev : dis);
+          if (acc && typeof acc === "object" && !Array.isArray(acc)) setAccessOverrides((prev) => sameJSON(prev, acc) ? prev : acc);
           if (notif && Array.isArray(notif)) {
             setNotifications((prev) => {
               const localIds = new Set(prev.map((n) => n.id));
@@ -39751,15 +39815,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const isManager = user?.userType === "manager";
     const isConstruction = user?.userType === "construction";
     const isAuditor = user?.userType === "auditor";
-    const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin }) => {
+    const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin, favoriteTint, removeMode }) => {
       const C = accent;
       const inactiveColor = th.muted;
+      const restBg = isActive ? C : favoriteTint ? `${C}14` : "transparent";
+      const restColor = isActive ? "#fff" : inactiveColor;
       return /* @__PURE__ */ React.createElement(
         "button",
         {
           key: tabDef.id,
           className: "nav-row",
-          onClick,
+          onClick: removeMode ? void 0 : onClick,
           title: collapsed ? tabDef.label : void 0,
           style: {
             position: "relative",
@@ -39770,13 +39836,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             padding: collapsed ? "0.7rem 0" : "0.65rem 0.85rem",
             borderRadius: "0.625rem",
             border: "none",
-            cursor: "pointer",
+            cursor: removeMode ? "default" : "pointer",
             justifyContent: collapsed ? "center" : "flex-start",
             fontFamily: "'Source Sans 3'",
             fontSize: "0.8rem",
             fontWeight: isActive ? 700 : 500,
-            background: isActive ? `${C}18` : "transparent",
-            color: isActive ? C : inactiveColor,
+            background: restBg,
+            color: restColor,
+            boxShadow: isActive ? `0 4px 14px ${C}55` : "none",
             transition: "all .2s cubic-bezier(.4,0,.2,1)",
             marginBottom: "0.2rem",
             textAlign: "left",
@@ -39784,31 +39851,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           },
           onMouseEnter: (e) => {
             if (!isActive) {
-              e.currentTarget.style.background = th.card3;
+              e.currentTarget.style.background = favoriteTint ? `${C}26` : th.card3;
               e.currentTarget.style.color = th.text;
               e.currentTarget.style.transform = "translateX(2px)";
             }
           },
           onMouseLeave: (e) => {
             if (!isActive) {
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = inactiveColor;
+              e.currentTarget.style.background = restBg;
+              e.currentTarget.style.color = restColor;
               e.currentTarget.style.transform = "none";
             }
           }
         },
-        isActive && /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: {
-          position: "absolute",
-          left: collapsed ? "50%" : 0,
-          top: collapsed ? "auto" : "20%",
-          bottom: collapsed ? -2 : "20%",
-          width: collapsed ? 18 : 4,
-          height: collapsed ? 3 : "auto",
-          transform: collapsed ? "translateX(-50%)" : "none",
-          background: C,
-          borderRadius: 999,
-          boxShadow: `0 0 12px ${C}cc, 0 0 4px ${C}`
-        } }),
         /* @__PURE__ */ React.createElement("span", { style: {
           fontSize: "0.95rem",
           display: "flex",
@@ -39816,11 +39871,39 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           justifyContent: "center",
           flexShrink: 0,
           width: collapsed ? void 0 : 18,
-          filter: isActive && glow ? `drop-shadow(0 0 6px ${C})` : "none",
+          filter: isActive && glow ? `drop-shadow(0 0 6px #fff)` : "none",
           transition: "filter .2s"
-        } }, typeof tabDef.icon === "function" ? tabDef.icon(isActive ? C : inactiveColor) : tabDef.icon),
+        } }, typeof tabDef.icon === "function" ? tabDef.icon(isActive ? "#fff" : inactiveColor) : tabDef.icon),
         !collapsed && /* @__PURE__ */ React.createElement("span", { style: { flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tabDef.label),
-        !collapsed && onTogglePin && !tabDef.noPinToggle && /* @__PURE__ */ React.createElement(
+        !collapsed && onTogglePin && !tabDef.noPinToggle && (removeMode ? /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            role: "button",
+            title: "Remove from Favorites",
+            onClick: (e) => {
+              e.stopPropagation();
+              onTogglePin(tabDef.id);
+            },
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: "0.25rem",
+              flexShrink: 0,
+              padding: "0.2rem 0.5rem",
+              borderRadius: 999,
+              border: "1px solid #ef444455",
+              background: "#ef444418",
+              color: "#ef4444",
+              fontSize: "0.6rem",
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              fontFamily: "'Source Sans 3'",
+              cursor: "pointer"
+            }
+          },
+          "\u2715 Remove"
+        ) : /* @__PURE__ */ React.createElement(
           "span",
           {
             className: "nav-pin" + (pinned ? " pinned" : ""),
@@ -39839,16 +39922,16 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
               width: 18,
               height: 18,
               borderRadius: 5,
-              color: pinned ? C : th.muted
+              color: pinned ? isActive ? "#fff" : C : isActive ? "#ffffffaa" : th.muted
             }
           },
-          /* @__PURE__ */ React.createElement("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: pinned ? C : "none", stroke: pinned ? C : "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
-        ),
-        badge != null && badge > 0 && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: C, boxShadow: `0 0 6px ${C}` } }) : /* @__PURE__ */ React.createElement("span", { style: {
+          /* @__PURE__ */ React.createElement("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: pinned ? "currentColor" : "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
+        )),
+        badge != null && badge > 0 && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: isActive ? "#fff" : C, boxShadow: `0 0 6px ${C}` } }) : /* @__PURE__ */ React.createElement("span", { style: {
           minWidth: 20,
           height: 18,
           borderRadius: 999,
-          background: C,
+          background: isActive ? "rgba(255,255,255,0.3)" : C,
           color: "#fff",
           fontSize: "0.58rem",
           fontWeight: 900,
@@ -39856,47 +39939,55 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           alignItems: "center",
           justifyContent: "center",
           padding: "0 6px",
-          boxShadow: `0 2px 10px ${C}99`,
+          boxShadow: isActive ? "none" : `0 2px 10px ${C}99`,
           letterSpacing: "0.3px"
         } }, badge > 99 ? "99+" : badge)),
-        glow && !isActive && badge == null && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite", flexShrink: 0 } }))
+        glow && !isActive && badge == null && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite", flexShrink: 0 } })),
+        !collapsed && /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { flexShrink: 0, display: "flex", opacity: isActive ? 0.85 : 0.45, transform: "rotate(-90deg)", marginLeft: 2 } }, ICONS.chevronDown(isActive ? "#fff" : th.muted))
       );
     };
-    const SectionHeader = ({ label, accent, collapsed, onToggle, open }) => {
+    const SectionHeader = ({ label, accent, collapsed, onToggle, open, right }) => {
       if (collapsed) return /* @__PURE__ */ React.createElement("div", { style: { height: 1, margin: "0.85rem 0.65rem", background: `linear-gradient(90deg, transparent, ${th.sidebarBorder}, transparent)` } });
       const clickable = typeof onToggle === "function";
-      return /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          onClick: onToggle,
-          title: clickable ? open ? "Collapse section" : "Expand section" : void 0,
-          style: { display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0.5rem 0.55rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }
-        },
-        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` } }),
-        /* @__PURE__ */ React.createElement("span", { style: {
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "0.3rem",
-          fontSize: "0.55rem",
-          fontWeight: 800,
-          color: accent,
-          letterSpacing: 1.6,
-          textTransform: "uppercase",
-          padding: "0.15rem 0.5rem",
-          background: `${accent}12`,
-          borderTop: `1px solid ${accent}33`,
-          borderLeft: `1px solid ${accent}33`,
-          borderRight: `1px solid ${accent}33`,
-          borderBottom: `2px solid ${accent}66`,
-          borderRadius: 999
-        } }, label, clickable && /* @__PURE__ */ React.createElement("span", { style: {
-          fontSize: "0.45rem",
-          opacity: 0.7,
-          transition: "transform 0.22s",
-          display: "inline-block",
-          transform: open ? "rotate(90deg)" : "none"
-        } }, "\u25B6")),
-        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` } })
+      return (
+        // `right` (currently just Favorites' "Manage" link) is positioned
+        // absolutely on its own, rather than taking flex space from the right-
+        // hand divider line — that used to shrink the line to make room, which
+        // dragged the centered label off-center toward it. This way the label
+        // stays dead-center regardless of whether `right` is present at all.
+        /* @__PURE__ */ React.createElement("div", { style: { position: "relative", margin: "1rem 0.5rem 0.55rem" } }, /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            onClick: onToggle,
+            title: clickable ? open ? "Collapse section" : "Expand section" : void 0,
+            style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }
+          },
+          /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` } }),
+          /* @__PURE__ */ React.createElement("span", { style: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            fontSize: "0.55rem",
+            fontWeight: 800,
+            color: accent,
+            letterSpacing: 1.6,
+            textTransform: "uppercase",
+            padding: "0.15rem 0.5rem",
+            background: `${accent}12`,
+            borderTop: `1px solid ${accent}33`,
+            borderLeft: `1px solid ${accent}33`,
+            borderRight: `1px solid ${accent}33`,
+            borderBottom: `2px solid ${accent}66`,
+            borderRadius: 999
+          } }, label, clickable && /* @__PURE__ */ React.createElement("span", { style: {
+            fontSize: "0.45rem",
+            opacity: 0.7,
+            transition: "transform 0.22s",
+            display: "inline-block",
+            transform: open ? "rotate(90deg)" : "none"
+          } }, "\u25B6")),
+          /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` } })
+        ), right && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", background: th.sidebar || th.card, paddingLeft: "0.4rem" } }, right))
       );
     };
     const ADMIN_GROUPS = [
@@ -39925,7 +40016,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       borderRadius: "50%",
       background: `radial-gradient(circle, ${O}22 0%, transparent 65%)`,
       filter: "blur(20px)"
-    } })), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: collapsed ? 0 : "0.45rem", padding: "0.25rem 0" } }, /* @__PURE__ */ React.createElement(
+    } })), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", flexDirection: collapsed ? "column" : "row", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: collapsed ? 0 : "0.65rem", padding: "0.25rem 0" } }, /* @__PURE__ */ React.createElement(
       "img",
       {
         ref: logoRef,
@@ -39934,10 +40025,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         className: logoAnim ? "logo-transitioning" : "",
         onClick: handleToggle,
         style: {
-          width: collapsed ? 40 : 64,
-          height: collapsed ? 40 : 64,
+          width: collapsed ? 40 : 52,
+          height: collapsed ? 40 : 52,
           objectFit: "contain",
           cursor: "pointer",
+          flexShrink: 0,
           transition: "filter 0.1s, width .25s, height .25s, transform .2s",
           filter: `drop-shadow(0 6px 16px ${O}55)`
         },
@@ -39945,23 +40037,20 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         onMouseEnter: (e) => e.currentTarget.style.transform = "scale(1.06) rotate(-3deg)",
         onMouseLeave: (e) => e.currentTarget.style.transform = "none"
       }
-    ), !collapsed && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: {
+    ), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.1rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: {
       fontFamily: "'Raleway'",
       fontWeight: 900,
-      fontSize: "1.65rem",
+      fontSize: "1.5rem",
       letterSpacing: -1,
-      lineHeight: 1.05,
-      padding: "0.1rem 0.2rem",
+      lineHeight: 1,
       background: "linear-gradient(135deg, #FF671F 0%, #ff9055 50%, #FF671F 100%)",
       WebkitBackgroundClip: "text",
       WebkitTextFillColor: "transparent",
       backgroundClip: "text"
     } }, "UOP"), /* @__PURE__ */ React.createElement("div", { style: {
-      fontSize: "0.52rem",
-      fontWeight: 800,
+      fontSize: "0.68rem",
+      fontWeight: 500,
       color: th.muted,
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
       whiteSpace: "nowrap"
     } }, "Unified Operations Portal"))), /* @__PURE__ */ React.createElement(
       "div",
@@ -40011,55 +40100,55 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         boxShadow: `0 4px 12px ${O}55`,
         letterSpacing: 0.5
       } }, user.initials),
-      !collapsed && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { overflow: "hidden", flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, user.name), isFullAdmin(user) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: `${O}22`, color: O, letterSpacing: 0.6, flexShrink: 0, border: `1px solid ${O}44` } }, user.userType === "executive" ? "EXEC" : "IT"), user.userType === "office_staff" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: "#8b5cf622", color: "#8b5cf6", letterSpacing: 0.6, flexShrink: 0, border: "1px solid #8b5cf644" } }, "OFFICE"), user.userType === "dm" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: "#f59e0b22", color: "#f59e0b", letterSpacing: 0.6, flexShrink: 0, border: "1px solid #f59e0b44" } }, "D", user.district)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted, marginTop: "0.1rem" } }, user.role)), /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, display: "flex", alignItems: "center", opacity: 0.6 } }, ICONS.settings(th.muted)))
-    ), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.7rem" } }, /* @__PURE__ */ React.createElement(
-      "div",
+      !collapsed && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { overflow: "hidden", flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, user.name), isFullAdmin(user) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: `${O}22`, color: O, letterSpacing: 0.6, flexShrink: 0, border: `1px solid ${O}44` } }, user.userType === "executive" ? "EXEC" : "IT"), user.userType === "office_staff" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: "#8b5cf622", color: "#8b5cf6", letterSpacing: 0.6, flexShrink: 0, border: "1px solid #8b5cf644" } }, "OFFICE"), user.userType === "dm" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: "#f59e0b22", color: "#f59e0b", letterSpacing: 0.6, flexShrink: 0, border: "1px solid #f59e0b44" } }, "D", user.district)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted, marginTop: "0.1rem" } }, user.role)), /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, display: "flex", alignItems: "center", gap: "0.1rem", opacity: 0.6 } }, ICONS.settings(th.muted), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", transform: "rotate(-90deg)" } }, ICONS.chevronDown(th.muted))))
+    ), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginTop: "0.7rem" } }, /* @__PURE__ */ React.createElement(
+      "button",
       {
         onClick: handleToggle,
         title: "Toggle theme",
         style: {
           display: "flex",
           alignItems: "center",
-          gap: "0.35rem",
+          justifyContent: "center",
+          gap: "0.3rem",
           flex: 1,
-          padding: "0.4rem 0.55rem",
+          minWidth: 0,
+          padding: "0.4rem 0.5rem",
           background: th.card3,
           border: `1px solid ${th.cardBorder}`,
           borderRadius: "0.5rem",
+          color: th.muted,
+          fontSize: "0.58rem",
+          fontWeight: 800,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
           cursor: "pointer",
-          transition: "all .2s"
+          fontFamily: "'Source Sans 3'",
+          transition: "all .2s",
+          overflow: "hidden",
+          whiteSpace: "nowrap"
         },
-        onMouseEnter: (e) => e.currentTarget.style.borderColor = `${O}55`,
-        onMouseLeave: (e) => e.currentTarget.style.borderColor = th.cardBorder
+        onMouseEnter: (e) => {
+          e.currentTarget.style.background = `${O}22`;
+          e.currentTarget.style.borderColor = `${O}55`;
+        },
+        onMouseLeave: (e) => {
+          e.currentTarget.style.background = th.card3;
+          e.currentTarget.style.borderColor = th.cardBorder;
+        }
       },
-      /* @__PURE__ */ React.createElement("div", { style: {
-        width: 26,
-        height: 14,
-        borderRadius: 999,
-        background: dark ? O : "#cbd5e1",
-        position: "relative",
-        transition: "background .25s",
-        flexShrink: 0,
-        boxShadow: dark ? `0 0 8px ${O}66` : "none"
-      } }, /* @__PURE__ */ React.createElement("div", { style: {
-        position: "absolute",
-        top: 1.5,
-        left: dark ? 13 : 1.5,
-        width: 11,
-        height: 11,
-        borderRadius: "50%",
-        background: "#fff",
-        transition: "left .25s",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.3)"
-      } })),
-      /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 } }, dark ? "Dark" : "Light")
+      dark ? ICONS.moon(th.muted) : ICONS.sun(th.muted),
+      dark ? "Dark" : "Light",
+      /* @__PURE__ */ React.createElement("span", { style: { display: "flex", opacity: 0.6 } }, ICONS.chevronDown(th.muted))
     ), (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: handleExport,
-        title: "Export data",
+        title: "Download a backup of this data",
         style: {
-          padding: "0.4rem",
+          flex: 1,
+          minWidth: 0,
+          padding: "0.4rem 0.35rem",
           background: th.card3,
           border: `1px solid ${th.cardBorder}`,
           borderRadius: "0.5rem",
@@ -40067,7 +40156,16 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           cursor: "pointer",
           display: "flex",
           alignItems: "center",
-          transition: "all .2s"
+          justifyContent: "center",
+          gap: "0.25rem",
+          fontSize: "0.58rem",
+          fontWeight: 800,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+          fontFamily: "'Source Sans 3'",
+          transition: "all .2s",
+          overflow: "hidden",
+          whiteSpace: "nowrap"
         },
         onMouseEnter: (e) => {
           e.currentTarget.style.background = `${O}22`;
@@ -40078,14 +40176,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           e.currentTarget.style.borderColor = th.cardBorder;
         }
       },
-      ICONS.download(O)
+      ICONS.download(O),
+      "Download"
     ), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => importRef.current?.click(),
-        title: "Import data",
+        title: "Upload data from a backup file",
         style: {
-          padding: "0.4rem",
+          flex: 1,
+          minWidth: 0,
+          padding: "0.4rem 0.35rem",
           background: th.card3,
           border: `1px solid ${th.cardBorder}`,
           borderRadius: "0.5rem",
@@ -40093,7 +40194,16 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           cursor: "pointer",
           display: "flex",
           alignItems: "center",
-          transition: "all .2s"
+          justifyContent: "center",
+          gap: "0.25rem",
+          fontSize: "0.58rem",
+          fontWeight: 800,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+          fontFamily: "'Source Sans 3'",
+          transition: "all .2s",
+          overflow: "hidden",
+          whiteSpace: "nowrap"
         },
         onMouseEnter: (e) => {
           e.currentTarget.style.background = `${O}22`;
@@ -40104,44 +40214,53 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           e.currentTarget.style.borderColor = th.cardBorder;
         }
       },
-      ICONS.upload(O)
-    )), /* @__PURE__ */ React.createElement(
+      ICONS.upload(O),
+      "Upload"
+    ))), !collapsed && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: handleLogout,
         title: "Sign out",
         style: {
-          padding: "0.4rem 0.55rem",
-          background: th.card3,
-          border: `1px solid ${th.cardBorder}`,
-          borderRadius: "0.5rem",
+          width: "100%",
+          marginTop: "0.4rem",
+          padding: "0.35rem 0.55rem",
+          background: "transparent",
+          border: "none",
           color: th.muted,
-          fontSize: "0.6rem",
-          fontWeight: 800,
-          textTransform: "uppercase",
-          letterSpacing: 0.6,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.35rem",
+          fontSize: "0.62rem",
+          fontWeight: 700,
           cursor: "pointer",
           fontFamily: "'Source Sans 3'",
-          transition: "all .2s"
+          transition: "color .2s"
         },
         onMouseEnter: (e) => {
-          e.currentTarget.style.background = "#ef444422";
           e.currentTarget.style.color = "#ef4444";
-          e.currentTarget.style.borderColor = "#ef444455";
         },
         onMouseLeave: (e) => {
-          e.currentTarget.style.background = th.card3;
           e.currentTarget.style.color = th.muted;
-          e.currentTarget.style.borderColor = th.cardBorder;
         }
       },
-      "Out"
-    ))), /* @__PURE__ */ React.createElement("div", { ref: navRef, onScroll: onNavScroll, className: "sidebar-nav-scroll", style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, (() => {
+      ICONS.logout("currentColor"),
+      "Sign out"
+    )), /* @__PURE__ */ React.createElement("div", { ref: navRef, onScroll: onNavScroll, className: "sidebar-nav-scroll", style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, !collapsed && /* @__PURE__ */ React.createElement(QuickFindBar, { th, tabs: TABS, onNavigate: setTab }), (() => {
       const dashTab = TABS.find((t) => t.id === "dashboard");
       const pinnedTabs = pinnedNavIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);
       const quickTabs = [dashTab, ...pinnedTabs.filter((t) => t.id !== "dashboard")].filter(Boolean);
       if (quickTabs.length === 0) return null;
-      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Quick Access", accent: O, collapsed }), quickTabs.map((t) => {
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Favorites", accent: O, collapsed, right: !collapsed && /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          role: "button",
+          onClick: () => setManagingFavorites((m) => !m),
+          style: { fontSize: "0.62rem", fontWeight: 700, color: managingFavorites ? "#22c55e" : O, cursor: "pointer", whiteSpace: "nowrap", paddingRight: "0.2rem" }
+        },
+        managingFavorites ? "Done \u2713" : "Manage \u203A"
+      ) }), quickTabs.map((t) => {
         const C = t.cash ? cashMissingCount > 0 ? "#ef4444" : "#00d084" : t.green ? "#00d084" : O;
         return /* @__PURE__ */ React.createElement(
           NavButton,
@@ -40155,6 +40274,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             glow: t.green || t.cash,
             dotColor: C,
             pinned: true,
+            favoriteTint: true,
+            removeMode: managingFavorites,
             onTogglePin: togglePinNav,
             onClick: () => {
               setTab(t.id);
@@ -40441,16 +40562,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       justifyContent: collapsed ? "center" : "space-between",
       gap: "0.5rem",
       transition: "padding .25s"
-    } }, !collapsed && /* @__PURE__ */ React.createElement("div", { style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: "0.35rem",
-      fontSize: "0.55rem",
-      color: th.muted,
-      fontWeight: 700,
-      letterSpacing: 0.5,
-      opacity: 0.55
-    } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 5px #22c55e", animation: "pulse 2s ease-in-out infinite" } }), APP_VERSION, /* @__PURE__ */ React.createElement(SyncStatus, { dark })), !onNav && /* @__PURE__ */ React.createElement(
+    } }, !collapsed && (() => {
+      const online = typeof navigator === "undefined" || navigator.onLine;
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.35rem",
+        fontSize: "0.58rem",
+        color: online ? th.muted : "#ef4444",
+        fontWeight: 700,
+        letterSpacing: 0.3,
+        opacity: online ? 0.7 : 0.9
+      } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: online ? "#22c55e" : "#ef4444", boxShadow: `0 0 5px ${online ? "#22c55e" : "#ef4444"}`, animation: online ? "pulse 2s ease-in-out infinite" : "none", flexShrink: 0 } }), online ? "System operational" : "Connection lost"), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.55rem", color: th.muted, fontWeight: 700, letterSpacing: 0.5, opacity: 0.55 } }, APP_VERSION, /* @__PURE__ */ React.createElement(SyncStatus, { dark })));
+    })(), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),

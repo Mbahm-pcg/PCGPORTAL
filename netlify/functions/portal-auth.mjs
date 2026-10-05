@@ -49,6 +49,14 @@ async function ensureSchema(db) {
   try {
     await db.transaction([
       db`ALTER TABLE users ADD COLUMN IF NOT EXISTS audits_access text`,
+      // Same reasoning as audits_access — this login SELECT now names these
+      // columns too (phone was already a real column; the three notify
+      // flags are new, 2026-10-05), so they must exist before a fresh
+      // deploy's very first login, not just by the time someone happens to
+      // open Admin > Users (users.mjs's own, separate ensure-columns guard).
+      db`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notify boolean NOT NULL DEFAULT true`,
+      db`ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_notify boolean NOT NULL DEFAULT false`,
+      db`ALTER TABLE users ADD COLUMN IF NOT EXISTS push_notify boolean NOT NULL DEFAULT false`,
       db`CREATE TABLE IF NOT EXISTS webauthn_credentials (
         credential_id text PRIMARY KEY,
         user_id integer NOT NULL,
@@ -168,6 +176,15 @@ function issue(row, mustChange) {
     district: claims.district,
     name: claims.name,
     email: lc(row.email) || null,
+    // Confirmed real (2026-10-05): this object — not another fetch — is what
+    // seeds the Profile modal on every login, and it never carried `phone`
+    // or the notification toggles at all, even though both were already
+    // real, saved columns (phone) or just-added ones (the three notify
+    // flags). Saving them from the Profile modal worked; reopening it (or
+    // logging in fresh, including on another device) showed blank/default
+    // again regardless, because this object was always missing them —
+    // exactly what "doesn't get saved" looks like from the user's side.
+    phone: row.phone || null,
     isAdmin: claims.isAdmin,
     storePC: claims.storePC,
     region: claims.region,
@@ -178,6 +195,9 @@ function issue(row, mustChange) {
     mustSetup: row.must_setup || row.mustSetup || false,
     darkMode: row.dark_mode || row.darkMode || false,
     initials: row.initials || null,
+    emailNotify: row.email_notify !== false,
+    smsNotify: row.sms_notify || false,
+    pushNotify: row.push_notify || false,
   };
   return { token, user, mustChange: !!mustChange, expiresIn: TTL };
 }
@@ -239,10 +259,11 @@ export default async (request, context) => {
 
         // Look up user in Neon users table by email
         let [row] = await db`
-          SELECT id, username, name, email, user_type, district, store_pc, active,
+          SELECT id, username, name, email, phone, user_type, district, store_pc, active,
                  is_admin, region, initials, must_setup, dark_mode,
                  must_change, two_factor_required, two_factor_enabled, two_factor_secret,
-                 audits_access, paycor_employee_id, paycor_department_id
+                 audits_access, paycor_employee_id, paycor_department_id,
+                 email_notify, sms_notify, push_notify
           FROM users WHERE lower(email) = ${email} AND active = true LIMIT 1
         `;
 
@@ -278,10 +299,11 @@ export default async (request, context) => {
       if (!username || !password) return reply(400, { error: 'username and password required' });
 
       const [row] = await db`
-        SELECT id, username, name, email, user_type, district, store_pc, active,
+        SELECT id, username, name, email, phone, user_type, district, store_pc, active,
                is_admin, region, initials, must_setup, dark_mode,
                password_hash, must_change, two_factor_required, two_factor_enabled, two_factor_secret,
-               failed_attempts, locked, audits_access, paycor_employee_id, paycor_department_id
+               failed_attempts, locked, audits_access, paycor_employee_id, paycor_department_id,
+               email_notify, sms_notify, push_notify
         FROM users WHERE username = ${username}
       `;
 
@@ -534,20 +556,22 @@ export default async (request, context) => {
         db`SELECT challenge FROM webauthn_challenges WHERE key = ${body.requestId}`,
         username
           ? db`
-              SELECT u.id, u.username, u.name, u.email, u.user_type, u.district, u.store_pc, u.active,
+              SELECT u.id, u.username, u.name, u.email, u.phone, u.user_type, u.district, u.store_pc, u.active,
                      u.is_admin, u.region, u.initials, u.must_setup, u.dark_mode,
                      u.must_change, u.two_factor_required, u.two_factor_enabled, u.two_factor_secret,
                      u.audits_access, u.paycor_employee_id, u.paycor_department_id,
+                     u.email_notify, u.sms_notify, u.push_notify,
                      c.credential_id, c.public_key, c.counter
               FROM users u
               JOIN webauthn_credentials c ON c.user_id = u.id AND c.credential_id = ${body.credential.id}
               WHERE u.username = ${username} AND u.active = true
             `
           : db`
-              SELECT u.id, u.username, u.name, u.email, u.user_type, u.district, u.store_pc, u.active,
+              SELECT u.id, u.username, u.name, u.email, u.phone, u.user_type, u.district, u.store_pc, u.active,
                      u.is_admin, u.region, u.initials, u.must_setup, u.dark_mode,
                      u.must_change, u.two_factor_required, u.two_factor_enabled, u.two_factor_secret,
                      u.audits_access, u.paycor_employee_id, u.paycor_department_id,
+                     u.email_notify, u.sms_notify, u.push_notify,
                      c.credential_id, c.public_key, c.counter
               FROM users u
               JOIN webauthn_credentials c ON c.user_id = u.id AND c.credential_id = ${body.credential.id}

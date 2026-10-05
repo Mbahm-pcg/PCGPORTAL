@@ -62,6 +62,28 @@ async function ensurePaycorDepartmentIdColumn(db) {
   }
 }
 
+// Same pattern again, for the Profile modal's notification toggles. Confirmed
+// real (2026-10-05): these had NO backing column at all — the client sent a
+// value, this function accepted it, but it only ever lived in that one
+// request/response's in-memory `notifUpdate` merge, never reaching Neon or
+// portal-auth's own SELECTs. Toggle it, close the modal, log back in (or open
+// on another device) and it was silently back to the default every time —
+// which is exactly what "doesn't get saved" looks like from the outside.
+// Defaults mirror the client's own fallback logic (app.jsx ProfileModal):
+// email on by default, SMS/push off by default.
+let _notifyColumnsEnsured = false;
+async function ensureNotifyColumns(db) {
+  if (_notifyColumnsEnsured) return;
+  try {
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notify boolean NOT NULL DEFAULT true`;
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_notify boolean NOT NULL DEFAULT false`;
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS push_notify boolean NOT NULL DEFAULT false`;
+    _notifyColumnsEnsured = true;
+  } catch (err) {
+    console.warn('ensureNotifyColumns failed (continuing):', err?.message || err);
+  }
+}
+
 // Map a DB row (snake_case) to a client-safe object (camelCase). Never includes
 // password_hash or two_factor_secret.
 function toClient(row) {
@@ -94,6 +116,9 @@ function toClient(row) {
     auditsAccess:       row.audits_access ?? null,
     paycorEmployeeId:   row.paycor_employee_id ?? null,
     paycorDepartmentId: row.paycor_department_id ?? null,
+    emailNotify:        row.email_notify ?? true,
+    smsNotify:          row.sms_notify ?? false,
+    pushNotify:         row.push_notify ?? false,
   };
 }
 
@@ -120,6 +145,7 @@ export default async (request) => {
   await ensureAuditsColumn(db);
   await ensurePaycorEmployeeIdColumn(db);
   await ensurePaycorDepartmentIdColumn(db);
+  await ensureNotifyColumns(db);
   const url = new URL(request.url);
   // requireActiveUser (not plain requireUser) so a revoked/deactivated session can't perform
   // user CRUD until its token expires. null = unauthenticated (the public `list` is still allowed).
@@ -142,7 +168,8 @@ export default async (request) => {
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
-               audits_access, paycor_employee_id, paycor_department_id
+               audits_access, paycor_employee_id, paycor_department_id,
+               email_notify, sms_notify, push_notify
         FROM users ORDER BY id
       `;
       return reply(200, rows.map(toClient));
@@ -203,7 +230,8 @@ export default async (request) => {
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
-               audits_access, paycor_employee_id, paycor_department_id
+               audits_access, paycor_employee_id, paycor_department_id,
+               email_notify, sms_notify, push_notify
         FROM users WHERE id = ${row.id}
       `;
       return reply(201, { user: toClient(created) });
@@ -219,9 +247,12 @@ export default async (request) => {
       // Any authenticated user may update their OWN contact info (the profile
       // modal every role uses) even when their role wouldn't otherwise pass
       // canManage — e.g. a DM/manager/construction/maintenance/vendor/auditor
-      // editing their own email/phone. Restricted to a safe field whitelist so
-      // this can't be used to self-promote a role or reactivate a locked account.
-      const SELF_EDIT_FIELDS = new Set(['email', 'phone']);
+      // editing their own email/phone (and now their own notification prefs —
+      // these are exactly as self-scoped as email/phone, added 2026-10-05
+      // alongside giving them a real column at all). Restricted to a safe
+      // field whitelist so this can't be used to self-promote a role or
+      // reactivate a locked account.
+      const SELF_EDIT_FIELDS = new Set(['email', 'phone', 'emailNotify', 'smsNotify', 'pushNotify']);
       const isSelfEdit = claims && String(claims.sub) === String(id) && Object.keys(patch).every(k => SELF_EDIT_FIELDS.has(k));
       if (!isSelfEdit && !canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
       if (patch.userType && !canManage(claims, patch.userType)) return reply(403, { error: 'cannot assign this role' });
@@ -315,6 +346,9 @@ export default async (request) => {
           must_setup          = COALESCE(${patch.mustSetup ?? null}, must_setup),
           region              = COALESCE(${patch.region ?? null}, region),
           two_factor_required = COALESCE(${patch.twoFactorRequired ?? null}, two_factor_required),
+          email_notify        = COALESCE(${patch.emailNotify ?? null}, email_notify),
+          sms_notify          = COALESCE(${patch.smsNotify ?? null}, sms_notify),
+          push_notify         = COALESCE(${patch.pushNotify ?? null}, push_notify),
           updated_at          = now()
         WHERE id = ${id}
       `;
@@ -324,7 +358,8 @@ export default async (request) => {
                active, dark_mode, avatar_url, google_id, last_login, created_at,
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
-               audits_access, paycor_employee_id, paycor_department_id
+               audits_access, paycor_employee_id, paycor_department_id,
+               email_notify, sms_notify, push_notify
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });
