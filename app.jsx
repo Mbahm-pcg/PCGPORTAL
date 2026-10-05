@@ -21742,7 +21742,13 @@ function OfficeClockReview({ user, th, showAlert }) {
                         const label = officeClockFmtHours(d.totalMinutes);
                         return (
                           <tr key={d.day} style={{ borderTop: `1px solid ${th.cardBorder}` }}>
-                            <td style={tdCell(th)}>{officeClockParseDate(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                            {/* officeClockParseDate returns a UTC-midnight Date (src/office-clock-period-math.mjs) —
+                                formatting it without timeZone:'UTC' falls back to the browser's local time, which
+                                for anyone in US Eastern shifts every date here back by one full day (confirmed live
+                                2026-10-05: Oct 1's real punches rendered under a "Sep 30" row). Same fix already
+                                correctly applied at this screen's own `dayLabel` helper above (line ~21053) and at
+                                every other date-only render in this codebase — this was the one place that missed it. */}
+                            <td style={tdCell(th)}>{officeClockParseDate(d.day).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' })}</td>
                             <td style={tdCell(th)}>{d.clockIn ? officeClockTime(d.clockIn.capturedAt) : '—'}</td>
                             <td style={tdCell(th)}>{d.clockOut ? officeClockTime(d.clockOut.capturedAt) : '—'}</td>
                             <td style={{ ...tdCell(th), fontWeight: 700, color: label ? th.text : th.muted, fontStyle: label ? 'normal' : 'italic' }}>{label || 'Incomplete'}</td>
@@ -30231,7 +30237,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.49";
+const APP_VERSION = "v21.50";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
