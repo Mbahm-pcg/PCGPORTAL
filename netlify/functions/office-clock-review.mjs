@@ -4,22 +4,34 @@
 // Lets IT/exec review every office_staff user's punches for one biweekly
 // pay period (everyone linked to Paycor — paycor_employee_id AND
 // paycor_department_id both set — across the single office/corporate legal
-// entity; there is no per-store loop here, unlike labor/tips), edit them
-// freely until the period is "finalized" (see `isPeriodFinalized` below —
-// there is no automatic time-based deadline: a period can be reviewed and
-// sent whenever IT/exec is ready), and fire the actual Paycor CreatePunches
-// batch write as a background job (office-clock-send-background.mjs). This
-// file itself never writes a punch to Paycor — only the one-time
-// activityTypes lookup (read-only) runs here, shared with the background
-// sender via the exported `ensureActivityTypes` helper.
+// entity; there is no per-store loop here, unlike labor/tips), edit the
+// CURRENT period freely, and fire the actual Paycor paygrid-staging batch as
+// a background job (office-clock-send-background.mjs). This file itself
+// never writes to Paycor — only the one-time activityTypes lookup (read-
+// only) runs here, shared with the background sender via the exported
+// `ensureActivityTypes` helper.
 //
-// Six actions, all exec/it only:
-//   period     { periodEnd }                                   -> { locked, punches, incompleteDays }
-//   edit       { periodEnd, userId, punchType, capturedAt, punchId?, note? } -> { ok, punch }  (409 if finalized)
-//   delete     { punchId }                                     -> { ok: true }                (409 if finalized or already sent)
-//   send       { periodEnd }                                   -> { started: true }            (409 if finalized)
-//   sendStatus { periodEnd }                                   -> the pcg_office_clock_send_{periodEnd} blob's data
-//   employeeSearch { query }                                   -> { matches: [...] }
+// Locking (revised 2026-10-02, explicit user decision): any period that
+// isn't the current open one is locked automatically the moment a new
+// period starts — "9/26 or 9/12 is the actual past and shouldn't be
+// editable" — regardless of whether it was ever sent to/confirmed by Paycor
+// (`isPeriodFinalized`, still tracked separately, is now just one of two
+// reasons a period can be locked, and purely informational for the UI).
+// exec/IT can deliberately reopen an old period via `unlockPeriod` and
+// re-close it via `lockPeriod` (see `getPeriodLockStatus`) — both audit-
+// logged. Unlocking NEVER bypasses the separate, unconditional per-punch
+// check in `edit`/`delete`: a punch Paycor has already confirmed can still
+// only be corrected in Paycor's own timecard editor, full stop.
+//
+// Eight actions, all exec/it only:
+//   period       { periodEnd }                                   -> { locked, lockReason, finalized, override, punches, incompleteDays }
+//   edit         { periodEnd, userId, punchType, capturedAt, punchId?, note? } -> { ok, punch }  (409 if locked)
+//   delete       { punchId }                                     -> { ok: true }                (409 if locked or already sent)
+//   send         { periodEnd }                                   -> { started: true }            (409 if finalized)
+//   sendStatus   { periodEnd }                                   -> the pcg_office_clock_send_{periodEnd} blob's data
+//   employeeSearch { query }                                     -> { matches: [...] }
+//   unlockPeriod { periodEnd, reason? }                          -> { ok: true, locked: false }
+//   lockPeriod   { periodEnd, reason? }                          -> { ok: true, locked }
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { getStore } from '@netlify/blobs';
@@ -78,7 +90,60 @@ async function ensureTables(db) {
     sent_at         timestamptz NOT NULL DEFAULT now(),
     sent_by         text NOT NULL
   )`;
+  // Manual lock/unlock override, added 2026-10-02 per explicit user decision:
+  // every period OTHER than the current open one is locked automatically now
+  // (a past pay cycle like 9/26 or 9/12 is "the actual past" and shouldn't be
+  // editable just because it happens to still have an unsent/failed punch) —
+  // this table is how exec/IT can deliberately reopen one anyway. One row per
+  // period that has ever been touched; absence of a row means "default"
+  // (locked if not current, open if current). This does NOT weaken the
+  // separate, unconditional per-punch check in `edit`/`delete` below — a
+  // punch Paycor has already confirmed can never be touched from here no
+  // matter what this override says; unlocking only ever reopens punches
+  // Paycor hasn't actually accepted yet, or lets a forgotten one be added.
+  await db`CREATE TABLE IF NOT EXISTS office_clock_period_overrides (
+    pay_period_end  date PRIMARY KEY,
+    unlocked        boolean NOT NULL DEFAULT false,
+    updated_by      text NOT NULL,
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    reason          text
+  )`;
   _tablesReady = true;
+}
+
+// "Current" = the one open pay period as of right now (ET) — always
+// editable regardless of the override table. Every other period defaults to
+// locked the instant it's no longer current, independent of whether it was
+// ever sent to or confirmed by Paycor (that's `isPeriodFinalized`'s own,
+// separate concern — a period can now be "locked" either because it's just
+// old, or because it's fully sent+confirmed; the override table is the only
+// way past either).
+function currentPeriodEnd() {
+  return payPeriodEndFor(etDateStr(new Date()));
+}
+
+async function getPeriodOverride(db, periodEnd) {
+  const rows = await db`SELECT * FROM office_clock_period_overrides WHERE pay_period_end = ${periodEnd}`;
+  return rows[0] || null;
+}
+
+// The single gate `edit`/`delete`/`send` all check before even reaching the
+// existing per-punch confirmed/pending check (which stays separate and
+// absolute). Returns { locked, reason } where reason is purely for the UI's
+// own messaging ('current' | 'unlocked' | 'past-auto').
+async function getPeriodLockStatus(db, periodEnd) {
+  if (periodEnd === currentPeriodEnd()) return { locked: false, reason: 'current' };
+  const override = await getPeriodOverride(db, periodEnd);
+  if (override?.unlocked) return { locked: false, reason: 'unlocked', override };
+  return { locked: true, reason: 'past-auto' };
+}
+
+async function logPeriodAudit(db, authedUser, action, periodEnd, reason) {
+  try {
+    await db`INSERT INTO audit_log (type, user_id, user_role, action, metadata)
+      VALUES ('office_clock_period_lock', ${authedUser.id || authedUser.username}, ${authedUser.userType}, ${action},
+        ${JSON.stringify({ periodEnd, reason: reason || null, actorName: authedUser.username })})`;
+  } catch (e) { console.warn('[office-clock-review] audit log insert failed:', e.message); }
 }
 
 // Resolves (and caches in Postgres) the Work/Meal ActivityTypeId GUIDs for a
@@ -273,12 +338,45 @@ export default async (request) => {
         }
       }
 
+      const lockStatus = await getPeriodLockStatus(db, periodEnd);
       return json(200, {
-        locked: await isPeriodFinalized(db, periodEnd),
+        locked: lockStatus.locked,
+        lockReason: lockStatus.reason,
+        finalized: await isPeriodFinalized(db, periodEnd),
+        override: lockStatus.override ? {
+          unlockedBy: lockStatus.override.updated_by,
+          unlockedAt: lockStatus.override.updated_at,
+          reason: lockStatus.override.reason,
+        } : null,
         punches,
         linkedUsers: linkedUsers.map(u => ({ userId: u.id, userName: u.name })),
         incompleteDays,
       });
+    }
+
+    // Admin override — reopens a period that's locked only because it's past
+    // (not current) or fully sent+confirmed. Never touches the per-punch
+    // confirmed/pending check in `edit`/`delete` below, which stays absolute.
+    if (action === 'unlockPeriod') {
+      const { periodEnd, reason } = payload;
+      if (!periodEnd) return json(400, { error: 'Missing periodEnd' });
+      await db`INSERT INTO office_clock_period_overrides (pay_period_end, unlocked, updated_by, reason)
+        VALUES (${periodEnd}, true, ${authedUser.username}, ${reason || null})
+        ON CONFLICT (pay_period_end) DO UPDATE SET unlocked = true, updated_by = ${authedUser.username}, updated_at = now(), reason = ${reason || null}`;
+      await logPeriodAudit(db, authedUser, 'unlock', periodEnd, reason);
+      return json(200, { ok: true, locked: false });
+    }
+
+    // Reverts an unlock — the period goes back to its default (locked,
+    // since re-locking only ever applies to a non-current period).
+    if (action === 'lockPeriod') {
+      const { periodEnd, reason } = payload;
+      if (!periodEnd) return json(400, { error: 'Missing periodEnd' });
+      await db`INSERT INTO office_clock_period_overrides (pay_period_end, unlocked, updated_by, reason)
+        VALUES (${periodEnd}, false, ${authedUser.username}, ${reason || null})
+        ON CONFLICT (pay_period_end) DO UPDATE SET unlocked = false, updated_by = ${authedUser.username}, updated_at = now(), reason = ${reason || null}`;
+      await logPeriodAudit(db, authedUser, 'lock', periodEnd, reason);
+      return json(200, { ok: true, locked: periodEnd !== currentPeriodEnd() });
     }
 
     if (action === 'edit') {
@@ -324,7 +422,8 @@ export default async (request) => {
         // finalized punch's real id alongside an unrelated, still-open
         // periodEnd and slip past the check entirely.
         const existingPeriodEnd = new Date(existing.pay_period_end).toISOString().slice(0, 10);
-        if (await isPeriodFinalized(db, existingPeriodEnd)) return json(409, { error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
+        const lockStatus = await getPeriodLockStatus(db, existingPeriodEnd);
+        if (lockStatus.locked) return json(409, { error: lockStatus.reason === 'past-auto' ? 'This pay period has closed and is locked — an exec/IT admin can unlock it first if a correction is genuinely needed' : 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
 
         // I3 — when capturedAt is changing, the new pay_period_end is derived
         // server-side from that timestamp's own ET calendar date (never
@@ -355,7 +454,8 @@ export default async (request) => {
         // to key it off of), plus the same server-derived-period check as the
         // edit path above (I3): pay_period_end comes from capturedAt's own ET
         // calendar date, not straight from the payload's periodEnd.
-        if (await isPeriodFinalized(db, periodEnd)) return json(409, { error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
+        const newPunchLockStatus = await getPeriodLockStatus(db, periodEnd);
+        if (newPunchLockStatus.locked) return json(409, { error: newPunchLockStatus.reason === 'past-auto' ? 'This pay period has closed and is locked — an exec/IT admin can unlock it first if a correction is genuinely needed' : 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
         const newPayPeriodEnd = payPeriodEndFor(etDateStr(new Date(capturedAt)));
         if (newPayPeriodEnd !== periodEnd) {
           return json(400, { error: `That time falls in the pay period ending ${newPayPeriodEnd}, not ${periodEnd} — add it from that period instead` });
@@ -391,7 +491,8 @@ export default async (request) => {
       }
 
       const existingPeriodEnd = new Date(existing.pay_period_end).toISOString().slice(0, 10);
-      if (await isPeriodFinalized(db, existingPeriodEnd)) return json(409, { error: 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
+      const deleteLockStatus = await getPeriodLockStatus(db, existingPeriodEnd);
+      if (deleteLockStatus.locked) return json(409, { error: deleteLockStatus.reason === 'past-auto' ? 'This pay period has closed and is locked — an exec/IT admin can unlock it first if a correction is genuinely needed' : 'Pay period is finalized — it has already been fully sent to and confirmed by Paycor' });
 
       await db`DELETE FROM office_clock_punches WHERE id = ${punchId}`;
       return json(200, { ok: true });

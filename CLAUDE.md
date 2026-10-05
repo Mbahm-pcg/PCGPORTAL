@@ -85,9 +85,19 @@ netlify/functions/
                                 after the week closes to DM + the manually-curated "Minor Timecard"
                                 notify list (Admin · Notifications tab, `pcg_minor_timecard_notify_v1`
                                 — NOT every office_staff account; add/remove exactly who should get
-                                it), 7-day exec backstop; merges onto a fresh blob read. See
+                                it — confirmed 2026-10-05: never bulk-add an entire role group to this
+                                one, it's meant to stay a small deliberate list, not every manager
+                                company-wide), 7-day exec backstop; merges onto a fresh blob read. See
                                 `resolveNotificationRecipients` (src/minor-timecard-lifecycle.mjs) for
                                 the exact manager/DM-fallback/escalation recipient logic.
+                                `applyResolutionCheck` (src/minor-timecard-lifecycle.mjs) now refreshes
+                                `consecutiveHours`/`longestGapMinutes` on an issue from the SAME live
+                                re-check every day it stays open, not just on resolve (fixed
+                                2026-10-05: a manager correcting a timecard in Paycor AFTER detection —
+                                e.g. adding a missed meal punch — left the issue's displayed hours/
+                                break frozen at whatever was true at first detection, forever, even
+                                though the email's clock-in/out text was already re-derived fresh each
+                                time; confirmed live with Jessup Charlotte/Tollgate, 9/27 and 10/3).
   minor-timecard-resolve.mjs  — Manual "Mark Resolved" endpoint (exec/IT/DM, DM district-scoped)
   # ── Office Hourly Time Clock (office/corporate staff, Paycor legal entity 193872) ──
   office-clock-punch.mjs      — office_staff's own punch (clock in/meal/clock out) + today's list;
@@ -100,15 +110,26 @@ netlify/functions/
                                 nothing to click, rather than a tile that would just 409. Stale until
                                 next login/token refresh if linked/unlinked mid-session, same as every
                                 other session field here.
-  office-clock-review.mjs     — exec/IT: pay-period review/edit + fires the background Paycor send;
-                                no deadline — a period locks (read-only) only once it's been fully sent
-                                and every punch is `confirmed` (`isPeriodFinalized`, shared with the
-                                background send function below); linking an office_staff account to
-                                Paycor is a live name/employee-number search against Paycor's own
-                                roster (`employeeSearch` action) — IT picks a match, the real
-                                employee/department GUIDs are saved via `users.mjs`'s `update` action,
-                                never hand-typed (an earlier paste-the-display-value form caused a
-                                real CreatePunches 400 — Paycor's GUID isn't what its own UI shows)
+  office-clock-review.mjs     — exec/IT: pay-period review/edit + fires the background Paycor send.
+                                Locking (revised 2026-10-02): the CURRENT period only is freely
+                                editable — any other period locks automatically the instant it's no
+                                longer current ("9/26 or 9/12 is the actual past"), regardless of
+                                whether it was ever sent to/confirmed by Paycor. `isPeriodFinalized`
+                                (fully sent + every punch `confirmed`) still exists but is now just one
+                                of two reasons a period can be locked, kept for the background sender's
+                                own I1 check and for UI messaging. exec/IT can deliberately reopen an
+                                old period (`unlockPeriod`) and re-close it (`lockPeriod`) — both
+                                audit-logged (`office_clock_period_overrides` table + `audit_log`).
+                                Unlocking NEVER bypasses the separate, unconditional per-punch check: a
+                                punch Paycor has already confirmed can still only be corrected in
+                                Paycor's own timecard editor — there is no delete/undo API for it, so
+                                this app refuses to silently diverge from what Paycor actually has.
+                                Linking an office_staff account to Paycor is a live name/employee-
+                                number search against Paycor's own roster (`employeeSearch` action) —
+                                IT picks a match, the real employee/department GUIDs are saved via
+                                `users.mjs`'s `update` action, never hand-typed (an earlier paste-the-
+                                display-value form caused a real CreatePunches 400 — Paycor's GUID
+                                isn't what its own UI shows)
   office-clock-send-background.mjs — stages each linked employee's exact worked hours into Paycor's
                                 PAYGRID (`stagePayrollHours`, v2, employeeId-keyed) — NOT CreatePunches
                                 (switched 2026-10-02: CreatePunches for this legal entity returned
@@ -141,6 +162,23 @@ netlify/functions/
   pnl-cron.js / pnl-cron-background.js
   reconciliation.js / reconciliation-cron.js
   reports-backup.js
+  paycor-webhook-background.mjs — receives Paycor's Time.Punch.Data webhook events and runs a
+                                targeted tips reconcile (runReconcileForDates, tips-reconcile-cron.mjs)
+                                for just the affected store the moment a DM/manager manually edits a
+                                punch in Paycor — real-time fix for the gap where a manual mid-period
+                                correction older than the daily reconcile's 3-day window would
+                                otherwise only self-correct once that period's finalize-gate settle
+                                pass runs at period close (2026-10-02). UNVERIFIED payload shape
+                                (built from Paycor's publicly documented event fields, not a
+                                confirmed real delivery yet) — defensive by design: logs the full raw
+                                payload every time, debounces per store (60s), and only ever reconciles
+                                a bounded 3-day window for the one affected store even if parsing is
+                                incomplete. Signature verification via `PAYCOR_WEBHOOK_SECRET` is
+                                skipped (with a loud warning) until that env var is set — safe to
+                                deploy ahead of actually registering the webhook with Paycor, but set
+                                it immediately once registered. Registration itself is manual, via
+                                paycor.mjs's `registerWebhook`/`listWebhooks` actions (exec/it only) —
+                                not yet exercised against production.
   # ── Construction / Projects (Philadelphia open data) ──
   philly-data.js              — 6 city APIs: property, licenses, violations, 311, crime, appeals
   philly-zoning.js            — Zoning + AIS address normalization (OPA lookup)
@@ -249,7 +287,7 @@ HTTP POST to functions has a **26-second timeout** (Pro plan). Heavy jobs (labor
 Tables: `users`, `tickets`, `ticket_comments`, `business_cases`, `chat_messages`, `chat_channels`, `notifications`, `audit_log`.
 - Client: `netlify/functions/db.js` → `neon(process.env.NEON_DATABASE_URL)`
 - Migrations: `db-migrate.js` (manual trigger) / drizzle-kit → `netlify/database/migrations`
-- Office Hourly Time Clock adds 3 self-created tables (same `CREATE TABLE IF NOT EXISTS` pattern as
+- Office Hourly Time Clock adds 4 self-created tables (same `CREATE TABLE IF NOT EXISTS` pattern as
   `tickets.mjs`/`incident-reports.mjs` — not in `db/schema.ts`, created lazily by the functions that
   use them): `office_clock_punches` (every punch — live, manual edit, or admin-inserted; `paycor_status`
   tracks unsent/confirmed/failed — set per-user from a paygrid stage result, not per-punch from Paycor,
@@ -257,18 +295,24 @@ Tables: `users`, `tickets`, `ticket_comments`, `business_cases`, `chat_messages`
   `office_clock_activity_types` (cached Work/Meal Paycor ActivityTypeId GUIDs per legal entity — a
   leftover from the original CreatePunches write path, unused by the current paygrid-staging path but
   kept in case CreatePunches is ever revisited), `office_clock_pay_period_sends` (audit trail of each
-  "Send to Paycor" attempt). A pay period (biweekly, same anchor as Paycor's own pay-group frequency)
-  has no time-based deadline — IT/exec reviews and sends whenever ready. It becomes read-only
-  ("finalized") only once a send has actually been triggered, at least one punch exists for the period
-  (an empty period is never "finalized" just because nothing was outstanding), AND every punch for that
-  period is `confirmed` (`isPeriodFinalized`, a DB-backed check in `office-clock-review.mjs`, shared
-  with `office-clock-send-background.mjs`) — "confirmed" here means Paycor accepted that employee's
-  staged paygrid entry, NOT that a human has reviewed/submitted it in Paycor's own UI (that real
-  payroll-submit step still happens there, outside this app, by design — paygrid staging is
+  "Send to Paycor" attempt), `office_clock_period_overrides` (manual lock/unlock per period, added
+  2026-10-02 — see below). Only the CURRENT biweekly pay period (same anchor as Paycor's own pay-group
+  frequency) is freely editable by default; every other period locks automatically the instant it's no
+  longer current, regardless of send/confirm status — "the actual past shouldn't be editable." It is
+  ALSO locked ("finalized") once a send has actually been triggered, at least one punch exists for the
+  period (an empty period is never "finalized" just because nothing was outstanding), AND every punch
+  for that period is `confirmed` (`isPeriodFinalized`, a DB-backed check in `office-clock-review.mjs`,
+  shared with `office-clock-send-background.mjs`) — "confirmed" here means Paycor accepted that
+  employee's staged paygrid entry, NOT that a human has reviewed/submitted it in Paycor's own UI (that
+  real payroll-submit step still happens there, outside this app, by design — paygrid staging is
   deliberately non-destructive and correctable via the same stable processId + `replaceData:true` any
   time before it does). A send with any `unsent`/`pending`/`failed` punches left over keeps the period
-  open so IT can fix and resend. `payPeriodEndFor` in `src/office-clock-lib.mjs` is still the single
-  source of truth for period boundaries, shared by the punch, review, and send-background functions.
+  open so IT can fix and resend. exec/IT can deliberately unlock a past (not-current) period to add a
+  forgotten punch or fix one Paycor hasn't confirmed yet (`unlockPeriod`/`lockPeriod` actions, audit-
+  logged to both `office_clock_period_overrides` and `audit_log`) — this NEVER bypasses the separate,
+  unconditional rule that a punch Paycor has already confirmed can only be corrected in Paycor's own
+  timecard editor. `payPeriodEndFor` in `src/office-clock-lib.mjs` is still the single source of truth
+  for period boundaries, shared by the punch, review, and send-background functions.
 
 ### Netlify Blobs (`pcg-portal` store)
 All blobs use `{ savedAt, data }` wrapper for `cloudLoad` compatibility.
@@ -387,6 +431,7 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
 | `NO_CLOCKIN_LIVE` / `NO_CLOCKIN_SHADOW_USER` / `TEXTBELT_API_KEY` | no-clockin-cron mode: unset = log-only, `shadow` = alerts go ONLY to the username in `NO_CLOCKIN_SHADOW_USER` (labelled with who they'd reach), `true` = real managers/DMs; Textbelt SMS key (what sms.mjs / pulse-notify / no-clockin actually use) |
 | `MINOR_TIMECARD_LIVE` / `MINOR_TIMECARD_SHADOW_EMAIL` | Minor-timecard cron mode (same 3-state shape as `NO_CLOCKIN_LIVE`): unset = log-only (detects + logs, sends nothing, writes nothing — safe to deploy unconfigured), `shadow` = every email redirected to `MINOR_TIMECARD_SHADOW_EMAIL` labelled with who it would have reached (issue state still written), `true` = real manager/DM/office-staff/exec. **Before switching `shadow` → `true`, clear the `pcg_minor_timecard_issues_v1` blob** — shadow runs write real `escalatedAt` and real `exec_backstop` notification records, which would otherwise suppress the real backstop and make a manager's first-ever email an already-escalated "Day 12" notice. Full runbook in `minor-timecard-followup-cron.mjs`'s header |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL` / `VAPID_SUBJECT` | Web push |
+| `PAYCOR_WEBHOOK_SECRET` | Event Secret for verifying `paycor-webhook-background.mjs` deliveries — unset = signature verification skipped (loud warning), only safe before the webhook is actually registered with Paycor via `registerWebhook`. Set it to the secret that registration call returns. |
 | `OFFICE_LEGAL_ENTITY_ID` | Office Hourly Time Clock: the office/corporate Paycor legal entity ID (`193872`, "People Capital Group LLC") — read server-side only, in `office-clock-send-background.mjs`; never client-supplied. |
 
 ---

@@ -21586,6 +21586,29 @@ function OfficeClockReview({ user, th, showAlert }) {
     }, OFFICE_CLOCK_SEND_POLL_MS);
   }, [periodEnd, load]);
 
+  const setPeriodLock = async (unlock) => {
+    let reason = null;
+    if (unlock) {
+      reason = window.prompt('Why are you unlocking this closed pay period? (optional, saved to the audit log)') || '';
+      if (reason === null) return; // cancelled
+    } else if (!window.confirm(`Re-lock the pay period ending ${periodEnd}?`)) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/.netlify/functions/office-clock-review', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: unlock ? 'unlockPeriod' : 'lockPeriod', periodEnd, reason: reason || undefined }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { showAlert && showAlert('error', j?.error || 'Could not update lock.'); setSaving(false); return; }
+      load();
+      showAlert && showAlert('success', unlock ? 'Period unlocked.' : 'Period re-locked.');
+    } catch {
+      showAlert && showAlert('error', 'Network error — could not update lock.');
+    }
+    setSaving(false);
+  };
+
   const doSend = async () => {
     if (!window.confirm(`Send pay period ending ${periodEnd} to Paycor?`)) return;
     setSendState({ status: 'sending' });
@@ -21636,7 +21659,7 @@ function OfficeClockReview({ user, th, showAlert }) {
         <h1 style={pageTitle(th, { fontSize: '1.3rem', margin: 0 })}>Office Time Clock — Pay Period Review</h1>
       </div>
       <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
-        Review, edit, and send one biweekly pay period to Paycor whenever you're ready — there's no deadline. A period becomes read-only once it's been fully sent and every punch is confirmed by Paycor.
+        The current pay period is open for review, edit, and send whenever you're ready. Every past period locks automatically the moment a new one opens — exec/IT can unlock one to make a genuine correction, but a punch Paycor has already confirmed can still only be fixed in Paycor's own timecard editor.
       </p>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
@@ -21644,7 +21667,21 @@ function OfficeClockReview({ user, th, showAlert }) {
           Pay period ending{' '}
           <input type="date" value={periodEnd} onChange={e => e.target.value && setPeriodEnd(payPeriodEndFor(e.target.value, OFFICE_CLOCK_BIWEEKLY_ANCHOR_END))} style={inp(th)} />
         </label>
-        {data && <span style={pill(data.locked ? '#6b7280' : '#22c55e')}>{data.locked ? 'Locked — fully sent to Paycor' : 'Open for edits'}</span>}
+        {data && (
+          <span style={pill(data.locked ? '#6b7280' : (data.lockReason === 'unlocked' ? '#f59f0b' : '#22c55e'))}>
+            {data.locked
+              ? (data.finalized ? 'Locked — fully sent to Paycor' : 'Locked — past pay period')
+              : (data.lockReason === 'unlocked' ? 'Unlocked by admin override' : 'Open for edits')}
+          </span>
+        )}
+        {data && data.lockReason !== 'current' && (
+          data.locked
+            ? <button type="button" disabled={saving} onClick={() => setPeriodLock(true)} style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.78rem' })}>Unlock period</button>
+            : <button type="button" disabled={saving} onClick={() => setPeriodLock(false)} style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.78rem', background: th.card3 })}>Re-lock period</button>
+        )}
+        {data?.override?.reason && (
+          <span style={{ fontSize: '0.72rem', color: th.muted }}>Unlocked by {data.override.unlockedBy}: "{data.override.reason}"</span>
+        )}
       </div>
 
       {loadError && <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: '#e03131', fontSize: '0.85rem' }}>{loadError}</div>}
@@ -30194,7 +30231,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.45";
+const APP_VERSION = "v21.49";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

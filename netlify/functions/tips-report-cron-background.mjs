@@ -915,6 +915,19 @@ export async function fetchStoreCrew(s, busDt) {
 
 export default async (request) => {
   const invocationStart = Date.now();
+  // snapshotCache is module-scoped and this function is a separate deployed
+  // Lambda from tips-report-refresh-background.mjs (the manual redo path) —
+  // despite both importing the same saveDaySnapshot(), each gets its OWN
+  // copy of this module and its OWN snapshotCache instance in memory. A redo
+  // run through refresh-background only updates ITS copy; if THIS function's
+  // own warm container had already cached a pre-redo day earlier in its
+  // life, it would keep serving that stale copy indefinitely across
+  // invocations, with no way for a redo done elsewhere to ever invalidate
+  // it. Clearing it at the start of every invocation keeps its only real
+  // purpose intact (dedup the 7 overlapping days between this SAME run's
+  // weekly/biweekly rollups) while guaranteeing it never survives past the
+  // run it was built for.
+  snapshotCache.clear();
   // Manual catch-up runs can target a specific date: POST {"busDt":"YYYY-MM-DD"}.
   // Scheduled invocations have no body, so this falls back to yesterday-ET.
   let busDt = etDate(1);

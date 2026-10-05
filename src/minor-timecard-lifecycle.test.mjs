@@ -136,8 +136,20 @@ test('applyResolutionCheck: leaves the issue open when still violating', () => {
   assert.equal(result.status, 'open');
 });
 
-test('applyResolutionCheck: leaves the issue unchanged (never auto-resolves) on indeterminate data', () => {
-  const issue = { status: 'open' };
-  const result = applyResolutionCheck(issue, { status: 'indeterminate', violates: false }, new Date());
+test('applyResolutionCheck: refreshes consecutiveHours/longestGapMinutes from fresh live data when still violating', () => {
+  // Confirmed real (2026-10-05): an issue first detected with a 5.0h stretch
+  // stayed open (correctly — the real shift later had zero break at all),
+  // but kept showing the stale original "5.0h Worked" forever because this
+  // function never updated those fields on anything but the resolve path.
+  const issue = { status: 'open', consecutiveHours: 5.0, longestGapMinutes: 0 };
+  const result = applyResolutionCheck(issue, { status: 'ok', violates: true, consecutiveHours: 9.47, violationGapMinutes: 0 }, new Date());
+  assert.equal(result.status, 'open');
+  assert.equal(result.consecutiveHours, 9.47);
+  assert.equal(result.longestGapMinutes, 0);
+});
+
+test('applyResolutionCheck: leaves the issue unchanged (never auto-resolves, never overwrites numbers) on indeterminate data', () => {
+  const issue = { status: 'open', consecutiveHours: 5.4, longestGapMinutes: 10 };
+  const result = applyResolutionCheck(issue, { status: 'indeterminate', violates: false, consecutiveHours: null }, new Date());
   assert.deepEqual(result, issue);
 });

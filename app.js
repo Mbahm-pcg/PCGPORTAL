@@ -18135,6 +18135,33 @@ ${t2.slice(0, 300)}`);
         }
       }, OFFICE_CLOCK_SEND_POLL_MS);
     }, [periodEnd, load]);
+    const setPeriodLock = async (unlock) => {
+      let reason = null;
+      if (unlock) {
+        reason = window.prompt("Why are you unlocking this closed pay period? (optional, saved to the audit log)") || "";
+        if (reason === null) return;
+      } else if (!window.confirm(`Re-lock the pay period ending ${periodEnd}?`)) return;
+      setSaving(true);
+      try {
+        const res = await fetch("/.netlify/functions/office-clock-review", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: unlock ? "unlockPeriod" : "lockPeriod", periodEnd, reason: reason || void 0 })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showAlert2 && showAlert2("error", j?.error || "Could not update lock.");
+          setSaving(false);
+          return;
+        }
+        load();
+        showAlert2 && showAlert2("success", unlock ? "Period unlocked." : "Period re-locked.");
+      } catch {
+        showAlert2 && showAlert2("error", "Network error \u2014 could not update lock.");
+      }
+      setSaving(false);
+    };
     const doSend = async () => {
       if (!window.confirm(`Send pay period ending ${periodEnd} to Paycor?`)) return;
       setSendState({ status: "sending" });
@@ -18182,7 +18209,7 @@ ${t2.slice(0, 300)}`);
       }
       setCompareLoading(false);
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClockReview(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Pay Period Review")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Review, edit, and send one biweekly pay period to Paycor whenever you're ready \u2014 there's no deadline. A period becomes read-only once it's been fully sent and every punch is confirmed by Paycor."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.8rem", color: th.muted } }, "Pay period ending", " ", /* @__PURE__ */ React.createElement("input", { type: "date", value: periodEnd, onChange: (e) => e.target.value && setPeriodEnd(payPeriodEndFor(e.target.value, OFFICE_CLOCK_BIWEEKLY_ANCHOR_END)), style: inp(th) })), data && /* @__PURE__ */ React.createElement("span", { style: pill(data.locked ? "#6b7280" : "#22c55e") }, data.locked ? "Locked \u2014 fully sent to Paycor" : "Open for edits")), loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, loadError), !data && !loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), data && !loadError && /* @__PURE__ */ React.createElement(React.Fragment, null, !data.locked && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.2rem" } }, ICONS.officeClockReview(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Office Time Clock \u2014 Pay Period Review")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "The current pay period is open for review, edit, and send whenever you're ready. Every past period locks automatically the moment a new one opens \u2014 exec/IT can unlock one to make a genuine correction, but a punch Paycor has already confirmed can still only be fixed in Paycor's own timecard editor."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.8rem", color: th.muted } }, "Pay period ending", " ", /* @__PURE__ */ React.createElement("input", { type: "date", value: periodEnd, onChange: (e) => e.target.value && setPeriodEnd(payPeriodEndFor(e.target.value, OFFICE_CLOCK_BIWEEKLY_ANCHOR_END)), style: inp(th) })), data && /* @__PURE__ */ React.createElement("span", { style: pill(data.locked ? "#6b7280" : data.lockReason === "unlocked" ? "#f59f0b" : "#22c55e") }, data.locked ? data.finalized ? "Locked \u2014 fully sent to Paycor" : "Locked \u2014 past pay period" : data.lockReason === "unlocked" ? "Unlocked by admin override" : "Open for edits"), data && data.lockReason !== "current" && (data.locked ? /* @__PURE__ */ React.createElement("button", { type: "button", disabled: saving, onClick: () => setPeriodLock(true), style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.78rem" }) }, "Unlock period") : /* @__PURE__ */ React.createElement("button", { type: "button", disabled: saving, onClick: () => setPeriodLock(false), style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.78rem", background: th.card3 }) }, "Re-lock period")), data?.override?.reason && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: th.muted } }, "Unlocked by ", data.override.unlockedBy, ': "', data.override.reason, '"')), loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: "#e03131", fontSize: "0.85rem" } }, loadError), !data && !loadError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), data && !loadError && /* @__PURE__ */ React.createElement(React.Fragment, null, !data.locked && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -24108,7 +24135,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.45";
+  var APP_VERSION = "v21.49";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

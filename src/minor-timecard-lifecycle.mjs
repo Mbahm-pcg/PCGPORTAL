@@ -105,5 +105,25 @@ export function applyResolutionCheck(issue, freshDayResult, now = new Date()) {
   if (freshDayResult.status === 'ok' && !freshDayResult.violates) {
     return { ...issue, status: 'resolved', resolvedAt: now.toISOString(), resolvedVia: 'auto' };
   }
+  // Still open — but confirmed real (2026-10-05, Jessup Charlotte/Sunday 9/27):
+  // this used to return `issue` completely unchanged on every single day it
+  // stays open, which means `consecutiveHours`/`longestGapMinutes` were
+  // frozen at whatever they were the moment the issue was FIRST detected,
+  // forever — even though `buildViolationCardHtml` re-derives the clock-in/
+  // clock-out/break text fresh from live punches every time it renders. A
+  // card could show a truthful "no break recorded, clocked in 8:55 AM,
+  // clocked out 6:23 PM" (today's real punches) right next to a stale
+  // "5.0h Worked" left over from whichever earlier day the violation was
+  // first caught — looking exactly like the fixed exactly-5.0-hours bug had
+  // regressed, when the real bug was that the number simply never updates.
+  // `freshDayResult` is the exact same live analyzeDayForViolation() result
+  // that just reconfirmed this is still a violation, so reuse it here too
+  // rather than re-deriving a second time. Guarded on `status === 'ok'`
+  // (not just `typeof consecutiveHours === 'number'`) so an indeterminate
+  // run (Paycor unreadable this pass) can never overwrite a good stored
+  // number with a coincidentally-numeric but meaningless value.
+  if (freshDayResult.status === 'ok' && typeof freshDayResult.consecutiveHours === 'number') {
+    return { ...issue, consecutiveHours: freshDayResult.consecutiveHours, longestGapMinutes: freshDayResult.violationGapMinutes ?? issue.longestGapMinutes };
+  }
   return issue;
 }

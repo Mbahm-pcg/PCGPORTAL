@@ -786,6 +786,45 @@ export default async (request, context) => {
       return new Response(JSON.stringify(res.data), { status: res.status, headers });
     }
 
+    // ── Webhook subscription management (Time.Punch.Data real-time events) ──
+    // POST /v1/webhooks — registers a subscription so Paycor pushes an event
+    // the moment any punch is created/updated for a legal entity, instead of
+    // us polling. Feeds netlify/functions/paycor-webhook-background.mjs,
+    // which runs a targeted tips reconcile the moment a DM/manager manually
+    // edits a punch in Paycor — closing the gap where a manual mid-period
+    // correction older than the daily reconcile's 3-day window would
+    // otherwise only self-correct once that period's finalize-gate settle
+    // pass runs at period close. UNVERIFIED against Paycor's real webhook
+    // API (built from publicly documented event fields, not a confirmed
+    // request/response contract) — exec/it only, and meant to be exercised
+    // once manually (via `list` first, then `register`) before being relied
+    // on, not called from any automated flow.
+    if (action === 'registerWebhook' || action === 'listWebhooks') {
+      const sqlClient = db();
+      const authEvent = { headers: Object.fromEntries(request.headers.entries()) };
+      const authedUser = await requireActiveUser(authEvent, sqlClient);
+      if (!authedUser || (authedUser.userType !== 'executive' && authedUser.userType !== 'it')) {
+        return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers });
+      }
+      if (action === 'listWebhooks') {
+        const res = await callPaycor('/webhooks');
+        return new Response(JSON.stringify(res.data), { status: res.status, headers });
+      }
+      const { legalEntityId, targetUrl } = payload;
+      if (!legalEntityId || !targetUrl) return new Response(JSON.stringify({ error: 'Missing legalEntityId or targetUrl' }), { status: 400, headers });
+      const res = await callPaycor('/webhooks', 'POST', {
+        legalEntityId,
+        eventType: 'Time.Punch.Data',
+        targetUrl,
+      });
+      // The registration response is expected to include the Event Secret
+      // used to verify this subscription's deliveries — surfaced in the
+      // response body rather than stored automatically. It must be copied
+      // into PAYCOR_WEBHOOK_SECRET (Netlify env vars) by hand; this proxy
+      // never writes environment variables itself.
+      return new Response(JSON.stringify(res.data), { status: res.status, headers });
+    }
+
     // ── Proxy: scheduling jobs for a legal entity ──
     if (action === 'schedulingJobs') {
       const { legalEntityId } = payload;
