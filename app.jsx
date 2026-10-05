@@ -3527,7 +3527,16 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
         const json = await res.json().catch(() => ({}));
         if (!res.ok) { showAlert('error', json.error || `Create failed (${res.status})`); return; }
         setUsers(us => [...us, json.user]);
-        sendWelcomeEmail(json.user);
+        // json.user is the server's response — correctly stripped of the
+        // plaintext password (only password_hash is ever persisted/returned,
+        // per the no-plaintext policy; see users.mjs's `create` action).
+        // sendWelcomeEmail needs the real plaintext the admin just typed to
+        // actually put in the email, which only ever existed client-side in
+        // `form.password` — passing json.user alone left the template
+        // interpolating a missing field, rendering the literal string
+        // "undefined" as the password in every welcome email (confirmed
+        // live 2026-10-05).
+        sendWelcomeEmail({ ...json.user, password: form.password });
         logClientEvent(currentUser?.id, currentUser?.userType, 'user_created', { targetName: form.name, targetRole: form.userType });
       }
     } catch (e) {
@@ -30237,7 +30246,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.50";
+const APP_VERSION = "v21.52";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -33624,38 +33633,7 @@ const SHELLY_SENSOR_LABELS = {
   // '201': 'Walk-in Freezer',
 };
 
-function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert, users, searchTabs }) {
-  // Quick-nav search — "min" finds "Minor Timecard Compliance", etc. Built
-  // directly from `searchTabs` (the caller's own tabsForUser(user) output,
-  // i.e. TABS) rather than re-deriving role/access rules here: every tab id
-  // that role can actually see is already in that one list (tools-hub/
-  // finance/ops-hub/team-hub sub-items like Incident Reports or Minor
-  // Timecard Compliance are ALSO placed directly in computeRoleTabs for
-  // every role eligible to see them, not reachable only through a hub grid),
-  // so this can never suggest a destination the user doesn't have access to.
-  const [navQuery, setNavQuery] = useState('');
-  const [navShowSuggestions, setNavShowSuggestions] = useState(false);
-  const navMatches = React.useMemo(() => {
-    const q = navQuery.trim().toLowerCase();
-    if (!q) return [];
-    return (searchTabs || [])
-      .filter(t => t.label && t.label.toLowerCase().includes(q))
-      // Exact-prefix matches first ("min" -> "Minor..." before anything that
-      // merely contains "min" mid-word), then alphabetical within each group.
-      .sort((a, b) => {
-        const aPrefix = a.label.toLowerCase().startsWith(q) ? 0 : 1;
-        const bPrefix = b.label.toLowerCase().startsWith(q) ? 0 : 1;
-        if (aPrefix !== bPrefix) return aPrefix - bPrefix;
-        return a.label.localeCompare(b.label);
-      })
-      .slice(0, 8);
-  }, [navQuery, searchTabs]);
-  const goToNavMatch = (t) => {
-    setTab(t.id);
-    setNavQuery('');
-    setNavShowSuggestions(false);
-  };
-
+function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert, users }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (user?.name || "").split(" ")[0];
@@ -33852,42 +33830,6 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
 
   return (
     <div className="fade-in">
-      {/* ─── Quick-nav search — type a few letters of any tab/feature name ─── */}
-      <div style={{ position: 'relative', marginBottom: '1.1rem' }}>
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: th.muted, pointerEvents: 'none' }}>
-            {ICONS.search(th.muted)}
-          </span>
-          <input
-            type="text" value={navQuery}
-            onChange={e => { setNavQuery(e.target.value); setNavShowSuggestions(true); }}
-            onFocus={() => setNavShowSuggestions(true)}
-            onBlur={() => setTimeout(() => setNavShowSuggestions(false), 150)}
-            onKeyDown={e => { if (e.key === 'Enter' && navMatches[0]) goToNavMatch(navMatches[0]); if (e.key === 'Escape') { setNavQuery(''); setNavShowSuggestions(false); } }}
-            placeholder="Quick find — try typing a feature name…"
-            style={{ ...inp(th), paddingLeft: '2.5rem', width: '100%' }}
-          />
-        </div>
-        {navShowSuggestions && navMatches.length > 0 && (
-          <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.7rem', boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden' }}>
-            {navMatches.map(t => (
-              <div key={t.id} onMouseDown={() => goToNavMatch(t)}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.9rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}` }}
-                onMouseEnter={e => e.currentTarget.style.background = th.card2}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <span style={{ flexShrink: 0, display: 'flex' }}>{typeof t.icon === 'function' ? t.icon(th.muted) : t.icon}</span>
-                <span style={{ fontSize: '0.86rem', fontWeight: 600, color: th.text }}>{t.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {navShowSuggestions && navQuery.trim().length > 0 && navMatches.length === 0 && (
-          <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.7rem', padding: '0.7rem 0.9rem', fontSize: '0.82rem', color: th.muted }}>
-            No matching tab found.
-          </div>
-        )}
-      </div>
-
       {/* ─── Hero: Greeting · Weather · Quote ────────────────────────────────
           A single elevated panel that anchors the page. Ambient orange glow
           blobs at the corners + a subtle gradient give depth without noise.
@@ -43231,6 +43173,79 @@ function LauncherSection({ th, title, tiles, pinnedNavIds, togglePinNav, onNavig
     </div>
   );
 }
+// Quick-nav search — "min" finds "Minor Timecard Compliance", etc. Moved here
+// from the Dashboard tab (2026-10-05, per direct user request): the mobile
+// launcher, not Dashboard, is what Full Portal actually opens to (see
+// [[project_mobile_app_launcher]]), so that's the one screen everyone
+// reliably sees first — a search bar living on a tab most people never
+// land on wasn't doing its job. `tabs` is the caller's own tabsForUser(user)
+// output (i.e. TABS) rather than re-derived role/access rules here: every
+// tab id that role can actually see is already in that one list (tools-hub/
+// finance/ops-hub/team-hub sub-items like Incident Reports or Minor
+// Timecard Compliance are ALSO placed directly in computeRoleTabs for every
+// role eligible to see them, not reachable only through a hub grid), so
+// this can never suggest a destination the user doesn't have access to.
+function QuickFindBar({ th, tabs, onNavigate }) {
+  const [query, setQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const matches = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return (tabs || [])
+      .filter(t => t.label && t.label.toLowerCase().includes(q))
+      // Exact-prefix matches first ("min" -> "Minor..." before anything that
+      // merely contains "min" mid-word), then alphabetical within each group.
+      .sort((a, b) => {
+        const aPrefix = a.label.toLowerCase().startsWith(q) ? 0 : 1;
+        const bPrefix = b.label.toLowerCase().startsWith(q) ? 0 : 1;
+        if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+        return a.label.localeCompare(b.label);
+      })
+      .slice(0, 8);
+  }, [query, tabs]);
+  const goToMatch = (t) => {
+    onNavigate(t.id);
+    setQuery('');
+    setShowSuggestions(false);
+  };
+
+  return (
+    <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
+      <div style={{ position: 'relative' }}>
+        <span style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: th.muted, pointerEvents: 'none' }}>
+          {ICONS.search(th.muted)}
+        </span>
+        <input
+          type="text" value={query}
+          onChange={e => { setQuery(e.target.value); setShowSuggestions(true); }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+          onKeyDown={e => { if (e.key === 'Enter' && matches[0]) goToMatch(matches[0]); if (e.key === 'Escape') { setQuery(''); setShowSuggestions(false); } }}
+          placeholder="Quick find — try typing a feature name…"
+          style={{ ...inp(th), paddingLeft: '2.5rem', width: '100%' }}
+        />
+      </div>
+      {showSuggestions && matches.length > 0 && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.7rem', boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden' }}>
+          {matches.map(t => (
+            <div key={t.id} onMouseDown={() => goToMatch(t)}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.9rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}` }}
+              onMouseEnter={e => e.currentTarget.style.background = th.card2}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <span style={{ flexShrink: 0, display: 'flex' }}>{typeof t.icon === 'function' ? t.icon(th.muted) : t.icon}</span>
+              <span style={{ fontSize: '0.86rem', fontWeight: 600, color: th.text }}>{t.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {showSuggestions && query.trim().length > 0 && matches.length === 0 && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.7rem', padding: '0.7rem 0.9rem', fontSize: '0.82rem', color: th.muted }}>
+          No matching tab found.
+        </div>
+      )}
+    </div>
+  );
+}
 // Tabs that belong in the "Admin & Reports" group instead of plain Workspace —
 // mirrors the sidebar's old Admin/Operations accordion grouping.
 const LAUNCHER_ADMIN_IDS = new Set(['admin', 'users', 'ops-hub', 'team-hub', 'system-hub', 'reports', 'audits', 'analytics', 'anomalies', 'scorecard', 'finance', 'impact', 'email']);
@@ -43288,6 +43303,7 @@ function MobileAppLauncher({ user, th, dark, tabs, onNavigate, pinnedNavIds, tog
         )}
       </div>
 
+      <QuickFindBar th={th} tabs={tabs} onNavigate={onNavigate} />
       <LauncherSection th={th} title="Quick Access" tiles={pinned} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} onNavigate={onNavigate} navBadge={navBadge} />
       <LauncherSection th={th} title="Workspace" tiles={workspace} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} onNavigate={onNavigate} navBadge={navBadge} />
       <LauncherSection th={th} title="Admin & Reports" tiles={adminGroup} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} onNavigate={onNavigate} navBadge={navBadge} />
@@ -53844,7 +53860,7 @@ function PCGPortal() {
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
           <Guard key={tab} name="tab-content" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"2rem auto", maxWidth:520, textAlign:"center", color:th.muted }}>This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.</div>}>
           {tab === MOBILE_LAUNCHER_TAB_ID && <MobileAppLauncher user={user} th={th} dark={dark} tabs={TABS} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} navBadge={navBadge} onOpenProfile={() => setShowProfile(true)} onToggleTheme={handleToggle} onLogout={handleLogout} />}
-          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} searchTabs={TABS} /></Guard>}
+          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
