@@ -85,11 +85,16 @@ netlify/functions/
                                 after the week closes to DM + the manually-curated "Minor Timecard"
                                 notify list (Admin · Notifications tab, `pcg_minor_timecard_notify_v1`
                                 — NOT every office_staff account; add/remove exactly who should get
-                                it — confirmed 2026-10-05: never bulk-add an entire role group to this
-                                one, it's meant to stay a small deliberate list, not every manager
-                                company-wide), 7-day exec backstop; merges onto a fresh blob read. See
-                                `resolveNotificationRecipients` (src/minor-timecard-lifecycle.mjs) for
-                                the exact manager/DM-fallback/escalation recipient logic.
+                                it). A manager or DM's own email is hard-excluded from this curated
+                                list in code (not just convention) — confirmed real 2026-10-06: the
+                                list has no store/district scoping at all, so a manager/DM account
+                                sitting in it (the original 43-manager bulk-add, or later 4 real DMs
+                                added on purpose) got paged for every store/district network-wide
+                                instead of just their own. Explicit requirement: a DM only ever sees
+                                their own district's stores, a manager only ever their own store — no
+                                code path may widen that. See `resolveNotificationRecipients`
+                                (src/minor-timecard-lifecycle.mjs) for the exact manager/DM-fallback/
+                                escalation/exclusion recipient logic.
                                 `applyResolutionCheck` (src/minor-timecard-lifecycle.mjs) now refreshes
                                 `consecutiveHours`/`longestGapMinutes` on an issue from the SAME live
                                 re-check every day it stays open, not just on resolve (fixed

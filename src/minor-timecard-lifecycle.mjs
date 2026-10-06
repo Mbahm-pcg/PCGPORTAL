@@ -88,7 +88,22 @@ export function resolveNotificationRecipients(issue, users, notifyEmails = []) {
     // WAS found above (so the no-manager branch never fired) — de-duped by
     // `push` if the fallback already added them.
     if (dm) push('dm', dm.email);
-    (notifyEmails || []).forEach((email) => { if (email) push('minor_timecard_notify', email); });
+    // Confirmed real (2026-10-06): the curated list doesn't filter by store/
+    // district at all, so any manager or DM account someone adds to it here
+    // — by mistake (the original 43-manager bulk-add) or on purpose (4 real
+    // DMs were manually added, wanting broader visibility) — ends up getting
+    // paged for EVERY store/district network-wide, not just their own. Per
+    // explicit direction: a DM only ever sees their own stores, a manager
+    // only ever their own store, with NO code path that can widen that,
+    // rather than relying on whoever edits this list to never add one by
+    // hand again. Hard-excluded here at the source, not just by convention.
+    const managerOrDmEmails = new Set(
+      list.filter(u => u.active !== false && (u.userType === 'manager' || u.userType === 'dm') && u.email)
+        .map(u => u.email.toLowerCase())
+    );
+    (notifyEmails || []).forEach((email) => {
+      if (email && !managerOrDmEmails.has(email.toLowerCase())) push('minor_timecard_notify', email);
+    });
   }
   return out;
 }

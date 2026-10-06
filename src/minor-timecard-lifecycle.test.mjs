@@ -98,6 +98,34 @@ test('resolveNotificationRecipients: manager + DM + the curated notify list once
   ]);
 });
 
+// Confirmed real (2026-10-06): the curated list has no store/district
+// scoping at all — a manager or DM account added to it (by mistake, or on
+// purpose wanting broader visibility) got paged for every escalation
+// network-wide, not just their own store/district. Per explicit direction
+// ("DM will get the alert for the stores they are looking after... there
+// shouldn't be any reason why its going to every DM or manager"), this is
+// now hard-excluded rather than left to list hygiene — a manager/DM account
+// in notifyEmails is silently dropped, even though they'll still correctly
+// receive their own store/district's issues via the normal manager/dm path.
+test('resolveNotificationRecipients: a manager or DM account in the curated list is excluded — they still get their OWN store/district, never every store', () => {
+  const issue = { pc: '340538', district: 5, escalatedAt: '2026-09-21T10:00:00Z' };
+  const users = [
+    { userType: 'manager', storePC: '340538', district: 5, email: 'mgr@x.com', active: true },
+    { userType: 'dm', storePC: null, district: 5, email: 'dm@x.com', active: true },
+    // A DIFFERENT district's DM, manually added to the curated list — must
+    // NOT receive this district-5 issue just because they're on the list.
+    { userType: 'dm', storePC: null, district: 9, email: 'other-dm@x.com', active: true },
+    { userType: 'office_staff', email: 'office1@x.com', active: true },
+  ];
+  const notifyEmails = ['other-dm@x.com', 'office1@x.com'];
+  const recipients = resolveNotificationRecipients(issue, users, notifyEmails);
+  assert.deepEqual(recipients, [
+    { role: 'manager', email: 'mgr@x.com' },
+    { role: 'dm', email: 'dm@x.com' },
+    { role: 'minor_timecard_notify', email: 'office1@x.com' },
+  ]);
+});
+
 test('resolveNotificationRecipients: no-manager DM fallback + escalation never double-lists the DM', () => {
   const issue = { pc: '340538', district: 5, escalatedAt: '2026-09-21T10:00:00Z' };
   const users = [{ userType: 'dm', storePC: null, district: 5, email: 'dm@x.com', active: true }];
