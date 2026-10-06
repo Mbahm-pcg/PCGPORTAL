@@ -10243,16 +10243,17 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
            content column. Mobile: horizontal tab strip on top, content flows below
            (full width, no nested scroll). ─────────── */}
       <div style={{ flex:1, minHeight:0, display:'flex', flexDirection: isNarrow ? 'column' : 'row', gap: isNarrow ? '0.6rem' : '1rem' }}>
-        {/* Labor gets the full content width on desktop — it has its own "← Back" button
-            (wired to setStoreTab('sales')), and its KPI/break-even rows were built for a
-            full-page layout; squeezed beside the rail they wrapped to extra rows for no
-            reason. Every other tab keeps the rail since they don't have that problem. */}
-        {!(storeTab === 'labor' && !isNarrow) && (
+        {/* Labor removed from this rail 2026-10-06 (it now lives as its own,
+            properly role-scoped Finance sub-tab — AdminLabor directly, not
+            this per-store LaborDrillDown summary) — per explicit request not
+            to have two separate homes for it. The desktop-full-width special
+            case this comment used to describe no longer applies to anything
+            still in this rail, so it's gone too. */}
         <div style={{ position: 'relative', flexShrink: 0, minWidth: 0 }}>
         <div ref={tabRailRef} onScroll={isNarrow ? checkTabRailOverflow : undefined} style={isNarrow
           ? { display:'flex', flexDirection:'row', gap:'0.4rem', overflowX:'auto', flexShrink:0, paddingBottom:'0.25rem', WebkitOverflowScrolling:'touch' }
           : { display:'flex', flexDirection:'column', gap:'0.4rem', width:168, flexShrink:0, overflowY:'auto' }}>
-          {[{id:'sales',label:'📊 Sales'},{id:'labor',label:'👷 Labor'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'},{id:'complaints',label:'📣 Complaints'}].map((t) => (
+          {[{id:'sales',label:'📊 Sales'},{id:'forecast',label:'🔮 Forecast'},{id:'daypart',label:'🕐 Daypart'},{id:'foodcost',label:'🍩 Food Cost'},{id:'transactions',label:'🧾 Transactions'},...(s?.baseAsset==='DT'?[{id:'driveThru',label:'🚗 Drive-Thru'}]:[]),{id:'reviews',label:'⭐ Reviews'},{id:'complaints',label:'📣 Complaints'}].map((t) => (
             <button key={t.id} onClick={() => {
                 setStoreTab(t.id);
                 if(t.id==='transactions' && !txnList && !txnListLoading){ setTxnExpanded(true); loadTxnList(); }
@@ -10270,16 +10271,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           <div style={{ position: 'absolute', top: 0, bottom: '0.25rem', right: 0, width: '1.75rem', pointerEvents: 'none', background: `linear-gradient(to right, transparent, ${th.bg})` }} />
         )}
         </div>
-        )}
         <div ref={contentRef} style={{ flex:1, minWidth:0, overflowY: isNarrow ? 'visible' : 'auto', paddingRight: isNarrow ? 0 : 4 }}>
-
-      {/* ════ LABOR TAB — the actual full labor page (punches, who's clocked in, ════
-           schedule/simulator), not a summary — same LaborDrillDown the old standalone
-           Labor tab used, just embedded here as one more rail tab so it never leaves
-           this store's page. */}
-      {storeTab === 'labor' && (
-        <LaborDrillDown store={s} stores={stores} th={th} user={user} users={users} laborData={laborData} onBack={() => setStoreTab('sales')} />
-      )}
 
       {/* ════ FORECAST TAB ════ */}
       {storeTab === 'forecast' && <>
@@ -22907,8 +22899,33 @@ const HUB_SUBITEMS = {
     { id: 'recon', label: 'Reconciliation' },
     { id: 'expenses', label: 'Expense Log' },
     { id: 'tips', label: 'Tips Report' },
+    // Re-added 2026-10-06 per explicit request: the full network Labor
+    // dashboard (AdminLabor) never actually went away — it's the exact same
+    // component the old standalone top-level "Labor" tab used — it just had
+    // no nav entry pointing at it anymore, while the mobile launcher's one
+    // Labor shortcut had been redirected into Pulse's per-store Labor rail
+    // tab instead (a different, narrower view). This gives it a real home
+    // again as its own Finance sub-tab, same tile-grid pattern as every
+    // other entry here.
+    { id: 'labor', label: 'Labor' },
   ],
 };
+// AdminConsole's own internal sub-tabs (Notifications/Tasks/Users/Access/
+// Orion/Vendors/Sensors/System & Logs) — a separate, bespoke nav pattern
+// from HUB_SUBITEMS above (this screen is exec/it only, so there's never a
+// per-role sub-item toggle to drive off `accessSubOn` the way the hubs
+// above need). Pulled to module scope 2026-10-06 so QuickFindBar can search
+// these too, not because AdminConsole itself needed it to move.
+const ADMIN_CONSOLE_SUBS = [
+  { id: 'notifications', label: 'Notifications', icon: '📬', accent: '#FF671F' },
+  { id: 'tasks',         label: 'Tasks',         icon: '✅', accent: '#38bdf8' },
+  { id: 'users',         label: 'Users',         icon: '👥', accent: '#a78bfa' },
+  { id: 'access',        label: 'Access',        icon: '🔐', accent: '#ef4444' },
+  { id: 'orion',         label: 'Orion',         icon: '🟣', accent: '#7C3AED' },
+  { id: 'vendors',       label: 'Vendors',       icon: '🏗️', accent: '#14b8a6' },
+  { id: 'sensors',       label: 'Sensors',       icon: '❄️', accent: '#38bdf8' },
+  { id: 'system',        label: 'System & Logs', icon: '🗄️', accent: '#94a3b8' },
+];
 // Shared by PCGPortal's hub tile arrays and AdminFinance — a sub-item defaults
 // to visible (matches the top-level toggle's own default-on semantics) unless
 // explicitly turned off for that role via a compound "hubId:subId" key in the
@@ -23751,16 +23768,12 @@ function AdminSensors({ th, user, stores }) {
 
 function AdminConsole(props) {
   const { th, user, users, setUsers, showAlert, stores, districts, version, accessOverrides, setAccessOverrides } = props;
-  const SUBS = [
-    { id: 'notifications', label: 'Notifications', icon: '📬', accent: O },
-    { id: 'tasks',         label: 'Tasks',         icon: '✅', accent: '#38bdf8' },
-    { id: 'users',         label: 'Users',         icon: '👥', accent: '#a78bfa' },
-    { id: 'access',        label: 'Access',        icon: '🔐', accent: '#ef4444' },
-    { id: 'orion',         label: 'Orion',         icon: '🟣', accent: '#7C3AED' },
-    { id: 'vendors',       label: 'Vendors',       icon: '🏗️', accent: '#14b8a6' },
-    { id: 'sensors',       label: 'Sensors',       icon: '❄️', accent: '#38bdf8' },
-    { id: 'system',        label: 'System & Logs', icon: '🗄️', accent: '#94a3b8' },
-  ];
+  // Pulled from the module-level ADMIN_CONSOLE_SUBS (not a locally re-declared
+  // array) so QuickFindBar can search these exact same sub-tabs — added
+  // 2026-10-06 after confirming "users"/"access"/etc. weren't searchable at
+  // all, a different gap than the HUB_SUBITEMS one fixed just before it (this
+  // screen's internal tabs are its own bespoke nav, not a HUB_SUBITEMS hub).
+  const SUBS = ADMIN_CONSOLE_SUBS;
   // Map our flat tabs onto AdminSettings' internal section ids ('orion' is handled
   // explicitly below so the Learning panel renders above the Orion settings).
   const SETTINGS_SECTION = { notifications: 'notifications', vendors: 'vendors' };
@@ -29000,6 +29013,14 @@ const computeRoleTabs = (user) => {
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
     { id: "schedule",  label: "Schedule",     icon: (c) => ICONS.staffSchedule(c) },
     { id: "pnl",       label: "My P&L",       icon: (c) => ICONS.dollar(c) },
+    // Added 2026-10-06 per explicit request: managers previously had no path
+    // into the Finance hub at all (only the separate "My P&L" tab above,
+    // untouched here). AdminFinance's own per-tile `show` conditions already
+    // decide what a manager actually sees inside it — today that's exactly
+    // Labor, scoped to their own store (AdminLabor already filters by
+    // managerStorePCs internally), and nothing else, until another tile
+    // explicitly opts managers in too.
+    { id: "finance",   label: "Finance",      icon: (c) => ICONS.dollar(c), cash: true },
     { id: "reports",   label: "Reports",      icon: (c) => ICONS.reports(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
@@ -30350,7 +30371,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.63";
+const APP_VERSION = "v21.67";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -43331,23 +43352,62 @@ function LauncherSection({ th, title, tiles, pinnedNavIds, togglePinNav, onNavig
 // Timecard Compliance are ALSO placed directly in computeRoleTabs for every
 // role eligible to see them, not reachable only through a hub grid), so
 // this can never suggest a destination the user doesn't have access to.
+// Hub id -> display label, for the "(in Finance)" style suffix on a
+// sub-item match below — kept in one place rather than re-deriving it from
+// `tabs` per hub (a hub's own entry in `tabs` carries this exact label already,
+// but looking it up defensively here means a match still renders sensibly
+// even for a hub whose top-level tab entry a given role doesn't carry).
+const QUICKFIND_HUB_LABELS = { 'ops-hub': 'Operations', 'team-hub': 'Team & Sites', 'system-hub': 'System', 'tools-hub': 'Tools', finance: 'Finance' };
 function QuickFindBar({ th, tabs, onNavigate }) {
   const [query, setQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const matches = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return (tabs || [])
+    const direct = (tabs || [])
       .filter(t => t.label && t.label.toLowerCase().includes(q))
-      // Exact-prefix matches first ("min" -> "Minor..." before anything that
-      // merely contains "min" mid-word), then alphabetical within each group.
-      .sort((a, b) => {
-        const aPrefix = a.label.toLowerCase().startsWith(q) ? 0 : 1;
-        const bPrefix = b.label.toLowerCase().startsWith(q) ? 0 : 1;
-        if (aPrefix !== bPrefix) return aPrefix - bPrefix;
-        return a.label.localeCompare(b.label);
-      })
-      .slice(0, 8);
+      .map(t => ({ id: t.id, label: t.label, icon: t.icon }));
+    // Confirmed real gap (2026-10-06): this only ever searched TOP-LEVEL
+    // tabs — anything living one level down inside a hub's own tile grid
+    // (Finance's P&L/NDCP/Cash/Reconciliation/Expense Log/Tips Report/Labor,
+    // or Ops/Team/System/Tools hub's own tiles) was never searchable at all,
+    // not just Labor specifically. A sub-item match navigates to its PARENT
+    // hub tab — there's no deep-link plumbing into a hub's own internal view
+    // state, so landing on the hub's tile grid (one more click to the actual
+    // tile) is the honest, correct behavior here, not a dead end. Gated on
+    // the parent hub actually being in this role's `tabs` list — the same
+    // safety property every other result here already has — so this can
+    // still never surface a hub the role has no access to at all.
+    const availableHubs = new Set((tabs || []).map(t => t.id));
+    const subItems = [];
+    Object.entries(HUB_SUBITEMS).forEach(([hubId, items]) => {
+      if (!availableHubs.has(hubId)) return;
+      const hubTab = (tabs || []).find(t => t.id === hubId);
+      items.forEach(item => {
+        if (item.label.toLowerCase().includes(q)) {
+          subItems.push({ id: hubId, label: `${item.label} — ${QUICKFIND_HUB_LABELS[hubId] || hubTab?.label || hubId}`, icon: hubTab?.icon });
+        }
+      });
+    });
+    // Same reasoning as the HUB_SUBITEMS loop above, for AdminConsole's own
+    // separate internal sub-tabs (Notifications/Tasks/Users/Access/Orion/
+    // Vendors/Sensors/System & Logs) — a different, bespoke nav pattern, not
+    // a HUB_SUBITEMS hub, so it needs its own small pass rather than fitting
+    // into that loop. Gated the same way: only if this role actually has the
+    // "admin" tab at all.
+    const adminSubItems = availableHubs.has('admin')
+      ? ADMIN_CONSOLE_SUBS.filter(s => s.label.toLowerCase().includes(q))
+          .map(s => ({ id: 'admin', label: `${s.label} — Admin`, icon: (tabs || []).find(t => t.id === 'admin')?.icon }))
+      : [];
+    const all = [...direct, ...subItems, ...adminSubItems];
+    // Exact-prefix matches first ("min" -> "Minor..." before anything that
+    // merely contains "min" mid-word), then alphabetical within each group.
+    return all.sort((a, b) => {
+      const aPrefix = a.label.toLowerCase().startsWith(q) ? 0 : 1;
+      const bPrefix = b.label.toLowerCase().startsWith(q) ? 0 : 1;
+      if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+      return a.label.localeCompare(b.label);
+    }).slice(0, 8);
   }, [query, tabs]);
   const goToMatch = (t) => {
     onNavigate(t.id);
@@ -43492,6 +43552,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
   const isAdmin = isFullAdmin(user);
   const isOfficeStaff = user?.userType === 'office_staff';
   const isDM = user?.userType === 'dm';
+  const isManager = user?.userType === 'manager';
   const canNdcp = isAdmin || isOfficeStaff;
   const canCash = isAdmin || isOfficeStaff || isDM;
   const finSub = (id) => accessSubOn(accessOverrides, user?.userType, 'finance', id);
@@ -43534,6 +43595,12 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
     { id: 'recon', icon: <HubIcon color={FIN} d={<><path d="M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3"/></>} />, name: 'Reconciliation', sub: 'Snapshot vs. live sales compare, WTD differences by store.', show: isAdmin && finSub('recon') },
     { id: 'expenses', icon: <HubIcon color={FIN} d={<><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z"/><path d="M9 10v6M15 10v6"/></>} />, name: 'Expense Log', sub: 'All ticket expenses — filter, approve, reject.', badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin && finSub('expenses') },
     { id: 'tips', icon: <HubIcon color={FIN} d={<><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5"/></>} />, name: 'Tips Report', sub: 'Biweekly per-employee tip distribution, ready for Paycor.', show: finSub('tips') },
+    // AdminLabor already scopes itself correctly per role (managerStorePCs
+    // filters the grid to just a manager's own store; DM locks to their own
+    // district) — isManager added 2026-10-06 per explicit direction: IT/exec
+    // see every store, a DM sees their own stores, a manager sees the one
+    // store they run.
+    { id: 'labor', icon: <HubIcon color={FIN} d={<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>} />, name: 'Labor', sub: isManager ? 'Your store\'s labor %, live clock-ins, daily/weekly history.' : 'Network labor % by store, live clock-ins, daily/weekly history.', show: (isAdmin || isOfficeStaff || isDM || isManager) && finSub('labor') },
   ].filter(t => t.show);
 
   return (
@@ -43579,6 +43646,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
           {viewMode === 'recon' && isAdmin && <SalesReconciliation th={th} user={user} showAlert={showAlert} />}
           {viewMode === 'expenses' && isAdmin && <ExpenseLogSection th={th} user={user} standalone />}
           {viewMode === 'tips' && finSub('tips') && <TipsReportBuilder th={th} stores={stores} user={user} />}
+          {viewMode === 'labor' && (isAdmin || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={onClearDrillIn} users={users} />}
         </div>
       )}
     </div>
@@ -52819,7 +52887,13 @@ function PCGPortal() {
         onTickets={() => { togglePortalMode(true); setTab("tickets"); }}
         onTasks={() => { togglePortalMode(true); setTab("tasks"); }}
         onPulse={() => { setPulseInitialTab('sales'); togglePortalMode(true); setTab("pulse"); }}
-        onLabor={() => { setPulseInitialTab('labor'); togglePortalMode(true); setTab("pulse"); }}
+        // Confirmed real (2026-10-06, explicit request): this used to divert
+        // into Pulse's own per-store Labor rail tab instead of the real
+        // network-wide Labor dashboard — exactly the "Labor got folded into
+        // Pulse" symptom. Routes to the standalone Labor tab now, same as
+        // every other Labor deep-link in the app (Dashboard quick-action,
+        // Anomalies' "View in Labor" buttons).
+        onLabor={() => { togglePortalMode(true); setTab("labor"); }}
         onLogout={handleLogout}
       />
     );
@@ -54146,7 +54220,7 @@ function PCGPortal() {
           {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
           {tab === "schedule"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminSchedule stores={stores} th={th} user={user} />}
           {tab === "schedule"  && isManager && <ManagerSchedule stores={stores} th={th} user={user} />}
-          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
+          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
           {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} accessOverrides={accessOverrides} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {
             const OPS = '#2F6FA8';

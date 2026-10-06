@@ -9938,7 +9938,7 @@ ${pendingEmail.emails.join("\n")}`,
       { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
       { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: isNarrow ? "column" : "row", gap: isNarrow ? "0.6rem" : "1rem" } }, !(storeTab === "labor" && !isNarrow) && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flexShrink: 0, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { ref: tabRailRef, onScroll: isNarrow ? checkTabRailOverflow : void 0, style: isNarrow ? { display: "flex", flexDirection: "row", gap: "0.4rem", overflowX: "auto", flexShrink: 0, paddingBottom: "0.25rem", WebkitOverflowScrolling: "touch" } : { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, overflowY: "auto" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "labor", label: "\u{1F477} Labor" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }, { id: "complaints", label: "\u{1F4E3} Complaints" }].map((t) => /* @__PURE__ */ React.createElement(
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: isNarrow ? "column" : "row", gap: isNarrow ? "0.6rem" : "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flexShrink: 0, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { ref: tabRailRef, onScroll: isNarrow ? checkTabRailOverflow : void 0, style: isNarrow ? { display: "flex", flexDirection: "row", gap: "0.4rem", overflowX: "auto", flexShrink: 0, paddingBottom: "0.25rem", WebkitOverflowScrolling: "touch" } : { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, overflowY: "auto" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }, { id: "complaints", label: "\u{1F4E3} Complaints" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
@@ -9965,7 +9965,7 @@ ${pendingEmail.emails.join("\n")}`,
         style: { display: "flex", alignItems: "center", textAlign: "left", padding: "0.6rem 0.75rem", border: `1px solid ${storeTab === t.id ? O : th.cardBorder}`, borderRadius: "0.6rem", background: storeTab === t.id ? O : th.card, color: storeTab === t.id ? "#fff" : th.muted, fontWeight: 600, fontSize: "0.78rem", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer", transition: "background .15s, color .15s, border-color .15s", boxSizing: "border-box", fontFamily: "'Raleway',sans-serif", flexShrink: 0 }
       },
       t.label
-    ))), isNarrow && tabRailHasMore && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, bottom: "0.25rem", right: 0, width: "1.75rem", pointerEvents: "none", background: `linear-gradient(to right, transparent, ${th.bg})` } })), /* @__PURE__ */ React.createElement("div", { ref: contentRef, style: { flex: 1, minWidth: 0, overflowY: isNarrow ? "visible" : "auto", paddingRight: isNarrow ? 0 : 4 } }, storeTab === "labor" && /* @__PURE__ */ React.createElement(LaborDrillDown, { store: s, stores, th, user, users, laborData, onBack: () => setStoreTab("sales") }), storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
+    ))), isNarrow && tabRailHasMore && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, bottom: "0.25rem", right: 0, width: "1.75rem", pointerEvents: "none", background: `linear-gradient(to right, transparent, ${th.bg})` } })), /* @__PURE__ */ React.createElement("div", { ref: contentRef, style: { flex: 1, minWidth: 0, overflowY: isNarrow ? "visible" : "auto", paddingRight: isNarrow ? 0 : 4 } }, storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
       const isWeek = viewMode === "week";
       const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
       const atPct = d.netSales / forecast * 100;
@@ -18856,9 +18856,28 @@ ${t2.slice(0, 300)}`);
       { id: "cash", label: "Cash Management" },
       { id: "recon", label: "Reconciliation" },
       { id: "expenses", label: "Expense Log" },
-      { id: "tips", label: "Tips Report" }
+      { id: "tips", label: "Tips Report" },
+      // Re-added 2026-10-06 per explicit request: the full network Labor
+      // dashboard (AdminLabor) never actually went away — it's the exact same
+      // component the old standalone top-level "Labor" tab used — it just had
+      // no nav entry pointing at it anymore, while the mobile launcher's one
+      // Labor shortcut had been redirected into Pulse's per-store Labor rail
+      // tab instead (a different, narrower view). This gives it a real home
+      // again as its own Finance sub-tab, same tile-grid pattern as every
+      // other entry here.
+      { id: "labor", label: "Labor" }
     ]
   };
+  var ADMIN_CONSOLE_SUBS = [
+    { id: "notifications", label: "Notifications", icon: "\u{1F4EC}", accent: "#FF671F" },
+    { id: "tasks", label: "Tasks", icon: "\u2705", accent: "#38bdf8" },
+    { id: "users", label: "Users", icon: "\u{1F465}", accent: "#a78bfa" },
+    { id: "access", label: "Access", icon: "\u{1F510}", accent: "#ef4444" },
+    { id: "orion", label: "Orion", icon: "\u{1F7E3}", accent: "#7C3AED" },
+    { id: "vendors", label: "Vendors", icon: "\u{1F3D7}\uFE0F", accent: "#14b8a6" },
+    { id: "sensors", label: "Sensors", icon: "\u2744\uFE0F", accent: "#38bdf8" },
+    { id: "system", label: "System & Logs", icon: "\u{1F5C4}\uFE0F", accent: "#94a3b8" }
+  ];
   var accessSubOn = (overrides, rt, hubId, subId) => overrides?.[rt]?.[`${hubId}:${subId}`] !== false;
   function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, showAlert: showAlert2 }) {
     const roles = Object.keys(ROLE_META);
@@ -19376,16 +19395,7 @@ ${t2.slice(0, 300)}`);
   }
   function AdminConsole(props) {
     const { th, user, users, setUsers, showAlert: showAlert2, stores, districts, version, accessOverrides, setAccessOverrides } = props;
-    const SUBS = [
-      { id: "notifications", label: "Notifications", icon: "\u{1F4EC}", accent: O },
-      { id: "tasks", label: "Tasks", icon: "\u2705", accent: "#38bdf8" },
-      { id: "users", label: "Users", icon: "\u{1F465}", accent: "#a78bfa" },
-      { id: "access", label: "Access", icon: "\u{1F510}", accent: "#ef4444" },
-      { id: "orion", label: "Orion", icon: "\u{1F7E3}", accent: "#7C3AED" },
-      { id: "vendors", label: "Vendors", icon: "\u{1F3D7}\uFE0F", accent: "#14b8a6" },
-      { id: "sensors", label: "Sensors", icon: "\u2744\uFE0F", accent: "#38bdf8" },
-      { id: "system", label: "System & Logs", icon: "\u{1F5C4}\uFE0F", accent: "#94a3b8" }
-    ];
+    const SUBS = ADMIN_CONSOLE_SUBS;
     const SETTINGS_SECTION = { notifications: "notifications", vendors: "vendors" };
     const VALID = SUBS.map((s) => s.id);
     const [sub, setSub] = React.useState(() => {
@@ -23245,6 +23255,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "pulse", label: "My Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
       { id: "schedule", label: "Schedule", icon: (c) => ICONS.staffSchedule(c) },
       { id: "pnl", label: "My P&L", icon: (c) => ICONS.dollar(c) },
+      // Added 2026-10-06 per explicit request: managers previously had no path
+      // into the Finance hub at all (only the separate "My P&L" tab above,
+      // untouched here). AdminFinance's own per-tile `show` conditions already
+      // decide what a manager actually sees inside it — today that's exactly
+      // Labor, scoped to their own store (AdminLabor already filters by
+      // managerStorePCs internally), and nothing else, until another tile
+      // explicitly opts managers in too.
+      { id: "finance", label: "Finance", icon: (c) => ICONS.dollar(c), cash: true },
       { id: "reports", label: "Reports", icon: (c) => ICONS.reports(c) },
       { id: "audits", label: "Audits", icon: (c) => ICONS.audits(c) },
       { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
@@ -24172,7 +24190,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.63";
+  var APP_VERSION = "v21.67";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -32592,13 +32610,28 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     ))));
   }
+  var QUICKFIND_HUB_LABELS = { "ops-hub": "Operations", "team-hub": "Team & Sites", "system-hub": "System", "tools-hub": "Tools", finance: "Finance" };
   function QuickFindBar({ th, tabs, onNavigate }) {
     const [query, setQuery] = useState("");
     const [showSuggestions, setShowSuggestions] = useState(false);
     const matches = React.useMemo(() => {
       const q = query.trim().toLowerCase();
       if (!q) return [];
-      return (tabs || []).filter((t) => t.label && t.label.toLowerCase().includes(q)).sort((a, b) => {
+      const direct = (tabs || []).filter((t) => t.label && t.label.toLowerCase().includes(q)).map((t) => ({ id: t.id, label: t.label, icon: t.icon }));
+      const availableHubs = new Set((tabs || []).map((t) => t.id));
+      const subItems = [];
+      Object.entries(HUB_SUBITEMS).forEach(([hubId, items]) => {
+        if (!availableHubs.has(hubId)) return;
+        const hubTab = (tabs || []).find((t) => t.id === hubId);
+        items.forEach((item) => {
+          if (item.label.toLowerCase().includes(q)) {
+            subItems.push({ id: hubId, label: `${item.label} \u2014 ${QUICKFIND_HUB_LABELS[hubId] || hubTab?.label || hubId}`, icon: hubTab?.icon });
+          }
+        });
+      });
+      const adminSubItems = availableHubs.has("admin") ? ADMIN_CONSOLE_SUBS.filter((s) => s.label.toLowerCase().includes(q)).map((s) => ({ id: "admin", label: `${s.label} \u2014 Admin`, icon: (tabs || []).find((t) => t.id === "admin")?.icon })) : [];
+      const all = [...direct, ...subItems, ...adminSubItems];
+      return all.sort((a, b) => {
         const aPrefix = a.label.toLowerCase().startsWith(q) ? 0 : 1;
         const bPrefix = b.label.toLowerCase().startsWith(q) ? 0 : 1;
         if (aPrefix !== bPrefix) return aPrefix - bPrefix;
@@ -32705,6 +32738,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
     const isDM = user?.userType === "dm";
+    const isManager = user?.userType === "manager";
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
     const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
@@ -32746,7 +32780,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "cash", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2", y: "6", width: "20", height: "12", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M2 10h20M6 15h4" })) }), name: "Cash Management", sub: "Deposit tracking, alerts, and POS reconciliation.", badge: cashMissingCount > 0 ? `${cashMissingCount} missing` : null, show: canCash && finSub("cash") },
       { id: "recon", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3" })) }), name: "Reconciliation", sub: "Snapshot vs. live sales compare, WTD differences by store.", show: isAdmin && finSub("recon") },
       { id: "expenses", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6l1 4H8l1-4Z" }), /* @__PURE__ */ React.createElement("path", { d: "M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 10v6M15 10v6" })) }), name: "Expense Log", sub: "All ticket expenses \u2014 filter, approve, reject.", badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin && finSub("expenses") },
-      { id: "tips", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5" })) }), name: "Tips Report", sub: "Biweekly per-employee tip distribution, ready for Paycor.", show: finSub("tips") }
+      { id: "tips", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5" })) }), name: "Tips Report", sub: "Biweekly per-employee tip distribution, ready for Paycor.", show: finSub("tips") },
+      // AdminLabor already scopes itself correctly per role (managerStorePCs
+      // filters the grid to just a manager's own store; DM locks to their own
+      // district) — isManager added 2026-10-06 per explicit direction: IT/exec
+      // see every store, a DM sees their own stores, a manager sees the one
+      // store they run.
+      { id: "labor", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }), name: "Labor", sub: isManager ? "Your store's labor %, live clock-ins, daily/weekly history." : "Network labor % by store, live clock-ins, daily/weekly history.", show: (isAdmin || isOfficeStaff || isDM || isManager) && finSub("labor") }
     ].filter((t) => t.show);
     return /* @__PURE__ */ React.createElement("div", null, viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", { onClick: () => setViewMode("overview"), style: { display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", fontWeight: 700, color: O, cursor: "pointer", marginBottom: "1rem" } }, "\u2190 Back to Finance"), /* @__PURE__ */ React.createElement("div", { style: { display: viewMode === "overview" ? "block" : "none" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, "Finance Overview"), canPnl && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #3b82f6" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, overview ? fmtDollars(overview.revenue) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Revenue (MTD)")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${overview && overview.marginPct >= 30 ? "#22c55e" : "#ef4444"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: overview && overview.marginPct >= 30 ? "#22c55e" : th.text } }, overview ? fmtPct(overview.marginPct) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Margin %")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #f59e0b", cursor: "pointer" }, onClick: () => setViewMode("expenses") }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, expPending != null ? expPending : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Pending Expense Approvals"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: "0.7rem" } }, "Tools"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.9rem" } }, tiles.map((t) => /* @__PURE__ */ React.createElement(
       HubTile,
@@ -32762,7 +32802,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         pinned: pinnedNavIds?.includes(t.id),
         onTogglePin: togglePinNav ? () => togglePinNav(t.id) : void 0
       }
-    ))))), viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", null, viewMode === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn }), viewMode === "ndcp" && canNdcp && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), viewMode === "cash" && canCash && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }), viewMode === "recon" && isAdmin && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert: showAlert2 }), viewMode === "expenses" && isAdmin && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), viewMode === "tips" && finSub("tips") && /* @__PURE__ */ React.createElement(TipsReportBuilder, { th, stores, user })));
+    ))))), viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", null, viewMode === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn }), viewMode === "ndcp" && canNdcp && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), viewMode === "cash" && canCash && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }), viewMode === "recon" && isAdmin && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert: showAlert2 }), viewMode === "expenses" && isAdmin && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), viewMode === "tips" && finSub("tips") && /* @__PURE__ */ React.createElement(TipsReportBuilder, { th, stores, user }), viewMode === "labor" && (isAdmin || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn, users })));
   }
   var TIPS_SNAPSHOT_RETENTION_DAYS = 40;
   function tipsParseISODate(s) {
@@ -39722,9 +39762,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
             setTab("pulse");
           },
           onLabor: () => {
-            setPulseInitialTab("labor");
             togglePortalMode(true);
-            setTab("pulse");
+            setTab("labor");
           },
           onLogout: handleLogout
         }
@@ -40934,7 +40973,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : tab === "district-alignment" || tab === "tools-hub" ? "1.5rem 1.25rem 1rem" : tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores, managerPendingCount }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
+    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores, managerPendingCount }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
       const OPS = "#2F6FA8";
       const opsTiles = [
         { id: "tasks", name: "Tasks", sub: "Checklists, GPS-verified completions, DM escalation.", show: (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "tasks"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "m9 11 3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" })) },
