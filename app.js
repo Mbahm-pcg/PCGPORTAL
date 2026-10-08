@@ -18865,7 +18865,8 @@ ${t2.slice(0, 300)}`);
       // tab instead (a different, narrower view). This gives it a real home
       // again as its own Finance sub-tab, same tile-grid pattern as every
       // other entry here.
-      { id: "labor", label: "Labor" }
+      { id: "labor", label: "Labor" },
+      { id: "tips-edit", label: "Tips Editor" }
     ]
   };
   var ADMIN_CONSOLE_SUBS = [
@@ -24190,7 +24191,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.67";
+  var APP_VERSION = "v21.70";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -32781,6 +32782,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "recon", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3" })) }), name: "Reconciliation", sub: "Snapshot vs. live sales compare, WTD differences by store.", show: isAdmin && finSub("recon") },
       { id: "expenses", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M9 2h6l1 4H8l1-4Z" }), /* @__PURE__ */ React.createElement("path", { d: "M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 10v6M15 10v6" })) }), name: "Expense Log", sub: "All ticket expenses \u2014 filter, approve, reject.", badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin && finSub("expenses") },
       { id: "tips", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5" })) }), name: "Tips Report", sub: "Biweekly per-employee tip distribution, ready for Paycor.", show: finSub("tips") },
+      // Added 2026-10-08 per explicit request: replaces "tell IT to patch the
+      // snapshot by hand" with a real in-app correction flow. Exec/IT only —
+      // deliberately narrower than the Tips Report tile above (finSub('tips')
+      // alone), since manually overriding whose hours feed a real tip
+      // distribution is more sensitive than reviewing/sending an already-
+      // computed period.
+      { id: "tips-edit", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 20h9" }), /* @__PURE__ */ React.createElement("path", { d: "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" })) }), name: "Tips Editor", sub: "Add, edit, or remove someone from a day's crew \u2014 recalculates everyone's share.", show: isAdmin && finSub("tips-edit") },
       // AdminLabor already scopes itself correctly per role (managerStorePCs
       // filters the grid to just a manager's own store; DM locks to their own
       // district) — isManager added 2026-10-06 per explicit direction: IT/exec
@@ -32802,7 +32810,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         pinned: pinnedNavIds?.includes(t.id),
         onTogglePin: togglePinNav ? () => togglePinNav(t.id) : void 0
       }
-    ))))), viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", null, viewMode === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn }), viewMode === "ndcp" && canNdcp && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), viewMode === "cash" && canCash && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }), viewMode === "recon" && isAdmin && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert: showAlert2 }), viewMode === "expenses" && isAdmin && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), viewMode === "tips" && finSub("tips") && /* @__PURE__ */ React.createElement(TipsReportBuilder, { th, stores, user }), viewMode === "labor" && (isAdmin || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn, users })));
+    ))))), viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", null, viewMode === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn }), viewMode === "ndcp" && canNdcp && /* @__PURE__ */ React.createElement(AdminNdcp, { th, user }), viewMode === "cash" && canCash && /* @__PURE__ */ React.createElement(CashManagement, { user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }), viewMode === "recon" && isAdmin && /* @__PURE__ */ React.createElement(SalesReconciliation, { th, user, showAlert: showAlert2 }), viewMode === "expenses" && isAdmin && /* @__PURE__ */ React.createElement(ExpenseLogSection, { th, user, standalone: true }), viewMode === "tips" && finSub("tips") && /* @__PURE__ */ React.createElement(TipsReportBuilder, { th, stores, user }), viewMode === "labor" && (isAdmin || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn, users }), viewMode === "tips-edit" && isAdmin && /* @__PURE__ */ React.createElement(TipsEditor, { th, stores, user, onGoToReport: () => setViewMode("tips") })));
   }
   var TIPS_SNAPSHOT_RETENTION_DAYS = 40;
   function tipsParseISODate(s) {
@@ -33032,6 +33040,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [paycorCfg, setPaycorCfg] = useState({});
     const [paycorCfgLoaded, setPaycorCfgLoaded] = useState(false);
     const [paycorPush, setPaycorPush] = useState(null);
+    const [singleSendPc, setSingleSendPc] = useState("");
+    const [singleSending, setSingleSending] = useState(false);
     const [refreshingDates, setRefreshingDates] = useState(() => /* @__PURE__ */ new Set());
     const [refreshingStores, setRefreshingStores] = useState(() => /* @__PURE__ */ new Set());
     useEffect(() => {
@@ -33154,6 +33164,96 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
       XLSX.writeFile(wb, `Biweekly_Tips_Report_${tipsFormatISODate(start)}_to_${tipsFormatISODate(end)}.xlsx`);
     };
+    const stageOneStoreForPaycor = async (storeKey, byStore, flaggedByPc) => {
+      const recs = byStore[storeKey];
+      const storePc = recs?.[0]?.pc;
+      const storeMeta = (stores || []).find((s) => s.pc === storePc);
+      const cfg = paycorCfg[storePc];
+      const fail = (status, detail) => ({ pc: storePc, store: storeKey, status, detail });
+      if (flaggedByPc[storePc]?.length) {
+        return fail("blocked", `Unresolved data gap \u2014 re-fetch before sending: ${flaggedByPc[storePc].map((f) => f.detail).join("; ")}`);
+      }
+      if (!storeMeta?.paycor) return fail("error", "No Paycor legal entity ID configured for this store");
+      if (!cfg?.earningCode) return fail("skipped", "Earning code not auto-filled yet for this store \u2014 try Send again in a moment");
+      const toSend = recs.filter((r) => r.payrollId && r.tips > 0);
+      const missingPayrollId = recs.filter((r) => !r.payrollId && r.tips > 0).length;
+      if (toSend.length === 0) return fail("skipped", missingPayrollId ? `${missingPayrollId} employee(s) missing a payroll ID, nothing else to send` : "No employees with tips this period");
+      const titleByPayrollId = {};
+      const idByPayrollId = {};
+      let rosterFetchFailed = false;
+      try {
+        let employees = [], continuationToken;
+        do {
+          const res = await fetch("/.netlify/functions/paycor", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "employees", legalEntityId: storeMeta.paycor, ...continuationToken ? { continuationToken } : {} })
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json().catch(() => null);
+          const page = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
+          employees = employees.concat(page);
+          continuationToken = json?.continuationToken || null;
+          if (!page.length) continuationToken = null;
+        } while (continuationToken);
+        employees.forEach((e) => {
+          const num = e?.employeeNumber || e?.alternateEmployeeNumber;
+          if (num) {
+            titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
+            if (e?.id) idByPayrollId[String(num)] = e.id;
+          }
+        });
+      } catch (e) {
+        rosterFetchFailed = true;
+      }
+      let payGroupId = null;
+      try {
+        const res = await fetch("/.netlify/functions/paycor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "payGroups", legalEntityId: storeMeta.paycor })
+        });
+        const json = await res.json().catch(() => null);
+        const records = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
+        payGroupId = records[0]?.payGroupId || null;
+      } catch (e) {
+      }
+      if (!payGroupId) return fail("error", "Couldn't look up this store's Paycor pay group \u2014 required for every submission");
+      const businessStartDate = `${tipsFormatISODate(start)}T00:00:00Z`;
+      const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
+      let defaultedCount = 0;
+      const noLiveIdCount = toSend.filter((r) => !idByPayrollId[String(r.payrollId)]).length;
+      const importEmployees = toSend.filter((r) => idByPayrollId[String(r.payrollId)]).map((r) => {
+        const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
+        if (!hasLiveMatch) defaultedCount++;
+        const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
+        return {
+          employeeId: idByPayrollId[String(r.payrollId)],
+          importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }]
+        };
+      });
+      if (importEmployees.length === 0) return fail("skipped", `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ""}`);
+      try {
+        const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
+        const res = await fetch("/.netlify/functions/paycor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "stagePayrollHours", legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          const notes = [];
+          if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
+          if (noLiveIdCount) notes.push(`skipped ${noLiveIdCount} not found on current roster (no Paycor ID to send)`);
+          if (rosterFetchFailed) notes.push(`couldn't fetch current roster \u2014 all defaulted to Cust Svc (101)`);
+          else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
+          return { pc: storePc, store: storeKey, status: "ok", detail: `Staged ${importEmployees.length} employee(s)${notes.length ? ", " + notes.join(", ") : ""} \u2014 still needs human review/submit in Paycor` };
+        }
+        return fail("error", data?.Detail || data?.message || data?.error || `HTTP ${res.status}`);
+      } catch (e) {
+        return fail("error", e.message || "Request failed");
+      }
+    };
     const sendToPaycor = async () => {
       if (!snapshots || !start) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
@@ -33162,117 +33262,35 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const results = storeOrder.map((store) => ({ pc: byStore[store][0]?.pc, store, status: "pending", detail: null }));
       setPaycorPush({ running: true, results });
       for (const store of storeOrder) {
-        const recs = byStore[store];
-        const storePc = recs[0]?.pc;
-        const storeMeta = (stores || []).find((s) => s.pc === storePc);
-        const cfg = paycorCfg[storePc];
-        const record = (status, detail) => {
-          const idx = results.findIndex((r) => r.pc === storePc);
-          if (idx >= 0) results[idx] = { pc: storePc, store, status, detail };
-          setPaycorPush({ running: true, results: [...results] });
-        };
-        if (flaggedByPc[storePc]?.length) {
-          record("blocked", `Unresolved data gap \u2014 re-fetch before sending: ${flaggedByPc[storePc].map((f) => f.detail).join("; ")}`);
-          continue;
-        }
-        if (!storeMeta?.paycor) {
-          record("error", "No Paycor legal entity ID configured for this store");
-          continue;
-        }
-        if (!cfg?.earningCode) {
-          record("skipped", "Earning code not auto-filled yet for this store \u2014 try Send again in a moment");
-          continue;
-        }
-        const toSend = recs.filter((r) => r.payrollId && r.tips > 0);
-        const missingPayrollId = recs.filter((r) => !r.payrollId && r.tips > 0).length;
-        if (toSend.length === 0) {
-          record("skipped", missingPayrollId ? `${missingPayrollId} employee(s) missing a payroll ID, nothing else to send` : "No employees with tips this period");
-          continue;
-        }
-        const titleByPayrollId = {};
-        const idByPayrollId = {};
-        let rosterFetchFailed = false;
-        try {
-          let employees = [], continuationToken;
-          do {
-            const res = await fetch("/.netlify/functions/paycor", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "employees", legalEntityId: storeMeta.paycor, ...continuationToken ? { continuationToken } : {} })
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json().catch(() => null);
-            const page = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
-            employees = employees.concat(page);
-            continuationToken = json?.continuationToken || null;
-            if (!page.length) continuationToken = null;
-          } while (continuationToken);
-          employees.forEach((e) => {
-            const num = e?.employeeNumber || e?.alternateEmployeeNumber;
-            if (num) {
-              titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
-              if (e?.id) idByPayrollId[String(num)] = e.id;
-            }
-          });
-        } catch (e) {
-          rosterFetchFailed = true;
-        }
-        let payGroupId = null;
-        try {
-          const res = await fetch("/.netlify/functions/paycor", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "payGroups", legalEntityId: storeMeta.paycor })
-          });
-          const json = await res.json().catch(() => null);
-          const records = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
-          payGroupId = records[0]?.payGroupId || null;
-        } catch (e) {
-        }
-        if (!payGroupId) {
-          record("error", "Couldn't look up this store's Paycor pay group \u2014 required for every submission");
-          continue;
-        }
-        const businessStartDate = `${tipsFormatISODate(start)}T00:00:00Z`;
-        const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
-        let defaultedCount = 0;
-        const noLiveIdCount = toSend.filter((r) => !idByPayrollId[String(r.payrollId)]).length;
-        const importEmployees = toSend.filter((r) => idByPayrollId[String(r.payrollId)]).map((r) => {
-          const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
-          if (!hasLiveMatch) defaultedCount++;
-          const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
-          return {
-            employeeId: idByPayrollId[String(r.payrollId)],
-            importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }]
-          };
-        });
-        if (importEmployees.length === 0) {
-          record("skipped", `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ""}`);
-          continue;
-        }
-        try {
-          const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
-          const res = await fetch("/.netlify/functions/paycor", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "stagePayrollHours", legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true })
-          });
-          const data = await res.json().catch(() => ({}));
-          if (res.ok) {
-            const notes = [];
-            if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
-            if (noLiveIdCount) notes.push(`skipped ${noLiveIdCount} not found on current roster (no Paycor ID to send)`);
-            if (rosterFetchFailed) notes.push(`couldn't fetch current roster \u2014 all defaulted to Cust Svc (101)`);
-            else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
-            record("ok", `Staged ${importEmployees.length} employee(s)${notes.length ? ", " + notes.join(", ") : ""} \u2014 still needs human review/submit in Paycor`);
-          } else {
-            record("error", data?.Detail || data?.message || data?.error || `HTTP ${res.status}`);
-          }
-        } catch (e) {
-          record("error", e.message || "Request failed");
-        }
+        const result = await stageOneStoreForPaycor(store, byStore, flaggedByPc);
+        const idx = results.findIndex((r) => r.pc === result.pc);
+        if (idx >= 0) results[idx] = result;
+        setPaycorPush({ running: true, results: [...results] });
       }
       setPaycorPush({ running: false, results });
+    };
+    const sendOneStoreToPaycor = async () => {
+      if (!snapshots || !start || !singleSendPc) return;
+      setSingleSending(true);
+      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+      const storeKey = storeOrder.find((k) => String(byStore[k][0]?.pc) === String(singleSendPc));
+      const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
+      let result;
+      if (!storeKey) {
+        const storeMeta = (stores || []).find((s) => String(s.pc) === String(singleSendPc));
+        result = { pc: singleSendPc, store: storeMeta?.name || singleSendPc, status: "skipped", detail: "No tips data for this store in the loaded period" };
+      } else {
+        result = await stageOneStoreForPaycor(storeKey, byStore, flaggedByPc);
+      }
+      setSingleSending(false);
+      setPaycorPush((prev) => {
+        const results = prev ? [...prev.results] : [];
+        const idx = results.findIndex((r) => r.pc === result.pc);
+        if (idx >= 0) results[idx] = result;
+        else results.push(result);
+        return { running: false, results };
+      });
     };
     const filledCount = dayInfo ? dayInfo.filter((d) => d.filled).length : 0;
     const missingDates = dayInfo ? dayInfo.filter((d) => !d.filled && d.date < todayStr).map((d) => d.date) : [];
@@ -33382,7 +33400,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           );
         }));
       })));
-    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), paycorPush && (() => {
+    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor")), canPushToPaycor && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Just fixed one store (e.g. in the Tips Editor)? Resend only that store:"), /* @__PURE__ */ React.createElement("select", { value: singleSendPc, onChange: (e) => setSingleSendPc(e.target.value), style: { ...inp(th), width: "auto", minWidth: 200, padding: "0.5rem 0.8rem", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), (stores || []).filter((s) => s.paycor).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")"))), /* @__PURE__ */ React.createElement("button", { onClick: sendOneStoreToPaycor, disabled: !singleSendPc || singleSending || paycorPush?.running, style: { ...btn(th, { background: "#7c3aed", padding: "0.5rem 1rem", fontSize: "0.82rem" }), opacity: !singleSendPc || singleSending || paycorPush?.running ? 0.6 : 1 } }, singleSending ? "Sending\u2026" : "Send Just This Store"))), paycorPush && (() => {
       const doneCount = paycorPush.results.filter((r) => r.status !== "pending").length;
       const icons = {
         pending: { glyph: "\u25CB", color: th.muted, spin: true },
@@ -33396,6 +33414,145 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return /* @__PURE__ */ React.createElement("div", { key: r.pc, title: r.detail || "", style: { display: "flex", alignItems: "flex-start", gap: "0.4rem", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: ic.color, fontWeight: 700, flexShrink: 0, width: "1.1rem", textAlign: "center", animation: ic.spin ? "tipsSendPulse 1.1s ease-in-out infinite" : "none" } }, ic.glyph), /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, r.store), r.detail && r.status !== "pending" && /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: ic.color, fontSize: "0.7rem", lineHeight: 1.3 } }, r.status === "blocked" ? "BLOCKED \u2014 " : "", r.detail)));
       })), /* @__PURE__ */ React.createElement("style", null, "@keyframes tipsSendPulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }"));
     })(), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
+  }
+  function TipsEditor({ th, stores, user, onGoToReport }) {
+    const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
+    const [storePc, setStorePc] = useState("");
+    const [dateStr, setDateStr] = useState(todayStr);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [store, setStore] = useState(null);
+    const [crew, setCrew] = useState([]);
+    const [saving, setSaving] = useState(false);
+    const [savedMsg, setSavedMsg] = useState(null);
+    const [reason, setReason] = useState("");
+    const [roster, setRoster] = useState(null);
+    const [rosterLoading, setRosterLoading] = useState(false);
+    const [rosterQuery, setRosterQuery] = useState("");
+    const [showRoster, setShowRoster] = useState(false);
+    const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
+    const pool = tipsRound2(store?.tipPool || 0);
+    const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
+    const rate = totalHours > 0 ? pool / totalHours : 0;
+    const load = async () => {
+      if (!storePc || !dateStr) return;
+      setLoading(true);
+      setError(null);
+      setStore(null);
+      setCrew([]);
+      setSavedMsg(null);
+      setReason("");
+      try {
+        const res = await fetch("/.netlify/functions/tips-manual-edit", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "get", date: dateStr, pc: storePc })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(j?.error || `Load failed (${res.status})`);
+          setLoading(false);
+          return;
+        }
+        setStore(j.store);
+        setCrew((j.store.crew || []).map((c) => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
+      } catch {
+        setError("Network error \u2014 load failed.");
+      }
+      setLoading(false);
+    };
+    const loadRoster = async () => {
+      if (!selectedStore?.paycor || roster) {
+        setShowRoster(true);
+        return;
+      }
+      setRosterLoading(true);
+      try {
+        const res = await fetch("/.netlify/functions/tips-manual-edit", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "employeeRoster", legalEntityId: selectedStore.paycor })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (res.ok) setRoster(j.roster || []);
+        else setError(j?.error || "Could not load the store's employee roster.");
+      } catch {
+        setError("Network error \u2014 could not load the employee roster.");
+      }
+      setRosterLoading(false);
+      setShowRoster(true);
+    };
+    const addFromRoster = (r) => {
+      if (crew.some((c) => r.guid && c.guid === r.guid || c.name.toLowerCase() === r.name.toLowerCase())) {
+        setError(`${r.name} is already in this day's crew.`);
+        return;
+      }
+      setCrew((prev) => [...prev, { name: r.name, payrollId: r.payrollId, guid: r.guid, hours: 0 }]);
+      setShowRoster(false);
+      setRosterQuery("");
+    };
+    const removeCrew = (idx) => setCrew((prev) => prev.filter((_, i) => i !== idx));
+    const setCrewHours = (idx, hours) => setCrew((prev) => prev.map((c, i) => i === idx ? { ...c, hours } : c));
+    const save = async () => {
+      setSaving(true);
+      setError(null);
+      setSavedMsg(null);
+      try {
+        const parsedCrew = crew.map((c) => ({ ...c, hours: Number(c.hours) || 0 }));
+        const res = await fetch("/.netlify/functions/tips-manual-edit", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ action: "save", date: dateStr, pc: storePc, crew: parsedCrew, reason: reason.trim() || void 0 })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(j?.error || `Save failed (${res.status})`);
+          setSaving(false);
+          return;
+        }
+        setStore(j.store);
+        setCrew((j.store.crew || []).map((c) => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
+        setSavedMsg(`Saved \u2014 recalculated ${j.store.crew.length} people's shares from a $${pool.toFixed(2)} pool.`);
+      } catch {
+        setError("Network error \u2014 save failed.");
+      }
+      setSaving(false);
+    };
+    const filteredRoster = (roster || []).filter((r) => !rosterQuery.trim() || r.name.toLowerCase().includes(rosterQuery.trim().toLowerCase()));
+    const savedCrewKey = JSON.stringify((store?.crew || []).map((c) => ({ guid: c.guid, name: c.name, hours: tipsRound2(c.hours) })));
+    const workingCrewKey = JSON.stringify(crew.map((c) => ({ guid: c.guid, name: c.name, hours: tipsRound2(Number(c.hours) || 0) })));
+    const hasChanges = store ? savedCrewKey !== workingCrewKey : false;
+    const cancelEdits = () => {
+      if (!store) return;
+      setCrew((store.crew || []).map((c) => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
+      setReason("");
+      setError(null);
+    };
+    const StatBlock = ({ label, value }) => /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1rem", fontWeight: 800, color: th.text } }, value));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "0.3rem" } }, "Tips Editor"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Correct one store's crew for one already-saved day \u2014 add someone who's missing, fix their hours, or remove a mistake. Saving recalculates every person's share from the real tip pool, same math the nightly report already uses. The pool itself (real Pulse sales data) isn't editable here.", onGoToReport && /* @__PURE__ */ React.createElement(React.Fragment, null, " Already fixed what you needed? ", /* @__PURE__ */ React.createElement("span", { onClick: onGoToReport, style: { color: "#FF671F", fontWeight: 700, cursor: "pointer" } }, "Go to the Tips Report \u2192"), " to re-send the corrected period to Paycor.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Store", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), minWidth: 220 }, value: storePc, onChange: (e) => {
+      setStorePc(e.target.value);
+      setStore(null);
+      setCrew([]);
+      setRoster(null);
+    } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")")))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Date", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: dateStr, max: todayStr, onChange: (e) => setDateStr(e.target.value) })), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !storePc || !dateStr || loading, style: { ...btn(th), opacity: !storePc || !dateStr || loading ? 0.5 : 1 } }, loading ? "Loading\u2026" : "Load")), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", color: "#e03131", fontSize: "0.82rem", marginBottom: "1rem" } }, error), savedMsg && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", color: "#2f9e44", fontSize: "0.82rem", marginBottom: "1rem" } }, "\u2713 ", savedMsg), store && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem", padding: "1.1rem 1.1rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.6rem" } }, ICONS.calendar(th.muted), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, fontSize: "1rem" } }, store.name, " \xB7 ", dateStr), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.1rem" } }, "Tip pool: $", pool.toFixed(2), " (from Pulse, not editable here) \xB7 ", totalHours.toFixed(2), " total hours \xB7 $", rate.toFixed(2), "/hr"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "1.4rem" } }, /* @__PURE__ */ React.createElement(StatBlock, { label: "Tip Pool", value: `$${pool.toFixed(2)}` }), /* @__PURE__ */ React.createElement(StatBlock, { label: "Total Hours", value: totalHours.toFixed(2) }), /* @__PURE__ */ React.createElement(StatBlock, { label: "Rate", value: `$${rate.toFixed(2)}/hr` }), /* @__PURE__ */ React.createElement("button", { onClick: loadRoster, disabled: rosterLoading, style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.6rem 1rem", fontSize: "0.85rem" }) } }, rosterLoading ? "Loading roster\u2026" : "+ Add Employee"))), showRoster && /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, padding: "0.75rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, type: "text", placeholder: "Search this store's active employees\u2026", value: rosterQuery, onChange: (e) => setRosterQuery(e.target.value), style: { ...inp(th), width: "100%", marginBottom: "0.5rem" } }), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 200, overflowY: "auto" } }, filteredRoster.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, padding: "0.5rem" } }, "No matching active employees.") : filteredRoster.slice(0, 20).map((r) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: r.guid,
+        onClick: () => addFromRoster(r),
+        style: { padding: "0.45rem 0.6rem", borderRadius: "0.4rem", cursor: "pointer", fontSize: "0.82rem", color: th.text, display: "flex", justifyContent: "space-between" },
+        onMouseEnter: (e) => e.currentTarget.style.background = th.card3,
+        onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
+      },
+      /* @__PURE__ */ React.createElement("span", null, r.name),
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, r.jobTitle || "")
+    ))), /* @__PURE__ */ React.createElement("div", { onClick: () => setShowRoster(false), style: { fontSize: "0.72rem", color: th.muted, cursor: "pointer", marginTop: "0.4rem", textAlign: "right" } }, "Close")), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["Employee", "Hours", "Tip Share", "Action"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: "left", padding: "0.6rem 1.1rem", color: th.muted, fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${th.cardBorder}` } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, crew.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 4, style: { padding: "1.2rem 1.1rem", color: th.muted, textAlign: "center", fontStyle: "italic" } }, 'No crew yet \u2014 use "+ Add Employee" above.')), crew.map((c, idx) => {
+      const hoursNum = Number(c.hours) || 0;
+      const previewShare = totalHours > 0 ? tipsRound2(rate * hoursNum) : 0;
+      return /* @__PURE__ */ React.createElement("tr", { key: c.guid || c.name + idx, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.6rem 1.1rem", color: th.text, fontWeight: 600 } }, c.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 1.1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", step: "0.01", value: c.hours, onChange: (e) => setCrewHours(idx, e.target.value), style: { ...inp(th), width: 110, padding: "0.45rem 0.6rem" } })), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.6rem 1.1rem", color: th.text, fontWeight: 600 } }, "$", previewShare.toFixed(2)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 1.1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => removeCrew(idx), style: { background: "none", border: "1px solid #e0313155", color: "#e03131", borderRadius: "0.5rem", padding: "0.35rem 0.7rem", cursor: "pointer", fontSize: "0.76rem", fontWeight: 700 } }, "\u{1F5D1} Remove")));
+    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.84rem", fontWeight: 700, color: th.text, marginBottom: "0.15rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.5rem" } }, "Provide a reason for this correction (optional, saved for the record)."), /* @__PURE__ */ React.createElement("textarea", { rows: 2, placeholder: "e.g. Adjusted tip share due to hours correction\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: "'Source Sans 3'" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2 } }, hasChanges && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, marginRight: "auto" } }, "\u23F1 Unsaved changes"), /* @__PURE__ */ React.createElement("button", { onClick: cancelEdits, disabled: !hasChanges || saving, style: { ...btn(th, { background: th.card3, color: th.text }), opacity: !hasChanges || saving ? 0.5 : 1 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: save, disabled: saving || crew.length === 0, style: { ...btn(th), opacity: saving || crew.length === 0 ? 0.5 : 1 } }, saving ? "Saving\u2026" : "Save Correction")), store.manualEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, padding: "0 1.1rem 1rem" } }, "Last manually corrected by ", store.manualEdit.by, " on ", new Date(store.manualEdit.at).toLocaleString(), store.manualEdit.reason ? ` \u2014 "${store.manualEdit.reason}"` : "", ".")));
   }
   function renderAnalystMarkdown(text, th) {
     if (!text) return null;

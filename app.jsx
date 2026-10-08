@@ -22908,6 +22908,7 @@ const HUB_SUBITEMS = {
     // again as its own Finance sub-tab, same tile-grid pattern as every
     // other entry here.
     { id: 'labor', label: 'Labor' },
+    { id: 'tips-edit', label: 'Tips Editor' },
   ],
 };
 // AdminConsole's own internal sub-tabs (Notifications/Tasks/Users/Access/
@@ -30371,7 +30372,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.67";
+const APP_VERSION = "v21.70";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -43595,6 +43596,13 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
     { id: 'recon', icon: <HubIcon color={FIN} d={<><path d="M17 2.1 21 6l-4 3.9M3 11V9a4 4 0 0 1 4-4h14M7 21.9 3 18l4-3.9M21 13v2a4 4 0 0 1-4 4H3"/></>} />, name: 'Reconciliation', sub: 'Snapshot vs. live sales compare, WTD differences by store.', show: isAdmin && finSub('recon') },
     { id: 'expenses', icon: <HubIcon color={FIN} d={<><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6Z"/><path d="M9 10v6M15 10v6"/></>} />, name: 'Expense Log', sub: 'All ticket expenses — filter, approve, reject.', badge: expPending > 0 ? `${expPending} pending` : null, show: isAdmin && finSub('expenses') },
     { id: 'tips', icon: <HubIcon color={FIN} d={<><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2.2-3 2.5c-1.7.3-3 1.1-3 2.5s1.3 2.5 3 2.5 3-1.1 3-2.5"/></>} />, name: 'Tips Report', sub: 'Biweekly per-employee tip distribution, ready for Paycor.', show: finSub('tips') },
+    // Added 2026-10-08 per explicit request: replaces "tell IT to patch the
+    // snapshot by hand" with a real in-app correction flow. Exec/IT only —
+    // deliberately narrower than the Tips Report tile above (finSub('tips')
+    // alone), since manually overriding whose hours feed a real tip
+    // distribution is more sensitive than reviewing/sending an already-
+    // computed period.
+    { id: 'tips-edit', icon: <HubIcon color={FIN} d={<><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></>} />, name: 'Tips Editor', sub: 'Add, edit, or remove someone from a day\'s crew — recalculates everyone\'s share.', show: isAdmin && finSub('tips-edit') },
     // AdminLabor already scopes itself correctly per role (managerStorePCs
     // filters the grid to just a manager's own store; DM locks to their own
     // district) — isManager added 2026-10-06 per explicit direction: IT/exec
@@ -43647,6 +43655,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
           {viewMode === 'expenses' && isAdmin && <ExpenseLogSection th={th} user={user} standalone />}
           {viewMode === 'tips' && finSub('tips') && <TipsReportBuilder th={th} stores={stores} user={user} />}
           {viewMode === 'labor' && (isAdmin || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={onClearDrillIn} users={users} />}
+          {viewMode === 'tips-edit' && isAdmin && <TipsEditor th={th} stores={stores} user={user} onGoToReport={() => setViewMode('tips')} />}
         </div>
       )}
     </div>
@@ -43999,6 +44008,8 @@ function TipsReportBuilder({ th, stores, user }) {
   const [paycorCfg, setPaycorCfg] = useState({}); // { [pc]: { earningCode } }
   const [paycorCfgLoaded, setPaycorCfgLoaded] = useState(false);
   const [paycorPush, setPaycorPush] = useState(null); // null | { running, results: [{pc, store, status, detail}] }
+  const [singleSendPc, setSingleSendPc] = useState(''); // store picked for a one-off resend (e.g. after a Tips Editor correction)
+  const [singleSending, setSingleSending] = useState(false);
   const [refreshingDates, setRefreshingDates] = useState(() => new Set()); // whole-day refreshes in flight
   const [refreshingStores, setRefreshingStores] = useState(() => new Set()); // `${pc}|${date}` single-store refreshes in flight
 
@@ -44151,6 +44162,144 @@ function TipsReportBuilder({ th, stores, user }) {
   // Requires per-store earningCode/departmentCode to already be filled in —
   // Paycor doesn't expose a way to look these up via the API, so there's
   // nothing to default or validate them against beyond "is it filled in."
+  // Stages exactly ONE store (by its tipsAggregatePeriodByStore key, i.e. the
+  // 'store' label used as byStore's index) into Paycor's paygrid and returns
+  // the final {pc, store, status, detail} row — same math/validation as the
+  // full-period send below, just scoped to one store so a single corrected
+  // store (e.g. via the Tips Editor) can be resent without touching the
+  // other 44. Shared by both sendToPaycor (full period) and
+  // sendOneStoreToPaycor (the standalone one-store control).
+  const stageOneStoreForPaycor = async (storeKey, byStore, flaggedByPc) => {
+    const recs = byStore[storeKey];
+    const storePc = recs?.[0]?.pc;
+    const storeMeta = (stores || []).find(s => s.pc === storePc);
+    const cfg = paycorCfg[storePc];
+    const fail = (status, detail) => ({ pc: storePc, store: storeKey, status, detail });
+
+    // Hard block, not a warning someone can miss — a store with an
+    // unresolved anomaly day never gets sent, full stop, until it's fixed
+    // (re-fetch the flagged day). The alternative is real risk: an
+    // employee's tips silently never reach Paycor because nobody happened
+    // to read the email warning before clicking Send.
+    if (flaggedByPc[storePc]?.length) {
+      return fail('blocked', `Unresolved data gap — re-fetch before sending: ${flaggedByPc[storePc].map(f => f.detail).join('; ')}`);
+    }
+    if (!storeMeta?.paycor) return fail('error', 'No Paycor legal entity ID configured for this store');
+    if (!cfg?.earningCode) return fail('skipped', 'Earning code not auto-filled yet for this store — try Send again in a moment');
+
+    const toSend = recs.filter(r => r.payrollId && r.tips > 0);
+    const missingPayrollId = recs.filter(r => !r.payrollId && r.tips > 0).length;
+    if (toSend.length === 0) return fail('skipped', missingPayrollId ? `${missingPayrollId} employee(s) missing a payroll ID, nothing else to send` : 'No employees with tips this period');
+
+    // Department code depends on each person's current role (Cust Svc /
+    // Shift Leader / Asst Manager), which isn't in the saved snapshot — so
+    // this looks up each store's CURRENT roster live, right before
+    // sending, and maps payrollId (employeeNumber) -> job title. Anyone
+    // not found live (e.g. since departed) falls back to 101, same as
+    // Paycor's own behavior for a missing job title.
+    const titleByPayrollId = {};
+    // v2's schema keys each import row by employeeId (Paycor's internal
+    // GUID), not employeeNumber — the tips pipeline only ever tracked
+    // payrollId (employeeNumber), so the GUID has to come from this same
+    // live roster fetch, same as the job-title lookup right below.
+    const idByPayrollId = {};
+    let rosterFetchFailed = false;
+    try {
+      let employees = [], continuationToken;
+      do {
+        const res = await fetch('/.netlify/functions/paycor', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'employees', legalEntityId: storeMeta.paycor, ...(continuationToken ? { continuationToken } : {}) }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json().catch(() => null);
+        const page = Array.isArray(json?.records) ? json.records : (Array.isArray(json) ? json : []);
+        employees = employees.concat(page);
+        continuationToken = json?.continuationToken || null;
+        if (!page.length) continuationToken = null;
+      } while (continuationToken);
+      employees.forEach(e => {
+        const num = e?.employeeNumber || e?.alternateEmployeeNumber;
+        if (num) {
+          titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
+          if (e?.id) idByPayrollId[String(num)] = e.id;
+        }
+      });
+    } catch (e) {
+      rosterFetchFailed = true;
+    }
+
+    // payGroupId is a required field on every earning entry (confirmed via
+    // Paycor's own docs, 2026-08-24) — one per legal entity, so fetched
+    // once per store rather than per employee. No fallback if this fails:
+    // unlike a missing job title (which safely defaults to Cust Svc), a
+    // missing payGroupId means the whole store's request would be
+    // rejected anyway, so there's nothing useful to default it to.
+    let payGroupId = null;
+    try {
+      const res = await fetch('/.netlify/functions/paycor', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'payGroups', legalEntityId: storeMeta.paycor }),
+      });
+      const json = await res.json().catch(() => null);
+      const records = Array.isArray(json?.records) ? json.records : (Array.isArray(json) ? json : []);
+      payGroupId = records[0]?.payGroupId || null;
+    } catch (e) { /* handled by the null check below */ }
+    if (!payGroupId) return fail('error', "Couldn't look up this store's Paycor pay group — required for every submission");
+
+    // businessStartDate/businessEndDate bound this earning to exactly the
+    // period being sent, per Paycor's schema ("Start/End date of
+    // TimeCard") — required so a store's tips don't get miscategorized as
+    // applying to some other, unbounded date range.
+    const businessStartDate = `${tipsFormatISODate(start)}T00:00:00Z`;
+    const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
+
+    let defaultedCount = 0;
+    // employeeId (the GUID) is required by v2's schema — unlike a missing
+    // job title (safe to default to Cust Svc), there's no sensible
+    // fallback for "which employee is this," so anyone not found in the
+    // live roster is skipped from this store's submission entirely rather
+    // than sent with an undefined/garbage employeeId.
+    const noLiveIdCount = toSend.filter(r => !idByPayrollId[String(r.payrollId)]).length;
+    const importEmployees = toSend.filter(r => idByPayrollId[String(r.payrollId)]).map(r => {
+      const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
+      if (!hasLiveMatch) defaultedCount++;
+      const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
+      return {
+        employeeId: idByPayrollId[String(r.payrollId)],
+        importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }],
+      };
+    });
+    if (importEmployees.length === 0) return fail('skipped', `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ''}`);
+
+    try {
+      // Stable per store+period, not crypto.randomUUID() — see
+      // tipsStableProcessId. replaceData:true means a re-send for the same
+      // store/period overwrites Paycor's existing staged batch with this
+      // call's full current total instead of adding a duplicate one — this
+      // is exactly what makes a single-store resend after a Tips Editor
+      // correction safe: it replaces that store's prior staged batch rather
+      // than piling a second one on top of it.
+      const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
+      const res = await fetch('/.netlify/functions/paycor', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stagePayrollHours', legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const notes = [];
+        if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
+        if (noLiveIdCount) notes.push(`skipped ${noLiveIdCount} not found on current roster (no Paycor ID to send)`);
+        if (rosterFetchFailed) notes.push(`couldn't fetch current roster — all defaulted to Cust Svc (101)`);
+        else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
+        return { pc: storePc, store: storeKey, status: 'ok', detail: `Staged ${importEmployees.length} employee(s)${notes.length ? ', ' + notes.join(', ') : ''} — still needs human review/submit in Paycor` };
+      }
+      return fail('error', data?.Detail || data?.message || data?.error || `HTTP ${res.status}`);
+    } catch (e) {
+      return fail('error', e.message || 'Request failed');
+    }
+  };
+
   const sendToPaycor = async () => {
     if (!snapshots || !start) return;
     const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
@@ -44163,139 +44312,39 @@ function TipsReportBuilder({ th, stores, user }) {
     const results = storeOrder.map(store => ({ pc: byStore[store][0]?.pc, store, status: 'pending', detail: null }));
     setPaycorPush({ running: true, results });
     for (const store of storeOrder) {
-      const recs = byStore[store];
-      const storePc = recs[0]?.pc;
-      const storeMeta = (stores || []).find(s => s.pc === storePc);
-      const cfg = paycorCfg[storePc];
-      const record = (status, detail) => {
-        const idx = results.findIndex(r => r.pc === storePc);
-        if (idx >= 0) results[idx] = { pc: storePc, store, status, detail };
-        setPaycorPush({ running: true, results: [...results] });
-      };
-
-      // Hard block, not a warning someone can miss — a store with an
-      // unresolved anomaly day never gets sent, full stop, until it's fixed
-      // (re-fetch the flagged day). The alternative is real risk: an
-      // employee's tips silently never reach Paycor because nobody happened
-      // to read the email warning before clicking Send.
-      if (flaggedByPc[storePc]?.length) {
-        record('blocked', `Unresolved data gap — re-fetch before sending: ${flaggedByPc[storePc].map(f => f.detail).join('; ')}`);
-        continue;
-      }
-      if (!storeMeta?.paycor) { record('error', 'No Paycor legal entity ID configured for this store'); continue; }
-      if (!cfg?.earningCode) { record('skipped', 'Earning code not auto-filled yet for this store — try Send again in a moment'); continue; }
-
-      const toSend = recs.filter(r => r.payrollId && r.tips > 0);
-      const missingPayrollId = recs.filter(r => !r.payrollId && r.tips > 0).length;
-      if (toSend.length === 0) { record('skipped', missingPayrollId ? `${missingPayrollId} employee(s) missing a payroll ID, nothing else to send` : 'No employees with tips this period'); continue; }
-
-      // Department code depends on each person's current role (Cust Svc /
-      // Shift Leader / Asst Manager), which isn't in the saved snapshot — so
-      // this looks up each store's CURRENT roster live, right before
-      // sending, and maps payrollId (employeeNumber) -> job title. Anyone
-      // not found live (e.g. since departed) falls back to 101, same as
-      // Paycor's own behavior for a missing job title.
-      const titleByPayrollId = {};
-      // v2's schema keys each import row by employeeId (Paycor's internal
-      // GUID), not employeeNumber — the tips pipeline only ever tracked
-      // payrollId (employeeNumber), so the GUID has to come from this same
-      // live roster fetch, same as the job-title lookup right below.
-      const idByPayrollId = {};
-      let rosterFetchFailed = false;
-      try {
-        let employees = [], continuationToken;
-        do {
-          const res = await fetch('/.netlify/functions/paycor', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'employees', legalEntityId: storeMeta.paycor, ...(continuationToken ? { continuationToken } : {}) }),
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json = await res.json().catch(() => null);
-          const page = Array.isArray(json?.records) ? json.records : (Array.isArray(json) ? json : []);
-          employees = employees.concat(page);
-          continuationToken = json?.continuationToken || null;
-          if (!page.length) continuationToken = null;
-        } while (continuationToken);
-        employees.forEach(e => {
-          const num = e?.employeeNumber || e?.alternateEmployeeNumber;
-          if (num) {
-            titleByPayrollId[String(num)] = e?.positionData?.jobTitle;
-            if (e?.id) idByPayrollId[String(num)] = e.id;
-          }
-        });
-      } catch (e) {
-        rosterFetchFailed = true;
-      }
-
-      // payGroupId is a required field on every earning entry (confirmed via
-      // Paycor's own docs, 2026-08-24) — one per legal entity, so fetched
-      // once per store rather than per employee. No fallback if this fails:
-      // unlike a missing job title (which safely defaults to Cust Svc), a
-      // missing payGroupId means the whole store's request would be
-      // rejected anyway, so there's nothing useful to default it to.
-      let payGroupId = null;
-      try {
-        const res = await fetch('/.netlify/functions/paycor', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'payGroups', legalEntityId: storeMeta.paycor }),
-        });
-        const json = await res.json().catch(() => null);
-        const records = Array.isArray(json?.records) ? json.records : (Array.isArray(json) ? json : []);
-        payGroupId = records[0]?.payGroupId || null;
-      } catch (e) { /* handled by the null check below */ }
-      if (!payGroupId) { record('error', "Couldn't look up this store's Paycor pay group — required for every submission"); continue; }
-
-      // businessStartDate/businessEndDate bound this earning to exactly the
-      // period being sent, per Paycor's schema ("Start/End date of
-      // TimeCard") — required so a store's tips don't get miscategorized as
-      // applying to some other, unbounded date range.
-      const businessStartDate = `${tipsFormatISODate(start)}T00:00:00Z`;
-      const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
-
-      let defaultedCount = 0;
-      // employeeId (the GUID) is required by v2's schema — unlike a missing
-      // job title (safe to default to Cust Svc), there's no sensible
-      // fallback for "which employee is this," so anyone not found in the
-      // live roster is skipped from this store's submission entirely rather
-      // than sent with an undefined/garbage employeeId.
-      const noLiveIdCount = toSend.filter(r => !idByPayrollId[String(r.payrollId)]).length;
-      const importEmployees = toSend.filter(r => idByPayrollId[String(r.payrollId)]).map(r => {
-        const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
-        if (!hasLiveMatch) defaultedCount++;
-        const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
-        return {
-          employeeId: idByPayrollId[String(r.payrollId)],
-          importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }],
-        };
-      });
-      if (importEmployees.length === 0) { record('skipped', `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ''}`); continue; }
-
-      try {
-        // Stable per store+period, not crypto.randomUUID() — see
-        // tipsStableProcessId. replaceData:true means a re-send for the same
-        // store/period overwrites Paycor's existing staged batch with this
-        // call's full current total instead of adding a duplicate one.
-        const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
-        const res = await fetch('/.netlify/functions/paycor', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'stagePayrollHours', legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          const notes = [];
-          if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
-          if (noLiveIdCount) notes.push(`skipped ${noLiveIdCount} not found on current roster (no Paycor ID to send)`);
-          if (rosterFetchFailed) notes.push(`couldn't fetch current roster — all defaulted to Cust Svc (101)`);
-          else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
-          record('ok', `Staged ${importEmployees.length} employee(s)${notes.length ? ', ' + notes.join(', ') : ''} — still needs human review/submit in Paycor`);
-        } else {
-          record('error', data?.Detail || data?.message || data?.error || `HTTP ${res.status}`);
-        }
-      } catch (e) {
-        record('error', e.message || 'Request failed');
-      }
+      const result = await stageOneStoreForPaycor(store, byStore, flaggedByPc);
+      const idx = results.findIndex(r => r.pc === result.pc);
+      if (idx >= 0) results[idx] = result;
+      setPaycorPush({ running: true, results: [...results] });
     }
     setPaycorPush({ running: false, results });
+  };
+
+  // Resends just ONE store — the common case being "I already sent the full
+  // period, then found/fixed one store's missing crew member in the Tips
+  // Editor, now I just need that one store re-staged" — without re-running
+  // the other 44 stores' live Paycor roster/payGroup lookups for nothing.
+  const sendOneStoreToPaycor = async () => {
+    if (!snapshots || !start || !singleSendPc) return;
+    setSingleSending(true);
+    const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+    const storeKey = storeOrder.find(k => String(byStore[k][0]?.pc) === String(singleSendPc));
+    const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+    const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
+    let result;
+    if (!storeKey) {
+      const storeMeta = (stores || []).find(s => String(s.pc) === String(singleSendPc));
+      result = { pc: singleSendPc, store: storeMeta?.name || singleSendPc, status: 'skipped', detail: 'No tips data for this store in the loaded period' };
+    } else {
+      result = await stageOneStoreForPaycor(storeKey, byStore, flaggedByPc);
+    }
+    setSingleSending(false);
+    setPaycorPush(prev => {
+      const results = prev ? [...prev.results] : [];
+      const idx = results.findIndex(r => r.pc === result.pc);
+      if (idx >= 0) results[idx] = result; else results.push(result);
+      return { running: false, results };
+    });
   };
 
   const filledCount = dayInfo ? dayInfo.filter(d => d.filled).length : 0;
@@ -44480,6 +44529,19 @@ function TipsReportBuilder({ th, stores, user }) {
               </button>
             )}
           </div>
+
+          {canPushToPaycor && (
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: `1px solid ${th.cardBorder}` }}>
+              <span style={{ fontSize: '0.78rem', color: th.muted }}>Just fixed one store (e.g. in the Tips Editor)? Resend only that store:</span>
+              <select value={singleSendPc} onChange={e => setSingleSendPc(e.target.value)} style={{ ...inp(th), width: 'auto', minWidth: 200, padding: '0.5rem 0.8rem', fontSize: '0.82rem' }}>
+                <option value="">Select a store…</option>
+                {(stores || []).filter(s => s.paycor).map(s => <option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
+              </select>
+              <button onClick={sendOneStoreToPaycor} disabled={!singleSendPc || singleSending || paycorPush?.running} style={{ ...btn(th, { background: '#7c3aed', padding: '0.5rem 1rem', fontSize: '0.82rem' }), opacity: (!singleSendPc || singleSending || paycorPush?.running) ? 0.6 : 1 }}>
+                {singleSending ? 'Sending…' : 'Send Just This Store'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -44548,6 +44610,261 @@ function TipsReportBuilder({ th, stores, user }) {
       <div style={{ fontSize: '0.75rem', color: th.muted, lineHeight: 1.6 }}>
         The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period — that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.
       </div>
+    </div>
+  );
+}
+
+// ── Tips Editor (Finance tab, exec/IT only) ─────────────────────────────────
+// Built 2026-10-08 per explicit request: the only way to fix a day where
+// someone's hours never made it into the saved snapshot (e.g. Mohammadi/8200
+// missing from a specific day's crew) used to be telling IT, who'd patch the
+// blob by hand via a one-off script. This is that exact workflow — pick a
+// store/day, add/remove/edit crew, Save recalculates every share from the
+// same pool ÷ total-hours math the nightly cron itself uses — built into the
+// app instead of living in someone's terminal history. The tip POOL itself
+// is never hand-edited here (it's real Pulse sales data); only who worked
+// and how many hours is correctable, which is exactly the "someone's
+// missing" case this exists for.
+function TipsEditor({ th, stores, user, onGoToReport }) {
+  const todayStr = tipsFormatISODate(new Date());
+  const [storePc, setStorePc] = useState('');
+  const [dateStr, setDateStr] = useState(todayStr);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [store, setStore] = useState(null); // the loaded day-entry for this store
+  const [crew, setCrew] = useState([]); // editable working copy: [{name,payrollId,guid,hours}]
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState(null);
+  const [reason, setReason] = useState('');
+  const [roster, setRoster] = useState(null); // null = not loaded yet for this store
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterQuery, setRosterQuery] = useState('');
+  const [showRoster, setShowRoster] = useState(false);
+
+  const selectedStore = stores.find(s => String(s.pc) === String(storePc));
+
+  const pool = tipsRound2(store?.tipPool || 0);
+  const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
+  const rate = totalHours > 0 ? pool / totalHours : 0;
+
+  const load = async () => {
+    if (!storePc || !dateStr) return;
+    setLoading(true); setError(null); setStore(null); setCrew([]); setSavedMsg(null); setReason('');
+    try {
+      const res = await fetch('/.netlify/functions/tips-manual-edit', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'get', date: dateStr, pc: storePc }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(j?.error || `Load failed (${res.status})`); setLoading(false); return; }
+      setStore(j.store);
+      setCrew((j.store.crew || []).map(c => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
+    } catch {
+      setError('Network error — load failed.');
+    }
+    setLoading(false);
+  };
+
+  const loadRoster = async () => {
+    if (!selectedStore?.paycor || roster) { setShowRoster(true); return; }
+    setRosterLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/tips-manual-edit', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'employeeRoster', legalEntityId: selectedStore.paycor }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) setRoster(j.roster || []);
+      else setError(j?.error || 'Could not load the store\'s employee roster.');
+    } catch {
+      setError('Network error — could not load the employee roster.');
+    }
+    setRosterLoading(false);
+    setShowRoster(true);
+  };
+
+  const addFromRoster = (r) => {
+    if (crew.some(c => (r.guid && c.guid === r.guid) || c.name.toLowerCase() === r.name.toLowerCase())) {
+      setError(`${r.name} is already in this day's crew.`);
+      return;
+    }
+    setCrew(prev => [...prev, { name: r.name, payrollId: r.payrollId, guid: r.guid, hours: 0 }]);
+    setShowRoster(false);
+    setRosterQuery('');
+  };
+
+  const removeCrew = (idx) => setCrew(prev => prev.filter((_, i) => i !== idx));
+  const setCrewHours = (idx, hours) => setCrew(prev => prev.map((c, i) => i === idx ? { ...c, hours } : c));
+
+  const save = async () => {
+    setSaving(true); setError(null); setSavedMsg(null);
+    try {
+      const parsedCrew = crew.map(c => ({ ...c, hours: Number(c.hours) || 0 }));
+      const res = await fetch('/.netlify/functions/tips-manual-edit', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ action: 'save', date: dateStr, pc: storePc, crew: parsedCrew, reason: reason.trim() || undefined }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(j?.error || `Save failed (${res.status})`); setSaving(false); return; }
+      setStore(j.store);
+      setCrew((j.store.crew || []).map(c => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
+      setSavedMsg(`Saved — recalculated ${j.store.crew.length} people's shares from a $${pool.toFixed(2)} pool.`);
+    } catch {
+      setError('Network error — save failed.');
+    }
+    setSaving(false);
+  };
+
+  const filteredRoster = (roster || []).filter(r => !rosterQuery.trim() || r.name.toLowerCase().includes(rosterQuery.trim().toLowerCase()));
+
+  // Dirty check for the footer's "Unsaved changes" indicator — compares the
+  // working crew (with hours coerced the same way save() does) against what
+  // was last loaded/saved from the server.
+  const savedCrewKey = JSON.stringify((store?.crew || []).map(c => ({ guid: c.guid, name: c.name, hours: tipsRound2(c.hours) })));
+  const workingCrewKey = JSON.stringify(crew.map(c => ({ guid: c.guid, name: c.name, hours: tipsRound2(Number(c.hours) || 0) })));
+  const hasChanges = store ? savedCrewKey !== workingCrewKey : false;
+
+  const cancelEdits = () => {
+    if (!store) return;
+    setCrew((store.crew || []).map(c => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
+    setReason('');
+    setError(null);
+  };
+
+  const StatBlock = ({ label, value }) => (
+    <div style={{ textAlign: 'right' }}>
+      <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: '1rem', fontWeight: 800, color: th.text }}>{value}</div>
+    </div>
+  );
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '0.3rem' }}>Tips Editor</h2>
+      <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
+        Correct one store's crew for one already-saved day — add someone who's missing, fix their hours, or remove a mistake. Saving recalculates every person's share from the real tip pool, same math the nightly report already uses. The pool itself (real Pulse sales data) isn't editable here.
+        {onGoToReport && <> Already fixed what you needed? <span onClick={onGoToReport} style={{ color: '#FF671F', fontWeight: 700, cursor: 'pointer' }}>Go to the Tips Report →</span> to re-send the corrected period to Paycor.</>}
+      </p>
+
+      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
+        <label style={{ fontSize: '0.78rem', color: th.muted }}>
+          Store<br />
+          <select style={{ ...inp(th), minWidth: 220 }} value={storePc} onChange={e => { setStorePc(e.target.value); setStore(null); setCrew([]); setRoster(null); }}>
+            <option value="">Select a store…</option>
+            {stores.map(s => <option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: '0.78rem', color: th.muted }}>
+          Date<br />
+          <input type="date" style={inp(th)} value={dateStr} max={todayStr} onChange={e => setDateStr(e.target.value)} />
+        </label>
+        <button onClick={load} disabled={!storePc || !dateStr || loading} style={{ ...btn(th), opacity: (!storePc || !dateStr || loading) ? 0.5 : 1 }}>
+          {loading ? 'Loading…' : 'Load'}
+        </button>
+      </div>
+
+      {error && <div style={{ ...card(th), padding: '0.85rem 1rem', color: '#e03131', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
+      {savedMsg && <div style={{ ...card(th), padding: '0.85rem 1rem', color: '#2f9e44', fontSize: '0.82rem', marginBottom: '1rem' }}>✓ {savedMsg}</div>}
+
+      {store && (
+        <div style={{ ...card(th), padding: 0, overflow: 'hidden' }}>
+          {/* ── Header: store/date + icon on the left, stat blocks + Add Employee on the right ── */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', padding: '1.1rem 1.1rem 1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
+              {ICONS.calendar(th.muted)}
+              <div>
+                <div style={{ fontWeight: 800, color: th.text, fontSize: '1rem' }}>{store.name} · {dateStr}</div>
+                <div style={{ fontSize: '0.73rem', color: th.muted, marginTop: '0.1rem' }}>Tip pool: ${pool.toFixed(2)} (from Pulse, not editable here) · {totalHours.toFixed(2)} total hours · ${rate.toFixed(2)}/hr</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.4rem' }}>
+              <StatBlock label="Tip Pool" value={`$${pool.toFixed(2)}`} />
+              <StatBlock label="Total Hours" value={totalHours.toFixed(2)} />
+              <StatBlock label="Rate" value={`$${rate.toFixed(2)}/hr`} />
+              <button onClick={loadRoster} disabled={rosterLoading} style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.6rem 1rem', fontSize: '0.85rem' }) }}>
+                {rosterLoading ? 'Loading roster…' : '+ Add Employee'}
+              </button>
+            </div>
+          </div>
+
+          {showRoster && (
+            <div style={{ background: th.card2, padding: '0.75rem 1.1rem', borderTop: `1px solid ${th.cardBorder}`, borderBottom: `1px solid ${th.cardBorder}` }}>
+              <input autoFocus type="text" placeholder="Search this store's active employees…" value={rosterQuery} onChange={e => setRosterQuery(e.target.value)} style={{ ...inp(th), width: '100%', marginBottom: '0.5rem' }} />
+              <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                {filteredRoster.length === 0 ? (
+                  <div style={{ fontSize: '0.78rem', color: th.muted, padding: '0.5rem' }}>No matching active employees.</div>
+                ) : filteredRoster.slice(0, 20).map(r => (
+                  <div key={r.guid} onClick={() => addFromRoster(r)} style={{ padding: '0.45rem 0.6rem', borderRadius: '0.4rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, display: 'flex', justifyContent: 'space-between' }}
+                    onMouseEnter={e => e.currentTarget.style.background = th.card3} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <span>{r.name}</span>
+                    <span style={{ color: th.muted, fontSize: '0.72rem' }}>{r.jobTitle || ''}</span>
+                  </div>
+                ))}
+              </div>
+              <div onClick={() => setShowRoster(false)} style={{ fontSize: '0.72rem', color: th.muted, cursor: 'pointer', marginTop: '0.4rem', textAlign: 'right' }}>Close</div>
+            </div>
+          )}
+
+          {/* ── Crew table ── */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+            <thead>
+              <tr style={{ background: th.card2 }}>
+                {['Employee', 'Hours', 'Tip Share', 'Action'].map(h => <th key={h} style={{ textAlign: 'left', padding: '0.6rem 1.1rem', color: th.muted, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${th.cardBorder}` }}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {crew.length === 0 && (
+                <tr><td colSpan={4} style={{ padding: '1.2rem 1.1rem', color: th.muted, textAlign: 'center', fontStyle: 'italic' }}>No crew yet — use "+ Add Employee" above.</td></tr>
+              )}
+              {crew.map((c, idx) => {
+                const hoursNum = Number(c.hours) || 0;
+                const previewShare = totalHours > 0 ? tipsRound2(rate * hoursNum) : 0;
+                return (
+                  <tr key={c.guid || c.name + idx} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                    <td style={{ padding: '0.6rem 1.1rem', color: th.text, fontWeight: 600 }}>{c.name}</td>
+                    <td style={{ padding: '0.5rem 1.1rem' }}>
+                      <input type="number" min="0" step="0.01" value={c.hours} onChange={e => setCrewHours(idx, e.target.value)} style={{ ...inp(th), width: 110, padding: '0.45rem 0.6rem' }} />
+                    </td>
+                    <td style={{ padding: '0.6rem 1.1rem', color: th.text, fontWeight: 600 }}>${previewShare.toFixed(2)}</td>
+                    <td style={{ padding: '0.5rem 1.1rem' }}>
+                      <button onClick={() => removeCrew(idx)} style={{ background: 'none', border: '1px solid #e0313155', color: '#e03131', borderRadius: '0.5rem', padding: '0.35rem 0.7rem', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 700 }}>
+                        🗑 Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* ── Correction reason ── */}
+          <div style={{ padding: '1.1rem', borderTop: `1px solid ${th.cardBorder}` }}>
+            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, color: th.text, marginBottom: '0.15rem' }}>Correction reason</label>
+            <div style={{ fontSize: '0.72rem', color: th.muted, marginBottom: '0.5rem' }}>Provide a reason for this correction (optional, saved for the record).</div>
+            <textarea rows={2} placeholder="e.g. Adjusted tip share due to hours correction…" value={reason} onChange={e => setReason(e.target.value)} style={{ ...inp(th), width: '100%', resize: 'vertical', fontFamily: "'Source Sans 3'" }} />
+          </div>
+
+          {/* ── Footer action bar ── */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.9rem', padding: '0.9rem 1.1rem', borderTop: `1px solid ${th.cardBorder}`, background: th.card2 }}>
+            {hasChanges && <span style={{ fontSize: '0.75rem', color: th.muted, marginRight: 'auto' }}>⏱ Unsaved changes</span>}
+            <button onClick={cancelEdits} disabled={!hasChanges || saving} style={{ ...btn(th, { background: th.card3, color: th.text }), opacity: (!hasChanges || saving) ? 0.5 : 1 }}>
+              Cancel
+            </button>
+            <button onClick={save} disabled={saving || crew.length === 0} style={{ ...btn(th), opacity: (saving || crew.length === 0) ? 0.5 : 1 }}>
+              {saving ? 'Saving…' : 'Save Correction'}
+            </button>
+          </div>
+
+          {store.manualEdit && (
+            <div style={{ fontSize: '0.7rem', color: th.muted, padding: '0 1.1rem 1rem' }}>
+              Last manually corrected by {store.manualEdit.by} on {new Date(store.manualEdit.at).toLocaleString()}{store.manualEdit.reason ? ` — "${store.manualEdit.reason}"` : ''}.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
