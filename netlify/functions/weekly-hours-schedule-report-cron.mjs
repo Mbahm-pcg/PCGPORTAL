@@ -31,6 +31,16 @@
 //     start week Labor uses elsewhere in this app.
 //   - Recipient is hardcoded to Ahmed's email for now, per explicit
 //     direction ("just me for now") — not read from any notify-list blob.
+//   - Timecard splits into Regular/OT at the standard 40-hrs/week FLSA
+//     threshold (same one Office Time Clock's payroll send already uses),
+//     per explicit follow-up request ("i need to know the user regular hour
+//     and op hours too"). Only meaningful for a single Sun-Sat week.
+//   - Schedule intentionally does NOT read the existing pcg_schedule_{pc}
+//     blob the app's own Schedule tab shows — that blob is a ROLLING FORWARD
+//     7-day window (today through +6 days, overwritten 3x/day by labor-cron),
+//     never a history, so it can never hold a past week's actual schedule.
+//     A live Paycor schedulingShifts call for the real target week is the
+//     only correct source for "what was scheduled last week."
 //
 // The actual work is in the exported runWeeklyReport(weekStart, weekEnd) so
 // weekly-hours-schedule-report-manual.mjs (an exec/IT-only background
@@ -109,7 +119,15 @@ async function buildReport(weekStart, weekEnd) {
       const e = empByGuid[empId];
       const name = e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${empId.slice(0, 8)})`;
       const jobTitle = e?.positionData?.jobTitle || '';
-      timecard.push([name, jobTitle, Math.round(hours * 100) / 100]);
+      // Standard weekly FLSA split (<=40 Reg, >40 OT) — same threshold the
+      // Office Time Clock payroll send already uses (weeklyRegOtFromPunches,
+      // src/office-clock-lib.mjs). Only meaningful when weekStart/weekEnd is
+      // a single Sun-Sat week, which both the scheduled cron and the manual
+      // trigger's intended use always are.
+      const total = Math.round(hours * 100) / 100;
+      const reg = Math.round(Math.min(total, 40) * 100) / 100;
+      const ot = Math.round(Math.max(total - 40, 0) * 100) / 100;
+      timecard.push([name, jobTitle, reg, ot, total]);
     }
     const schedule = [];
     for (const { name, hours } of Object.values(schedByEmp)) {
@@ -141,14 +159,16 @@ function sheetNameFor(storeName, pc, usedNames) {
 function buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
   const wb = XLSX.utils.book_new();
 
-  const summaryAoa = [[`Weekly Hours + Schedule — ${weekStartUS} to ${weekEndUS}`], [], ['District', 'Store', 'Timecard Hours', 'Scheduled Hours']];
+  const summaryAoa = [[`Weekly Hours + Schedule — ${weekStartUS} to ${weekEndUS}`], [], ['District', 'Store', 'Regular Hours', 'OT Hours', 'Total Hours', 'Scheduled Hours']];
   byStore.forEach(s => {
-    const tcTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[2], 0) * 100) / 100;
+    const regTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[2], 0) * 100) / 100;
+    const otTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[3], 0) * 100) / 100;
+    const tcTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[4], 0) * 100) / 100;
     const schTotal = Math.round(s.schedule.reduce((sum, r) => sum + r[1], 0) * 100) / 100;
-    summaryAoa.push([s.district, s.name, tcTotal, schTotal]);
+    summaryAoa.push([s.district, s.name, regTotal, otTotal, tcTotal, schTotal]);
   });
   const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
-  summaryWs['!cols'] = [{ wch: 9 }, { wch: 22 }, { wch: 16 }, { wch: 16 }];
+  summaryWs['!cols'] = [{ wch: 9 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 13 }, { wch: 16 }];
   XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
 
   const usedNames = new Set(['Summary']);
@@ -162,7 +182,7 @@ function buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
     const sheetName = sheetNameFor(store.name, pcByName[store.name] || '', usedNames);
     const aoa = [[`${store.name} — ${weekStartUS} to ${weekEndUS}`], []];
     aoa.push(['Timecard — Worked Hours']);
-    aoa.push(['Employee', 'Job Title', 'Hours']);
+    aoa.push(['Employee', 'Job Title', 'Regular Hours', 'OT Hours', 'Total Hours']);
     store.timecard.forEach(r => aoa.push(r));
     if (store.timecard.length === 0) aoa.push(['(no punches this week)']);
     aoa.push([]);
@@ -172,7 +192,7 @@ function buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
     if (store.schedule.length === 0) aoa.push(['(no posted shifts this week)']);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 12 }];
+    ws['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 14 }, { wch: 12 }, { wch: 13 }];
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
   }
 
@@ -244,12 +264,14 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
 
   const timecardCount = byStore.reduce((s, store) => s + store.timecard.length, 0);
   const scheduleCount = byStore.reduce((s, store) => s + store.schedule.length, 0);
-  const totalHours = Math.round(byStore.reduce((s, store) => s + store.timecard.reduce((ss, r) => ss + r[2], 0), 0) * 10) / 10;
+  const totalReg = Math.round(byStore.reduce((s, store) => s + store.timecard.reduce((ss, r) => ss + r[2], 0), 0) * 10) / 10;
+  const totalOt = Math.round(byStore.reduce((s, store) => s + store.timecard.reduce((ss, r) => ss + r[3], 0), 0) * 10) / 10;
+  const totalHours = Math.round(byStore.reduce((s, store) => s + store.timecard.reduce((ss, r) => ss + r[4], 0), 0) * 10) / 10;
   const totalScheduled = Math.round(byStore.reduce((s, store) => s + store.schedule.reduce((ss, r) => ss + r[1], 0), 0) * 10) / 10;
   const html = `
     <p>Network-wide timecard + schedule for <strong>${weekStartUS} to ${weekEndUS}</strong> (Sun–Sat).</p>
     <ul>
-      <li>Worked hours (timecard): <strong>${totalHours.toLocaleString()}</strong> across ${timecardCount} employee-store rows</li>
+      <li>Worked hours (timecard): <strong>${totalHours.toLocaleString()}</strong> (${totalReg.toLocaleString()} Reg + ${totalOt.toLocaleString()} OT) across ${timecardCount} employee-store rows</li>
       <li>Scheduled hours (posted shifts): <strong>${totalScheduled.toLocaleString()}</strong> across ${scheduleCount} employee-store rows</li>
     </ul>
     <p>One workbook — a Summary sheet, then one sheet per store with that store's Timecard and Schedule tables together (${byStore.length} store sheets this week).</p>
