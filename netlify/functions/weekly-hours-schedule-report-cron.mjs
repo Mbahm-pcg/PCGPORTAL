@@ -251,7 +251,7 @@ async function buildReport(weekStart, weekEnd) {
 
     timecard.sort((a, b) => a[0].localeCompare(b[0]));
     schedule.sort((a, b) => a.name.localeCompare(b.name));
-    byStore.push({ district: store.district, name: store.name, timecard, schedule });
+    byStore.push({ district: store.district, name: store.name, pc: store.pc, timecard, schedule });
   }
 
   byStore.sort((a, b) => (a.district - b.district) || a.name.localeCompare(b.name));
@@ -266,13 +266,13 @@ function buildTimecardWorkbooks(XLSX, weekStartUS, weekEndUS, byStore) {
   for (const store of byStore) {
     if (store.timecard.length === 0) continue; // nothing worked — no file for this store
     const wb = XLSX.utils.book_new();
-    const aoa = [[`${store.name} — Timecard, ${weekStartUS} to ${weekEndUS}`], []];
+    const aoa = [[`${store.name} (PC# ${store.pc}) — Timecard, ${weekStartUS} to ${weekEndUS}`], []];
     aoa.push(['Employee', 'Job Title', 'Regular Hours', 'OT Hours', 'Total Hours']);
     store.timecard.forEach(r => aoa.push(r));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 14 }, { wch: 12 }, { wch: 13 }];
     XLSX.utils.book_append_sheet(wb, ws, 'Timecard');
-    files.push({ storeName: store.name, buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) });
+    files.push({ storeName: store.name, pc: store.pc, buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) });
   }
   return files;
 }
@@ -306,7 +306,7 @@ async function buildSchedulePDFs(weekStart, weekStartUS, weekEndUS, byStore) {
     const HEADER_H = 26;
     const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
 
-    doc.fontSize(14).font('Helvetica-Bold').text(store.name, MARGIN, MARGIN);
+    doc.fontSize(14).font('Helvetica-Bold').text(`${store.name} (PC# ${store.pc})`, MARGIN, MARGIN);
     doc.fontSize(10).font('Helvetica').text(`Weekly Schedule: ${dates[0].dow}, ${dates[0].label} – ${dates[6].dow}, ${dates[6].label}`);
     doc.moveDown(0.6);
 
@@ -327,7 +327,7 @@ async function buildSchedulePDFs(weekStart, weekStartUS, weekEndUS, byStore) {
     for (const emp of store.schedule) {
       if (y + ROW_H > PAGE_BOTTOM) {
         doc.addPage();
-        doc.fontSize(12).font('Helvetica-Bold').text(`${store.name} — continued`, MARGIN, MARGIN);
+        doc.fontSize(12).font('Helvetica-Bold').text(`${store.name} (PC# ${store.pc}) — continued`, MARGIN, MARGIN);
         doc.moveDown(0.4);
         y = drawHeaderRow(doc.y);
       }
@@ -346,7 +346,7 @@ async function buildSchedulePDFs(weekStart, weekStartUS, weekEndUS, byStore) {
     }
 
     doc.end();
-    files.push({ storeName: store.name, buffer: await done });
+    files.push({ storeName: store.name, pc: store.pc, buffer: await done });
   }
 
   return files;
@@ -451,8 +451,8 @@ export async function runWeeklyReport(weekStart, weekEnd, recipientOverride = nu
     `Weekly Hours + Schedule Report — ${weekStartUS} to ${weekEndUS}`,
     html,
     [
-      ...timecardFiles.map(f => ({ filename: `Timecard_${safeFileTag(f.storeName)}_${dateTag}.xlsx`, content: f.buffer })),
-      ...scheduleFiles.map(f => ({ filename: `Schedule_${safeFileTag(f.storeName)}_${dateTag}.pdf`, content: f.buffer })),
+      ...timecardFiles.map(f => ({ filename: `Timecard_${safeFileTag(f.storeName)}_PC${f.pc}_${dateTag}.xlsx`, content: f.buffer })),
+      ...scheduleFiles.map(f => ({ filename: `Schedule_${safeFileTag(f.storeName)}_PC${f.pc}_${dateTag}.pdf`, content: f.buffer })),
     ],
   );
   return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount, scheduleCount, timecardFiles: timecardFiles.length, scheduleFiles: scheduleFiles.length, emailSent: result.sent, method: result.method };
