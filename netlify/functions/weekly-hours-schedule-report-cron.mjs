@@ -1,16 +1,18 @@
-// weekly-hours-schedule-report-cron.mjs — scheduled weekly: emails a
-// network-wide (all 45 stores) workbook covering the PREVIOUS week's worked
-// hours (timecard) and posted shifts (schedule). Built 2026-10-08 per
-// explicit request ("I need it emailed to me every week, for the previous
-// week, both the timecard and the schedule"). One workbook: a Summary sheet
-// (district/store/totals), then ONE SHEET PER STORE with that store's
-// Timecard table and Schedule table stacked together — changed from an
-// earlier two-giant-sheets layout (all 45 stores' rows mixed into one
-// Timecard sheet + one Schedule sheet) per explicit follow-up request
-// ("I need store by store attachment, I can have them being saved in one
-// file") — also fixes a real but separate confusion: Gmail's inline preview
-// only renders a multi-sheet xlsx's FIRST sheet, so the old layout made the
-// Schedule sheet look missing even though it was always the second tab.
+// weekly-hours-schedule-report-cron.mjs — scheduled weekly: emails TWO
+// attachments covering the PREVIOUS week, network-wide (all 45 stores):
+//   - Timecard: an Excel workbook (Summary sheet + one sheet per store)
+//   - Schedule: a separate PDF (one section per store)
+// Built 2026-10-08 per explicit request ("I need it emailed to me every
+// week, for the previous week, both the timecard and the schedule"), then
+// revised twice more per explicit follow-up: first to one workbook with a
+// sheet per store (not two network-wide sheets mixing all 45 stores'
+// rows — also fixed a real confusion where Gmail's inline preview only
+// renders a multi-sheet xlsx's FIRST sheet, making the Schedule sheet look
+// missing even though it was always the second tab); then to split Schedule
+// out into its own PDF entirely ("I dont want the schedule to be with the
+// xlse file, that need to be separate like a pdf file verse the time card
+// can stay as xlse or excel file") — see buildTimecardWorkbook (xlsx) and
+// buildSchedulePDF (pdfkit) below.
 //
 // Scope decisions made building this (flagged, not silently assumed):
 //   - "Timecard" here means raw Paycor punches (one call per store per
@@ -156,19 +158,22 @@ function sheetNameFor(storeName, pc, usedNames) {
   return name;
 }
 
-function buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
+// Timecard ONLY — a Summary sheet (Reg/OT/Total per store) then one sheet
+// per store. Schedule is a separate PDF (buildSchedulePDF below), per
+// explicit request to keep the two as separate files, not two parts of one
+// workbook.
+function buildTimecardWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
   const wb = XLSX.utils.book_new();
 
-  const summaryAoa = [[`Weekly Hours + Schedule — ${weekStartUS} to ${weekEndUS}`], [], ['District', 'Store', 'Regular Hours', 'OT Hours', 'Total Hours', 'Scheduled Hours']];
+  const summaryAoa = [[`Weekly Timecard — ${weekStartUS} to ${weekEndUS}`], [], ['District', 'Store', 'Regular Hours', 'OT Hours', 'Total Hours']];
   byStore.forEach(s => {
     const regTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[2], 0) * 100) / 100;
     const otTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[3], 0) * 100) / 100;
     const tcTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[4], 0) * 100) / 100;
-    const schTotal = Math.round(s.schedule.reduce((sum, r) => sum + r[1], 0) * 100) / 100;
-    summaryAoa.push([s.district, s.name, regTotal, otTotal, tcTotal, schTotal]);
+    summaryAoa.push([s.district, s.name, regTotal, otTotal, tcTotal]);
   });
   const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
-  summaryWs['!cols'] = [{ wch: 9 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 13 }, { wch: 16 }];
+  summaryWs['!cols'] = [{ wch: 9 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 13 }];
   XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
 
   const usedNames = new Set(['Summary']);
@@ -179,17 +184,11 @@ function buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
   STORES.forEach(s => { pcByName[s.name] = s.pc; });
 
   for (const store of byStore) {
+    if (store.timecard.length === 0) continue; // nothing worked — no sheet needed in the Timecard-only file
     const sheetName = sheetNameFor(store.name, pcByName[store.name] || '', usedNames);
     const aoa = [[`${store.name} — ${weekStartUS} to ${weekEndUS}`], []];
-    aoa.push(['Timecard — Worked Hours']);
     aoa.push(['Employee', 'Job Title', 'Regular Hours', 'OT Hours', 'Total Hours']);
     store.timecard.forEach(r => aoa.push(r));
-    if (store.timecard.length === 0) aoa.push(['(no punches this week)']);
-    aoa.push([]);
-    aoa.push(['Schedule — Posted Shifts']);
-    aoa.push(['Employee', 'Scheduled Hours']);
-    store.schedule.forEach(r => aoa.push(r));
-    if (store.schedule.length === 0) aoa.push(['(no posted shifts this week)']);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 14 }, { wch: 12 }, { wch: 13 }];
@@ -199,10 +198,71 @@ function buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+// Schedule as its own PDF — one section per store (Employee | Scheduled
+// Hours), new page started whenever a section wouldn't fit on what's left of
+// the current page. pdfkit has no built-in table layout, so columns are just
+// fixed x-positions.
+async function buildSchedulePDF(weekStartUS, weekEndUS, byStore) {
+  const { default: PDFDocument } = await import('pdfkit');
+  const doc = new PDFDocument({ margin: 50, size: 'LETTER' });
+  const chunks = [];
+  doc.on('data', (c) => chunks.push(c));
+  const done = new Promise((resolve, reject) => {
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+
+  const COL_NAME_X = 50, COL_HOURS_X = 400, ROW_H = 16;
+  const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
+
+  doc.fontSize(16).font('Helvetica-Bold').text(`Weekly Schedule — ${weekStartUS} to ${weekEndUS}`, { align: 'left' });
+  doc.moveDown(1);
+
+  const storesWithShifts = byStore.filter(s => s.schedule.length > 0);
+  if (storesWithShifts.length === 0) {
+    doc.fontSize(11).font('Helvetica').text('No posted shifts found for any store this week.');
+  }
+
+  for (const store of storesWithShifts) {
+    // Store heading + its table header need ~3 rows of room; if that won't
+    // fit, start a fresh page rather than splitting a store across pages
+    // right at its title.
+    if (doc.y + ROW_H * 3 > PAGE_BOTTOM) doc.addPage();
+
+    doc.fontSize(13).font('Helvetica-Bold').text(`${store.name} (District ${store.district})`);
+    doc.moveDown(0.3);
+    const headerY = doc.y;
+    doc.fontSize(10).font('Helvetica-Bold');
+    doc.text('Employee', COL_NAME_X, headerY);
+    doc.text('Scheduled Hours', COL_HOURS_X, headerY);
+    doc.moveDown(0.5);
+    doc.font('Helvetica');
+
+    for (const [name, hours] of store.schedule) {
+      if (doc.y + ROW_H > PAGE_BOTTOM) {
+        doc.addPage();
+        doc.fontSize(10).font('Helvetica-Bold').text(`${store.name} (District ${store.district}) — continued`);
+        doc.moveDown(0.3);
+        doc.font('Helvetica');
+      }
+      const rowY = doc.y;
+      doc.text(name, COL_NAME_X, rowY, { width: COL_HOURS_X - COL_NAME_X - 10 });
+      doc.text(String(hours), COL_HOURS_X, rowY);
+      doc.moveDown(0.4);
+    }
+    doc.moveDown(0.8);
+  }
+
+  doc.end();
+  return done;
+}
+
 // Same SMTP-then-Resend fallback as tips-report-cron-background.mjs's own
 // sendReportEmail — not imported from there (not exported), kept as a small
 // self-contained copy rather than adding a new export for one more caller.
-async function sendReportEmail(to, subject, html, buffer, filename) {
+// attachments: [{ filename, content: Buffer }, ...] — both SMTP and Resend
+// accept a list, not just a single file.
+async function sendReportEmail(to, subject, html, attachments) {
   let nodemailer;
   try { nodemailer = (await import('nodemailer')).default; } catch {}
 
@@ -215,7 +275,7 @@ async function sendReportEmail(to, subject, html, buffer, filename) {
         auth: { user: process.env.GOOGLE_SMTP_USER, pass: process.env.GOOGLE_SMTP_PASSWORD },
       });
       const FROM_DOMAIN = process.env.SMTP_FROM_DOMAIN || 'peoplecapitalgroup.com';
-      await transporter.sendMail({ from: `PCG Portal <ops@${FROM_DOMAIN}>`, to, subject, html, attachments: [{ filename, content: buffer }] });
+      await transporter.sendMail({ from: `PCG Portal <ops@${FROM_DOMAIN}>`, to, subject, html, attachments });
       return { sent: true, method: 'smtp' };
     } catch (e) {
       console.warn('[weekly-hours-schedule-report-cron] SMTP failed:', e.message);
@@ -229,7 +289,7 @@ async function sendReportEmail(to, subject, html, buffer, filename) {
         from: process.env.NOTIFY_FROM || 'PCG Portal <noreply@pcgops.com>',
         to: Array.isArray(to) ? to : [to],
         subject, html,
-        attachments: [{ filename, content: buffer.toString('base64') }],
+        attachments: attachments.map(a => ({ filename: a.filename, content: a.content.toString('base64') })),
       });
       await new Promise((resolve, reject) => {
         const req = https.request({
@@ -260,7 +320,8 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
   const XLSX = XLSXMod.default || XLSXMod;
   const weekStartUS = toUSDate(weekStart);
   const weekEndUS = toUSDate(weekEnd);
-  const buffer = buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore);
+  const xlsxBuffer = buildTimecardWorkbook(XLSX, weekStartUS, weekEndUS, byStore);
+  const pdfBuffer = await buildSchedulePDF(weekStartUS, weekEndUS, byStore);
 
   const timecardCount = byStore.reduce((s, store) => s + store.timecard.length, 0);
   const scheduleCount = byStore.reduce((s, store) => s + store.schedule.length, 0);
@@ -274,14 +335,18 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
       <li>Worked hours (timecard): <strong>${totalHours.toLocaleString()}</strong> (${totalReg.toLocaleString()} Reg + ${totalOt.toLocaleString()} OT) across ${timecardCount} employee-store rows</li>
       <li>Scheduled hours (posted shifts): <strong>${totalScheduled.toLocaleString()}</strong> across ${scheduleCount} employee-store rows</li>
     </ul>
-    <p>One workbook — a Summary sheet, then one sheet per store with that store's Timecard and Schedule tables together (${byStore.length} store sheets this week).</p>
+    <p>Two attachments: an Excel workbook for the Timecard (Summary sheet + one sheet per store), and a PDF for the Schedule (one section per store).</p>
   `;
   const filenameDate = (iso) => iso.replace(/-/g, '');
+  const dateTag = `${filenameDate(weekStart)}_to_${filenameDate(weekEnd)}`;
   const result = await sendReportEmail(
     recipient,
     `Weekly Hours + Schedule Report — ${weekStartUS} to ${weekEndUS}`,
-    html, buffer,
-    `Weekly_Hours_Schedule_${filenameDate(weekStart)}_to_${filenameDate(weekEnd)}.xlsx`,
+    html,
+    [
+      { filename: `Weekly_Timecard_${dateTag}.xlsx`, content: xlsxBuffer },
+      { filename: `Weekly_Schedule_${dateTag}.pdf`, content: pdfBuffer },
+    ],
   );
   return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount, scheduleCount, storeSheets: byStore.length, emailSent: result.sent, method: result.method };
 }

@@ -11,6 +11,7 @@
     "minimalistic-assert": "^1.0.1",
     "nodemailer": "^9.0.1",
     "pdf-parse": "^1.1.4",
+    "pdfkit": "^0.20.2",
     "sharp": "^0.34.5",
     "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
