@@ -11,9 +11,11 @@
 // range, same reasoning as every other *-background.mjs in this app.
 //
 // Two Paycor data sources are deliberately combined, not just one:
-//   - /legalentities/{id}/punches (raw punches, one call covers the whole
-//     store) — used ONLY to discover which employees worked in the range at
-//     all, and as a fallback value.
+//   - /legalentities/{id}/punches (raw punches, fetched one WEEK at a time —
+//     see fetchAllPunchesForRange — not the whole range in a single call,
+//     since Paycor itself can't assemble a busy store's multi-week punch
+//     history inside its own 20s timeout) — used ONLY to discover which
+//     employees worked in the range at all, and as a fallback value.
 //   - /employees/{id}/employeePunches (the "timecard" copy, already treated
 //     elsewhere in this app — office-clock-compare.mjs — as the more
 //     trustworthy source, since it reflects a manager's later corrections in
@@ -94,7 +96,9 @@ function pageOf(body) {
   return Array.isArray(body?.records) ? body.records : (Array.isArray(body) ? body : []);
 }
 
-async function fetchAllPunchesForRange(legalEntityId, startDate, endDate) {
+// One store's worth of punches for a SHORT window (paginated within that
+// window — continuationToken is per-call, not carried across windows).
+async function fetchPunchesForWindow(legalEntityId, startDate, endDate) {
   let records = [];
   let continuationToken;
   do {
@@ -107,6 +111,25 @@ async function fetchAllPunchesForRange(legalEntityId, startDate, endDate) {
     continuationToken = res.data?.continuationToken || res.data?.nextToken || null;
     if (!page.length) continuationToken = null;
   } while (continuationToken);
+  return records;
+}
+
+// Fetches the whole range ONE WEEK AT A TIME, not as a single startDate..
+// endDate call — confirmed directly (2026-10-08, store 340794/"Front", a
+// 4-week range): asking Paycor for a busy store's entire multi-week punch
+// history in one call legitimately took longer than the 20s Paycor-facing
+// timeout to assemble, surfacing as "Paycor API request timed out" even
+// though nothing was actually hung — just too much data in one response.
+// Chunking by week keeps each individual call's payload small regardless of
+// how long the overall requested range is.
+async function fetchAllPunchesForRange(legalEntityId, weeks, onProgress) {
+  let records = [];
+  for (let i = 0; i < weeks.length; i++) {
+    const w = weeks[i];
+    const page = await fetchPunchesForWindow(legalEntityId, w.start, w.end);
+    records = records.concat(page);
+    if (onProgress) await onProgress(i + 1, weeks.length);
+  }
   return records;
 }
 
@@ -154,8 +177,6 @@ export default async (request) => {
   }
 
   try {
-    await blobSave(blobKey, { status: 'running', step: 'fetching punches', startedAt: new Date().toISOString() });
-
     // Weeks are consecutive 7-day blocks counting from startDate (not
     // snapped to Sun/Mon) — matches how the request was actually framed:
     // pick a start date, see it broken into 7-day chunks from there. The
@@ -167,7 +188,10 @@ export default async (request) => {
     }
     const weekIndexForDate = (dateISO) => weeks.findIndex(w => dateISO >= w.start && dateISO <= w.end);
 
-    const rawPunches = await fetchAllPunchesForRange(legalEntityId, startDate, endDate);
+    await blobSave(blobKey, { status: 'running', step: `fetching punches (week 1 of ${weeks.length})`, startedAt: new Date().toISOString() });
+    const rawPunches = await fetchAllPunchesForRange(legalEntityId, weeks, async (done, total) => {
+      await blobSave(blobKey, { status: 'running', step: `fetching punches (week ${done} of ${total})`, startedAt: new Date().toISOString() });
+    });
     const rawWeekly = {}; // employeeId -> number[] (per week)
     for (const p of rawPunches) {
       if (!p.employeeId) continue;
