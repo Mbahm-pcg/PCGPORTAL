@@ -1,8 +1,16 @@
 // weekly-hours-schedule-report-cron.mjs — scheduled weekly: emails a
 // network-wide (all 45 stores) workbook covering the PREVIOUS week's worked
-// hours (timecard) and posted shifts (schedule), one sheet each. Built
-// 2026-10-08 per explicit request ("I need it emailed to me every week, for
-// the previous week, both the timecard and the schedule").
+// hours (timecard) and posted shifts (schedule). Built 2026-10-08 per
+// explicit request ("I need it emailed to me every week, for the previous
+// week, both the timecard and the schedule"). One workbook: a Summary sheet
+// (district/store/totals), then ONE SHEET PER STORE with that store's
+// Timecard table and Schedule table stacked together — changed from an
+// earlier two-giant-sheets layout (all 45 stores' rows mixed into one
+// Timecard sheet + one Schedule sheet) per explicit follow-up request
+// ("I need store by store attachment, I can have them being saved in one
+// file") — also fixes a real but separate confusion: Gmail's inline preview
+// only renders a multi-sheet xlsx's FIRST sheet, so the old layout made the
+// Schedule sheet look missing even though it was always the second tab.
 //
 // Scope decisions made building this (flagged, not silently assumed):
 //   - "Timecard" here means raw Paycor punches (one call per store per
@@ -62,8 +70,7 @@ async function fetchStorePunches(legalEntityId, startDate, endDate) {
 }
 
 async function buildReport(weekStart, weekEnd) {
-  const timecardRows = []; // [district, store, employee, jobTitle, hours]
-  const scheduleRows = []; // [district, store, employee, scheduledHours]
+  const byStore = []; // [{ district, name, timecard: [[employee, jobTitle, hours]], schedule: [[employee, hours]] }]
 
   // Sequential, one store at a time — same reasoning as tips-report-cron-
   // background.mjs's Phase 2: Paycor's own token/rate behavior is unreliable
@@ -96,38 +103,78 @@ async function buildReport(weekStart, weekEnd) {
       } catch { /* names fall back to "Unknown Employee" below */ }
     }
 
+    const timecard = [];
     for (const [empId, hours] of Object.entries(hoursByEmp)) {
       if (hours <= 0) continue;
       const e = empByGuid[empId];
       const name = e ? `${(e.firstName || '').trim()} ${(e.lastName || '').trim()}`.trim() || 'Unnamed Employee' : `Unknown Employee (${empId.slice(0, 8)})`;
       const jobTitle = e?.positionData?.jobTitle || '';
-      timecardRows.push([store.district, store.name, name, jobTitle, Math.round(hours * 100) / 100]);
+      timecard.push([name, jobTitle, Math.round(hours * 100) / 100]);
     }
+    const schedule = [];
     for (const { name, hours } of Object.values(schedByEmp)) {
       if (hours <= 0) continue;
-      scheduleRows.push([store.district, store.name, name, Math.round(hours * 100) / 100]);
+      schedule.push([name, Math.round(hours * 100) / 100]);
     }
+    if (timecard.length === 0 && schedule.length === 0) continue; // nothing to show for this store this week
+
+    timecard.sort((a, b) => a[0].localeCompare(b[0]));
+    schedule.sort((a, b) => a[0].localeCompare(b[0]));
+    byStore.push({ district: store.district, name: store.name, timecard, schedule });
   }
 
-  timecardRows.sort((a, b) => (a[0] - b[0]) || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]));
-  scheduleRows.sort((a, b) => (a[0] - b[0]) || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]));
-  return { timecardRows, scheduleRows };
+  byStore.sort((a, b) => (a.district - b.district) || a.name.localeCompare(b.name));
+  return { byStore };
 }
 
-function buildWorkbook(XLSX, weekStartUS, weekEndUS, timecardRows, scheduleRows) {
+// Excel sheet names: max 31 chars, no \ / ? * [ ] — store names here are
+// short enough that collisions are unlikely, but a PC# suffix is appended on
+// any truncation/dedupe to keep sheet names unique and traceable to a store.
+function sheetNameFor(storeName, pc, usedNames) {
+  let base = storeName.replace(/[\\/?*[\]]/g, '').slice(0, 25).trim() || `Store ${pc}`;
+  let name = base;
+  if (usedNames.has(name)) name = `${base} (${pc})`.slice(0, 31);
+  usedNames.add(name);
+  return name;
+}
+
+function buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
   const wb = XLSX.utils.book_new();
 
-  const tcAoa = [[`Timecard — Worked Hours, ${weekStartUS} to ${weekEndUS}`], [], ['District', 'Store', 'Employee', 'Job Title', 'Hours']];
-  timecardRows.forEach(r => tcAoa.push(r));
-  const tcWs = XLSX.utils.aoa_to_sheet(tcAoa);
-  tcWs['!cols'] = [{ wch: 9 }, { wch: 22 }, { wch: 26 }, { wch: 20 }, { wch: 10 }];
-  XLSX.utils.book_append_sheet(wb, tcWs, 'Timecard');
+  const summaryAoa = [[`Weekly Hours + Schedule — ${weekStartUS} to ${weekEndUS}`], [], ['District', 'Store', 'Timecard Hours', 'Scheduled Hours']];
+  byStore.forEach(s => {
+    const tcTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[2], 0) * 100) / 100;
+    const schTotal = Math.round(s.schedule.reduce((sum, r) => sum + r[1], 0) * 100) / 100;
+    summaryAoa.push([s.district, s.name, tcTotal, schTotal]);
+  });
+  const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
+  summaryWs['!cols'] = [{ wch: 9 }, { wch: 22 }, { wch: 16 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
 
-  const schAoa = [[`Schedule — Posted Shifts, ${weekStartUS} to ${weekEndUS}`], [], ['District', 'Store', 'Employee', 'Scheduled Hours']];
-  scheduleRows.forEach(r => schAoa.push(r));
-  const schWs = XLSX.utils.aoa_to_sheet(schAoa);
-  schWs['!cols'] = [{ wch: 9 }, { wch: 22 }, { wch: 26 }, { wch: 16 }];
-  XLSX.utils.book_append_sheet(wb, schWs, 'Schedule');
+  const usedNames = new Set(['Summary']);
+  // STORES doesn't carry pc on byStore entries directly — look it up by name
+  // for the sheet-name dedupe suffix (store names are already unique in
+  // STORES, so this is just for the rare Excel-reserved-name collision).
+  const pcByName = {};
+  STORES.forEach(s => { pcByName[s.name] = s.pc; });
+
+  for (const store of byStore) {
+    const sheetName = sheetNameFor(store.name, pcByName[store.name] || '', usedNames);
+    const aoa = [[`${store.name} — ${weekStartUS} to ${weekEndUS}`], []];
+    aoa.push(['Timecard — Worked Hours']);
+    aoa.push(['Employee', 'Job Title', 'Hours']);
+    store.timecard.forEach(r => aoa.push(r));
+    if (store.timecard.length === 0) aoa.push(['(no punches this week)']);
+    aoa.push([]);
+    aoa.push(['Schedule — Posted Shifts']);
+    aoa.push(['Employee', 'Scheduled Hours']);
+    store.schedule.forEach(r => aoa.push(r));
+    if (store.schedule.length === 0) aoa.push(['(no posted shifts this week)']);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  }
 
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
@@ -187,23 +234,25 @@ async function sendReportEmail(to, subject, html, buffer, filename) {
 // range for testing. Returns the same summary shape logged/returned by both
 // callers (the scheduled cron and the manual trigger).
 export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT) {
-  const { timecardRows, scheduleRows } = await buildReport(weekStart, weekEnd);
+  const { byStore } = await buildReport(weekStart, weekEnd);
 
   const XLSXMod = await import('xlsx');
   const XLSX = XLSXMod.default || XLSXMod;
   const weekStartUS = toUSDate(weekStart);
   const weekEndUS = toUSDate(weekEnd);
-  const buffer = buildWorkbook(XLSX, weekStartUS, weekEndUS, timecardRows, scheduleRows);
+  const buffer = buildWorkbook(XLSX, weekStartUS, weekEndUS, byStore);
 
-  const totalHours = Math.round(timecardRows.reduce((s, r) => s + r[4], 0) * 10) / 10;
-  const totalScheduled = Math.round(scheduleRows.reduce((s, r) => s + r[3], 0) * 10) / 10;
+  const timecardCount = byStore.reduce((s, store) => s + store.timecard.length, 0);
+  const scheduleCount = byStore.reduce((s, store) => s + store.schedule.length, 0);
+  const totalHours = Math.round(byStore.reduce((s, store) => s + store.timecard.reduce((ss, r) => ss + r[2], 0), 0) * 10) / 10;
+  const totalScheduled = Math.round(byStore.reduce((s, store) => s + store.schedule.reduce((ss, r) => ss + r[1], 0), 0) * 10) / 10;
   const html = `
     <p>Network-wide timecard + schedule for <strong>${weekStartUS} to ${weekEndUS}</strong> (Sun–Sat).</p>
     <ul>
-      <li>Worked hours (timecard): <strong>${totalHours.toLocaleString()}</strong> across ${timecardRows.length} employee-store rows</li>
-      <li>Scheduled hours (posted shifts): <strong>${totalScheduled.toLocaleString()}</strong> across ${scheduleRows.length} employee-store rows</li>
+      <li>Worked hours (timecard): <strong>${totalHours.toLocaleString()}</strong> across ${timecardCount} employee-store rows</li>
+      <li>Scheduled hours (posted shifts): <strong>${totalScheduled.toLocaleString()}</strong> across ${scheduleCount} employee-store rows</li>
     </ul>
-    <p>Full per-store, per-employee breakdown is in the attached workbook (Timecard sheet + Schedule sheet).</p>
+    <p>One workbook — a Summary sheet, then one sheet per store with that store's Timecard and Schedule tables together (${byStore.length} store sheets this week).</p>
   `;
   const filenameDate = (iso) => iso.replace(/-/g, '');
   const result = await sendReportEmail(
@@ -212,7 +261,7 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
     html, buffer,
     `Weekly_Hours_Schedule_${filenameDate(weekStart)}_to_${filenameDate(weekEnd)}.xlsx`,
   );
-  return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount: timecardRows.length, scheduleCount: scheduleRows.length, emailSent: result.sent, method: result.method };
+  return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount, scheduleCount, storeSheets: byStore.length, emailSent: result.sent, method: result.method };
 }
 
 export default async (request) => {
