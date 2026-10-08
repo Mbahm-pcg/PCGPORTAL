@@ -424,7 +424,20 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
   return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount, scheduleCount, timecardFiles: timecardFiles.length, scheduleFiles: scheduleFiles.length, emailSent: result.sent, method: result.method };
 }
 
+// PAUSED 2026-10-08 per explicit request ("make sure i dont get the email
+// back again about those report again") while the report is still being
+// iterated on via weekly-hours-schedule-report-manual-background.mjs's
+// manual trigger. Flip back to false once it's finalized — the netlify.toml
+// schedule registration stays in place either way (see that file's comment
+// for why: it's the only thing stopping an unauthenticated direct HTTP call
+// from triggering a send, since this file has no auth check of its own).
+const PAUSED = true;
+
 export default async (request) => {
+  if (PAUSED) {
+    console.log('[weekly-hours-schedule-report-cron] skipped — PAUSED is true');
+    return new Response(JSON.stringify({ ok: true, skipped: 'paused' }), { status: 200 });
+  }
   try {
     // Sunday-Saturday, same convention as the tips/payroll pipeline. Run
     // Monday morning: yesterday is the week's Saturday, 6 days before that

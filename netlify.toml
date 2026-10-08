@@ -150,7 +150,12 @@
 [functions.schedule-alerts]
   schedule = "0 10 * * 1,4"
 
-# Weekly network-wide timecard + schedule recap — Mon 7am ET, previous Sun–Sat week
+# Weekly network-wide timecard + schedule recap — Mon 7am ET, previous Sun–Sat week.
+# The schedule registration below must stay in place even while the report
+# itself is paused (see PAUSED in weekly-hours-schedule-report-cron.mjs) —
+# it's the only thing stopping an unauthenticated direct HTTP POST from
+# triggering a full report send, since that file has no auth check of its
+# own (unlike its manual-trigger sibling).
 [functions.weekly-hours-schedule-report-cron]
   schedule = "0 11 * * 1"
 
