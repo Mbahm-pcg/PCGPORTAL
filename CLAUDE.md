@@ -167,6 +167,24 @@ netlify/functions/
   pnl-cron.js / pnl-cron-background.js
   reconciliation.js / reconciliation-cron.js
   reports-backup.js
+  employee-hours-report-background.mjs — exec/IT/office_staff, on-demand (Tools hub): one store, any
+                                date range, per-employee hours in weekly columns + total. Combines raw
+                                Paycor punches (who worked) with employeePunches (the "timecard" copy,
+                                authoritative whenever available) — see this file's header for the
+                                exact merge rule. Fetches the punches side ONE WEEK AT A TIME, not the
+                                whole range in one call — confirmed 2026-10-08 that a busy store's full
+                                multi-week punch history can take longer than Paycor's own 20s timeout
+                                to assemble in a single response.
+  weekly-hours-schedule-report-cron.mjs — scheduled Mon 7am ET: emails Ahmed a network-wide (all 45
+                                stores) workbook for the previous Sun-Sat week — Timecard sheet (raw
+                                Paycor punches only, NOT the employeePunches-reconciled version the
+                                on-demand tool above uses, to keep a 45-store weekly job fast) + Schedule
+                                sheet (posted Paycor shifts). Recipient is hardcoded, not a notify list.
+                                Dates shown as MM/DD/YYYY; internal logic/Paycor calls stay ISO.
+  weekly-hours-schedule-report-manual-background.mjs — exec/IT manual trigger for the above, for a
+                                specific past week (`{ weekStart?, weekEnd? }`, ISO, defaults to the
+                                same previous-week calc) — scheduled fns can't be hit over HTTP, same
+                                reason no-clockin.mjs exists alongside no-clockin-cron.mjs.
   paycor-webhook-background.mjs — receives Paycor's Time.Punch.Data webhook events and runs a
                                 targeted tips reconcile (runReconcileForDates, tips-reconcile-cron.mjs)
                                 for just the affected store the moment a DM/manager manually edits a
@@ -232,6 +250,7 @@ npx netlify status           # Check auth + site link
 | `pulse-hourly-snapshot` | `30 2 * * *` | sales + weather snapshot |
 | `analyst-cron` | `0 11,14 * * *` | DM briefs + anomaly/exec reports |
 | `schedule-alerts` | `0 10 * * 1,4` | Mon/Thu 6am ET labor risk alerts |
+| `weekly-hours-schedule-report-cron` | `0 11 * * 1` | Mon 7am ET; emails Ahmed a network-wide (all 45 stores) workbook — Timecard sheet (raw Paycor punches, not the employeePunches-reconciled version the Tools-hub Hours Report uses) + Schedule sheet (posted shifts), both for the previous Sun–Sat week |
 | `no-clockin-cron` | `*/15 * * * *` | log-only until `NO_CLOCKIN_LIVE=true`; scheduled shifts with no punch |
 | `minor-timecard-detect-cron-background` | `0 10 * * 0` | Sun 6am ET; log-only until `MINOR_TIMECARD_LIVE` is set; PA under-18 break violations for the closed week |
 | `minor-timecard-followup-cron` | `30 11 * * *` | 7:30am ET daily re-check/escalation; **90 min after detect on purpose** — both write `pcg_minor_timecard_issues_v1` |
