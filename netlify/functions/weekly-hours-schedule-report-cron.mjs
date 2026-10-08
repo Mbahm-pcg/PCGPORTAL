@@ -1,18 +1,28 @@
-// weekly-hours-schedule-report-cron.mjs — scheduled weekly: emails TWO
+// weekly-hours-schedule-report-cron.mjs — scheduled weekly: emails
 // attachments covering the PREVIOUS week, network-wide (all 45 stores):
-//   - Timecard: an Excel workbook (Summary sheet + one sheet per store)
-//   - Schedule: a separate PDF (one section per store)
+//   - Timecard: one small Excel file PER STORE (buildTimecardWorkbooks) —
+//     no summary/totals file, no combined workbook with tabs.
+//   - Schedule: one PDF (buildSchedulePDF) rendered as an actual weekly
+//     calendar grid — one page per store, a row per employee, a column per
+//     day (Sun-Sat), shift time ranges in the cells.
 // Built 2026-10-08 per explicit request ("I need it emailed to me every
 // week, for the previous week, both the timecard and the schedule"), then
-// revised twice more per explicit follow-up: first to one workbook with a
-// sheet per store (not two network-wide sheets mixing all 45 stores'
-// rows — also fixed a real confusion where Gmail's inline preview only
-// renders a multi-sheet xlsx's FIRST sheet, making the Schedule sheet look
-// missing even though it was always the second tab); then to split Schedule
-// out into its own PDF entirely ("I dont want the schedule to be with the
-// xlse file, that need to be separate like a pdf file verse the time card
-// can stay as xlse or excel file") — see buildTimecardWorkbook (xlsx) and
-// buildSchedulePDF (pdfkit) below.
+// revised several more times per explicit follow-up, in order:
+//   1. One workbook with a sheet per store instead of two network-wide
+//      sheets mixing all 45 stores' rows (also fixed a real confusion where
+//      Gmail's inline preview only renders a multi-sheet xlsx's FIRST sheet,
+//      making the Schedule sheet look missing even though it was always the
+//      second tab).
+//   2. Schedule split out into its own PDF entirely, separate from the
+//      Excel file ("I dont want the schedule to be with the xlse file, that
+//      need to be separate like a pdf file verse the time card can stay as
+//      xlse or excel file").
+//   3. Timecard split from one workbook-with-tabs into one FILE per store,
+//      no summary file ("i need the schedule to be emailed to me as well...
+//      i need to download the files one by one... i dont need the summary
+//      of the total"), and Schedule rebuilt as a real calendar grid instead
+//      of a flat employee/hours list, matching a reference screenshot of
+//      this app's own in-app weekly schedule view.
 //
 // Scope decisions made building this (flagged, not silently assumed):
 //   - "Timecard" here means raw Paycor punches (one call per store per
@@ -52,11 +62,14 @@
 // in netlify.toml (same reason no-clockin-cron.mjs needs its own separate
 // no-clockin.mjs manual-trigger sibling), so this logic can't just be POSTed
 // to directly once the schedule below is live.
-import { STORES, fetchAllEmployees, punchHours, etDate } from './tips-report-cron-background.mjs';
+import { STORES, fetchAllEmployees, punchHours, etDate, toET } from './tips-report-cron-background.mjs';
 import { fetchSchedulingShifts } from './labor-cron.mjs';
 import { callPaycor } from './paycor.mjs';
 
 export const RECIPIENT = 'ahmed@peoplecapitalgroup.com';
+
+const DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // MM/DD/YYYY for display (email subject/body, sheet titles) — the ISO form
 // (YYYY-MM-DD) is what every Paycor call and internal comparison actually
@@ -66,10 +79,52 @@ export function toUSDate(iso) {
   return `${m}/${d}/${y}`;
 }
 
+// The 7 calendar dates of the week, for the schedule grid's column headers —
+// weekStart is always a Sunday in real use (the scheduled cron's own
+// calculation), so dayIdx 0 = Sunday .. 6 = Saturday.
+function weekDates(weekStart) {
+  const [y, m, d] = weekStart.split('-').map(Number);
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const dt = new Date(Date.UTC(y, m - 1, d + i));
+    dates.push({ dow: DOW_FULL[dt.getUTCDay()], label: `${MONTHS_SHORT[dt.getUTCMonth()]} ${dt.getUTCDate()}` });
+  }
+  return dates;
+}
+
 function shiftHours(s) {
   const start = new Date(s.startDateTime || s.StartDateTime || 0).getTime();
   const end = new Date(s.endDateTime || s.EndDateTime || 0).getTime();
   return (start && end && end > start) ? (end - start) / 3600000 : 0;
+}
+
+// A shift's own ET calendar date, for bucketing into the right day-of-week
+// grid column — same ET-not-UTC reasoning as employee-hours-report-
+// background.mjs's punchDateISO: a shift starting at 11:40pm ET must not
+// roll into the next column just because its UTC timestamp already crossed
+// midnight.
+function shiftDateISO(s) {
+  const raw = s.startDateTime || s.StartDateTime || null;
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return null;
+  const et = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
+}
+
+function dayIndexFromWeekStart(weekStart, dateISO) {
+  const [y1, m1, d1] = weekStart.split('-').map(Number);
+  const [y2, m2, d2] = dateISO.split('-').map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
+
+// "7:00 am – 12:00 pm" — same toET formatting the rest of this app uses for
+// punch times, just lowercased to match the reference layout's style.
+function shiftTimeRange(s) {
+  const start = s.startDateTime || s.StartDateTime;
+  const end = s.endDateTime || s.EndDateTime;
+  if (!start || !end) return '';
+  return `${toET(start).toLowerCase()} – ${toET(end).toLowerCase()}`;
 }
 
 async function fetchStorePunches(legalEntityId, startDate, endDate) {
@@ -82,7 +137,10 @@ async function fetchStorePunches(legalEntityId, startDate, endDate) {
 }
 
 async function buildReport(weekStart, weekEnd) {
-  const byStore = []; // [{ district, name, timecard: [[employee, jobTitle, hours]], schedule: [[employee, hours]] }]
+  // schedule here is a GRID, not a flat total — [{ name, jobTitle, days: [string|null x7], totalHours }]
+  // days[0] = weekStart's Sunday .. days[6] = its Saturday, matching the
+  // reference calendar layout (one row per employee, one column per day).
+  const byStore = [];
 
   // Sequential, one store at a time — same reasoning as tips-report-cron-
   // background.mjs's Phase 2: Paycor's own token/rate behavior is unreliable
@@ -99,12 +157,21 @@ async function buildReport(weekStart, weekEnd) {
     }
 
     const shifts = await fetchSchedulingShifts(store.paycor, weekStart, weekEnd);
-    const schedByEmp = {}; // employeeId -> { name, hours }
+    const schedByEmp = {}; // employeeId -> { name, jobTitle, days: [string|null x7], totalHours }
     for (const s of shifts) {
       if (!s.employeeId) continue;
-      const name = s.employeeName || (s.firstName && s.lastName ? `${s.firstName} ${s.lastName}` : null) || 'Unnamed Employee';
-      if (!schedByEmp[s.employeeId]) schedByEmp[s.employeeId] = { name, hours: 0 };
-      schedByEmp[s.employeeId].hours += shiftHours(s);
+      const dISO = shiftDateISO(s);
+      const dayIdx = dISO ? dayIndexFromWeekStart(weekStart, dISO) : -1;
+      if (dayIdx < 0 || dayIdx > 6) continue; // outside the requested week — shouldn't normally happen, but don't mis-bucket it if it does
+      if (!schedByEmp[s.employeeId]) {
+        const name = s.employeeName || (s.firstName && s.lastName ? `${s.firstName} ${s.lastName}` : null) || 'Unnamed Employee';
+        const jobTitle = s.schedulingJobName || s.jobTitle || s.JobTitle || '';
+        schedByEmp[s.employeeId] = { name, jobTitle, days: new Array(7).fill(null), totalHours: 0 };
+      }
+      const entry = schedByEmp[s.employeeId];
+      const timeRange = shiftTimeRange(s);
+      entry.days[dayIdx] = entry.days[dayIdx] ? `${entry.days[dayIdx]}, ${timeRange}` : timeRange; // rare same-day double shift
+      entry.totalHours += shiftHours(s);
     }
 
     let empByGuid = {};
@@ -131,15 +198,11 @@ async function buildReport(weekStart, weekEnd) {
       const ot = Math.round(Math.max(total - 40, 0) * 100) / 100;
       timecard.push([name, jobTitle, reg, ot, total]);
     }
-    const schedule = [];
-    for (const { name, hours } of Object.values(schedByEmp)) {
-      if (hours <= 0) continue;
-      schedule.push([name, Math.round(hours * 100) / 100]);
-    }
+    const schedule = Object.values(schedByEmp).filter(e => e.days.some(Boolean));
     if (timecard.length === 0 && schedule.length === 0) continue; // nothing to show for this store this week
 
     timecard.sort((a, b) => a[0].localeCompare(b[0]));
-    schedule.sort((a, b) => a[0].localeCompare(b[0]));
+    schedule.sort((a, b) => a.name.localeCompare(b.name));
     byStore.push({ district: store.district, name: store.name, timecard, schedule });
   }
 
@@ -147,64 +210,33 @@ async function buildReport(weekStart, weekEnd) {
   return { byStore };
 }
 
-// Excel sheet names: max 31 chars, no \ / ? * [ ] — store names here are
-// short enough that collisions are unlikely, but a PC# suffix is appended on
-// any truncation/dedupe to keep sheet names unique and traceable to a store.
-function sheetNameFor(storeName, pc, usedNames) {
-  let base = storeName.replace(/[\\/?*[\]]/g, '').slice(0, 25).trim() || `Store ${pc}`;
-  let name = base;
-  if (usedNames.has(name)) name = `${base} (${pc})`.slice(0, 31);
-  usedNames.add(name);
-  return name;
-}
-
-// Timecard ONLY — a Summary sheet (Reg/OT/Total per store) then one sheet
-// per store. Schedule is a separate PDF (buildSchedulePDF below), per
-// explicit request to keep the two as separate files, not two parts of one
-// workbook.
-function buildTimecardWorkbook(XLSX, weekStartUS, weekEndUS, byStore) {
-  const wb = XLSX.utils.book_new();
-
-  const summaryAoa = [[`Weekly Timecard — ${weekStartUS} to ${weekEndUS}`], [], ['District', 'Store', 'Regular Hours', 'OT Hours', 'Total Hours']];
-  byStore.forEach(s => {
-    const regTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[2], 0) * 100) / 100;
-    const otTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[3], 0) * 100) / 100;
-    const tcTotal = Math.round(s.timecard.reduce((sum, r) => sum + r[4], 0) * 100) / 100;
-    summaryAoa.push([s.district, s.name, regTotal, otTotal, tcTotal]);
-  });
-  const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
-  summaryWs['!cols'] = [{ wch: 9 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 13 }];
-  XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
-
-  const usedNames = new Set(['Summary']);
-  // STORES doesn't carry pc on byStore entries directly — look it up by name
-  // for the sheet-name dedupe suffix (store names are already unique in
-  // STORES, so this is just for the rare Excel-reserved-name collision).
-  const pcByName = {};
-  STORES.forEach(s => { pcByName[s.name] = s.pc; });
-
+// One small workbook PER STORE — no Summary file, no combined workbook with
+// tabs — per explicit request ("i need to download the files one by one...
+// i dont need the summary of the total"). Returns [{ storeName, buffer }].
+function buildTimecardWorkbooks(XLSX, weekStartUS, weekEndUS, byStore) {
+  const files = [];
   for (const store of byStore) {
-    if (store.timecard.length === 0) continue; // nothing worked — no sheet needed in the Timecard-only file
-    const sheetName = sheetNameFor(store.name, pcByName[store.name] || '', usedNames);
-    const aoa = [[`${store.name} — ${weekStartUS} to ${weekEndUS}`], []];
+    if (store.timecard.length === 0) continue; // nothing worked — no file for this store
+    const wb = XLSX.utils.book_new();
+    const aoa = [[`${store.name} — Timecard, ${weekStartUS} to ${weekEndUS}`], []];
     aoa.push(['Employee', 'Job Title', 'Regular Hours', 'OT Hours', 'Total Hours']);
     store.timecard.forEach(r => aoa.push(r));
-
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 14 }, { wch: 12 }, { wch: 13 }];
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.utils.book_append_sheet(wb, ws, 'Timecard');
+    files.push({ storeName: store.name, buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) });
   }
-
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  return files;
 }
 
-// Schedule as its own PDF — one section per store (Employee | Scheduled
-// Hours), new page started whenever a section wouldn't fit on what's left of
-// the current page. pdfkit has no built-in table layout, so columns are just
-// fixed x-positions.
-async function buildSchedulePDF(weekStartUS, weekEndUS, byStore) {
+// Schedule as a calendar grid PDF — one page (landscape) per store: a row
+// per employee, a column per day (Sun-Sat), each cell the shift time range
+// for that employee that day — matching the reference weekly-schedule layout
+// (store name header, day-of-week + date column headers, time ranges in
+// grid cells) rather than a flat employee/hours list.
+async function buildSchedulePDF(weekStart, weekStartUS, weekEndUS, byStore) {
   const { default: PDFDocument } = await import('pdfkit');
-  const doc = new PDFDocument({ margin: 50, size: 'LETTER' });
+  const doc = new PDFDocument({ margin: 36, size: 'LETTER', layout: 'landscape' });
   const chunks = [];
   doc.on('data', (c) => chunks.push(c));
   const done = new Promise((resolve, reject) => {
@@ -212,46 +244,69 @@ async function buildSchedulePDF(weekStartUS, weekEndUS, byStore) {
     doc.on('error', reject);
   });
 
-  const COL_NAME_X = 50, COL_HOURS_X = 400, ROW_H = 16;
+  const dates = weekDates(weekStart);
+  const storesWithShifts = byStore.filter(s => s.schedule.length > 0);
+
+  if (storesWithShifts.length === 0) {
+    doc.fontSize(14).font('Helvetica-Bold').text(`Weekly Schedule — ${weekStartUS} to ${weekEndUS}`);
+    doc.moveDown(1);
+    doc.fontSize(11).font('Helvetica').text('No posted shifts found for any store this week.');
+    doc.end();
+    return done;
+  }
+
+  const MARGIN = doc.page.margins.left;
+  const PAGE_W = doc.page.width - MARGIN * 2;
+  const NAME_COL_W = 150;
+  const DAY_COL_W = (PAGE_W - NAME_COL_W) / 7;
+  const ROW_H = 34;
+  const HEADER_H = 26;
   const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
 
-  doc.fontSize(16).font('Helvetica-Bold').text(`Weekly Schedule — ${weekStartUS} to ${weekEndUS}`, { align: 'left' });
-  doc.moveDown(1);
+  storesWithShifts.forEach((store, storeIdx) => {
+    if (storeIdx > 0) doc.addPage();
 
-  const storesWithShifts = byStore.filter(s => s.schedule.length > 0);
-  if (storesWithShifts.length === 0) {
-    doc.fontSize(11).font('Helvetica').text('No posted shifts found for any store this week.');
-  }
+    doc.fontSize(14).font('Helvetica-Bold').text(store.name, MARGIN, MARGIN);
+    doc.fontSize(10).font('Helvetica').text(`Weekly Schedule: ${dates[0].dow}, ${dates[0].label} – ${dates[6].dow}, ${dates[6].label}`);
+    doc.moveDown(0.6);
 
-  for (const store of storesWithShifts) {
-    // Store heading + its table header need ~3 rows of room; if that won't
-    // fit, start a fresh page rather than splitting a store across pages
-    // right at its title.
-    if (doc.y + ROW_H * 3 > PAGE_BOTTOM) doc.addPage();
+    const drawHeaderRow = (y) => {
+      doc.rect(MARGIN, y, NAME_COL_W, HEADER_H).stroke();
+      doc.fontSize(9).font('Helvetica-Bold').text('Employee', MARGIN + 4, y + 8, { width: NAME_COL_W - 8 });
+      dates.forEach((d, i) => {
+        const x = MARGIN + NAME_COL_W + i * DAY_COL_W;
+        doc.rect(x, y, DAY_COL_W, HEADER_H).stroke();
+        doc.fontSize(9).font('Helvetica-Bold').text(d.dow, x + 2, y + 4, { width: DAY_COL_W - 4, align: 'center' });
+        doc.fontSize(8).font('Helvetica').text(d.label, x + 2, y + 15, { width: DAY_COL_W - 4, align: 'center' });
+      });
+      return y + HEADER_H;
+    };
 
-    doc.fontSize(13).font('Helvetica-Bold').text(`${store.name} (District ${store.district})`);
-    doc.moveDown(0.3);
-    const headerY = doc.y;
-    doc.fontSize(10).font('Helvetica-Bold');
-    doc.text('Employee', COL_NAME_X, headerY);
-    doc.text('Scheduled Hours', COL_HOURS_X, headerY);
-    doc.moveDown(0.5);
-    doc.font('Helvetica');
+    let y = drawHeaderRow(doc.y);
 
-    for (const [name, hours] of store.schedule) {
-      if (doc.y + ROW_H > PAGE_BOTTOM) {
+    for (const emp of store.schedule) {
+      if (y + ROW_H > PAGE_BOTTOM) {
         doc.addPage();
-        doc.fontSize(10).font('Helvetica-Bold').text(`${store.name} (District ${store.district}) — continued`);
-        doc.moveDown(0.3);
-        doc.font('Helvetica');
+        doc.fontSize(12).font('Helvetica-Bold').text(`${store.name} — continued`, MARGIN, MARGIN);
+        doc.moveDown(0.4);
+        y = drawHeaderRow(doc.y);
       }
-      const rowY = doc.y;
-      doc.text(name, COL_NAME_X, rowY, { width: COL_HOURS_X - COL_NAME_X - 10 });
-      doc.text(String(hours), COL_HOURS_X, rowY);
-      doc.moveDown(0.4);
+
+      doc.rect(MARGIN, y, NAME_COL_W, ROW_H).stroke();
+      doc.fontSize(9).font('Helvetica-Bold').text(emp.name, MARGIN + 4, y + 4, { width: NAME_COL_W - 8 });
+      if (emp.jobTitle) doc.fontSize(7).font('Helvetica').fillColor('#555').text(emp.jobTitle, MARGIN + 4, y + 18, { width: NAME_COL_W - 8 }).fillColor('#000');
+
+      emp.days.forEach((cell, i) => {
+        const x = MARGIN + NAME_COL_W + i * DAY_COL_W;
+        doc.rect(x, y, DAY_COL_W, ROW_H).stroke();
+        if (cell) doc.fontSize(7.5).font('Helvetica').text(cell, x + 2, y + 10, { width: DAY_COL_W - 4, align: 'center' });
+      });
+
+      y += ROW_H;
     }
-    doc.moveDown(0.8);
-  }
+
+    doc.y = y + 10;
+  });
 
   doc.end();
   return done;
@@ -320,35 +375,36 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
   const XLSX = XLSXMod.default || XLSXMod;
   const weekStartUS = toUSDate(weekStart);
   const weekEndUS = toUSDate(weekEnd);
-  const xlsxBuffer = buildTimecardWorkbook(XLSX, weekStartUS, weekEndUS, byStore);
-  const pdfBuffer = await buildSchedulePDF(weekStartUS, weekEndUS, byStore);
+  const timecardFiles = buildTimecardWorkbooks(XLSX, weekStartUS, weekEndUS, byStore);
+  const pdfBuffer = await buildSchedulePDF(weekStart, weekStartUS, weekEndUS, byStore);
 
   const timecardCount = byStore.reduce((s, store) => s + store.timecard.length, 0);
   const scheduleCount = byStore.reduce((s, store) => s + store.schedule.length, 0);
   const totalReg = Math.round(byStore.reduce((s, store) => s + store.timecard.reduce((ss, r) => ss + r[2], 0), 0) * 10) / 10;
   const totalOt = Math.round(byStore.reduce((s, store) => s + store.timecard.reduce((ss, r) => ss + r[3], 0), 0) * 10) / 10;
   const totalHours = Math.round(byStore.reduce((s, store) => s + store.timecard.reduce((ss, r) => ss + r[4], 0), 0) * 10) / 10;
-  const totalScheduled = Math.round(byStore.reduce((s, store) => s + store.schedule.reduce((ss, r) => ss + r[1], 0), 0) * 10) / 10;
+  const totalScheduled = Math.round(byStore.reduce((s, store) => s + store.schedule.reduce((ss, e) => ss + e.totalHours, 0), 0) * 10) / 10;
   const html = `
     <p>Network-wide timecard + schedule for <strong>${weekStartUS} to ${weekEndUS}</strong> (Sun–Sat).</p>
     <ul>
       <li>Worked hours (timecard): <strong>${totalHours.toLocaleString()}</strong> (${totalReg.toLocaleString()} Reg + ${totalOt.toLocaleString()} OT) across ${timecardCount} employee-store rows</li>
       <li>Scheduled hours (posted shifts): <strong>${totalScheduled.toLocaleString()}</strong> across ${scheduleCount} employee-store rows</li>
     </ul>
-    <p>Two attachments: an Excel workbook for the Timecard (Summary sheet + one sheet per store), and a PDF for the Schedule (one section per store).</p>
+    <p>${timecardFiles.length} Timecard attachments (one Excel file per store), plus one Schedule PDF (one calendar-grid page per store).</p>
   `;
   const filenameDate = (iso) => iso.replace(/-/g, '');
   const dateTag = `${filenameDate(weekStart)}_to_${filenameDate(weekEnd)}`;
+  const safeFileTag = (name) => name.replace(/[^a-z0-9]+/gi, '_');
   const result = await sendReportEmail(
     recipient,
     `Weekly Hours + Schedule Report — ${weekStartUS} to ${weekEndUS}`,
     html,
     [
-      { filename: `Weekly_Timecard_${dateTag}.xlsx`, content: xlsxBuffer },
+      ...timecardFiles.map(f => ({ filename: `Timecard_${safeFileTag(f.storeName)}_${dateTag}.xlsx`, content: f.buffer })),
       { filename: `Weekly_Schedule_${dateTag}.pdf`, content: pdfBuffer },
     ],
   );
-  return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount, scheduleCount, storeSheets: byStore.length, emailSent: result.sent, method: result.method };
+  return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount, scheduleCount, timecardFiles: timecardFiles.length, emailSent: result.sent, method: result.method };
 }
 
 export default async (request) => {
