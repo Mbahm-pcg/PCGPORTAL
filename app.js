@@ -18848,7 +18848,8 @@ ${t2.slice(0, 300)}`);
       { id: "minor-timecard", label: "Minor Timecard Compliance" },
       { id: "office-clock", label: "Office Time Clock" },
       { id: "office-clock-admin", label: "Office Time Clock \u2014 Link Accounts" },
-      { id: "office-clock-review", label: "Office Time Clock \u2014 Pay Period Review" }
+      { id: "office-clock-review", label: "Office Time Clock \u2014 Pay Period Review" },
+      { id: "hours-report", label: "Hours Report" }
     ],
     finance: [
       { id: "pnl", label: "P&L" },
@@ -23174,6 +23175,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       // separate gate from the punch tab's own eligible-roles list.
       { id: "office-clock-admin", label: "Office Time Clock \u2014 Link Accounts", icon: (c) => ICONS.officeClockLink(c) },
       { id: "office-clock-review", label: "Office Time Clock \u2014 Pay Period Review", icon: (c) => ICONS.officeClockReview(c) },
+      // Reached only via the Tools hub tile (like district-alignment above);
+      // registered here so the tab-validity guard (tabsForUser) doesn't bounce
+      // it back to Dashboard the instant it's opened.
+      { id: "hours-report", label: "Hours Report", icon: (c) => ICONS.clock(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -23206,6 +23211,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
       { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
       { id: "office-clock", label: "Office Time Clock", icon: (c) => ICONS.officeClock(c) },
+      // Reached only via the Tools hub tile (like district-alignment above);
+      // registered here so the tab-validity guard (tabsForUser) doesn't bounce
+      // it back to Dashboard the instant it's opened.
+      { id: "hours-report", label: "Hours Report", icon: (c) => ICONS.clock(c) },
       { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
       { id: "deals", label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
       { id: "users", label: "Users", icon: (c) => ICONS.users(c) },
@@ -24191,7 +24200,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.70";
+  var APP_VERSION = "v21.74";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -33554,6 +33563,86 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return /* @__PURE__ */ React.createElement("tr", { key: c.guid || c.name + idx, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.6rem 1.1rem", color: th.text, fontWeight: 600 } }, c.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 1.1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", step: "0.01", value: c.hours, onChange: (e) => setCrewHours(idx, e.target.value), style: { ...inp(th), width: 110, padding: "0.45rem 0.6rem" } })), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.6rem 1.1rem", color: th.text, fontWeight: 600 } }, "$", previewShare.toFixed(2)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 1.1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => removeCrew(idx), style: { background: "none", border: "1px solid #e0313155", color: "#e03131", borderRadius: "0.5rem", padding: "0.35rem 0.7rem", cursor: "pointer", fontSize: "0.76rem", fontWeight: 700 } }, "\u{1F5D1} Remove")));
     }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.84rem", fontWeight: 700, color: th.text, marginBottom: "0.15rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.5rem" } }, "Provide a reason for this correction (optional, saved for the record)."), /* @__PURE__ */ React.createElement("textarea", { rows: 2, placeholder: "e.g. Adjusted tip share due to hours correction\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: "'Source Sans 3'" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2 } }, hasChanges && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, marginRight: "auto" } }, "\u23F1 Unsaved changes"), /* @__PURE__ */ React.createElement("button", { onClick: cancelEdits, disabled: !hasChanges || saving, style: { ...btn(th, { background: th.card3, color: th.text }), opacity: !hasChanges || saving ? 0.5 : 1 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: save, disabled: saving || crew.length === 0, style: { ...btn(th), opacity: saving || crew.length === 0 ? 0.5 : 1 } }, saving ? "Saving\u2026" : "Save Correction")), store.manualEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, padding: "0 1.1rem 1rem" } }, "Last manually corrected by ", store.manualEdit.by, " on ", new Date(store.manualEdit.at).toLocaleString(), store.manualEdit.reason ? ` \u2014 "${store.manualEdit.reason}"` : "", ".")));
   }
+  function EmployeeHoursReport({ th, stores, user }) {
+    const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
+    const [storePc, setStorePc] = useState("");
+    const [startDate, setStartDate] = useState("");
+    const [endDate, setEndDate] = useState("");
+    const [status, setStatus] = useState(null);
+    const [step, setStep] = useState("");
+    const [error, setError] = useState(null);
+    const [result, setResult] = useState(null);
+    const pollRef = useRef(null);
+    const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
+    React.useEffect(() => () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    }, []);
+    const load = async () => {
+      if (!selectedStore?.paycor || !startDate || !endDate) return;
+      if (endDate < startDate) {
+        setError("End date must be on or after the start date.");
+        return;
+      }
+      if (pollRef.current) clearInterval(pollRef.current);
+      setResult(null);
+      setError(null);
+      setStatus("running");
+      setStep("Starting\u2026");
+      const requestId = `ehr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      try {
+        await fetch("/.netlify/functions/employee-hours-report-background", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ requestId, legalEntityId: selectedStore.paycor, startDate, endDate })
+        });
+      } catch {
+        setStatus("error");
+        setError("Network error \u2014 could not start the report.");
+        return;
+      }
+      const key = `pcg_hours_report_${requestId}`;
+      pollRef.current = setInterval(async () => {
+        const data = await cloudLoad(key);
+        if (!data) return;
+        if (data.status === "running") {
+          setStep(data.step || "Working\u2026");
+          return;
+        }
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        if (data.status === "done") {
+          setResult({ weeks: data.weeks, employees: data.employees });
+          setStatus("done");
+        } else {
+          setError(data.error || "Report generation failed.");
+          setStatus("error");
+        }
+      }, 4e3);
+    };
+    const download = () => {
+      const XLSX = window.XLSX;
+      if (!XLSX || !result) {
+        setError("SheetJS library not loaded \u2014 please refresh the page.");
+        return;
+      }
+      const header = ["Employee", "Job Title", ...result.weeks.map((w, i) => `Week ${i + 1} (${w.start} \u2013 ${w.end})`), "Total"];
+      const rows = [[`${selectedStore?.name || storePc} \u2014 Hours Report, ${startDate} to ${endDate}`], [], header];
+      result.employees.forEach((e) => {
+        rows.push([e.name, e.jobTitle || "", ...e.weeklyHours, e.total]);
+      });
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [{ wch: 26 }, { wch: 20 }, ...result.weeks.map(() => ({ wch: 14 })), { wch: 10 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Hours Report");
+      XLSX.writeFile(wb, `Hours_Report_${(selectedStore?.name || storePc).replace(/[^a-z0-9]+/gi, "_")}_${startDate}_to_${endDate}.xlsx`);
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "0.3rem" } }, "Hours Report"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem", maxWidth: "62ch", lineHeight: 1.5 } }, `Pick one store and a date range to see every employee's hours, broken into weekly columns plus a total \u2014 e.g. "Bustleton Ave, Aug 2\u201329." Pulled live from Paycor's own timecard records (falling back to raw punch data only if a timecard entry isn't available yet), not from any saved snapshot, so it works for any past range.`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Store", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), minWidth: 220 }, value: storePc, onChange: (e) => {
+      setStorePc(e.target.value);
+      setResult(null);
+      setStatus(null);
+    } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), stores.filter((s) => s.paycor).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")")))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Start date", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: startDate, max: todayStr, onChange: (e) => setStartDate(e.target.value) })), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "End date", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: endDate, max: todayStr, onChange: (e) => setEndDate(e.target.value) })), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !storePc || !startDate || !endDate || status === "running", style: { ...btn(th), opacity: !storePc || !startDate || !endDate || status === "running" ? 0.5 : 1 } }, status === "running" ? "Running\u2026" : "Load")), status === "running" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", color: th.muted, fontSize: "0.82rem", marginBottom: "1rem" } }, "\u23F3 ", step), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", color: "#e03131", fontSize: "0.82rem", marginBottom: "1rem" } }, error), result && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.9rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, selectedStore?.name, " \xB7 ", startDate, " to ", endDate), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, result.employees.length, " employee(s) \xB7 ", result.weeks.length, " week(s)")), /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook")), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Employee", "Job Title", ...result.weeks.map((w, i) => `Week ${i + 1}`), "Total"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: "left", padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: 0.4, borderBottom: `1px solid ${th.cardBorder}`, whiteSpace: "nowrap" }, title: h.startsWith("Week") ? `${result.weeks[Number(h.split(" ")[1]) - 1].start} \u2013 ${result.weeks[Number(h.split(" ")[1]) - 1].end}` : void 0 }, h)))), /* @__PURE__ */ React.createElement("tbody", null, result.employees.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: result.weeks.length + 3, style: { padding: "0.9rem 0.6rem", color: th.muted, textAlign: "center", fontStyle: "italic" } }, "No hours found for this store in this range.")), result.employees.map((e) => /* @__PURE__ */ React.createElement("tr", { key: e.guid, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.text, fontWeight: 600, whiteSpace: "nowrap" } }, e.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, whiteSpace: "nowrap" } }, e.jobTitle), e.weeklyHours.map((h, i) => /* @__PURE__ */ React.createElement("td", { key: i, style: { padding: "0.4rem 0.6rem", color: th.text } }, h.toFixed(2), e.fromRawPunchFallback[i] && /* @__PURE__ */ React.createElement("span", { title: "From raw punch data \u2014 not yet reflected in Paycor's timecard", style: { color: "#f59e0b", marginLeft: 3, cursor: "help" } }, "*"))), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.text, fontWeight: 700 } }, e.total.toFixed(2))))))), result.employees.some((e) => e.fromRawPunchFallback.some(Boolean)) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: "#f59e0b", marginTop: "0.6rem" } }, "* This week's hours came from raw punch data because Paycor's timecard didn't have an entry yet \u2014 worth a second look if it looks off.")));
+  }
   function renderAnalystMarkdown(text, th) {
     if (!text) return null;
     const lines = text.split("\n");
@@ -41179,10 +41268,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         // ("Twice glitch again"). office-clock-admin/-review below are
         // a separate, exec/IT-only gate, untouched by this.
         { id: "office-clock-admin", name: "Office Time Clock \u2014 Link Accounts", sub: "Link office_staff Portal accounts to their Paycor identity to enable punching.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-admin"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClockLink(TOOLS)) },
-        { id: "office-clock-review", name: "Office Time Clock \u2014 Pay Period Review", sub: "Review, edit, and send a closed biweekly pay period to Paycor.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-review"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClockReview(TOOLS)) }
+        { id: "office-clock-review", name: "Office Time Clock \u2014 Pay Period Review", sub: "Review, edit, and send a closed biweekly pay period to Paycor.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "office-clock-review"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.officeClockReview(TOOLS)) },
+        // Moved here from Finance 2026-10-08 per explicit request — not
+        // a financial report, just a Paycor hours lookup tool.
+        { id: "hours-report", name: "Hours Report", sub: "Any store, any date range \u2014 per-employee hours broken into weekly columns + total, exportable.", show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "hours-report"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v5l3.5 2" })) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
-    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores, user }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
 })();

@@ -594,12 +594,13 @@ export default async (request, context) => {
 
     // ── Proxy: employee/location punches (time clock data) ──
     if (action === 'punches') {
-      const { legalEntityId, employeeId, startDate, endDate } = payload;
+      const { legalEntityId, employeeId, startDate, endDate, continuationToken } = payload;
       if (employeeId) {
         let path = `/employees/${employeeId}/punches`;
         const params = [];
         if (startDate) params.push(`startDate=${startDate}`);
         if (endDate) params.push(`endDate=${endDate}`);
+        if (continuationToken) params.push(`continuationToken=${continuationToken}`);
         if (params.length) path += '?' + params.join('&');
         const res = await callPaycor(path);
         return new Response(JSON.stringify(res.data), { status: res.status, headers });
@@ -609,6 +610,10 @@ export default async (request, context) => {
         const params = [];
         if (startDate) params.push(`startDate=${startDate}`);
         if (endDate) params.push(`endDate=${endDate}`);
+        // Multi-week ranges (e.g. the Employee Hours Report) can paginate —
+        // previously unhandled here since the only other caller (tips'
+        // fetchStoreCrew) always queries a single day, which never paginates.
+        if (continuationToken) params.push(`continuationToken=${continuationToken}`);
         if (params.length) path += '?' + params.join('&');
         const res = await callPaycor(path);
         return new Response(JSON.stringify(res.data), { status: res.status, headers });

@@ -22891,6 +22891,7 @@ const HUB_SUBITEMS = {
     { id: 'office-clock', label: 'Office Time Clock' },
     { id: 'office-clock-admin', label: 'Office Time Clock — Link Accounts' },
     { id: 'office-clock-review', label: 'Office Time Clock — Pay Period Review' },
+    { id: 'hours-report', label: 'Hours Report' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -28928,6 +28929,10 @@ const computeRoleTabs = (user) => {
     // separate gate from the punch tab's own eligible-roles list.
     { id: "office-clock-admin", label: "Office Time Clock — Link Accounts", icon: (c) => ICONS.officeClockLink(c) },
     { id: "office-clock-review", label: "Office Time Clock — Pay Period Review", icon: (c) => ICONS.officeClockReview(c) },
+    // Reached only via the Tools hub tile (like district-alignment above);
+    // registered here so the tab-validity guard (tabsForUser) doesn't bounce
+    // it back to Dashboard the instant it's opened.
+    { id: "hours-report", label: "Hours Report", icon: (c) => ICONS.clock(c) },
     { id: "projects",  label: "Projects",     icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
@@ -28961,6 +28966,10 @@ const computeRoleTabs = (user) => {
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "minor-timecard", label: "Minor Timecard Compliance", icon: (c) => ICONS.minorTimecard(c) },
     { id: "office-clock", label: "Office Time Clock", icon: (c) => ICONS.officeClock(c) },
+    // Reached only via the Tools hub tile (like district-alignment above);
+    // registered here so the tab-validity guard (tabsForUser) doesn't bounce
+    // it back to Dashboard the instant it's opened.
+    { id: "hours-report", label: "Hours Report", icon: (c) => ICONS.clock(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "deals",     label: "Deal Pipeline", icon: (c) => ICONS.checkCircle(c) },
     { id: "users",     label: "Users",     icon: (c) => ICONS.users(c) },
@@ -30372,7 +30381,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.70";
+const APP_VERSION = "v21.74";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -44869,6 +44878,149 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
   );
 }
 
+// Month-to-month (or any custom range) per-employee hours for one store,
+// broken into weekly columns + a total — built 2026-10-08 for office staff
+// who need a historical hours audit (e.g. "Bustleton Ave, Aug 2–29").
+// Backed by employee-hours-report-background.mjs, which combines Paycor's
+// raw punches (to find who worked) with the per-employee employeePunches
+// endpoint (the "timecard" copy, authoritative whenever available) — see
+// that file's header comment for the exact merge rule.
+function EmployeeHoursReport({ th, stores, user }) {
+  const todayStr = tipsFormatISODate(new Date());
+  const [storePc, setStorePc] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [status, setStatus] = useState(null); // null | 'running' | 'done' | 'error'
+  const [step, setStep] = useState('');
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null); // { weeks, employees }
+  const pollRef = useRef(null);
+
+  const selectedStore = stores.find(s => String(s.pc) === String(storePc));
+
+  React.useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const load = async () => {
+    if (!selectedStore?.paycor || !startDate || !endDate) return;
+    if (endDate < startDate) { setError('End date must be on or after the start date.'); return; }
+    if (pollRef.current) clearInterval(pollRef.current);
+    setResult(null); setError(null); setStatus('running'); setStep('Starting…');
+
+    const requestId = `ehr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      await fetch('/.netlify/functions/employee-hours-report-background', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ requestId, legalEntityId: selectedStore.paycor, startDate, endDate }),
+      });
+    } catch {
+      setStatus('error'); setError('Network error — could not start the report.'); return;
+    }
+
+    const key = `pcg_hours_report_${requestId}`;
+    pollRef.current = setInterval(async () => {
+      const data = await cloudLoad(key);
+      if (!data) return; // not written yet
+      if (data.status === 'running') { setStep(data.step || 'Working…'); return; }
+      clearInterval(pollRef.current); pollRef.current = null;
+      if (data.status === 'done') { setResult({ weeks: data.weeks, employees: data.employees }); setStatus('done'); }
+      else { setError(data.error || 'Report generation failed.'); setStatus('error'); }
+    }, 4000);
+  };
+
+  const download = () => {
+    const XLSX = window.XLSX;
+    if (!XLSX || !result) { setError('SheetJS library not loaded — please refresh the page.'); return; }
+    const header = ['Employee', 'Job Title', ...result.weeks.map((w, i) => `Week ${i + 1} (${w.start} – ${w.end})`), 'Total'];
+    const rows = [[`${selectedStore?.name || storePc} — Hours Report, ${startDate} to ${endDate}`], [], header];
+    result.employees.forEach(e => {
+      rows.push([e.name, e.jobTitle || '', ...e.weeklyHours, e.total]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 26 }, { wch: 20 }, ...result.weeks.map(() => ({ wch: 14 })), { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Hours Report');
+    XLSX.writeFile(wb, `Hours_Report_${(selectedStore?.name || storePc).replace(/[^a-z0-9]+/gi, '_')}_${startDate}_to_${endDate}.xlsx`);
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '0.3rem' }}>Hours Report</h2>
+      <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem', maxWidth: '62ch', lineHeight: 1.5 }}>
+        Pick one store and a date range to see every employee's hours, broken into weekly columns plus a total — e.g. "Bustleton Ave, Aug 2–29." Pulled live from Paycor's own timecard records (falling back to raw punch data only if a timecard entry isn't available yet), not from any saved snapshot, so it works for any past range.
+      </p>
+
+      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
+        <label style={{ fontSize: '0.78rem', color: th.muted }}>
+          Store<br />
+          <select style={{ ...inp(th), minWidth: 220 }} value={storePc} onChange={e => { setStorePc(e.target.value); setResult(null); setStatus(null); }}>
+            <option value="">Select a store…</option>
+            {stores.filter(s => s.paycor).map(s => <option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: '0.78rem', color: th.muted }}>
+          Start date<br />
+          <input type="date" style={inp(th)} value={startDate} max={todayStr} onChange={e => setStartDate(e.target.value)} />
+        </label>
+        <label style={{ fontSize: '0.78rem', color: th.muted }}>
+          End date<br />
+          <input type="date" style={inp(th)} value={endDate} max={todayStr} onChange={e => setEndDate(e.target.value)} />
+        </label>
+        <button onClick={load} disabled={!storePc || !startDate || !endDate || status === 'running'} style={{ ...btn(th), opacity: (!storePc || !startDate || !endDate || status === 'running') ? 0.5 : 1 }}>
+          {status === 'running' ? 'Running…' : 'Load'}
+        </button>
+      </div>
+
+      {status === 'running' && <div style={{ ...card(th), padding: '0.85rem 1rem', color: th.muted, fontSize: '0.82rem', marginBottom: '1rem' }}>⏳ {step}</div>}
+      {error && <div style={{ ...card(th), padding: '0.85rem 1rem', color: '#e03131', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
+
+      {result && (
+        <div style={{ ...card(th), padding: '1.1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.9rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div>
+              <div style={{ fontWeight: 700, color: th.text }}>{selectedStore?.name} · {startDate} to {endDate}</div>
+              <div style={{ fontSize: '0.75rem', color: th.muted }}>{result.employees.length} employee(s) · {result.weeks.length} week(s)</div>
+            </div>
+            <button onClick={download} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Download workbook</button>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+              <thead>
+                <tr>
+                  {['Employee', 'Job Title', ...result.weeks.map((w, i) => `Week ${i + 1}`), 'Total'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: `1px solid ${th.cardBorder}`, whiteSpace: 'nowrap' }} title={h.startsWith('Week') ? `${result.weeks[Number(h.split(' ')[1]) - 1].start} – ${result.weeks[Number(h.split(' ')[1]) - 1].end}` : undefined}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {result.employees.length === 0 && (
+                  <tr><td colSpan={result.weeks.length + 3} style={{ padding: '0.9rem 0.6rem', color: th.muted, textAlign: 'center', fontStyle: 'italic' }}>No hours found for this store in this range.</td></tr>
+                )}
+                {result.employees.map(e => (
+                  <tr key={e.guid} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
+                    <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 600, whiteSpace: 'nowrap' }}>{e.name}</td>
+                    <td style={{ padding: '0.4rem 0.6rem', color: th.muted, whiteSpace: 'nowrap' }}>{e.jobTitle}</td>
+                    {e.weeklyHours.map((h, i) => (
+                      <td key={i} style={{ padding: '0.4rem 0.6rem', color: th.text }}>
+                        {h.toFixed(2)}{e.fromRawPunchFallback[i] && <span title="From raw punch data — not yet reflected in Paycor's timecard" style={{ color: '#f59e0b', marginLeft: 3, cursor: 'help' }}>*</span>}
+                      </td>
+                    ))}
+                    <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 700 }}>{e.total.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {result.employees.some(e => e.fromRawPunchFallback.some(Boolean)) && (
+            <div style={{ fontSize: '0.7rem', color: '#f59e0b', marginTop: '0.6rem' }}>* This week's hours came from raw punch data because Paycor's timecard didn't have an entry yet — worth a second look if it looks off.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ═══ UOP Analyst Components (Orion) ══════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════════════════
@@ -54594,6 +54746,9 @@ function PCGPortal() {
               // a separate, exec/IT-only gate, untouched by this.
               { id: 'office-clock-admin', name: 'Office Time Clock — Link Accounts', sub: 'Link office_staff Portal accounts to their Paycor identity to enable punching.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-admin'), icon: <>{ICONS.officeClockLink(TOOLS)}</> },
               { id: 'office-clock-review', name: 'Office Time Clock — Pay Period Review', sub: 'Review, edit, and send a closed biweekly pay period to Paycor.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'office-clock-review'), icon: <>{ICONS.officeClockReview(TOOLS)}</> },
+              // Moved here from Finance 2026-10-08 per explicit request — not
+              // a financial report, just a Paycor hours lookup tool.
+              { id: 'hours-report', name: 'Hours Report', sub: 'Any store, any date range — per-employee hours broken into weekly columns + total, exportable.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'hours-report'), icon: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></> },
             ].filter(t => t.show);
             return (
               <div>
@@ -54607,6 +54762,7 @@ function PCGPortal() {
             );
           })()}
           {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={stores} users={users} />}
+          {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={stores} user={user} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
           {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={stores} th={th} user={user} />}
