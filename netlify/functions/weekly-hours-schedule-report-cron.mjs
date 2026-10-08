@@ -52,8 +52,11 @@
 //   - Week = Sunday–Saturday, same convention as the tips/payroll pipeline
 //     (tips-report-cron-background.mjs's BIWEEKLY_ANCHOR), not the Monday-
 //     start week Labor uses elsewhere in this app.
-//   - Recipient is hardcoded to Ahmed's email for now, per explicit
-//     direction ("just me for now") — not read from any notify-list blob.
+//   - Recipients are a real self-service list (pcg_weekly_hours_schedule_notify_v1,
+//     managed in Admin · Notifications) — switched 2026-10-08 from a
+//     hardcoded single email, per explicit request. No manager/DM fallback
+//     like Minor Timecard has — this list is the entire recipient set, and
+//     an empty list means nobody gets it (logged, not an error).
 //   - Timecard splits into Regular/OT at the standard 40-hrs/week FLSA
 //     threshold (same one Office Time Clock's payroll send already uses),
 //     per explicit follow-up request ("i need to know the user regular hour
@@ -73,11 +76,31 @@
 // in netlify.toml (same reason no-clockin-cron.mjs needs its own separate
 // no-clockin.mjs manual-trigger sibling), so this logic can't just be POSTed
 // to directly once the schedule below is live.
+import { getStore } from '@netlify/blobs';
 import { STORES, fetchAllEmployees, punchHours, etDate, toET } from './tips-report-cron-background.mjs';
 import { fetchSchedulingShifts } from './labor-cron.mjs';
 import { callPaycor } from './paycor.mjs';
 
-export const RECIPIENT = 'ahmed@peoplecapitalgroup.com';
+// Recipient list lives in the Admin · Notifications tab ("Weekly Hours +
+// Schedule" pill), same ManualNotifyListPanel pattern as Minor Timecard/Fleet/
+// Food License/System Health — added 2026-10-08 per explicit request to make
+// this self-service instead of a hardcoded email requiring a code change.
+// No manager/DM fallback like Minor Timecard has: this list IS the whole
+// recipient set, and an empty list means nobody gets it (logged, not an
+// error) rather than silently falling back to anyone.
+const NOTIFY_BLOB_KEY = 'pcg_weekly_hours_schedule_notify_v1';
+function getBlobStore() {
+  return getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
+}
+async function getRecipients() {
+  try {
+    const raw = await getBlobStore().get(NOTIFY_BLOB_KEY, { type: 'json' });
+    const data = raw ? (raw.data !== undefined ? raw.data : raw) : null;
+    return Array.isArray(data?.emails) ? data.emails.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
 
 const DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -385,7 +408,18 @@ async function sendReportEmail(to, subject, html, attachments) {
 // week but not actually validated as such — the manual trigger can pass any
 // range for testing. Returns the same summary shape logged/returned by both
 // callers (the scheduled cron and the manual trigger).
-export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT) {
+//
+// recipientOverride lets the manual trigger send a one-off test to a
+// specific address without needing the real notify list populated first —
+// the real scheduled run never passes this, so it always uses whoever's
+// configured in Admin · Notifications.
+export async function runWeeklyReport(weekStart, weekEnd, recipientOverride = null) {
+  const recipients = recipientOverride ? (Array.isArray(recipientOverride) ? recipientOverride : [recipientOverride]) : await getRecipients();
+  if (recipients.length === 0) {
+    console.warn('[weekly-hours-schedule-report-cron] no recipients configured (Admin · Notifications · Weekly Hours + Schedule) — skipping');
+    return { weekStart, weekEnd, emailSent: false, skipped: 'no recipients configured' };
+  }
+
   const { byStore } = await buildReport(weekStart, weekEnd);
 
   const XLSXMod = await import('xlsx');
@@ -413,7 +447,7 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
   const dateTag = `${filenameDate(weekStart)}_to_${filenameDate(weekEnd)}`;
   const safeFileTag = (name) => name.replace(/[^a-z0-9]+/gi, '_');
   const result = await sendReportEmail(
-    recipient,
+    recipients,
     `Weekly Hours + Schedule Report — ${weekStartUS} to ${weekEndUS}`,
     html,
     [

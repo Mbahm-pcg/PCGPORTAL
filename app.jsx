@@ -19199,6 +19199,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             ...(isFullAdmin(user) ? [{ id: 'foodLicense', icon: '📋', label: 'Food License', count: null }] : []),
             ...(isFullAdmin(user) ? [{ id: 'systemHealth', icon: '🩺', label: 'System Health', count: null }] : []),
             ...(isFullAdmin(user) ? [{ id: 'minorTimecard', icon: '⏰', label: 'Minor Timecard', count: null }] : []),
+            ...(isFullAdmin(user) ? [{ id: 'weeklyHoursSchedule', icon: '📅', label: 'Weekly Hours + Schedule', count: null }] : []),
           ].map(t => (
             <button key={t.id} onClick={() => setNotifSubTab(t.id)}
               style={{
@@ -19347,6 +19348,16 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {notifSubTab === 'minorTimecard' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_minor_timecard_notify_v1"
           description="These email addresses receive the Monday escalation for a Minor Timecard Compliance issue that's still open (PA under-18 break violations) — manager and DM still get their own copy regardless of this list; this is specifically the office-side recipients. Empty until you add someone." />
+      )}
+
+      {/* Weekly Hours + Schedule — full admins only. Read directly by
+          weekly-hours-schedule-report-cron.mjs at send time (no manager/DM
+          fallback like Minor Timecard — this list IS the whole recipient
+          set). Empty until you add someone; the scheduled send is currently
+          paused regardless (see PAUSED in that file). */}
+      {notifSubTab === 'weeklyHoursSchedule' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_weekly_hours_schedule_notify_v1"
+          description="These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun–Sat week — one Excel file and one PDF per store). There's no other fallback recipient — this list is the entire send list. Empty until you add someone." />
       )}
       </div>
 
@@ -30381,7 +30392,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.75";
+const APP_VERSION = "v21.76";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

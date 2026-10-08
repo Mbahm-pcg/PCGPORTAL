@@ -13,9 +13,11 @@
 //
 // POST body: { weekStart?, weekEnd? } — both ISO (YYYY-MM-DD), inclusive.
 // Omit both to use the same "previous Sun-Sat week" the real cron computes.
-// Always emails RECIPIENT (weekly-hours-schedule-report-cron.mjs's hardcoded
-// address) — this is a test of the real report, not a preview sent
-// elsewhere.
+// Emails whoever's configured in Admin · Notifications · "Weekly Hours +
+// Schedule" (pcg_weekly_hours_schedule_notify_v1) — this is a test of the
+// real report and its real recipient list, not a preview sent elsewhere. An
+// empty list means nobody gets it (logged, not an error) — add yourself
+// there first if you want a test run to actually land somewhere.
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { etDate } from './tips-report-cron-background.mjs';
