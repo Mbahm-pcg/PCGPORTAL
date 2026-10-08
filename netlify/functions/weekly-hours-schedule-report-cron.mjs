@@ -1,10 +1,14 @@
 // weekly-hours-schedule-report-cron.mjs — scheduled weekly: emails
-// attachments covering the PREVIOUS week, network-wide (all 45 stores):
-//   - Timecard: one small Excel file PER STORE (buildTimecardWorkbooks) —
-//     no summary/totals file, no combined workbook with tabs.
-//   - Schedule: one PDF (buildSchedulePDF) rendered as an actual weekly
-//     calendar grid — one page per store, a row per employee, a column per
-//     day (Sun-Sat), shift time ranges in the cells.
+// attachments covering the PREVIOUS week, network-wide (all 45 stores),
+// EVERY file one-by-one per store — nothing combined, nothing with tabs or
+// multiple pages to click through:
+//   - Timecard: one small Excel file PER STORE (buildTimecardWorkbooks).
+//   - Schedule: one PDF PER STORE (buildSchedulePDFs), each a weekly
+//     calendar grid — a row per employee, a column per day (Sun-Sat), shift
+//     time ranges in the cells.
+// A store with nothing to show (no punches, or no posted shifts) simply gets
+// no file for that side — the email's attachment count varies store-to-store
+// week-to-week by design.
 // Built 2026-10-08 per explicit request ("I need it emailed to me every
 // week, for the previous week, both the timecard and the schedule"), then
 // revised several more times per explicit follow-up, in order:
@@ -23,6 +27,13 @@
 //      of the total"), and Schedule rebuilt as a real calendar grid instead
 //      of a flat employee/hours list, matching a reference screenshot of
 //      this app's own in-app weekly schedule view.
+//   4. Fixed a real bug where every store showed zero Saturday shifts
+//      (Paycor's schedulingShifts treats endDate as exclusive).
+//   5. Schedule PDF also split one-per-store, same as Timecard — explicitly
+//      marked as the final request for this project ("this is also the
+//      same case where i need them one by one... i dont want them in the
+//      same PDF but one bye one and this should end of the final for this
+//      project").
 //
 // Scope decisions made building this (flagged, not silently assumed):
 //   - "Timecard" here means raw Paycor punches (one call per store per
@@ -243,42 +254,34 @@ function buildTimecardWorkbooks(XLSX, weekStartUS, weekEndUS, byStore) {
   return files;
 }
 
-// Schedule as a calendar grid PDF — one page (landscape) per store: a row
-// per employee, a column per day (Sun-Sat), each cell the shift time range
-// for that employee that day — matching the reference weekly-schedule layout
-// (store name header, day-of-week + date column headers, time ranges in
-// grid cells) rather than a flat employee/hours list.
-async function buildSchedulePDF(weekStart, weekStartUS, weekEndUS, byStore) {
+// One calendar-grid PDF PER STORE (not one combined PDF with a page per
+// store) — per explicit request, same "one by one" pattern as the Timecard
+// Excel files: "i need them one by one please i dont want them in the same
+// PDF but one bye one". A row per employee, a column per day (Sun-Sat), each
+// cell the shift time range for that employee that day.
+async function buildSchedulePDFs(weekStart, weekStartUS, weekEndUS, byStore) {
   const { default: PDFDocument } = await import('pdfkit');
-  const doc = new PDFDocument({ margin: 36, size: 'LETTER', layout: 'landscape' });
-  const chunks = [];
-  doc.on('data', (c) => chunks.push(c));
-  const done = new Promise((resolve, reject) => {
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-  });
-
   const dates = weekDates(weekStart);
-  const storesWithShifts = byStore.filter(s => s.schedule.length > 0);
+  const files = [];
 
-  if (storesWithShifts.length === 0) {
-    doc.fontSize(14).font('Helvetica-Bold').text(`Weekly Schedule — ${weekStartUS} to ${weekEndUS}`);
-    doc.moveDown(1);
-    doc.fontSize(11).font('Helvetica').text('No posted shifts found for any store this week.');
-    doc.end();
-    return done;
-  }
+  for (const store of byStore) {
+    if (store.schedule.length === 0) continue; // nothing posted — no file for this store
 
-  const MARGIN = doc.page.margins.left;
-  const PAGE_W = doc.page.width - MARGIN * 2;
-  const NAME_COL_W = 150;
-  const DAY_COL_W = (PAGE_W - NAME_COL_W) / 7;
-  const ROW_H = 34;
-  const HEADER_H = 26;
-  const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
+    const doc = new PDFDocument({ margin: 36, size: 'LETTER', layout: 'landscape' });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    const done = new Promise((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+    });
 
-  storesWithShifts.forEach((store, storeIdx) => {
-    if (storeIdx > 0) doc.addPage();
+    const MARGIN = doc.page.margins.left;
+    const PAGE_W = doc.page.width - MARGIN * 2;
+    const NAME_COL_W = 150;
+    const DAY_COL_W = (PAGE_W - NAME_COL_W) / 7;
+    const ROW_H = 34;
+    const HEADER_H = 26;
+    const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
 
     doc.fontSize(14).font('Helvetica-Bold').text(store.name, MARGIN, MARGIN);
     doc.fontSize(10).font('Helvetica').text(`Weekly Schedule: ${dates[0].dow}, ${dates[0].label} – ${dates[6].dow}, ${dates[6].label}`);
@@ -319,11 +322,11 @@ async function buildSchedulePDF(weekStart, weekStartUS, weekEndUS, byStore) {
       y += ROW_H;
     }
 
-    doc.y = y + 10;
-  });
+    doc.end();
+    files.push({ storeName: store.name, buffer: await done });
+  }
 
-  doc.end();
-  return done;
+  return files;
 }
 
 // Same SMTP-then-Resend fallback as tips-report-cron-background.mjs's own
@@ -390,7 +393,7 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
   const weekStartUS = toUSDate(weekStart);
   const weekEndUS = toUSDate(weekEnd);
   const timecardFiles = buildTimecardWorkbooks(XLSX, weekStartUS, weekEndUS, byStore);
-  const pdfBuffer = await buildSchedulePDF(weekStart, weekStartUS, weekEndUS, byStore);
+  const scheduleFiles = await buildSchedulePDFs(weekStart, weekStartUS, weekEndUS, byStore);
 
   const timecardCount = byStore.reduce((s, store) => s + store.timecard.length, 0);
   const scheduleCount = byStore.reduce((s, store) => s + store.schedule.length, 0);
@@ -404,7 +407,7 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
       <li>Worked hours (timecard): <strong>${totalHours.toLocaleString()}</strong> (${totalReg.toLocaleString()} Reg + ${totalOt.toLocaleString()} OT) across ${timecardCount} employee-store rows</li>
       <li>Scheduled hours (posted shifts): <strong>${totalScheduled.toLocaleString()}</strong> across ${scheduleCount} employee-store rows</li>
     </ul>
-    <p>${timecardFiles.length} Timecard attachments (one Excel file per store), plus one Schedule PDF (one calendar-grid page per store).</p>
+    <p>${timecardFiles.length} Timecard attachments + ${scheduleFiles.length} Schedule attachments — one Excel file and one PDF per store, each on its own, nothing combined.</p>
   `;
   const filenameDate = (iso) => iso.replace(/-/g, '');
   const dateTag = `${filenameDate(weekStart)}_to_${filenameDate(weekEnd)}`;
@@ -415,10 +418,10 @@ export async function runWeeklyReport(weekStart, weekEnd, recipient = RECIPIENT)
     html,
     [
       ...timecardFiles.map(f => ({ filename: `Timecard_${safeFileTag(f.storeName)}_${dateTag}.xlsx`, content: f.buffer })),
-      { filename: `Weekly_Schedule_${dateTag}.pdf`, content: pdfBuffer },
+      ...scheduleFiles.map(f => ({ filename: `Schedule_${safeFileTag(f.storeName)}_${dateTag}.pdf`, content: f.buffer })),
     ],
   );
-  return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount, scheduleCount, timecardFiles: timecardFiles.length, emailSent: result.sent, method: result.method };
+  return { weekStart, weekEnd, totalHours, totalScheduled, timecardCount, scheduleCount, timecardFiles: timecardFiles.length, scheduleFiles: scheduleFiles.length, emailSent: result.sent, method: result.method };
 }
 
 export default async (request) => {
