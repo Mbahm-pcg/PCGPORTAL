@@ -79,6 +79,12 @@ export function toUSDate(iso) {
   return `${m}/${d}/${y}`;
 }
 
+function addDaysISO(iso, days) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
 // The 7 calendar dates of the week, for the schedule grid's column headers —
 // weekStart is always a Sunday in real use (the scheduled cron's own
 // calculation), so dayIdx 0 = Sunday .. 6 = Saturday.
@@ -156,7 +162,15 @@ async function buildReport(weekStart, weekEnd) {
       hoursByEmp[p.employeeId] = (hoursByEmp[p.employeeId] || 0) + punchHours(p);
     }
 
-    const shifts = await fetchSchedulingShifts(store.paycor, weekStart, weekEnd);
+    // endDate widened by one day — confirmed directly (2026-10-08): every
+    // employee at every store came back with zero Saturday shifts, a pattern
+    // far too consistent to be real staffing, pointing straight at Paycor's
+    // schedulingShifts treating endDate as EXCLUSIVE (shifts landing exactly
+    // on weekEnd never come back). Over-fetching one extra day is safe —
+    // shiftDateISO/dayIndexFromWeekStart below still strictly discard
+    // anything outside the real 0-6 day range, so nothing from the day after
+    // weekEnd can leak into the grid even if this hypothesis is wrong.
+    const shifts = await fetchSchedulingShifts(store.paycor, weekStart, addDaysISO(weekEnd, 1));
     const schedByEmp = {}; // employeeId -> { name, jobTitle, days: [string|null x7], totalHours }
     for (const s of shifts) {
       if (!s.employeeId) continue;
