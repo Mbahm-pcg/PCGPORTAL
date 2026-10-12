@@ -465,7 +465,10 @@ export async function runWeeklyReport(weekStart, weekEnd, recipientOverride = nu
 // schedule registration stays in place either way (see that file's comment
 // for why: it's the only thing stopping an unauthenticated direct HTTP call
 // from triggering a send, since this file has no auth check of its own).
-const PAUSED = true;
+// UNPAUSED 2026-10-12: report finalized and the self-service recipient list
+// (Admin · Notifications · Weekly Hours + Schedule) is populated; the
+// 2026-10-12 Monday run was skipped while this was still true.
+const PAUSED = false;
 
 export default async (request) => {
   if (PAUSED) {
