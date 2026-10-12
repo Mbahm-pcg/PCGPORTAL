@@ -790,11 +790,22 @@ export default async (request, context) => {
       const district = body.district ? +body.district : null;
       const stores = Object.values(STORE_BY_PC).filter((s) => !district || s.district === district);
       await generateInstances(db, stores.map((s) => s.pc), date);
-      const rows = await db`
-        SELECT i.store_pc, i.status, i.business_date::text AS business_date, i.shift_time
-        FROM task_instances i
-        WHERE i.business_date = ${date}
-          AND i.store_pc = ANY(${stores.map((s) => s.pc)})`;
+      // Optional `label` filter (e.g. 'Food Safety') — added for the simplified
+      // Dashboard's "Needs attention" food-safety row. Omitted = every task, same
+      // as before, so existing callers are unaffected.
+      const label = body.label ? String(body.label) : null;
+      const rows = label
+        ? await db`
+          SELECT i.store_pc, i.status, i.business_date::text AS business_date, i.shift_time
+          FROM task_instances i JOIN task_templates t ON t.id = i.template_id
+          WHERE i.business_date = ${date}
+            AND i.store_pc = ANY(${stores.map((s) => s.pc)})
+            AND t.label = ${label}`
+        : await db`
+          SELECT i.store_pc, i.status, i.business_date::text AS business_date, i.shift_time
+          FROM task_instances i
+          WHERE i.business_date = ${date}
+            AND i.store_pc = ANY(${stores.map((s) => s.pc)})`;
       // Open CA counts per store
       const caRows = await db`SELECT store_pc, COUNT(*) AS cnt FROM corrective_actions WHERE store_pc = ANY(${stores.map((s) => s.pc)}) AND status='open' GROUP BY store_pc`;
       const caByStore = Object.fromEntries(caRows.map((r) => [r.store_pc, +r.cnt]));

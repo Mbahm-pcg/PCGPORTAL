@@ -1394,82 +1394,6 @@
     }, [dep]);
     return frameH;
   }
-  function StackCardsSection({ th, disabled, children }) {
-    const kids = React.Children.toArray(children);
-    const stageRefs = useRef([]);
-    const containerRef = useRef(null);
-    const isMobileView = useIsMobile();
-    const off = disabled || isMobileView;
-    const OVERLAP_MB = "calc(-1 * min(14vh, 130px))";
-    useEffect(() => {
-      if (off) return;
-      let raf = 0;
-      const lastClip = [];
-      const align = () => {
-        raf = 0;
-        const els = stageRefs.current.filter(Boolean);
-        if (els.length < 2) return;
-        const bottoms = els.map((el) => el.getBoundingClientRect().bottom);
-        const cuts = new Array(els.length).fill(0);
-        let clipBottom = bottoms[els.length - 1];
-        for (let i = els.length - 2; i >= 0; i--) {
-          cuts[i] = Math.max(0, bottoms[i] - clipBottom);
-          clipBottom = Math.min(bottoms[i], clipBottom);
-        }
-        els.forEach((el, i) => {
-          const want = cuts[i] > 0.5 ? `inset(-48px -32px ${Math.round(cuts[i])}px -32px)` : "none";
-          if (lastClip[i] !== want) {
-            lastClip[i] = want;
-            el.style.clipPath = want;
-          }
-          const empty = el.scrollHeight < 8;
-          const isLast = i === els.length - 1;
-          el.style.boxShadow = empty ? "none" : "0 -10px 28px rgba(0,0,0,0.14)";
-          if (el.parentElement) el.parentElement.style.marginBottom = empty ? "0px" : isLast ? "1rem" : OVERLAP_MB;
-        });
-      };
-      const schedule = () => {
-        if (!raf) raf = requestAnimationFrame(align);
-      };
-      align();
-      const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
-      if (ro && containerRef.current) ro.observe(containerRef.current);
-      window.addEventListener("scroll", schedule, { passive: true });
-      window.addEventListener("resize", schedule);
-      return () => {
-        if (raf) cancelAnimationFrame(raf);
-        if (ro) ro.disconnect();
-        window.removeEventListener("scroll", schedule);
-        window.removeEventListener("resize", schedule);
-      };
-    }, [off]);
-    if (off) return /* @__PURE__ */ React.createElement(React.Fragment, null, children);
-    return /* @__PURE__ */ React.createElement("div", { ref: containerRef }, kids.map((child, i) => {
-      const top = 16 + i * 14;
-      const last = i === kids.length - 1;
-      return (
-        // Negative gap between cards: the next card starts its climb early
-        // (the covered card's tail is hidden under it anyway), so the deck plays
-        // through faster than the cards' combined natural heights.
-        /* @__PURE__ */ React.createElement("div", { key: i, style: { position: "sticky", top, zIndex: i + 1, marginBottom: last ? "1rem" : OVERLAP_MB } }, /* @__PURE__ */ React.createElement(
-          "div",
-          {
-            ref: (el) => {
-              stageRefs.current[i] = el;
-            },
-            style: {
-              maxHeight: `calc(100vh - ${top + 16}px)`,
-              overflowY: "auto",
-              background: th.bg,
-              borderRadius: "1rem",
-              boxShadow: "0 -10px 28px rgba(0,0,0,0.14)"
-            }
-          },
-          child
-        ))
-      );
-    }));
-  }
   function EmptyState({ icon, title, description, actionLabel, onAction, th }) {
     return /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "4rem 2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem", opacity: 0.3 } }, icon), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "1.1rem", color: th.text, marginBottom: "0.4rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.875rem", marginBottom: "1.25rem", maxWidth: 320, margin: "0 auto 1.25rem" } }, description), actionLabel && onAction && /* @__PURE__ */ React.createElement("button", { style: { padding: "0.5rem 1.25rem", borderRadius: "0.5rem", border: "none", background: "#FF671F", color: "#fff", fontFamily: "'Source Sans 3'", fontWeight: 600, fontSize: "0.875rem", cursor: "pointer" }, onClick: onAction }, actionLabel));
   }
@@ -24211,7 +24135,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.76";
+  var APP_VERSION = "v21.81";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -25708,142 +25632,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       )))
     );
   }
-  function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
-    const G = "#00d084";
-    const todayStr = (() => {
-      const d = /* @__PURE__ */ new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    })();
-    const [totals, setTotals] = useState(null);
-    const [wtdTotals, setWtdTotals] = useState(null);
-    const [trendData, setTrendData] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [progress, setProgress] = useState(0);
-    const mounted = useRef(true);
-    const activePCs = stores.filter((s) => s.status === "Open").map((s) => s.pc);
-    const localDateStr2 = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-    function getWeekDates(dateStr) {
-      const d = /* @__PURE__ */ new Date(dateStr + "T12:00:00");
-      const sun = new Date(d);
-      sun.setDate(d.getDate() - d.getDay());
-      const dates = [];
-      for (let i = 0; i < 7; i++) {
-        const dd = new Date(sun);
-        dd.setDate(sun.getDate() + i);
-        const ds = localDateStr2(dd);
-        if (ds <= dateStr) dates.push(ds);
-      }
-      return dates;
-    }
-    useEffect(() => {
-      mounted.current = true;
-      (async () => {
-        if (activePCs.length === 0) return;
-        const results = {};
-        for (let i = 0; i < activePCs.length; i += 8) {
-          await Promise.all(activePCs.slice(i, i + 8).map(async (pc) => {
-            try {
-              const json = await fetchOpsTotals(pc, todayStr);
-              results[pc] = { status: "ok", data: sumRVC(json.revenueCenters) };
-            } catch (e) {
-              results[pc] = { status: "error" };
-            }
-          }));
-          if (mounted.current) setProgress(Math.round((i + 8) / activePCs.length * 100));
-        }
-        const loaded = Object.values(results).filter((d) => d.status === "ok");
-        const dayTotals = loaded.reduce((a, d) => ({
-          netSales: a.netSales + d.data.netSales,
-          guests: a.guests + d.data.guests,
-          discounts: a.discounts + d.data.discounts
-        }), { netSales: 0, guests: 0, discounts: 0 });
-        dayTotals.avgCheck = dayTotals.guests > 0 ? dayTotals.netSales / dayTotals.guests : 0;
-        if (mounted.current) {
-          setTotals(dayTotals);
-          setLoading(false);
-        }
-        const weekDates2 = getWeekDates(todayStr);
-        const cache = { [todayStr]: dayTotals };
-        for (const date of weekDates2) {
-          if (date === todayStr) continue;
-          const dayRes = {};
-          for (let i = 0; i < activePCs.length; i += 8) {
-            await Promise.all(activePCs.slice(i, i + 8).map(async (pc) => {
-              try {
-                const json = await fetchOpsTotals(pc, date);
-                dayRes[pc] = { status: "ok", data: sumRVC(json.revenueCenters) };
-              } catch (e) {
-                dayRes[pc] = { status: "error" };
-              }
-            }));
-          }
-          const dayLoaded = Object.values(dayRes).filter((d) => d.status === "ok");
-          cache[date] = dayLoaded.reduce((a, d) => ({
-            netSales: a.netSales + d.data.netSales,
-            guests: a.guests + d.data.guests,
-            discounts: a.discounts + d.data.discounts
-          }), { netSales: 0, guests: 0, discounts: 0 });
-        }
-        const wtd = weekDates2.reduce((a, d) => ({
-          netSales: a.netSales + (cache[d]?.netSales || 0),
-          guests: a.guests + (cache[d]?.guests || 0),
-          discounts: a.discounts + (cache[d]?.discounts || 0)
-        }), { netSales: 0, guests: 0, discounts: 0 });
-        wtd.avgCheck = wtd.guests > 0 ? wtd.netSales / wtd.guests : 0;
-        const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const trend = weekDates2.map((date, i) => ({
-          date: date.slice(5),
-          dayLabel: DAY_LABELS[i] || "",
-          netSales: cache[date]?.netSales || 0,
-          hasData: !!cache[date]
-        }));
-        if (mounted.current) {
-          setWtdTotals(wtd);
-          setTrendData(trend);
-        }
-      })();
-      return () => {
-        mounted.current = false;
-      };
-    }, []);
-    const fmtUSD = (v) => "$" + Math.round(v).toLocaleString();
-    const fmtNum = (v) => Math.round(v).toLocaleString();
-    const fmtAvg = (v) => v > 0 ? "$" + v.toFixed(2) : "\u2014";
-    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: G, textTransform: "uppercase", letterSpacing: 1.5, display: "flex", alignItems: "center", gap: "0.5rem" } }, ICONS.pulse(G), " Pulse Snapshot"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("pulse"), style: { background: "none", border: "none", color: G, cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "'Source Sans 3'" } }, "Full Dashboard")), loading && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.75rem", padding: "1.5rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: G, fontWeight: 600, marginBottom: "0.75rem" } }, "Loading Pulse data..."), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 4, height: 6, overflow: "hidden", maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: G, borderRadius: 4, transition: "width 0.3s", width: `${progress}%` } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem" } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), "/", activePCs.length, " stores")), totals && !loading && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: wtdTotals ? "0.75rem" : 0 } }, [
-      { label: "Net Sales", value: fmtUSD(totals.netSales), color: G, sub: `Net Sales \u2014 ${todayStr}`, question: `Explain today's net sales of ${fmtUSD(totals.netSales)}. How does it compare to last week and what's driving it?` },
-      { label: "Guests", value: fmtNum(totals.guests), color: "#74c0fc", sub: "Guests / Checks", question: `Explain today's guest count of ${fmtNum(totals.guests)}. Is this above or below average? What could improve it?` },
-      { label: "Avg Check", value: fmtAvg(totals.avgCheck), color: "#ffd43b", sub: "Avg Check", question: `Explain today's average check of ${fmtAvg(totals.avgCheck)}. How does it compare to our target and what's affecting it?` },
-      { label: "Discounts", value: fmtUSD(totals.discounts), color: "#f06595", sub: "Discounts", question: `Explain today's discount total of ${fmtUSD(totals.discounts)}. Is this within normal range? Which stores are discounting the most?` }
-    ].map((kpi) => /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        key: kpi.label,
-        style: { position: "relative", background: th.card2, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: `3px solid ${kpi.color}`, flex: "1 1 130px", minWidth: 130, transition: "transform 0.15s, box-shadow 0.15s" },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.transform = "translateY(-2px)";
-          e.currentTarget.style.boxShadow = `0 8px 20px rgba(0,0,0,0.1), 0 0 0 1px ${kpi.color}33`;
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.transform = "none";
-          e.currentTarget.style.boxShadow = "none";
-        }
-      },
-      onAskOrion && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => onAskOrion(kpi.question),
-          title: "Ask Orion",
-          style: { position: "absolute", top: 8, right: 8, background: "none", border: "none", cursor: "pointer", padding: 2, opacity: 0.6, display: "flex" },
-          onMouseEnter: (e) => e.currentTarget.style.opacity = 1,
-          onMouseLeave: (e) => e.currentTarget.style.opacity = 0.6
-        },
-        /* @__PURE__ */ React.createElement(OrionIcon, { size: 18 })
-      ),
-      /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: kpi.color, textShadow: kpi.label === "Net Sales" ? `0 0 12px ${kpi.color}66` : "none" } }, kpi.value),
-      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 600, marginTop: "0.25rem" } }, kpi.sub)
-    ))), wtdTotals && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.75rem", padding: "1rem 1.25rem", borderLeft: `3px solid ${G}`, marginBottom: trendData.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", fontWeight: 700, color: th.text, marginBottom: "0.75rem" } }, "Week to Date ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 400, color: th.muted } }, "(", trendData.filter((d) => d.hasData).length, " days)")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: G } }, fmtUSD(wtdTotals.netSales)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Net Sales")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#74c0fc" } }, fmtNum(wtdTotals.guests)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Guests")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#ffd43b" } }, fmtAvg(wtdTotals.avgCheck)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Avg Check")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: "#f06595" } }, fmtUSD(wtdTotals.discounts)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, marginTop: "0.15rem" } }, "Discounts")))), trendData.length > 0 && trendData.some((d) => d.hasData) && /* @__PURE__ */ React.createElement(TrendChart, { data: trendData, G, th, onBarClick: () => setTab("pulse") })));
-  }
-  function ActionQueue({ stores, th, user, setTab, users, showAlert: showAlert2 }) {
+  function useActionQueue({ stores, user, users, showAlert: showAlert2, enabled = true }) {
     const [laborData, setLaborData] = React.useState(null);
     const [tickets, setTickets] = React.useState(null);
     const [trends, setTrends] = React.useState({});
@@ -25865,6 +25654,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     });
     React.useEffect(() => {
+      if (!enabled) return;
       cloudLoad("pcg_labor_v1").then((d) => {
         if (d?.stores) setLaborData(d.stores);
       }).catch(() => {
@@ -25894,8 +25684,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     React.useEffect(() => {
       if (!laborData) return;
       const isDM2 = user?.userType === "dm";
-      const visible2 = isDM2 ? stores.filter((s) => String(s.district) === String(user.district)) : stores;
-      const flagged = visible2.filter((s) => {
+      const visible = isDM2 ? stores.filter((s) => String(s.district) === String(user.district)) : stores;
+      const flagged = visible.filter((s) => {
         const lPct = laborData[s.pc]?.today?.laborPct;
         return lPct != null && lPct >= 26 && s.status === "Open";
       }).slice(0, 20);
@@ -26071,6 +25861,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       cloudSave("pcg_action_log", updated).catch(() => {
       });
     }, [actions, user]);
+    return { actions, acknowledge, delegate, delegating, actionLog };
+  }
+  function ActionQueue({ stores, th, user, setTab, users, showAlert: showAlert2 }) {
+    const { actions, acknowledge, delegate, delegating, actionLog } = useActionQueue({ stores, user, users, showAlert: showAlert2 });
+    const isExec = user?.userType === "executive" || user?.userType === "it";
     if (!actions || actions.length === 0) return null;
     const SHOWN = 6;
     const visible = actions.slice(0, SHOWN);
@@ -26478,7 +26273,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     // '200': 'Walk-in Cooler',
     // '201': 'Walk-in Freezer',
   };
-  function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert: showAlert2, users }) {
+  function DashboardHero({ user, th, isMobile, dailyFeed }) {
     const hour = (/* @__PURE__ */ new Date()).getHours();
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const firstName = (user?.name || "").split(" ")[0];
@@ -26511,29 +26306,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       window.addEventListener("scroll", close, { passive: true });
       return () => window.removeEventListener("scroll", close);
     }, [showWeekWeather]);
-    const [dailyFeed, setDailyFeed] = useState(null);
-    const [newsTab, setNewsTab] = useState("general");
-    const [hoveredKpi, setHoveredKpi] = useState(null);
-    const ticketStats = React.useMemo(() => {
-      try {
-        const allTs = JSON.parse(localStorage.getItem("pcg_tickets_v1") || "[]");
-        let ts = allTs;
-        if (user?.userType === "dm") {
-          const districtPCs = new Set((stores || []).filter((s) => s.district === user.district).map((s) => String(s.pc)));
-          ts = allTs.filter((t) => districtPCs.has(String(t.storePC)));
-        } else if (user?.userType === "manager") {
-          ts = allTs.filter((t) => String(t.storePC) === String(user.storePC));
-        }
-        const open = ts.filter((t) => t.status === "Open");
-        const inProg = ts.filter((t) => t.status === "In Progress");
-        const highPrio = ts.filter((t) => t.priority === "High" && t.status !== "Closed");
-        const overdue = ts.filter((t) => t.dueDate && t.status !== "Closed" && /* @__PURE__ */ new Date(t.dueDate + "T23:59:59") < /* @__PURE__ */ new Date());
-        const recent = [...open, ...inProg].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).slice(0, 8);
-        return { open: open.length, inProg: inProg.length, highPrio: highPrio.length, overdue: overdue.length, recent };
-      } catch {
-        return { open: 0, inProg: 0, highPrio: 0, overdue: 0, recent: [] };
-      }
-    }, [user, stores]);
     useEffect(() => {
       (async () => {
         try {
@@ -26579,72 +26351,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       })();
     }, []);
-    useEffect(() => {
-      (async () => {
-        try {
-          const r = await fetch("/.netlify/functions/daily-feed");
-          if (r.ok) setDailyFeed(await r.json());
-        } catch {
-        }
-      })();
-    }, []);
-    const ut = user?.userType;
-    const isExec = ut === "executive" || ut === "it" || ut === "office_staff";
-    const isDM = ut === "dm";
-    const isConstruction = ut === "construction";
-    const isVendor = ut === "vendor";
-    const linkCount = Object.values(links || {}).reduce((s, arr) => s + (arr?.length || 0), 0);
-    const myTodos = (todos || []).filter((t) => {
-      if (t.done) return false;
-      const ids = t.assigneeIds || (t.assigneeId !== void 0 ? [t.assigneeId] : []);
-      return ids.includes(user?.id);
-    });
-    const activeProjects = (projects || []).filter((p) => !p.completed);
-    const myStores = isDM ? (stores || []).filter((s) => s.district === user?.district) : stores || [];
-    const userDistrict = user?.district ? Number(user.district) : null;
-    const userStoreDistrict = user?.storePC ? Number((stores || []).find((s) => String(s.pc) === String(user.storePC))?.district || 0) : null;
-    function announcementIsTargetedToMe(a) {
-      if (!a.targets) return true;
-      const { roles, districts: districts2, users: userIds } = a.targets;
-      if (roles?.includes(user?.userType)) return true;
-      if (userIds?.includes(user?.id)) return true;
-      const myDist = userDistrict || userStoreDistrict;
-      if (myDist && districts2?.includes(myDist)) return true;
-      return false;
-    }
-    const unreadAnnouncements = (announcements || []).filter(
-      (a) => a.active && a.type !== "leaderboard" && !announcementsDismissed?.[`${user?.id}_${a.id}`] && announcementIsTargetedToMe(a)
-    );
-    const kpis = [];
-    if (isExec) {
-      kpis.push({ label: "Quick Links", value: linkCount, icon: ICONS.links, color: "#3b82f6", tab: "links", question: "Summarize the most important operational quick links available and what each one is used for." });
-      kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos", question: "What are the most urgent open tasks right now? Flag anything overdue or high priority." });
-      kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects", question: "Give me a status summary of all active remodel and construction projects. Flag any that are behind schedule or at risk." });
-      kpis.push({ label: "Store Locations", value: (stores || []).length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations", question: "Give me a top-level health summary across all our store locations. Which ones need attention?" });
-    } else if (isDM) {
-      kpis.push({ label: "My Locations", value: myStores.length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations", question: `Give me a performance overview of my ${myStores.length} district locations. Which ones need my attention today?` });
-      kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos", question: "What are my most urgent open tasks right now? Flag anything overdue or high priority." });
-      kpis.push({ label: "My Projects", value: activeProjects.filter((p) => p.district === user?.district).length, icon: ICONS.projects, color: O, tab: "projects", question: "Summarize active construction projects in my district. Are any behind schedule or at risk?" });
-    } else if (isConstruction) {
-      kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects", question: "Give me a status summary of all active remodel and construction projects. Flag any that are behind schedule or at risk." });
-      kpis.push({ label: "Locations", value: (stores || []).length, icon: ICONS.locations, color: "#8b5cf6", tab: "locations", question: "Give me a quick summary of all store locations and which ones have active construction work." });
-      kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos", question: "What are my most urgent open tasks right now? Flag anything overdue or high priority." });
-    } else if (isVendor) {
-      kpis.push({ label: "Active Projects", value: activeProjects.length, icon: ICONS.projects, color: O, tab: "projects", question: "Give me a status summary of all active remodel and construction projects. Flag any that are behind schedule or at risk." });
-    } else {
-      kpis.push({ label: "Open Tasks", value: myTodos.length, icon: ICONS.todos, color: "#22c55e", tab: "todos", question: "What are my most urgent open tasks right now? Flag anything overdue or high priority." });
-      kpis.push({ label: "Quick Links", value: linkCount, icon: ICONS.links, color: "#3b82f6", tab: "links", question: "What are the most useful operational links available to me?" });
-    }
-    const quickActions = [
-      { label: "Browse Links", icon: ICONS.links, tab: "links" },
-      { label: "New Note", icon: ICONS.notes, tab: "notes" },
-      { label: "Add Task", icon: ICONS.todos, tab: "todos" }
-    ];
-    if (isExec || isDM || isConstruction) quickActions.push({ label: "View Projects", icon: ICONS.projects, tab: "projects" });
-    if (isExec) quickActions.push({ label: "Open Pulse", icon: ICONS.pulse, tab: "pulse" });
-    const allowedTabIds = new Set(getTabs(user).map((t) => t.id));
-    const visibleQuickActions = quickActions.filter((a) => allowedTabIds.has(a.tab));
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: {
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: {
       position: "relative",
       marginBottom: "1.5rem",
       background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`,
@@ -26767,429 +26474,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         ),
         document.body
       )
-    ))), unreadAnnouncements.length > 0 && /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        onClick: () => setTab("announcements"),
-        style: {
-          position: "relative",
-          overflow: "hidden",
-          background: `linear-gradient(135deg, ${O}12 0%, ${th.card} 60%)`,
-          border: `1px solid ${O}44`,
-          borderRadius: "0.875rem",
-          padding: "1rem 1.25rem",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: "1rem",
-          marginBottom: "1.25rem",
-          transition: "all .2s ease",
-          boxShadow: `0 2px 12px ${O}18`
-        },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.boxShadow = `0 6px 24px ${O}33`;
-          e.currentTarget.style.transform = "translateY(-1px)";
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.boxShadow = `0 2px 12px ${O}18`;
-          e.currentTarget.style.transform = "none";
-        }
-      },
-      /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "absolute", top: -30, left: -20, width: 120, height: 120, borderRadius: "50%", background: `radial-gradient(circle, ${O}22 0%, transparent 70%)`, pointerEvents: "none", filter: "blur(8px)" } }),
-      /* @__PURE__ */ React.createElement("div", { style: { width: 40, height: 40, borderRadius: "0.625rem", background: `${O}22`, border: `1px solid ${O}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" } }, ICONS.announcements(O), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", background: O, color: "#fff", fontSize: "0.55rem", fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${th.card}` } }, unreadAnnouncements.length)),
-      /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0, position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.2rem" } }, unreadAnnouncements.length, " Unread Announcement", unreadAnnouncements.length !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, unreadAnnouncements[0]?.title || "Tap to view company updates")),
-      /* @__PURE__ */ React.createElement("div", { style: { color: O, fontSize: "1rem", fontWeight: 900, flexShrink: 0, opacity: 0.7 } }, "\u2192")
-    ), /* @__PURE__ */ React.createElement("div", { style: {
-      display: "grid",
-      gridTemplateColumns: isMobile ? "1fr 1fr" : `repeat(auto-fit, minmax(220px, 1fr))`,
-      gap: "0.875rem",
-      marginBottom: "1.75rem"
-    } }, kpis.map((k) => {
-      const isOpenTasksCard = k.label === "Open Tasks";
-      const showPopover = isOpenTasksCard && hoveredKpi === k.label && myTodos.length > 0;
-      const isHovered = hoveredKpi === k.label;
-      const priColor = (p) => p === "High" ? "#ff4444" : p === "Medium" ? "#fbbf24" : "#22c55e";
-      return /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          key: k.label,
-          onMouseEnter: () => setHoveredKpi(k.label),
-          onMouseLeave: () => setHoveredKpi(null),
-          style: { position: "relative" }
-        },
-        /* @__PURE__ */ React.createElement("div", { onClick: () => setTab(k.tab), style: {
-          position: "relative",
-          background: th.card,
-          borderRadius: "0.875rem",
-          padding: "1.2rem 1.25rem 1.1rem",
-          cursor: "pointer",
-          border: `1px solid ${isHovered ? k.color + "55" : th.cardBorder}`,
-          display: "flex",
-          alignItems: "center",
-          gap: "1rem",
-          overflow: "hidden",
-          transform: isHovered ? "translateY(-2px)" : "none",
-          boxShadow: isHovered ? `0 12px 28px rgba(0,0,0,0.10), 0 0 0 1px ${k.color}33, 0 0 20px ${k.color}22` : `0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.05)`,
-          transition: "all .25s cubic-bezier(.4,0,.2,1)"
-        } }, /* @__PURE__ */ React.createElement("div", { style: {
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 3,
-          background: `linear-gradient(90deg, ${k.color}, ${k.color}88 40%, transparent)`
-        } }), k.question && onAskOrion && /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
-          e.stopPropagation();
-          onAskOrion(k.question);
-        }, title: "Ask Orion", style: { position: "absolute", top: 10, right: 10, background: "none", border: "none", cursor: "pointer", padding: 2, opacity: isHovered ? 0.9 : 0.4, transition: "opacity .2s", display: "flex", zIndex: 1 } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 18 })), /* @__PURE__ */ React.createElement("div", { style: {
-          width: 44,
-          height: 44,
-          borderRadius: "0.625rem",
-          background: isHovered ? `${k.color}22` : `${k.color}15`,
-          border: `1px solid ${k.color}33`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-          boxShadow: isHovered ? `0 0 16px ${k.color}44 inset` : "none",
-          transition: "all .25s ease"
-        } }, k.icon(k.color)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: {
-          fontFamily: "'Raleway'",
-          fontWeight: 900,
-          fontSize: "2rem",
-          color: th.text,
-          lineHeight: 0.95,
-          letterSpacing: -1
-        } }, k.value), /* @__PURE__ */ React.createElement("div", { style: {
-          fontSize: "0.62rem",
-          fontWeight: 800,
-          color: th.muted,
-          textTransform: "uppercase",
-          letterSpacing: 1.2,
-          marginTop: "0.35rem"
-        } }, k.label))),
-        showPopover && /* @__PURE__ */ React.createElement(
-          "div",
-          {
-            style: {
-              position: "absolute",
-              top: "100%",
-              left: 0,
-              right: 0,
-              minWidth: 320,
-              background: th.card,
-              border: `1px solid ${th.cardBorder}`,
-              borderRadius: "0.75rem",
-              boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
-              zIndex: 60,
-              overflow: "hidden",
-              animation: "fadeIn .15s ease"
-            },
-            onMouseEnter: () => setHoveredKpi(k.label),
-            onMouseLeave: () => setHoveredKpi(null)
-          },
-          /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Your Open Tasks (", myTodos.length, ")"), /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
-            e.stopPropagation();
-            setTab("todos");
-          }, style: { background: "none", border: "none", color: "#22c55e", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700, fontFamily: "'Source Sans 3'" } }, "View All \u2192")),
-          /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 320, overflowY: "auto" } }, (() => {
-            const priRank = { High: 0, Medium: 1, Low: 2 };
-            const sorted = [...myTodos].sort((a, b) => {
-              const aOver = a.dueDate && new Date(a.dueDate) < /* @__PURE__ */ new Date() ? 0 : 1;
-              const bOver = b.dueDate && new Date(b.dueDate) < /* @__PURE__ */ new Date() ? 0 : 1;
-              if (aOver !== bOver) return aOver - bOver;
-              const pa = priRank[a.priority] ?? 3;
-              const pb = priRank[b.priority] ?? 3;
-              if (pa !== pb) return pa - pb;
-              const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-              const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-              return da - db;
-            });
-            return sorted.slice(0, 10).map((t) => {
-              const overdue = t.dueDate && new Date(t.dueDate) < /* @__PURE__ */ new Date();
-              return /* @__PURE__ */ React.createElement(
-                "div",
-                {
-                  key: t.id,
-                  onClick: (e) => {
-                    e.stopPropagation();
-                    if (todoDeepLinkRef) todoDeepLinkRef.current = t.id;
-                    setTab("todos");
-                  },
-                  style: {
-                    padding: "0.625rem 1rem",
-                    borderBottom: `1px solid ${th.cardBorder}`,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.625rem",
-                    transition: "background .12s"
-                  },
-                  onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
-                  onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
-                },
-                /* @__PURE__ */ React.createElement("div", { style: { width: 9, height: 9, borderRadius: "50%", background: priColor(t.priority || "Medium"), flexShrink: 0, boxShadow: `0 0 6px ${priColor(t.priority || "Medium")}66` } }),
-                /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.text || "Untitled task"), t.dueDate && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: overdue ? "#ff4444" : th.muted, fontWeight: overdue ? 700 : 400, marginTop: "0.1rem" } }, overdue ? "\u26A0\uFE0F Overdue \xB7 " : "\u{1F4C5} ", (/* @__PURE__ */ new Date(t.dueDate + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" })))
-              );
-            });
-          })(), myTodos.length > 10 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 1rem", textAlign: "center", fontSize: "0.65rem", color: th.muted, background: th.card2 } }, "+", myTodos.length - 10, ' more \xB7 Click "View All" to see the rest'))
-        )
-      );
-    })), user.userType === "manager" && (() => {
-      const mp = getManagerStore(stores, user);
-      return mp?.pc ? (
-        // Same stacked-cards deck as the exec/DM dashboard "Section 2" — brief pins,
-        // the game plan slides over it. Self-disables to plain flow on mobile.
-        /* @__PURE__ */ React.createElement(StackCardsSection, { th }, /* @__PURE__ */ React.createElement(Guard, { name: "manager-brief", fallback: null }, /* @__PURE__ */ React.createElement(ManagerOrionBrief, { pc: mp.pc, storeName: mp.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "forecast-preplan", fallback: null }, /* @__PURE__ */ React.createElement(ForecastPrePlanCard, { pc: mp.pc, storeName: mp.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "manager-caps", fallback: null }, /* @__PURE__ */ React.createElement(ManagerCapCard, { user, th, stores, showAlert: showAlert2 })))
-      ) : null;
-    })(), (user.userType === "executive" || user.userType === "it" || user.userType === "dm") && /* @__PURE__ */ React.createElement(StackCardsSection, { th, disabled: isMobile }, /* @__PURE__ */ React.createElement(Guard, { name: "today-brief", fallback: null }, /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert: showAlert2, announcementsDismissed, setAnnouncementsDismissed })), /* @__PURE__ */ React.createElement(Guard, { name: "action-queue", fallback: null }, /* @__PURE__ */ React.createElement(ActionQueue, { stores, th, user, setTab, users, showAlert: showAlert2 })), (() => {
-      const showTickets = ticketStats.open > 0 || ticketStats.inProg > 0;
-      const cols = isMobile ? "1fr" : showTickets ? "1fr 1fr" : "1fr";
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: cols, gap: "1rem", marginBottom: "1.25rem", alignItems: "stretch" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem" } }, /* @__PURE__ */ React.createElement(Guard, { name: "business-cases", fallback: /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.78rem" } }, "Business cases unavailable right now.") }, /* @__PURE__ */ React.createElement(BusinessCasesCard, { user, th, inline: true, stores, setAnnouncements, showAlert: showAlert2 }))), showTickets && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.15rem", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1rem" } }, "\u{1F3AB}"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text } }, "Service Tickets")), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("tickets"), style: { background: "none", border: "none", color: O, fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", padding: 0 } }, "View All \u2192")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "0.875rem" } }, [
-        { label: "Open", value: ticketStats.open, color: "#3b82f6" },
-        { label: "In Progress", value: ticketStats.inProg, color: O },
-        { label: "High Priority", value: ticketStats.highPrio, color: "#ef4444" },
-        ...ticketStats.overdue > 0 ? [{ label: "Overdue", value: ticketStats.overdue, color: "#ef4444" }] : []
-      ].map((s) => /* @__PURE__ */ React.createElement("div", { key: s.label, style: { flex: "1 1 60px", textAlign: "center", background: s.color + "13", borderRadius: "0.5rem", padding: "0.5rem 0.25rem", border: `1px solid ${s.color}28` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.25rem", fontWeight: 800, color: s.color, fontFamily: "'Raleway'", lineHeight: 1 } }, s.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginTop: "0.2rem" } }, s.label)))), /* @__PURE__ */ React.createElement("div", { style: { height: "1px", background: th.cardBorder, marginBottom: "0.75rem" } }), ticketStats.recent.length > 0 ? /* @__PURE__ */ React.createElement("div", { style: { overflowY: "auto", maxHeight: "260px", display: "flex", flexDirection: "column", gap: "0.35rem", flex: 1 } }, ticketStats.recent.map((t) => {
-        const pClr = t.priority === "High" ? "#ef4444" : t.priority === "Medium" ? "#f59e0b" : "#22c55e";
-        const sClr = t.status === "Open" ? "#3b82f6" : O;
-        return /* @__PURE__ */ React.createElement("div", { key: t.id, onClick: () => setTab("tickets"), style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.5rem", borderRadius: "0.4rem", cursor: "pointer", borderLeft: `3px solid ${pClr}`, background: th.bg } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.number, " \u2014 ", t.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, t.storeName)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: sClr, background: sClr + "18", padding: "0.12rem 0.4rem", borderRadius: "0.4rem", flexShrink: 0 } }, t.status));
-      })) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, textAlign: "center", padding: "0.75rem 0" } }, "No open tickets")));
-    })()), visibleQuickActions.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.28rem 0.7rem", background: `${O}15`, border: `1px solid ${O}33`, borderRadius: "999px" } }, /* @__PURE__ */ React.createElement("svg", { width: "11", height: "11", viewBox: "0 0 16 16", fill: "none" }, /* @__PURE__ */ React.createElement("path", { d: "M8 1v6H2v2h6v6h2v-6h6V7h-6V1H8z", fill: O })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1.3 } }, "Quick Actions")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)` } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, visibleQuickActions.map((a) => /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        key: a.label,
-        onClick: () => setTab(a.tab),
-        style: {
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          padding: "0.55rem 1.1rem",
-          background: th.card,
-          border: `1px solid ${th.cardBorder}`,
-          borderRadius: "999px",
-          cursor: "pointer",
-          fontFamily: "'Source Sans 3'",
-          fontSize: "0.82rem",
-          fontWeight: 700,
-          color: th.muted,
-          transition: "all .2s ease",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
-        },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.background = `${O}12`;
-          e.currentTarget.style.borderColor = `${O}55`;
-          e.currentTarget.style.color = O;
-          e.currentTarget.style.boxShadow = `0 4px 14px ${O}22`;
-          e.currentTarget.style.transform = "translateY(-1px)";
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.background = th.card;
-          e.currentTarget.style.borderColor = th.cardBorder;
-          e.currentTarget.style.color = th.muted;
-          e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.04)";
-          e.currentTarget.style.transform = "none";
-        }
-      },
-      a.icon(O),
-      a.label
-    )))), user?.userType === "executive" && /* @__PURE__ */ React.createElement(DashboardPulse, { stores, th, setTab, isMobile, onAskOrion }), user?.userType === "executive" && salesWeeks && salesWeeks.length > 0 && (() => {
-      const week = salesWeeks[0];
-      const enriched = week.stores.map((row) => {
-        const s = stores.find((st) => String(st.pc) === String(row.pc));
-        return { ...row, district: s?.district || null };
-      });
-      const src = enriched;
-      const netSales = src.reduce((a, r) => a + r.lwSale, 0);
-      const pwSales = src.reduce((a, r) => a + r.pwSale, 0);
-      const swlySales = src.reduce((a, r) => a + r.swly, 0);
-      const guests = src.reduce((a, r) => a + r.lwCC, 0);
-      const forecast = src.reduce((a, r) => a + r.fcSale, 0);
-      const avgOf = (arr, key) => {
-        const f = arr.filter((r) => r[key] > 0);
-        return f.length ? f.reduce((a, r) => a + r[key], 0) / f.length : 0;
-      };
-      const avgDCP = avgOf(src, "dcpPct");
-      const avgBakery = avgOf(src, "donutsPct");
-      const avgLabor = avgOf(src, "laborPct");
-      const avgTot = avgOf(src, "totalPct");
-      const vsPW = pwSales > 0 ? (netSales - pwSales) / pwSales * 100 : 0;
-      const vsLY = swlySales > 0 ? (netSales - swlySales) / swlySales * 100 : 0;
-      const fmtFull = (n) => "$" + Math.round(n).toLocaleString("en-US");
-      const fmtSales = (n) => {
-        if (!n) return "\u2014";
-        if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-        return `$${(n / 1e3).toFixed(1)}K`;
-      };
-      const fmtPctV = (n) => {
-        if (n === 0) return "\u2014";
-        return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
-      };
-      const fmtNum = (n) => n ? n.toLocaleString("en", { maximumFractionDigits: 0 }) : "\u2014";
-      const diffClr = (p) => p > 0 ? "#69db7c" : p < 0 ? "#ff6b6b" : th.muted;
-      const laborClr = (p) => p > 28 ? "#ff6b6b" : p > 23 ? "#ffa94d" : "#69db7c";
-      const totalClr = (p) => p > 55 ? "#ff6b6b" : p > 50 ? "#ffa94d" : "#69db7c";
-      const dcpClr = (p) => p > 22 ? "#ff6b6b" : p > 19 ? "#ffa94d" : "#69db7c";
-      const bakeryClr = (p) => p > 8 ? "#ff6b6b" : p > 6 ? "#ffa94d" : "#69db7c";
-      const metrics = [
-        { label: "vs Prior Week", value: fmtPctV(vsPW), color: diffClr(vsPW) },
-        { label: "vs Same Wk LY", value: fmtPctV(vsLY), color: diffClr(vsLY) },
-        { label: "Total Guests", value: fmtNum(guests), color: "#74c0fc" },
-        { label: "Avg DCP %", value: avgDCP.toFixed(1) + "%", color: dcpClr(avgDCP) },
-        { label: "Avg Bakery %", value: avgBakery.toFixed(1) + "%", color: bakeryClr(avgBakery) },
-        { label: "Avg Labor %", value: avgLabor.toFixed(1) + "%", color: laborClr(avgLabor) },
-        { label: "Avg Total Cost %", value: avgTot.toFixed(1) + "%", color: totalClr(avgTot) },
-        { label: "Next Wk Forecast", value: fmtSales(forecast), color: "#b197fc" }
-      ];
-      const salesHistory = (salesWeeks || []).slice(0, 12).reverse().map((w) => (w.stores || []).reduce((s, r) => s + (r.lwSale || 0), 0));
-      return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "0.5rem",
-        padding: "0.3rem 0.75rem",
-        background: `${O}15`,
-        border: `1px solid ${O}33`,
-        borderRadius: "999px"
-      } }, ICONS.analytics(O), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.66rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1.3 } }, "Last Week's Performance")), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)` } }), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("analytics"), style: {
-        background: "none",
-        border: "none",
-        color: O,
-        cursor: "pointer",
-        fontSize: "0.72rem",
-        fontWeight: 700,
-        fontFamily: "'Source Sans 3'",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "0.25rem"
-      } }, "Full Analytics ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem" } }, "\u2192"))), /* @__PURE__ */ React.createElement("div", { style: {
-        position: "relative",
-        overflow: "hidden",
-        background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`,
-        border: `1px solid ${th.cardBorder}`,
-        borderRadius: "1rem",
-        boxShadow: `0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06)`
-      } }, /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
-        position: "absolute",
-        top: -80,
-        right: "20%",
-        width: 280,
-        height: 280,
-        borderRadius: "50%",
-        background: `radial-gradient(circle, #69db7c18 0%, transparent 65%)`,
-        pointerEvents: "none",
-        filter: "blur(12px)"
-      } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", padding: isMobile ? "1.25rem" : "1.75rem 2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem", gap: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.3rem" } }, "Total Network Sales"), /* @__PURE__ */ React.createElement("div", { style: {
-        fontFamily: "'Raleway'",
-        fontWeight: 900,
-        fontSize: isMobile ? "2.25rem" : "3.25rem",
-        color: "#69db7c",
-        letterSpacing: -1.5,
-        lineHeight: 0.95,
-        textShadow: "0 0 60px rgba(105, 219, 124, 0.25)"
-      } }, fmtFull(netSales)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.4rem", fontWeight: 600 } }, "Week #", week.weekNum, " \xB7 ", week.weekEnd)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.375rem", alignItems: isMobile ? "flex-start" : "flex-end" } }, [
-        { label: "Previous Week", pct: vsPW },
-        { label: "vs Last Year", pct: vsLY }
-      ].map((d) => /* @__PURE__ */ React.createElement("div", { key: d.label, style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "0.5rem",
-        padding: "0.35rem 0.7rem",
-        background: `${diffClr(d.pct)}15`,
-        border: `1px solid ${diffClr(d.pct)}44`,
-        borderRadius: "0.5rem"
-      } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: diffClr(d.pct), fontWeight: 900 } }, d.pct >= 0 ? "\u25B2" : "\u25BC", " ", Math.abs(d.pct).toFixed(1), "%"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: th.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 } }, d.label))))), salesHistory.length >= 3 && (() => {
-        const max = Math.max(...salesHistory);
-        const min = Math.min(...salesHistory);
-        const range = max - min || 1;
-        const W2 = 100, H = 32;
-        const pts = salesHistory.map((v, i) => {
-          const x = i / (salesHistory.length - 1) * W2;
-          const y = H - (v - min) / range * (H - 4) - 2;
-          return `${x.toFixed(1)},${y.toFixed(1)}`;
-        });
-        const pathD = `M ${pts.join(" L ")}`;
-        const areaD = `${pathD} L ${W2},${H} L 0,${H} Z`;
-        return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem", background: th.card2, borderRadius: "0.625rem", padding: "0.75rem 1rem", border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 } }, "12-Week Trend"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "High ", fmtSales(max), " \xB7 Low ", fmtSales(min))), /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${W2} ${H}`, preserveAspectRatio: "none", style: { width: "100%", height: 40, display: "block" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: "sparkGradient", x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#69db7c", stopOpacity: "0.4" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#69db7c", stopOpacity: "0" }))), /* @__PURE__ */ React.createElement("path", { d: areaD, fill: "url(#sparkGradient)" }), /* @__PURE__ */ React.createElement("path", { d: pathD, fill: "none", stroke: "#69db7c", strokeWidth: "1.2", strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke" }), /* @__PURE__ */ React.createElement("circle", { cx: ((salesHistory.length - 1) / (salesHistory.length - 1) * W2).toFixed(1), cy: pts[pts.length - 1].split(",")[1], r: "1.8", fill: "#69db7c", vectorEffect: "non-scaling-stroke" })));
-      })(), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(auto-fit, minmax(135px, 1fr))", gap: "0.5rem" } }, metrics.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.label, style: {
-        position: "relative",
-        background: th.card2,
-        borderRadius: "0.625rem",
-        padding: "0.75rem 0.9rem",
-        border: `1px solid ${th.cardBorder}`,
-        overflow: "hidden"
-      } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${m.color}, ${m.color}66 60%, transparent)` } }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.2rem", color: m.color, letterSpacing: -0.3, lineHeight: 1 } }, m.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, marginTop: "0.35rem", textTransform: "uppercase", letterSpacing: 0.7, fontWeight: 700 } }, m.label)))))));
-    })(), myTodos.length > 0 && (() => {
-      const priMap = { High: { clr: "#ff4444", rank: 0 }, Medium: { clr: "#fbbf24", rank: 1 }, Low: { clr: "#22c55e", rank: 2 } };
-      const sorted = [...myTodos].sort((a, b) => {
-        const aOver = a.dueDate && new Date(a.dueDate) < /* @__PURE__ */ new Date() ? 0 : 1;
-        const bOver = b.dueDate && new Date(b.dueDate) < /* @__PURE__ */ new Date() ? 0 : 1;
-        if (aOver !== bOver) return aOver - bOver;
-        return (priMap[a.priority]?.rank ?? 3) - (priMap[b.priority]?.rank ?? 3);
-      });
-      return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.28rem 0.7rem", background: `${O}15`, border: `1px solid ${O}33`, borderRadius: "999px" } }, ICONS.todos(O), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1.3 } }, "Pending Tasks"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 900, color: "#fff", background: O, borderRadius: "999px", padding: "0.05rem 0.45rem", marginLeft: "0.1rem" } }, myTodos.length)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)` } }), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("todos"), style: {
-        background: "none",
-        border: "none",
-        color: O,
-        cursor: "pointer",
-        fontSize: "0.72rem",
-        fontWeight: 700,
-        fontFamily: "'Source Sans 3'",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "0.25rem"
-      } }, "View All ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem" } }, "\u2192"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, sorted.slice(0, 5).map((t) => {
-        const overdue = t.dueDate && new Date(t.dueDate) < /* @__PURE__ */ new Date();
-        const pri = priMap[t.priority] || priMap.Medium;
-        return /* @__PURE__ */ React.createElement(
-          "div",
-          {
-            key: t.id,
-            onClick: () => {
-              if (todoDeepLinkRef) todoDeepLinkRef.current = t.id;
-              setTab("todos");
-            },
-            style: {
-              background: th.card,
-              border: `1px solid ${overdue ? "#ff444455" : th.cardBorder}`,
-              borderRadius: "0.625rem",
-              padding: "0.8rem 1rem",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.875rem",
-              cursor: "pointer",
-              transition: "all .2s",
-              boxShadow: overdue ? "0 0 0 1px #ff444422" : "0 1px 2px rgba(0,0,0,0.03)"
-            },
-            onMouseEnter: (e) => {
-              e.currentTarget.style.transform = "translateX(2px)";
-              e.currentTarget.style.boxShadow = `0 4px 12px rgba(0,0,0,0.08), 0 0 0 1px ${overdue ? "#ff4444" : O}55`;
-            },
-            onMouseLeave: (e) => {
-              e.currentTarget.style.transform = "none";
-              e.currentTarget.style.boxShadow = overdue ? "0 0 0 1px #ff444422" : "0 1px 2px rgba(0,0,0,0.03)";
-            }
-          },
-          /* @__PURE__ */ React.createElement("div", { style: {
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            flexShrink: 0,
-            background: pri.clr,
-            boxShadow: `0 0 10px ${pri.clr}88`
-          } }),
-          /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: "0.82rem", color: th.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.text),
-          t.dueDate && /* @__PURE__ */ React.createElement("div", { style: {
-            fontSize: "0.65rem",
-            color: overdue ? "#ff4444" : th.muted,
-            fontWeight: overdue ? 800 : 600,
-            flexShrink: 0,
-            padding: "0.2rem 0.5rem",
-            background: overdue ? "#ff444415" : th.card2,
-            borderRadius: "0.35rem"
-          } }, overdue ? "\u26A0 " : "", (/* @__PURE__ */ new Date(t.dueDate + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" }))
-        );
-      })));
-    })(), dailyFeed?.news && Object.values(dailyFeed.news).some((arr) => Array.isArray(arr) && arr.length > 0) && (() => {
+    ))));
+  }
+  function DashboardHeadlines({ th, isMobile, dailyFeed }) {
+    const [newsTab, setNewsTab] = useState("general");
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, dailyFeed?.news && Object.values(dailyFeed.news).some((arr) => Array.isArray(arr) && arr.length > 0) && (() => {
       const SOURCE_COLORS = {
         "Fox News": "#003366",
         "CNN": "#cc0000",
@@ -27335,6 +26624,281 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         );
       })), items.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "2rem", color: th.muted, fontSize: "0.8rem", background: th.card2, borderRadius: "0.75rem", border: `1px dashed ${th.cardBorder}` } }, "No ", (NEWS_TABS.find((t) => t.key === newsTab)?.label || "").toLowerCase(), " news available right now."));
     })());
+  }
+  function SimpleDashboard({ user, th, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, isMobile, todoDeepLinkRef, showAlert: showAlert2, users }) {
+    const ut = user?.userType;
+    const isExecIT = ut === "executive" || ut === "it";
+    const isOffice = ut === "office_staff";
+    const isDM = ut === "dm";
+    const isManager = ut === "manager";
+    const isConstruction = ut === "construction";
+    const opsRole = isExecIT || isOffice || isDM || isManager;
+    const allowedTabIds = React.useMemo(() => new Set(getTabs(user).map((t) => t.id)), [user]);
+    const go = (tabId) => allowedTabIds.has(tabId) ? () => setTab(tabId) : null;
+    const scopedStores = React.useMemo(() => {
+      const all = stores || [];
+      if (isDM) return all.filter((s) => String(s.district) === String(user?.district));
+      if (isManager) return all.filter((s) => isManagersStore(s, user));
+      return all;
+    }, [stores, user, isDM, isManager]);
+    const { actions, acknowledge, delegate, delegating } = useActionQueue({ stores: scopedStores, user, users, showAlert: showAlert2, enabled: opsRole });
+    const [foodSafety, setFoodSafety] = useState(null);
+    useEffect(() => {
+      if (!opsRole) return;
+      if (isManager && !scopedStores.length) return;
+      const district = isDM ? user?.district : isManager ? scopedStores[0]?.district : null;
+      const cacheKey = `pcg_dash_foodsafety_v1_${user?.id}`;
+      try {
+        const c = JSON.parse(sessionStorage.getItem(cacheKey) || "null");
+        if (c && Date.now() - c.at < 10 * 6e4) {
+          setFoodSafety(c.data);
+          return;
+        }
+      } catch {
+      }
+      let cancelled = false;
+      fetch("/.netlify/functions/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rollup", label: "Food Safety", district: district || null })
+      }).then((r) => r.json()).then((d) => {
+        if (cancelled || !Array.isArray(d?.stores)) return;
+        const inScope = new Set(scopedStores.map((s) => String(s.pc)));
+        const hits = d.stores.filter((s) => inScope.has(String(s.pc))).map((s) => ({ name: s.name, n: (s.overdue || 0) + (s.missed || 0) })).filter((s) => s.n > 0);
+        const data = { checks: hits.reduce((a, s) => a + s.n, 0), stores: hits.length, only: hits.length === 1 ? hits[0].name : null };
+        setFoodSafety(data);
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data }));
+        } catch {
+        }
+      }).catch(() => {
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [opsRole, scopedStores.length]);
+    const [cases, setCases] = useState(null);
+    const [showAllCases, setShowAllCases] = useState(false);
+    useEffect(() => {
+      if (!isExecIT) return;
+      fetch("/.netlify/functions/analyst", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "case-list", userId: user.id, district: null, limit: 10 })
+      }).then((r) => r.json()).then((d) => setCases(Array.isArray(d?.cases) ? d.cases : [])).catch(() => setCases([]));
+    }, [isExecIT]);
+    const CLOSED_CASE = /* @__PURE__ */ new Set(["Done", "Dismissed", "Rejected", "Closed"]);
+    const openCases = (cases || []).filter((c) => !CLOSED_CASE.has(c.status)).sort((a, b) => (b.dollarOpportunity || 0) - (a.dollarOpportunity || 0));
+    const [dailyFeed, setDailyFeed] = useState(null);
+    useEffect(() => {
+      fetch("/.netlify/functions/daily-feed").then((r) => r.ok ? r.json() : null).then((d) => {
+        if (d) setDailyFeed(d);
+      }).catch(() => {
+      });
+    }, []);
+    const [showAllAttention, setShowAllAttention] = useState(false);
+    const [showBrief, setShowBrief] = useState(false);
+    const now = /* @__PURE__ */ new Date();
+    const sevRank = { High: 0, Medium: 1, Low: 2 };
+    const ICON_STORE = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M3 9h18M9 20v-6h6v6" }));
+    const ICON_SHIELD = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" }));
+    const ICON_HARDHAT = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M2 18h20M4 18v-3a8 8 0 0 1 16 0v3" }), /* @__PURE__ */ React.createElement("path", { d: "M10 7V5h4v2" }));
+    const ICON_WRENCH = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5Z" }));
+    const ICON_CHECK = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "4", y: "4", width: "16", height: "16", rx: "3" }), /* @__PURE__ */ React.createElement("path", { d: "m9 12 2 2 4-4" }));
+    const rows = [];
+    (actions || []).forEach((a) => {
+      const sev = a.priority === 0 ? "High" : a.priority === 1 ? "Medium" : "Low";
+      const onClick = a.type === "labor" ? go("finance") : go("tickets");
+      rows.push({ key: a.key, icon: a.type === "labor" ? ICON_STORE : ICON_WRENCH, title: a.store?.name || "Store", sub: String(a.msg || "").replace(/\s*\u{1F525}\s*/u, " \xB7 "), sev, onClick, qItem: a });
+    });
+    if (foodSafety?.checks > 0) {
+      rows.push({
+        key: "food_safety",
+        icon: ICON_SHIELD,
+        title: "Food safety",
+        sev: "Medium",
+        onClick: go("tasks"),
+        sub: `${foodSafety.checks} overdue check${foodSafety.checks !== 1 ? "s" : ""} ${foodSafety.only ? `at ${foodSafety.only}` : `across ${foodSafety.stores} stores`} today`
+      });
+    }
+    if (isExecIT || isOffice || isDM || isConstruction) {
+      const late = (projects || []).filter((p) => {
+        if (p.completed || !p.dueDate) return false;
+        if (isDM && String(p.district) !== String(user?.district)) return false;
+        try {
+          if (getCurrentPhase(p)?.id === "complete") return false;
+        } catch {
+        }
+        return new Date(p.dueDate) < now;
+      });
+      if (late.length) rows.push({
+        key: "construction",
+        icon: ICON_HARDHAT,
+        title: "Construction",
+        sev: "Medium",
+        onClick: go("projects"),
+        sub: `${late.length} project${late.length !== 1 ? "s" : ""} past due date`
+      });
+    }
+    const myOverdue = (todos || []).filter((t) => {
+      if (t.done || !t.dueDate) return false;
+      const ids = t.assigneeIds || (t.assigneeId !== void 0 ? [t.assigneeId] : []);
+      if (!ids.includes(user?.id)) return false;
+      const d = String(t.dueDate);
+      return new Date(d.length === 10 ? `${d}T23:59:59` : d) < now;
+    });
+    if (myOverdue.length) {
+      rows.push({
+        key: "todos",
+        icon: ICON_CHECK,
+        title: "Your to-dos",
+        sev: myOverdue.some((t) => t.priority === "High") ? "High" : "Medium",
+        sub: `${myOverdue.length} task${myOverdue.length !== 1 ? "s" : ""} past due`,
+        onClick: allowedTabIds.has("todos") ? () => {
+          if (myOverdue.length === 1 && todoDeepLinkRef) todoDeepLinkRef.current = myOverdue[0].id;
+          setTab("todos");
+        } : null
+      });
+    }
+    rows.sort((a, b) => sevRank[a.sev] - sevRank[b.sev]);
+    const attentionLoading = opsRole && actions == null;
+    const shownRows = showAllAttention ? rows : rows.slice(0, 3);
+    const myDist = user?.district ? Number(user.district) : user?.storePC ? Number((stores || []).find((s) => String(s.pc) === String(user.storePC))?.district || 0) : null;
+    const unread = (announcements || []).filter((a) => {
+      if (!a.active || a.type === "leaderboard" || announcementsDismissed?.[`${user?.id}_${a.id}`]) return false;
+      if (!a.targets) return true;
+      const { roles, districts, users: ids } = a.targets;
+      return !!(roles?.includes(ut) || ids?.includes(user?.id) || myDist && districts?.includes(myDist));
+    });
+    const quick = [
+      { label: "Browse links", icon: ICONS.links, tab: "links" },
+      { label: "New note", icon: ICONS.notes, tab: "notes" },
+      { label: "Add task", icon: ICONS.todos, tab: "todos" },
+      ...isExecIT || isOffice || isDM || isConstruction ? [{ label: "View projects", icon: ICONS.projects, tab: "projects" }] : []
+    ].filter((a) => allowedTabIds.has(a.tab)).slice(0, 4);
+    const hour = now.getHours();
+    const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    const firstName = (user?.name || "").split(" ")[0];
+    const managerStore = isManager ? getManagerStore(stores, user) : null;
+    const hasBrief = isExecIT || isDM || !!(isManager && managerStore?.pc);
+    const sevStyle = (s) => s === "High" ? { bg: "#ef44441f", fg: "#dc2626" } : s === "Medium" ? { bg: "#f59e0b24", fg: "#c2730a" } : { bg: th.card3, fg: th.muted };
+    const cardStyle = { ...card(th), borderRadius: "0.9rem", padding: "1.1rem 1.25rem", minWidth: 0, boxSizing: "border-box" };
+    const chevron = /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { display: "flex", opacity: 0.5, transform: "rotate(-90deg)", flexShrink: 0 } }, ICONS.chevronDown(th.muted));
+    const linkBtn = (label, onClick) => /* @__PURE__ */ React.createElement("button", { onClick, style: { background: "none", border: "none", padding: 0, cursor: "pointer", color: O, fontSize: "0.8rem", fontWeight: 700, fontFamily: "'Source Sans 3'", display: "inline-flex", alignItems: "center", gap: "0.3rem", whiteSpace: "nowrap" } }, label, /* @__PURE__ */ React.createElement("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M5 12h14M13 6l6 6-6 6" })));
+    const cardHeader = (icon, title, right) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, icon, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.02rem", color: th.text } }, title)), right);
+    const rowBase = { display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.75rem 0.4rem", borderTop: `1px solid ${th.cardBorder}`, borderRadius: "0.4rem", fontFamily: "'Source Sans 3'", transition: "background .15s" };
+    const hoverOn = (e) => {
+      e.currentTarget.style.background = th.card3;
+    };
+    const hoverOff = (e) => {
+      e.currentTarget.style.background = "transparent";
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement(Guard, { name: "dash-hero", fallback: null }, /* @__PURE__ */ React.createElement(DashboardHero, { user, th, isMobile, dailyFeed })), hasBrief && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setShowBrief((b) => !b),
+        "aria-expanded": showBrief,
+        style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.95rem", borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontSize: "0.82rem", fontWeight: 600, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+      },
+      /* @__PURE__ */ React.createElement("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: O, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M12 3v2M12 19v2M5 12H3M21 12h-2M6.3 6.3 4.9 4.9M19.1 19.1l-1.4-1.4M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "4" })),
+      showBrief ? "Hide today's brief" : "Today's brief",
+      /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { display: "flex", opacity: 0.55, transform: showBrief ? "rotate(180deg)" : "none", transition: "transform .2s" } }, ICONS.chevronDown(th.muted))
+    )), showBrief && hasBrief && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" } }, (isExecIT || isDM) && /* @__PURE__ */ React.createElement(Guard, { name: "dash-brief", fallback: null }, /* @__PURE__ */ React.createElement(TodayBrief, { user, th, setAnnouncements, showAlert: showAlert2, announcementsDismissed, setAnnouncementsDismissed })), isManager && managerStore?.pc && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Guard, { name: "manager-brief", fallback: null }, /* @__PURE__ */ React.createElement(ManagerOrionBrief, { pc: managerStore.pc, storeName: managerStore.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "forecast-preplan", fallback: null }, /* @__PURE__ */ React.createElement(ForecastPrePlanCard, { pc: managerStore.pc, storeName: managerStore.name, th })), /* @__PURE__ */ React.createElement(Guard, { name: "manager-caps", fallback: null }, /* @__PURE__ */ React.createElement(ManagerCapCard, { user, th, stores, showAlert: showAlert2 })))), unread.length > 0 && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setTab("announcements"),
+        onMouseEnter: (e) => {
+          e.currentTarget.style.background = `${O}1f`;
+        },
+        onMouseLeave: (e) => {
+          e.currentTarget.style.background = `${O}12`;
+        },
+        style: { display: "flex", alignItems: "center", gap: "0.7rem", width: "100%", padding: "0.7rem 1rem", marginBottom: "1.1rem", borderRadius: "0.75rem", border: "none", background: `${O}12`, cursor: "pointer", fontFamily: "'Source Sans 3'", textAlign: "left" }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { display: "flex" } }, ICONS.announcements(O)),
+      /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontSize: "0.88rem", fontWeight: 600, color: th.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, unread.length, " unread announcement", unread.length !== 1 ? "s" : "", typeof unread[0]?.title === "string" && unread[0].title ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400 } }, " \xB7 ", unread[0].title) : null),
+      chevron
+    ), /* @__PURE__ */ React.createElement("div", { style: { ...cardStyle, marginBottom: "1.1rem" } }, cardHeader(
+      /* @__PURE__ */ React.createElement("span", { style: { width: 22, height: 22, borderRadius: "50%", background: rows.length ? "#ef4444" : "#22c55e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.8rem", fontWeight: 900 } }, rows.length ? "!" : "\u2713"),
+      "Needs attention",
+      rows.length > 3 ? linkBtn(showAllAttention ? "Show less" : `View all ${rows.length}`, () => setShowAllAttention((v) => !v)) : null
+    ), attentionLoading && rows.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, padding: "0.5rem 0.4rem" } }, "Checking your stores\u2026"), !attentionLoading && rows.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.88rem", color: th.muted, padding: "0.5rem 0.4rem" } }, "All clear. Nothing needs your attention right now."), shownRows.map((r) => {
+      const s = sevStyle(r.sev);
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: r.key,
+          role: r.onClick ? "button" : void 0,
+          tabIndex: r.onClick ? 0 : void 0,
+          onClick: r.onClick || void 0,
+          onKeyDown: (e) => {
+            if (r.onClick && e.target === e.currentTarget && e.key === "Enter") r.onClick();
+          },
+          onMouseEnter: r.onClick ? hoverOn : void 0,
+          onMouseLeave: r.onClick ? hoverOff : void 0,
+          style: { ...rowBase, cursor: r.onClick ? "pointer" : "default" }
+        },
+        /* @__PURE__ */ React.createElement("span", { style: { width: 38, height: 38, borderRadius: "0.6rem", background: `${O}17`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement(HubIcon, { color: O, size: 19, d: r.icon })),
+        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.1rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: isMobile ? "normal" : "nowrap" } }, r.sub)),
+        showAllAttention && r.qItem && /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.35rem", flexShrink: 0 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => acknowledge(r.qItem.key),
+            title: "Hide this item for 4 hours",
+            style: { fontSize: "0.7rem", fontWeight: 600, padding: "0.2rem 0.55rem", borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: "transparent", color: th.muted, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+          },
+          "Dismiss"
+        ), isExecIT && /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => delegate(r.qItem),
+            disabled: !!delegating[r.qItem.key],
+            title: "Send a push notification to this store's DM",
+            style: { fontSize: "0.7rem", fontWeight: 600, padding: "0.2rem 0.55rem", borderRadius: 999, border: `1px solid ${O}55`, background: "transparent", color: O, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+          },
+          delegating[r.qItem.key] ? "Sent" : "Notify DM"
+        )),
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.65rem", borderRadius: 999, background: s.bg, color: s.fg, flexShrink: 0 } }, r.sev),
+        r.onClick ? chevron : /* @__PURE__ */ React.createElement("span", { style: { width: 16, flexShrink: 0 } })
+      );
+    })), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile || !isExecIT ? "minmax(0, 1fr)" : "minmax(0, 3fr) minmax(0, 2fr)", gap: "1.1rem", alignItems: "stretch" } }, isExecIT && /* @__PURE__ */ React.createElement("div", { style: cardStyle }, cardHeader(
+      /* @__PURE__ */ React.createElement(HubIcon, { color: O, size: 20, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polyline", { points: "3 17 9 11 13 15 21 7" }), /* @__PURE__ */ React.createElement("polyline", { points: "15 7 21 7 21 13" })) }),
+      "Business opportunities",
+      openCases.length > 0 ? linkBtn(showAllCases ? "Show less" : "View all", () => setShowAllCases((v) => !v)) : null
+    ), cases == null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, padding: "0.5rem 0.4rem" } }, "Loading\u2026"), cases != null && openCases.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.88rem", color: th.muted, padding: "0.5rem 0.4rem" } }, "No open opportunities right now."), !showAllCases && openCases.slice(0, 3).map((c) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: c.id,
+        role: "button",
+        tabIndex: 0,
+        onClick: () => setShowAllCases(true),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") setShowAllCases(true);
+        },
+        onMouseEnter: hoverOn,
+        onMouseLeave: hoverOff,
+        style: { ...rowBase, cursor: "pointer" }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.title || c.storeName || "Opportunity"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.1rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.summary || c.storeName || "")),
+      c.dollarOpportunity > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.95rem", fontWeight: 800, color: "#16a34a", flexShrink: 0 } }, fmtDollars(c.dollarOpportunity)),
+      chevron
+    )), showAllCases && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.25rem" } }, /* @__PURE__ */ React.createElement(Guard, { name: "dash-cases", fallback: null }, /* @__PURE__ */ React.createElement(BusinessCasesCard, { user, th, inline: true, stores, setAnnouncements, showAlert: showAlert2 })))), quick.length > 0 && /* @__PURE__ */ React.createElement("div", { style: cardStyle }, cardHeader(/* @__PURE__ */ React.createElement(HubIcon, { color: O, size: 20, d: /* @__PURE__ */ React.createElement("path", { d: "M13 2 3 14h8l-1 8 10-12h-8l1-8Z" }) }), "Quick actions", null), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile || isExecIT ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))", gap: "0.75rem", marginTop: "0.85rem" } }, quick.map((a) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: a.tab,
+        onClick: () => setTab(a.tab),
+        onMouseEnter: (e) => {
+          e.currentTarget.style.borderColor = `${O}66`;
+        },
+        onMouseLeave: (e) => {
+          e.currentTarget.style.borderColor = th.cardBorder;
+        },
+        style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.9rem 0.85rem", minWidth: 0, borderRadius: "0.7rem", border: `1px solid ${th.cardBorder}`, background: th.card, cursor: "pointer", fontFamily: "'Source Sans 3'", textAlign: "left", transition: "border-color .15s" }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { display: "flex", flexShrink: 0 } }, a.icon(O)),
+      /* @__PURE__ */ React.createElement("span", { style: { flex: 1, minWidth: 0, fontSize: "0.88rem", fontWeight: 600, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, a.label),
+      chevron
+    ))))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.75rem" } }, /* @__PURE__ */ React.createElement(Guard, { name: "dash-news", fallback: null }, /* @__PURE__ */ React.createElement(DashboardHeadlines, { th, isMobile, dailyFeed }))));
   }
   function excelSerialToDate(serial) {
     if (typeof serial !== "number" || !isFinite(serial)) return null;
@@ -32576,24 +32140,86 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))))), pnl?.excluded?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.6rem" } }, "Excluded (missing data): ", pnl.excluded.map((e) => e.name).join(", ")), selectedStore && /* @__PURE__ */ React.createElement(PnLStoreDetail, { store: selectedStore, th, onClose: () => setSelectedStore(null) }));
   }
   var HubIcon = ({ d, color, size = 19 }) => /* @__PURE__ */ React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "1.75", strokeLinecap: "round", strokeLinejoin: "round" }, d);
-  var HubTile = ({ th, color, icon, name, sub, badge, onClick, pinned, onTogglePin }) => /* @__PURE__ */ React.createElement("div", { onClick, style: { ...card(th), padding: badge ? "1.15rem 1.2rem 2rem" : "1.15rem 1.2rem 1.25rem", cursor: "pointer", position: "relative" } }, onTogglePin && /* @__PURE__ */ React.createElement(
-    "button",
+  var HubTile = ({ th, color, icon, name, sub, badge, onClick, pinned, onTogglePin, cta }) => /* @__PURE__ */ React.createElement(
+    "div",
     {
-      onClick: (e) => {
-        e.stopPropagation();
-        onTogglePin();
+      onClick,
+      role: "button",
+      tabIndex: 0,
+      onKeyDown: (e) => {
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onClick && onClick();
+        }
       },
-      title: pinned ? "Remove from Quick Access" : "Add to Quick Access",
-      style: { position: "absolute", top: "0.85rem", right: "0.85rem", width: 26, height: 26, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: pinned ? color : th.muted, opacity: pinned ? 1 : 0.45, transition: "opacity .15s, color .15s" },
       onMouseEnter: (e) => {
-        e.currentTarget.style.opacity = 1;
+        e.currentTarget.style.borderColor = `${color}66`;
+        e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.07)";
+        e.currentTarget.style.transform = "translateY(-1px)";
       },
       onMouseLeave: (e) => {
-        e.currentTarget.style.opacity = pinned ? 1 : 0.45;
-      }
+        e.currentTarget.style.borderColor = th.cardBorder;
+        e.currentTarget.style.boxShadow = "none";
+        e.currentTarget.style.transform = "none";
+      },
+      style: { ...card(th), borderRadius: "0.9rem", padding: "1.4rem 1.5rem 1.3rem", cursor: "pointer", position: "relative", display: "flex", flexDirection: "column", height: "100%", boxSizing: "border-box", transition: "border-color .15s, box-shadow .15s, transform .15s", outline: "none" }
     },
-    /* @__PURE__ */ React.createElement("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: pinned ? "currentColor" : "none", stroke: "currentColor", strokeWidth: "1.75", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
-  ), /* @__PURE__ */ React.createElement("div", { style: { width: 38, height: 38, borderRadius: "0.65rem", background: `${color}20`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "0.7rem" } }, icon), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.45 } }, sub), badge && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", bottom: "1rem", right: "1.2rem", fontSize: "0.65rem", fontWeight: 800, padding: "0.15rem 0.5rem", borderRadius: 999, background: "#ef444428", color: "#ef4444" } }, badge));
+    onTogglePin && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: (e) => {
+          e.stopPropagation();
+          onTogglePin();
+        },
+        title: pinned ? "Remove from Quick Access" : "Add to Quick Access",
+        "aria-label": pinned ? `Remove ${name} from Quick Access` : `Add ${name} to Quick Access`,
+        style: { position: "absolute", top: "1.1rem", right: "1.1rem", width: 28, height: 28, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: pinned ? color : th.muted, opacity: pinned ? 1 : 0.55, transition: "opacity .15s, color .15s" },
+        onMouseEnter: (e) => {
+          e.currentTarget.style.opacity = 1;
+        },
+        onMouseLeave: (e) => {
+          e.currentTarget.style.opacity = pinned ? 1 : 0.55;
+        }
+      },
+      /* @__PURE__ */ React.createElement("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: pinned ? "currentColor" : "none", stroke: "currentColor", strokeWidth: "1.75", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { width: 42, height: 42, borderRadius: "0.6rem", background: `${color}1f`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1rem", flexShrink: 0 } }, icon),
+    /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.12rem", color: th.text, lineHeight: 1.3, paddingRight: onTogglePin ? "1.5rem" : 0 } }, name),
+    /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: "0.55rem", lineHeight: 1.5 } }, sub),
+    /* @__PURE__ */ React.createElement("div", { style: { marginTop: "auto", paddingTop: "1.1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.84rem", fontWeight: 600, color, display: "inline-flex", alignItems: "center", gap: "0.35rem" } }, cta || `Open ${name}`, /* @__PURE__ */ React.createElement("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M5 12h14M13 6l6 6-6 6" }))), badge && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 800, padding: "0.18rem 0.55rem", borderRadius: 999, background: "#ef444428", color: "#ef4444" } }, badge))
+  );
+  var HubHeader = ({ th, title, subtitle, query, setQuery, isMobile }) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "flex-start", justifyContent: "space-between", gap: "1rem", marginBottom: "1.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "2rem", color: th.text, margin: 0, lineHeight: 1.15 } }, title), subtitle && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", color: th.muted, marginTop: "0.35rem" } }, subtitle)), setQuery && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", width: isMobile ? "100%" : 260, flexShrink: 0 } }, /* @__PURE__ */ React.createElement(
+    "svg",
+    {
+      width: "16",
+      height: "16",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: th.muted,
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      style: { position: "absolute", left: "0.8rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }
+    },
+    /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "11", r: "7" }),
+    /* @__PURE__ */ React.createElement("path", { d: "m20 20-3.5-3.5" })
+  ), /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "search",
+      value: query,
+      onChange: (e) => setQuery(e.target.value),
+      placeholder: `Search ${title.toLowerCase()}...`,
+      "aria-label": `Search ${title}`,
+      style: { width: "100%", boxSizing: "border-box", padding: "0.65rem 0.9rem 0.65rem 2.3rem", borderRadius: "0.65rem", border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontSize: "0.88rem", fontFamily: "inherit", outline: "none" }
+    }
+  )));
+  var hubTileMatches = (t, q) => {
+    const s = (q || "").trim().toLowerCase();
+    return !s || `${t.name} ${t.sub}`.toLowerCase().includes(s);
+  };
+  var HubNoMatches = ({ th, query }) => /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.88rem" } }, 'No matches for "', query.trim(), '".');
   var MOBILE_LAUNCHER_TAB_ID = "__launcher__";
   function LauncherTile({ th, icon, label, badge, onClick, pinned, onTogglePin }) {
     const [pressed, setPressed] = React.useState(false);
@@ -32632,7 +32258,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))));
   }
   var QUICKFIND_HUB_LABELS = { "ops-hub": "Operations", "team-hub": "Team & Sites", "system-hub": "System", "tools-hub": "Tools", finance: "Finance" };
-  function QuickFindBar({ th, tabs, onNavigate }) {
+  function QuickFindBar({ th, tabs, onNavigate, compact }) {
     const [query, setQuery] = useState("");
     const [showSuggestions, setShowSuggestions] = useState(false);
     const matches = React.useMemo(() => {
@@ -32664,7 +32290,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setQuery("");
       setShowSuggestions(false);
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { position: "relative", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.9rem", top: "50%", transform: "translateY(-50%)", color: th.muted, pointerEvents: "none" } }, ICONS.search(th.muted)), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "relative", marginBottom: compact ? "0.6rem" : "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.9rem", top: "50%", transform: "translateY(-50%)", color: th.muted, pointerEvents: "none", display: "flex" } }, ICONS.search(th.muted)), /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "text",
@@ -32682,10 +32308,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             setShowSuggestions(false);
           }
         },
-        placeholder: "Search anything\u2026",
-        style: { ...inp(th), paddingLeft: "2.5rem", width: "100%" }
+        placeholder: compact ? "Search..." : "Search anything\u2026",
+        "aria-label": "Search the portal",
+        style: compact ? { width: "100%", boxSizing: "border-box", padding: "0.62rem 0.9rem 0.62rem 2.4rem", borderRadius: "0.7rem", border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.86rem", fontFamily: "'Source Sans 3'", outline: "none" } : { ...inp(th), paddingLeft: "2.5rem", width: "100%" }
       }
-    )), query.trim().length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted, opacity: 0.7, marginTop: "0.3rem", marginLeft: "0.2rem" } }, "Stores, employees, tasks, projects\u2026"), showSuggestions && matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.7rem", boxShadow: "0 12px 32px rgba(0,0,0,0.18)", overflow: "hidden" } }, matches.map((t) => /* @__PURE__ */ React.createElement(
+    )), !compact && query.trim().length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted, opacity: 0.7, marginTop: "0.3rem", marginLeft: "0.2rem" } }, "Stores, employees, tasks, projects\u2026"), showSuggestions && matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.7rem", boxShadow: "0 12px 32px rgba(0,0,0,0.18)", overflow: "hidden" } }, matches.map((t) => /* @__PURE__ */ React.createElement(
       "div",
       {
         key: t.id,
@@ -32718,20 +32345,26 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       onLogout();
     }, title: "Sign out", style: { width: 36, height: 36, borderRadius: "0.5rem", border: `1px solid ${th.cardBorder}`, background: th.card3, color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, ICONS.logout("#ef4444"))), /* @__PURE__ */ React.createElement(QuickFindBar, { th, tabs, onNavigate }), /* @__PURE__ */ React.createElement(LauncherSection, { th, title: "Quick Access", tiles: pinned, pinnedNavIds, togglePinNav, onNavigate, navBadge }), /* @__PURE__ */ React.createElement(LauncherSection, { th, title: "Workspace", tiles: workspace, pinnedNavIds, togglePinNav, onNavigate, navBadge }), /* @__PURE__ */ React.createElement(LauncherSection, { th, title: "Admin & Reports", tiles: adminGroup, pinnedNavIds, togglePinNav, onNavigate, navBadge }), pinned.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, textAlign: "center", marginBottom: "1rem" } }, "Tip: press and hold any tile to pin it to Quick Access."));
   }
-  var TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds, togglePinNav }) => /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.9rem" } }, tiles.map((t) => /* @__PURE__ */ React.createElement(
-    HubTile,
-    {
-      key: t.id,
-      th,
-      color,
-      icon: /* @__PURE__ */ React.createElement(HubIcon, { color, d: t.icon }),
-      name: t.name,
-      sub: t.sub,
-      onClick: () => onNavigate(t.id),
-      pinned: pinnedNavIds?.includes(t.id),
-      onTogglePin: togglePinNav ? () => togglePinNav(t.id) : void 0
-    }
-  ))));
+  var HUB_GRID_COLUMNS = (isMobile) => isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))";
+  function TileGrid({ title, subtitle, tiles, color, th, isMobile, onNavigate, pinnedNavIds, togglePinNav }) {
+    const [query, setQuery] = React.useState("");
+    const shown = tiles.filter((t) => hubTileMatches(t, query));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(HubHeader, { th, title, subtitle, query, setQuery: tiles.length ? setQuery : null, isMobile }), tiles.length > 0 && shown.length === 0 && /* @__PURE__ */ React.createElement(HubNoMatches, { th, query }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: HUB_GRID_COLUMNS(isMobile), gap: "1.1rem" } }, shown.map((t) => /* @__PURE__ */ React.createElement(
+      HubTile,
+      {
+        key: t.id,
+        th,
+        color,
+        icon: /* @__PURE__ */ React.createElement(HubIcon, { color, size: 21, d: t.icon }),
+        name: t.name,
+        sub: t.sub,
+        cta: t.cta,
+        onClick: () => onNavigate(t.id),
+        pinned: pinnedNavIds?.includes(t.id),
+        onTogglePin: togglePinNav ? () => togglePinNav(t.id) : void 0
+      }
+    ))));
+  }
   function AdminFinance({
     stores,
     districts,
@@ -32764,6 +32397,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canCash = isAdmin || isOfficeStaff || isDM;
     const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
     const [viewMode, setViewMode] = useState("overview");
+    const [hubQuery, setHubQuery] = useState("");
     const [pnlOv, setPnlOv] = useState(null);
     const [expPending, setExpPending] = useState(null);
     useEffect(() => {
@@ -32816,7 +32450,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       // store they run.
       { id: "labor", icon: /* @__PURE__ */ React.createElement(HubIcon, { color: FIN, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }), name: "Labor", sub: isManager ? "Your store's labor %, live clock-ins, daily/weekly history." : "Network labor % by store, live clock-ins, daily/weekly history.", show: (isAdmin || isOfficeStaff || isDM || isManager) && finSub("labor") }
     ].filter((t) => t.show);
-    return /* @__PURE__ */ React.createElement("div", null, viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", { onClick: () => setViewMode("overview"), style: { display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", fontWeight: 700, color: O, cursor: "pointer", marginBottom: "1rem" } }, "\u2190 Back to Finance"), /* @__PURE__ */ React.createElement("div", { style: { display: viewMode === "overview" ? "block" : "none" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "1rem" } }, "Finance Overview"), canPnl && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #3b82f6" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, overview ? fmtDollars(overview.revenue) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Revenue (MTD)")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${overview && overview.marginPct >= 30 ? "#22c55e" : "#ef4444"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: overview && overview.marginPct >= 30 ? "#22c55e" : th.text } }, overview ? fmtPct(overview.marginPct) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Margin %")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #f59e0b", cursor: "pointer" }, onClick: () => setViewMode("expenses") }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, expPending != null ? expPending : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Pending Expense Approvals"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: "0.7rem" } }, "Tools"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.9rem" } }, tiles.map((t) => /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, viewMode !== "overview" && /* @__PURE__ */ React.createElement("div", { onClick: () => setViewMode("overview"), style: { display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", fontWeight: 700, color: O, cursor: "pointer", marginBottom: "1rem" } }, "\u2190 Back to Finance"), /* @__PURE__ */ React.createElement("div", { style: { display: viewMode === "overview" ? "block" : "none" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(HubHeader, { th, title: "Finance", subtitle: "Financial reports, cash, tips, and labor", query: hubQuery, setQuery: tiles.length ? setHubQuery : null, isMobile }), canPnl && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #3b82f6" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, overview ? fmtDollars(overview.revenue) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Revenue (MTD)")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${overview && overview.marginPct >= 30 ? "#22c55e" : "#ef4444"}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: overview && overview.marginPct >= 30 ? "#22c55e" : th.text } }, overview ? fmtPct(overview.marginPct) : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Margin %")), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.125rem", borderTop: "3px solid #f59e0b", cursor: "pointer" }, onClick: () => setViewMode("expenses") }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.4rem", color: th.text } }, expPending != null ? expPending : "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Pending Expense Approvals"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: "0.7rem" } }, "Tools"), tiles.length > 0 && !tiles.some((t) => hubTileMatches(t, hubQuery)) && /* @__PURE__ */ React.createElement(HubNoMatches, { th, query: hubQuery }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: HUB_GRID_COLUMNS(isMobile), gap: "1.1rem" } }, tiles.filter((t) => hubTileMatches(t, hubQuery)).map((t) => /* @__PURE__ */ React.createElement(
       HubTile,
       {
         key: t.id,
@@ -40113,9 +39747,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const isAuditor = user?.userType === "auditor";
     const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin, favoriteTint, removeMode }) => {
       const C = accent;
-      const inactiveColor = th.muted;
-      const restBg = isActive ? C : favoriteTint ? `${C}14` : "transparent";
-      const restColor = isActive ? "#fff" : inactiveColor;
+      const restBg = isActive ? `${O}17` : "transparent";
+      const iconColor = isActive ? O : th.muted;
+      const showPin = !collapsed && onTogglePin && !tabDef.noPinToggle;
       return /* @__PURE__ */ React.createElement(
         "button",
         {
@@ -40123,168 +39757,85 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           className: "nav-row",
           onClick: removeMode ? void 0 : onClick,
           title: collapsed ? tabDef.label : void 0,
+          "aria-current": isActive ? "page" : void 0,
           style: {
             position: "relative",
             display: "flex",
             alignItems: "center",
-            gap: collapsed ? 0 : "0.55rem",
+            gap: collapsed ? 0 : "0.75rem",
             width: "100%",
-            padding: collapsed ? "0.7rem 0" : "0.65rem 0.85rem",
-            borderRadius: "0.625rem",
+            padding: collapsed ? "0.7rem 0" : "0.6rem 0.7rem 0.6rem 0.85rem",
+            borderRadius: "0.55rem",
             border: "none",
             cursor: removeMode ? "default" : "pointer",
             justifyContent: collapsed ? "center" : "flex-start",
             fontFamily: "'Source Sans 3'",
-            fontSize: "0.8rem",
+            fontSize: "0.88rem",
             fontWeight: isActive ? 700 : 500,
             background: restBg,
-            color: restColor,
-            boxShadow: isActive ? `0 4px 14px ${C}55` : "none",
-            transition: "all .2s cubic-bezier(.4,0,.2,1)",
-            marginBottom: "0.2rem",
+            color: th.text,
+            transition: "background .15s",
+            marginBottom: "0.1rem",
             textAlign: "left",
             overflow: "hidden"
           },
           onMouseEnter: (e) => {
-            if (!isActive) {
-              e.currentTarget.style.background = favoriteTint ? `${C}26` : th.card3;
-              e.currentTarget.style.color = th.text;
-              e.currentTarget.style.transform = "translateX(2px)";
-            }
+            if (!isActive) e.currentTarget.style.background = th.card3;
           },
           onMouseLeave: (e) => {
-            if (!isActive) {
-              e.currentTarget.style.background = restBg;
-              e.currentTarget.style.color = restColor;
-              e.currentTarget.style.transform = "none";
-            }
+            if (!isActive) e.currentTarget.style.background = restBg;
           }
         },
-        /* @__PURE__ */ React.createElement("span", { style: {
-          fontSize: "0.95rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-          width: collapsed ? void 0 : 18,
-          filter: isActive && glow ? `drop-shadow(0 0 6px #fff)` : "none",
-          transition: "filter .2s"
-        } }, typeof tabDef.icon === "function" ? tabDef.icon(isActive ? "#fff" : inactiveColor) : tabDef.icon),
+        isActive && /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 3, background: O } }),
+        /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, width: collapsed ? void 0 : 20 } }, typeof tabDef.icon === "function" ? tabDef.icon(iconColor) : tabDef.icon),
         !collapsed && /* @__PURE__ */ React.createElement("span", { style: { flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tabDef.label),
-        !collapsed && onTogglePin && !tabDef.noPinToggle && (removeMode ? /* @__PURE__ */ React.createElement(
+        glow && badge == null && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 6, right: 8, width: 7, height: 7, borderRadius: "50%", background: dotColor || C, animation: "pulse 2s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: dotColor || C, animation: "pulse 2s ease-in-out infinite", flexShrink: 0, marginLeft: "-0.35rem", marginRight: "auto" } })),
+        badge != null && badge > 0 && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 6, minWidth: 8, height: 8, borderRadius: "50%", background: C } }) : /* @__PURE__ */ React.createElement("span", { style: { minWidth: 20, height: 18, borderRadius: 999, background: C, color: "#fff", fontSize: "0.62rem", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flexShrink: 0 } }, badge > 99 ? "99+" : badge)),
+        showPin && removeMode && /* @__PURE__ */ React.createElement(
           "button",
           {
-            role: "button",
             title: "Remove from Favorites",
             onClick: (e) => {
               e.stopPropagation();
               onTogglePin(tabDef.id);
             },
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: "0.25rem",
-              flexShrink: 0,
-              padding: "0.2rem 0.5rem",
-              borderRadius: 999,
-              border: "1px solid #ef444455",
-              background: "#ef444418",
-              color: "#ef4444",
-              fontSize: "0.6rem",
-              fontWeight: 800,
-              textTransform: "uppercase",
-              letterSpacing: 0.4,
-              fontFamily: "'Source Sans 3'",
-              cursor: "pointer"
-            }
+            style: { display: "flex", alignItems: "center", gap: "0.25rem", flexShrink: 0, padding: "0.2rem 0.5rem", borderRadius: 999, border: "1px solid #ef444455", background: "#ef444418", color: "#ef4444", fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, fontFamily: "'Source Sans 3'", cursor: "pointer" }
           },
           "\u2715 Remove"
-        ) : /* @__PURE__ */ React.createElement(
+        ),
+        showPin && !removeMode && /* @__PURE__ */ React.createElement(
           "span",
           {
             className: "nav-pin" + (pinned ? " pinned" : ""),
             role: "button",
-            title: pinned ? "Unpin from top" : "Pin to top",
+            "aria-label": pinned ? `Remove ${tabDef.label} from Favorites` : `Add ${tabDef.label} to Favorites`,
+            title: pinned ? "Remove from Favorites" : "Add to Favorites",
             onClick: (e) => {
               e.stopPropagation();
               onTogglePin(tabDef.id);
             },
-            style: {
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-              marginLeft: 2,
-              width: 18,
-              height: 18,
-              borderRadius: 5,
-              color: pinned ? isActive ? "#fff" : C : isActive ? "#ffffffaa" : th.muted
-            }
+            style: { display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, width: 20, height: 20, color: pinned ? O : th.muted }
           },
-          /* @__PURE__ */ React.createElement("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: pinned ? "currentColor" : "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
-        )),
-        badge != null && badge > 0 && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: isActive ? "#fff" : C, boxShadow: `0 0 6px ${C}` } }) : /* @__PURE__ */ React.createElement("span", { style: {
-          minWidth: 20,
-          height: 18,
-          borderRadius: 999,
-          background: isActive ? "rgba(255,255,255,0.3)" : C,
-          color: "#fff",
-          fontSize: "0.58rem",
-          fontWeight: 900,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "0 6px",
-          boxShadow: isActive ? "none" : `0 2px 10px ${C}99`,
-          letterSpacing: "0.3px"
-        } }, badge > 99 ? "99+" : badge)),
-        glow && !isActive && badge == null && (collapsed ? /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, right: 4, width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite", flexShrink: 0 } })),
-        !collapsed && /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { flexShrink: 0, display: "flex", opacity: isActive ? 0.85 : 0.45, transform: "rotate(-90deg)", marginLeft: 2 } }, ICONS.chevronDown(isActive ? "#fff" : th.muted))
+          /* @__PURE__ */ React.createElement("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: pinned ? "currentColor" : "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" }))
+        ),
+        !collapsed && !favoriteTint && /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { flexShrink: 0, display: "flex", opacity: 0.5, transform: "rotate(-90deg)" } }, ICONS.chevronDown(th.muted))
       );
     };
-    const SectionHeader = ({ label, accent, collapsed, onToggle, open, right }) => {
-      if (collapsed) return /* @__PURE__ */ React.createElement("div", { style: { height: 1, margin: "0.85rem 0.65rem", background: `linear-gradient(90deg, transparent, ${th.sidebarBorder}, transparent)` } });
+    const SectionHeader = ({ label, accent, collapsed, onToggle, open, right, first }) => {
+      if (collapsed) return /* @__PURE__ */ React.createElement("div", { style: { height: 1, margin: "0.75rem 0.65rem", background: th.sidebarBorder } });
       const clickable = typeof onToggle === "function";
-      return (
-        // `right` (currently just Favorites' "Manage" link) is positioned
-        // absolutely on its own, rather than taking flex space from the right-
-        // hand divider line — that used to shrink the line to make room, which
-        // dragged the centered label off-center toward it. This way the label
-        // stays dead-center regardless of whether `right` is present at all.
-        /* @__PURE__ */ React.createElement("div", { style: { position: "relative", margin: "1rem 0.5rem 0.55rem" } }, /* @__PURE__ */ React.createElement(
-          "div",
-          {
-            onClick: onToggle,
-            title: clickable ? open ? "Collapse section" : "Expand section" : void 0,
-            style: { display: "flex", alignItems: "center", gap: "0.5rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }
-          },
-          /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` } }),
-          /* @__PURE__ */ React.createElement("span", { style: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.3rem",
-            fontSize: "0.55rem",
-            fontWeight: 800,
-            color: accent,
-            letterSpacing: 1.6,
-            textTransform: "uppercase",
-            padding: "0.15rem 0.5rem",
-            background: `${accent}12`,
-            borderTop: `1px solid ${accent}33`,
-            borderLeft: `1px solid ${accent}33`,
-            borderRight: `1px solid ${accent}33`,
-            borderBottom: `2px solid ${accent}66`,
-            borderRadius: 999
-          } }, label, clickable && /* @__PURE__ */ React.createElement("span", { style: {
-            fontSize: "0.45rem",
-            opacity: 0.7,
-            transition: "transform 0.22s",
-            display: "inline-block",
-            transform: open ? "rotate(90deg)" : "none"
-          } }, "\u25B6")),
-          /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` } })
-        ), right && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", background: th.sidebar || th.card, paddingLeft: "0.4rem" } }, right))
-      );
+      return /* @__PURE__ */ React.createElement("div", { style: { margin: first ? "0.6rem 0 0.35rem" : "0.75rem 0 0.35rem", paddingTop: first ? 0 : "0.85rem", borderTop: first ? "none" : `1px solid ${th.sidebarBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0 0.35rem 0 0.85rem" } }, /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          onClick: onToggle,
+          role: clickable ? "button" : void 0,
+          "aria-expanded": clickable ? !!open : void 0,
+          title: clickable ? open ? "Collapse section" : "Expand section" : void 0,
+          style: { flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: clickable ? "pointer" : "default", userSelect: "none", minWidth: 0 }
+        },
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, letterSpacing: 1.1, textTransform: "uppercase" } }, label),
+        clickable && !right && /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { display: "flex", opacity: 0.5, transition: "transform .2s", transform: open ? "none" : "rotate(-90deg)" } }, ICONS.chevronDown(th.muted))
+      ), right));
     };
     const ADMIN_GROUPS = [
       { key: "ops", id: "ops-hub", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polyline", { points: "23 6 13.5 15.5 8.5 10.5 1 18" }), /* @__PURE__ */ React.createElement("polyline", { points: "17 6 23 6 23 12" })) }), label: "Operations", color: "#2F6FA8" },
@@ -40292,27 +39843,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { key: "team", id: "team-hub", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polygon", { points: "12 2 2 7 12 12 22 7 12 2" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 17 12 22 22 17" }), /* @__PURE__ */ React.createElement("polyline", { points: "2 12 12 17 22 12" })) }), label: "Team & Sites", color: "#7C5CD9" },
       { key: "system", id: "system-hub", icon: (c) => /* @__PURE__ */ React.createElement(Icon, { color: c, d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "21", x2: "4", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "10", x2: "4", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "21", x2: "12", y2: "12" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "8", x2: "12", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "21", x2: "20", y2: "16" }), /* @__PURE__ */ React.createElement("line", { x1: "20", y1: "12", x2: "20", y2: "3" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "14", x2: "7", y2: "14" }), /* @__PURE__ */ React.createElement("line", { x1: "9", y1: "8", x2: "15", y2: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "17", y1: "16", x2: "23", y2: "16" })) }), label: "System", color: "#726A5C" }
     ];
-    const SidebarContent = ({ onNav, collapsed, navRef, onNavScroll }) => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: {
-      position: "relative",
-      padding: collapsed ? "16px 8px 12px" : "22px 20px 16px",
-      borderBottom: `1px solid ${th.sidebarBorder}`,
-      transition: "padding .25s"
-    } }, /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
-      position: "absolute",
-      inset: 0,
-      overflow: "hidden",
-      pointerEvents: "none"
-    } }, /* @__PURE__ */ React.createElement("div", { style: {
-      position: "absolute",
-      top: -60,
-      left: "50%",
-      width: 200,
-      height: 120,
-      marginLeft: -100,
-      borderRadius: "50%",
-      background: `radial-gradient(circle, ${O}22 0%, transparent 65%)`,
-      filter: "blur(20px)"
-    } })), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", flexDirection: collapsed ? "column" : "row", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: collapsed ? 0 : "0.65rem", padding: "0.25rem 0" } }, /* @__PURE__ */ React.createElement(
+    const SidebarContent = ({ onNav, collapsed, navRef, onNavScroll }) => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { padding: collapsed ? "16px 8px 10px" : "20px 16px 6px", transition: "padding .25s" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: collapsed ? "column" : "row", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: collapsed ? 0 : "0.7rem", padding: collapsed ? 0 : "0 0.15rem" } }, /* @__PURE__ */ React.createElement(
       "img",
       {
         ref: logoRef,
@@ -40320,242 +39851,96 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         alt: "People Capital Group",
         className: logoAnim ? "logo-transitioning" : "",
         onClick: handleToggle,
-        style: {
-          width: collapsed ? 40 : 52,
-          height: collapsed ? 40 : 52,
-          objectFit: "contain",
-          cursor: "pointer",
-          flexShrink: 0,
-          transition: "filter 0.1s, width .25s, height .25s, transform .2s",
-          filter: `drop-shadow(0 6px 16px ${O}55)`
-        },
+        style: { width: collapsed ? 40 : 48, height: collapsed ? 40 : 48, objectFit: "contain", cursor: "pointer", flexShrink: 0, transition: "filter 0.1s, width .25s, height .25s, transform .2s" },
         title: "Click to toggle theme",
-        onMouseEnter: (e) => e.currentTarget.style.transform = "scale(1.06) rotate(-3deg)",
+        onMouseEnter: (e) => e.currentTarget.style.transform = "scale(1.05)",
         onMouseLeave: (e) => e.currentTarget.style.transform = "none"
       }
-    ), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.1rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: {
-      fontFamily: "'Raleway'",
-      fontWeight: 900,
-      fontSize: "1.5rem",
-      letterSpacing: -1,
-      lineHeight: 1,
-      background: "linear-gradient(135deg, #FF671F 0%, #ff9055 50%, #FF671F 100%)",
-      WebkitBackgroundClip: "text",
-      WebkitTextFillColor: "transparent",
-      backgroundClip: "text"
-    } }, "UOP"), /* @__PURE__ */ React.createElement("div", { style: {
-      fontSize: "0.68rem",
-      fontWeight: 500,
-      color: th.muted,
-      whiteSpace: "nowrap"
-    } }, "Unified Operations Portal"))), /* @__PURE__ */ React.createElement(
+    ), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.15rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", letterSpacing: -0.5, lineHeight: 1, color: O } }, "UOP"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 500, color: th.muted, whiteSpace: "nowrap" } }, "Unified Operations Portal"))), /* @__PURE__ */ React.createElement(
       "div",
       {
         onClick: () => {
           setShowProfile(true);
           onNav && onNav();
         },
+        role: "button",
+        title: collapsed ? `${user.name} \xB7 ${user.role}` : "Open profile",
         style: {
           display: "flex",
           alignItems: "center",
-          gap: collapsed ? 0 : "0.7rem",
+          gap: collapsed ? 0 : "0.75rem",
           cursor: "pointer",
-          padding: collapsed ? "0.4rem" : "0.625rem 0.75rem",
-          borderRadius: "0.625rem",
-          transition: "all 0.2s",
-          marginTop: collapsed ? "1rem" : "1.25rem",
-          background: th.card3,
-          border: `1px solid ${th.cardBorder}`,
+          padding: collapsed ? "0.35rem" : "0.7rem 0.75rem",
+          borderRadius: "0.75rem",
+          marginTop: collapsed ? "1rem" : "1.1rem",
+          background: `${O}12`,
           justifyContent: collapsed ? "center" : "flex-start",
-          position: "relative",
-          overflow: "hidden"
+          transition: "background .15s"
         },
         onMouseEnter: (e) => {
-          e.currentTarget.style.background = th.card2;
-          e.currentTarget.style.borderColor = `${O}55`;
-          e.currentTarget.style.transform = "translateY(-1px)";
+          e.currentTarget.style.background = `${O}1f`;
         },
         onMouseLeave: (e) => {
-          e.currentTarget.style.background = th.card3;
-          e.currentTarget.style.borderColor = th.cardBorder;
-          e.currentTarget.style.transform = "none";
+          e.currentTarget.style.background = `${O}12`;
         }
       },
       /* @__PURE__ */ React.createElement("div", { style: {
-        width: "2.25rem",
-        height: "2.25rem",
-        borderRadius: "0.5rem",
-        background: `linear-gradient(135deg, ${O} 0%, #ff9055 100%)`,
+        width: "2.4rem",
+        height: "2.4rem",
+        borderRadius: "50%",
+        background: dark ? "#f3f4f6" : "#1f2937",
+        color: dark ? "#111827" : "#fff",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontWeight: 800,
-        fontSize: "0.78rem",
-        color: "#fff",
+        fontWeight: 700,
+        fontSize: "0.8rem",
         flexShrink: 0,
-        boxShadow: `0 4px 12px ${O}55`,
         letterSpacing: 0.5
       } }, user.initials),
-      !collapsed && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { overflow: "hidden", flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, user.name), isFullAdmin(user) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: `${O}22`, color: O, letterSpacing: 0.6, flexShrink: 0, border: `1px solid ${O}44` } }, user.userType === "executive" ? "EXEC" : "IT"), user.userType === "office_staff" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: "#8b5cf622", color: "#8b5cf6", letterSpacing: 0.6, flexShrink: 0, border: "1px solid #8b5cf644" } }, "OFFICE"), user.userType === "dm" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: "#f59e0b22", color: "#f59e0b", letterSpacing: 0.6, flexShrink: 0, border: "1px solid #f59e0b44" } }, "D", user.district)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted, marginTop: "0.1rem" } }, user.role)), /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, display: "flex", alignItems: "center", gap: "0.1rem", opacity: 0.6 } }, ICONS.settings(th.muted), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", transform: "rotate(-90deg)" } }, ICONS.chevronDown(th.muted))))
-    ), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginTop: "0.7rem" } }, /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: handleToggle,
-        title: "Toggle theme",
-        style: {
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "0.3rem",
-          flex: 1,
-          minWidth: 0,
-          padding: "0.4rem 0.5rem",
-          background: th.card3,
-          border: `1px solid ${th.cardBorder}`,
-          borderRadius: "0.5rem",
-          color: th.muted,
-          fontSize: "0.58rem",
-          fontWeight: 800,
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
-          cursor: "pointer",
-          fontFamily: "'Source Sans 3'",
-          transition: "all .2s",
-          overflow: "hidden",
-          whiteSpace: "nowrap"
+      !collapsed && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { overflow: "hidden", flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, user.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, user.role, user.userType === "dm" && user.district ? ` \xB7 District ${user.district}` : "")), /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { flexShrink: 0, display: "flex", opacity: 0.5, transform: "rotate(-90deg)" } }, ICONS.chevronDown(th.muted)))
+    ), !collapsed && (() => {
+      const canBackup = isFullAdmin(user) || isOfficeStaff;
+      const actions = [
+        {
+          key: "theme",
+          title: dark ? "Switch to light mode" : "Switch to dark mode",
+          onClick: handleToggle,
+          icon: /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", gap: "0.2rem" } }, dark ? ICONS.moon(th.muted) : ICONS.sun(th.muted), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", opacity: 0.6 } }, ICONS.chevronDown(th.muted)))
         },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.background = `${O}22`;
-          e.currentTarget.style.borderColor = `${O}55`;
+        canBackup && { key: "download", title: "Download a backup of this data", onClick: handleExport, icon: ICONS.download(th.muted) },
+        canBackup && { key: "upload", title: "Upload data from a backup file", onClick: () => importRef.current?.click(), icon: ICONS.upload(th.muted) },
+        { key: "logout", title: "Sign out", onClick: handleLogout, icon: ICONS.logout(th.muted), danger: true }
+      ].filter(Boolean);
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", marginTop: "0.75rem", padding: "0.15rem 0" } }, actions.map((a, i) => /* @__PURE__ */ React.createElement(React.Fragment, { key: a.key }, i > 0 && /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { width: 1, height: 20, background: th.sidebarBorder, flexShrink: 0 } }), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: a.onClick,
+          title: a.title,
+          "aria-label": a.title,
+          style: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0.5rem 0", margin: "0 0.2rem", background: "transparent", border: "none", borderRadius: "0.5rem", cursor: "pointer", transition: "background .15s" },
+          onMouseEnter: (e) => {
+            e.currentTarget.style.background = a.danger ? "#ef444414" : th.card3;
+          },
+          onMouseLeave: (e) => {
+            e.currentTarget.style.background = "transparent";
+          }
         },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.background = th.card3;
-          e.currentTarget.style.borderColor = th.cardBorder;
-        }
-      },
-      dark ? ICONS.moon(th.muted) : ICONS.sun(th.muted),
-      dark ? "Dark" : "Light",
-      /* @__PURE__ */ React.createElement("span", { style: { display: "flex", opacity: 0.6 } }, ICONS.chevronDown(th.muted))
-    ), (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: handleExport,
-        title: "Download a backup of this data",
-        style: {
-          flex: 1,
-          minWidth: 0,
-          padding: "0.4rem 0.35rem",
-          background: th.card3,
-          border: `1px solid ${th.cardBorder}`,
-          borderRadius: "0.5rem",
-          color: O,
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "0.25rem",
-          fontSize: "0.58rem",
-          fontWeight: 800,
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
-          fontFamily: "'Source Sans 3'",
-          transition: "all .2s",
-          overflow: "hidden",
-          whiteSpace: "nowrap"
-        },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.background = `${O}22`;
-          e.currentTarget.style.borderColor = `${O}55`;
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.background = th.card3;
-          e.currentTarget.style.borderColor = th.cardBorder;
-        }
-      },
-      ICONS.download(O),
-      "Download"
-    ), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => importRef.current?.click(),
-        title: "Upload data from a backup file",
-        style: {
-          flex: 1,
-          minWidth: 0,
-          padding: "0.4rem 0.35rem",
-          background: th.card3,
-          border: `1px solid ${th.cardBorder}`,
-          borderRadius: "0.5rem",
-          color: O,
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "0.25rem",
-          fontSize: "0.58rem",
-          fontWeight: 800,
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
-          fontFamily: "'Source Sans 3'",
-          transition: "all .2s",
-          overflow: "hidden",
-          whiteSpace: "nowrap"
-        },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.background = `${O}22`;
-          e.currentTarget.style.borderColor = `${O}55`;
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.background = th.card3;
-          e.currentTarget.style.borderColor = th.cardBorder;
-        }
-      },
-      ICONS.upload(O),
-      "Upload"
-    ))), !collapsed && /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: handleLogout,
-        title: "Sign out",
-        style: {
-          width: "100%",
-          marginTop: "0.4rem",
-          padding: "0.35rem 0.55rem",
-          background: "transparent",
-          border: "none",
-          color: th.muted,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "0.35rem",
-          fontSize: "0.62rem",
-          fontWeight: 700,
-          cursor: "pointer",
-          fontFamily: "'Source Sans 3'",
-          transition: "color .2s"
-        },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.color = "#ef4444";
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.color = th.muted;
-        }
-      },
-      ICONS.logout("currentColor"),
-      "Sign out"
-    )), /* @__PURE__ */ React.createElement("div", { ref: navRef, onScroll: onNavScroll, className: "sidebar-nav-scroll", style: { padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, !collapsed && /* @__PURE__ */ React.createElement(QuickFindBar, { th, tabs: TABS, onNavigate: setTab }), (() => {
+        a.icon
+      ))));
+    })(), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.65rem" } }, /* @__PURE__ */ React.createElement(QuickFindBar, { th, tabs: TABS, onNavigate: setTab, compact: true }))), /* @__PURE__ */ React.createElement("div", { ref: navRef, onScroll: onNavScroll, className: "sidebar-nav-scroll", style: { padding: collapsed ? "8px 8px 12px" : "2px 12px 14px", flex: 1, overflowY: "auto", transition: "padding .25s" } }, (() => {
       const dashTab = TABS.find((t) => t.id === "dashboard");
       const pinnedTabs = pinnedNavIds.map((id) => TABS.find((t) => t.id === id)).filter(Boolean);
       const quickTabs = [dashTab, ...pinnedTabs.filter((t) => t.id !== "dashboard")].filter(Boolean);
       if (quickTabs.length === 0) return null;
-      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Favorites", accent: O, collapsed, right: !collapsed && /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SectionHeader, { label: "Favorites", accent: O, collapsed, first: true, right: !collapsed && /* @__PURE__ */ React.createElement(
         "span",
         {
           role: "button",
           onClick: () => setManagingFavorites((m) => !m),
-          style: { fontSize: "0.62rem", fontWeight: 700, color: managingFavorites ? "#22c55e" : O, cursor: "pointer", whiteSpace: "nowrap", paddingRight: "0.2rem" }
+          style: { fontSize: "0.68rem", fontWeight: 600, color: managingFavorites ? "#22c55e" : th.muted, cursor: "pointer", whiteSpace: "nowrap" }
         },
-        managingFavorites ? "Done \u2713" : "Manage \u203A"
+        managingFavorites ? "Done" : "Manage"
       ) }), quickTabs.map((t) => {
         const C = t.cash ? cashMissingCount > 0 ? "#ef4444" : "#00d084" : t.green ? "#00d084" : O;
         return /* @__PURE__ */ React.createElement(
@@ -40860,41 +40245,45 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       transition: "padding .25s"
     } }, !collapsed && (() => {
       const online = typeof navigator === "undefined" || navigator.onLine;
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "0.35rem",
-        fontSize: "0.58rem",
-        color: online ? th.muted : "#ef4444",
-        fontWeight: 700,
-        letterSpacing: 0.3,
-        opacity: online ? 0.7 : 0.9
-      } }, /* @__PURE__ */ React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: online ? "#22c55e" : "#ef4444", boxShadow: `0 0 5px ${online ? "#22c55e" : "#ef4444"}`, animation: online ? "pulse 2s ease-in-out infinite" : "none", flexShrink: 0 } }), online ? "System operational" : "Connection lost"), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.55rem", color: th.muted, fontWeight: 700, letterSpacing: 0.5, opacity: 0.55 } }, APP_VERSION, /* @__PURE__ */ React.createElement(SyncStatus, { dark })));
+      return (
+        // v21.78: one quiet line instead of two — the status text only
+        // appears when something is actually wrong (offline).
+        /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            title: online ? "System operational" : "Connection lost",
+            style: { display: "inline-flex", alignItems: "center", gap: "0.4rem", minWidth: 0, fontSize: "0.62rem", fontWeight: 600, color: online ? th.muted : "#ef4444", opacity: online ? 0.65 : 0.95 }
+          },
+          /* @__PURE__ */ React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: online ? "#22c55e" : "#ef4444", flexShrink: 0 } }),
+          !online && /* @__PURE__ */ React.createElement("span", null, "Offline \xB7"),
+          APP_VERSION,
+          /* @__PURE__ */ React.createElement(SyncStatus, { dark })
+        )
+      );
     })(), !onNav && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setSidebarCollapsed((c) => !c),
         style: {
-          background: th.card3,
-          border: `1px solid ${th.cardBorder}`,
+          background: "transparent",
+          border: "none",
           cursor: "pointer",
-          padding: "0.35rem 0.5rem",
-          borderRadius: "0.4rem",
+          padding: "0.4rem 0.5rem",
+          borderRadius: "0.45rem",
           color: th.muted,
           display: "flex",
           alignItems: "center",
-          transition: "all .2s"
+          transition: "background .15s, color .15s"
         },
         onMouseEnter: (e) => {
-          e.currentTarget.style.background = `${O}22`;
-          e.currentTarget.style.color = O;
-          e.currentTarget.style.borderColor = `${O}55`;
+          e.currentTarget.style.background = th.card3;
+          e.currentTarget.style.color = th.text;
         },
         onMouseLeave: (e) => {
-          e.currentTarget.style.background = th.card3;
+          e.currentTarget.style.background = "transparent";
           e.currentTarget.style.color = th.muted;
-          e.currentTarget.style.borderColor = th.cardBorder;
         },
+        "aria-label": collapsed ? "Expand sidebar" : "Collapse sidebar",
         title: collapsed ? "Expand sidebar" : "Collapse sidebar"
       },
       /* @__PURE__ */ React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polyline", { points: collapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6" }))
@@ -41227,7 +40616,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         /* @__PURE__ */ React.createElement(OrionIcon, { size: 40 })
       ),
       document.body
-    ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : tab === "district-alignment" || tab === "tools-hub" ? "1.5rem 1.25rem 1rem" : tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(Dashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
+    ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : tab === "district-alignment" || tab === "tools-hub" ? "1.5rem 1.25rem 1rem" : tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(SimpleDashboard, { user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
     }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: stores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? stores : stores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores, managerPendingCount }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
@@ -41242,7 +40631,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "audits", name: "Audits", sub: "Field operations audits \u2014 conduct, review, score.", show: (auditCanView(user) || safeCanView(user)) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "audits"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M9 11.5 11 13.5 15.5 9" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "4", width: "18", height: "17", rx: "2" })) },
         { id: "network-complaints", name: "Complaints", sub: "Worst-tier guest complaints, network-wide \u2014 add comments.", show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "network-complaints"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" }), /* @__PURE__ */ React.createElement("path", { d: "M13.73 21a2 2 0 0 1-3.46 0" })) }
       ].filter((t) => t.show);
-      return /* @__PURE__ */ React.createElement(TileGrid, { title: "Operations", tiles: opsTiles, color: OPS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
+      return /* @__PURE__ */ React.createElement(TileGrid, { title: "Operations", subtitle: "Day-to-day store performance and field operations", tiles: opsTiles, color: OPS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
     })(), tab === "team-hub" && (() => {
       const TEAM = "#7C5CD9";
       const teamTiles = [
@@ -41255,7 +40644,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         // standalone "users" route/tab entry today, so only show this tile for them.
         { id: "users", name: "Users", sub: "Accounts, roles, and access management.", show: isOfficeStaff && accessSubOn(accessOverrides, user?.userType, "team-hub", "users"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6" })) }
       ].filter((t) => t.show);
-      return /* @__PURE__ */ React.createElement(TileGrid, { title: "Team & Sites", tiles: teamTiles, color: TEAM, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
+      return /* @__PURE__ */ React.createElement(TileGrid, { title: "Team & Sites", subtitle: "Stores, people, and site development", tiles: teamTiles, color: TEAM, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
     })(), tab === "system-hub" && (() => {
       const SYS = "#726A5C";
       const sysTiles = [
@@ -41264,7 +40653,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "reports", name: "Reports", sub: "Dashboards, decks, and scheduled reports from Orion.", show: accessSubOn(accessOverrides, user?.userType, "system-hub", "reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 2v6h6M9 13h6M9 17h6" })) },
         { id: "system-health", name: "System Health", sub: "Feed freshness, cron monitoring, and outage alerts.", show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, "system-hub", "system-health"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.folder(SYS)) }
       ].filter((t) => t.show);
-      return /* @__PURE__ */ React.createElement(TileGrid, { title: "System", tiles: sysTiles, color: SYS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
+      return /* @__PURE__ */ React.createElement(TileGrid, { title: "System", subtitle: "Administration, email, reports, and system status", tiles: sysTiles, color: SYS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav });
     })(), tab === "tools-hub" && (() => {
       const TOOLS = "#2F6FA8";
       const toolsTiles = [
@@ -41284,7 +40673,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         // a financial report, just a Paycor hours lookup tool.
         { id: "hours-report", name: "Hours Report", sub: "Any store, any date range \u2014 per-employee hours broken into weekly columns + total, exportable.", show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "hours-report"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v5l3.5 2" })) }
       ].filter((t) => t.show);
-      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", subtitle: "Quick access to your workplace tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
     })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores, users }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores, user }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));

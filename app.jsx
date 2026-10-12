@@ -30392,7 +30392,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.76";
+const APP_VERSION = "v21.81";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32571,7 +32571,12 @@ function DashboardPulse({ stores, th, setTab, isMobile, onAskOrion }) {
 
 // ── Dashboard Component ─────────────────────────────────────────────────────
 // ── Action Queue ─────────────────────────────────────────────────────────────
-function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
+// Data/logic half of the Action Queue, split out (v21.79) so the simplified
+// Dashboard's "Needs attention" card and the classic ActionQueue card below share
+// ONE implementation — same rules, same 4-hour acknowledge, same pcg_action_log
+// detection/resolution tracking. `enabled: false` skips every blob load (for roles
+// that never see labor/ticket items); hooks still run unconditionally.
+function useActionQueue({ stores, user, users, showAlert, enabled = true }) {
   const [laborData,  setLaborData]  = React.useState(null);
   const [tickets,    setTickets]    = React.useState(null);
   const [trends,     setTrends]     = React.useState({});
@@ -32590,6 +32595,7 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
   });
 
   React.useEffect(() => {
+    if (!enabled) return;
     cloudLoad('pcg_labor_v1').then(d => { if (d?.stores) setLaborData(d.stores); }).catch(() => {});
     cloudLoad('pcg_tickets_v1').then(tix => { if (Array.isArray(tix)) setTickets(tix); }).catch(() => {});
     cloudLoad('pcg_action_log').then(d => {
@@ -32774,6 +32780,13 @@ function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
     setActionLog(updated);
     cloudSave('pcg_action_log', updated).catch(() => {});
   }, [actions, user]);
+
+  return { actions, acknowledge, delegate, delegating, actionLog };
+}
+
+function ActionQueue({ stores, th, user, setTab, users, showAlert }) {
+  const { actions, acknowledge, delegate, delegating, actionLog } = useActionQueue({ stores, user, users, showAlert });
+  const isExec = user?.userType === 'executive' || user?.userType === 'it';
 
   if (!actions || actions.length === 0) return null;
 
@@ -33799,6 +33812,727 @@ const SHELLY_SENSOR_LABELS = {
   // '200': 'Walk-in Cooler',
   // '201': 'Walk-in Freezer',
 };
+
+// ── DashboardHero / DashboardHeadlines (v21.81) ──────────────────────────────
+// The greeting card (greeting, date, quote of the day, weather + 7-day popover) and
+// the Today's Headlines news feed, lifted verbatim out of the classic Dashboard so
+// SimpleDashboard can keep them. dailyFeed (quote + news) is fetched once by
+// SimpleDashboard and passed to both.
+function DashboardHero({ user, th, isMobile, dailyFeed }) {
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const firstName = (user?.name || "").split(" ")[0];
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  // Weather state (today + 7-day forecast for 19115 Philadelphia)
+  const [weather, setWeather] = useState(null); // { today: {...}, week: [{...}] }
+  const [showWeekWeather, setShowWeekWeather] = useState(false);
+  // Viewport rect of the weather widget, captured when the forecast popover opens —
+  // the popover renders through a portal (fixed position) so no ancestor stacking
+  // context (greeting card, hover transform) can paint other content over it.
+  const weatherRectRef = useRef(null);
+  const weatherCloseTimer = useRef(null);
+  const openWeekWeather = (e) => {
+    if (weatherCloseTimer.current) { clearTimeout(weatherCloseTimer.current); weatherCloseTimer.current = null; }
+    weatherRectRef.current = e.currentTarget.getBoundingClientRect();
+    setShowWeekWeather(true);
+  };
+  // Keep-open handler for the portaled panel itself: cancels the pending close but
+  // must NOT re-capture the anchor rect — currentTarget there is the panel, and
+  // anchoring the panel to itself would reposition it on any mid-hover re-render.
+  const holdWeekWeather = () => {
+    if (weatherCloseTimer.current) { clearTimeout(weatherCloseTimer.current); weatherCloseTimer.current = null; }
+  };
+  const closeWeekWeather = () => {
+    if (weatherCloseTimer.current) clearTimeout(weatherCloseTimer.current);
+    // Small grace period so the pointer can travel from the widget onto the panel.
+    weatherCloseTimer.current = setTimeout(() => setShowWeekWeather(false), 150);
+  };
+  // The panel is position:fixed off a rect snapshot — scrolling while it's open would
+  // leave it floating detached from the widget. Scrolling reads as intent-to-leave.
+  useEffect(() => {
+    if (!showWeekWeather) return;
+    const close = () => setShowWeekWeather(false);
+    window.addEventListener('scroll', close, { passive: true });
+    return () => window.removeEventListener('scroll', close);
+  }, [showWeekWeather]);
+
+  // Fetch weather once on mount — cached for the session
+  useEffect(() => {
+    (async () => {
+      try {
+        // Philadelphia 19115 (fallback coords if geo lookup fails)
+        let lat = 40.0840, lon = -75.0524;
+        try {
+          const zipRes = await fetch('https://api.zippopotam.us/us/19115');
+          if (zipRes.ok) {
+            const zipData = await zipRes.json();
+            lat = parseFloat(zipData.places[0].latitude);
+            lon = parseFloat(zipData.places[0].longitude);
+          }
+        } catch {}
+        // Open-Meteo daily endpoint: 7 days of high/low + weather code
+        const wxRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&current=temperature_2m,weather_code&temperature_unit=fahrenheit&timezone=auto&forecast_days=7`);
+        if (!wxRes.ok) return;
+        const w = await wxRes.json();
+        const mapCondition = (code) => {
+          if (code == null) return { label: "Unknown", icon: "🌡️" };
+          if (code <= 1) return { label: "Clear", icon: "☀️" };
+          if (code <= 3) return { label: "Partly Cloudy", icon: "⛅" };
+          if (code <= 48) return { label: "Fog", icon: "🌫️" };
+          if (code <= 57) return { label: "Drizzle", icon: "🌦️" };
+          if (code <= 67) return { label: "Rain", icon: "🌧️" };
+          if (code <= 77) return { label: "Snow", icon: "🌨️" };
+          if (code <= 82) return { label: "Rain", icon: "🌧️" };
+          if (code <= 86) return { label: "Snow", icon: "❄️" };
+          if (code >= 95) return { label: "Thunderstorm", icon: "⛈️" };
+          return { label: "Cloudy", icon: "☁️" };
+        };
+        const current = {
+          temp: Math.round(w.current?.temperature_2m || 0),
+          ...mapCondition(w.current?.weather_code),
+        };
+        const daily = (w.daily?.time || []).map((date, i) => ({
+          date,
+          high: Math.round(w.daily.temperature_2m_max[i]),
+          low: Math.round(w.daily.temperature_2m_min[i]),
+          precip: w.daily.precipitation_probability_max?.[i] || 0,
+          ...mapCondition(w.daily.weather_code[i]),
+        }));
+        setWeather({ current, today: daily[0], week: daily });
+      } catch {}
+    })();
+  }, []);
+
+  return (
+    <>
+      {/* ─── Hero: Greeting · Weather · Quote ────────────────────────────────
+          A single elevated panel that anchors the page. Ambient orange glow
+          blobs at the corners + a subtle gradient give depth without noise.
+          NOTE: the outer card does NOT use overflow:hidden — that would clip
+          the weather 7-day popover. Instead, the glow blobs live inside a
+          dedicated clipping layer. */}
+      <div style={{
+        position: "relative", marginBottom: "1.5rem",
+        background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`,
+        border: `1px solid ${th.cardBorder}`,
+        borderRadius: "1rem",
+        padding: isMobile ? "1.25rem" : "1.75rem 2rem",
+        boxShadow: `0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.05)`,
+      }}>
+        {/* Clipped glow layer — keeps ambient blobs from bleeding out of the
+            card's rounded corners without clipping hoverable child popovers. */}
+        <div aria-hidden="true" style={{
+          position: "absolute", inset: 0, borderRadius: "1rem",
+          overflow: "hidden", pointerEvents: "none",
+        }}>
+          <div style={{
+            position: "absolute", top: -100, right: -80, width: 260, height: 260,
+            borderRadius: "50%", background: `radial-gradient(circle, ${O}22 0%, transparent 65%)`,
+            filter: "blur(8px)",
+          }} />
+          <div style={{
+            position: "absolute", bottom: -120, left: "35%", width: 320, height: 320,
+            borderRadius: "50%", background: `radial-gradient(circle, ${O}0f 0%, transparent 70%)`,
+            filter: "blur(12px)",
+          }} />
+        </div>
+
+        <div style={{
+          position: "relative", zIndex: 1,
+          display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+          gap: "1.5rem", flexWrap: "wrap",
+        }}>
+          {/* Left: Greeting block */}
+          <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+            {/* Time-of-day pill with live indicator dot */}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.6rem", padding: "0.25rem 0.7rem 0.25rem 0.55rem", background: `${O}15`, border: `1px solid ${O}33`, borderRadius: "999px" }}>
+              <span style={{
+                display: "inline-block", width: 7, height: 7, borderRadius: "50%",
+                background: O, boxShadow: `0 0 10px ${O}cc`,
+                animation: "pulse 2s ease-in-out infinite",
+              }} />
+              <span style={{ fontSize: "0.65rem", color: O, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1.5 }}>
+                {greeting}
+              </span>
+            </div>
+            {/* Name — the hero moment */}
+            <div style={{
+              fontFamily: "'Raleway'", fontWeight: 900,
+              fontSize: isMobile ? "2rem" : "2.75rem",
+              color: th.text, letterSpacing: -1, lineHeight: 1,
+            }}>
+              {firstName}
+            </div>
+            {/* Date */}
+            <div style={{ fontSize: "0.82rem", color: th.muted, marginTop: "0.5rem", fontWeight: 500 }}>{today}</div>
+
+            {/* Quote of the day */}
+            {dailyFeed?.quote && (
+              <div style={{
+                marginTop: "1rem", maxWidth: 580,
+                padding: "0.75rem 1rem",
+                background: `${O}0a`,
+                border: `1px solid ${O}22`,
+                borderLeft: `3px solid ${O}`,
+                borderRadius: "0.5rem",
+              }}>
+                <div style={{ fontSize: "0.8rem", color: th.text, fontStyle: "italic", lineHeight: 1.5 }}>
+                  &ldquo;{dailyFeed.quote.text}&rdquo;
+                </div>
+                <div style={{ fontSize: "0.66rem", color: O, fontWeight: 700, marginTop: "0.4rem", letterSpacing: 0.5, textTransform: "uppercase" }}>
+                  — {dailyFeed.quote.author || "Unknown"}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Enhanced weather widget */}
+          {weather && (
+            <div
+              onMouseEnter={openWeekWeather}
+              onMouseLeave={closeWeekWeather}
+              style={{
+                position: "relative",
+                background: `linear-gradient(135deg, ${th.card2} 0%, ${th.card} 100%)`,
+                border: `1px solid ${th.cardBorder}`,
+                borderRadius: "0.875rem",
+                padding: "1rem 1.25rem",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "1rem",
+                flexShrink: 0,
+                minWidth: 220,
+                boxShadow: showWeekWeather
+                  ? `0 12px 32px rgba(0,0,0,0.18), 0 0 0 1px ${O}44`
+                  : `0 2px 8px rgba(0,0,0,0.08)`,
+                transform: showWeekWeather ? "translateY(-1px)" : "none",
+                transition: "all .2s ease",
+              }}
+              title="Hover for 7-day forecast"
+            >
+              <div style={{ fontSize: "2.25rem", lineHeight: 1 }}>{weather.today?.icon || weather.current?.icon}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text, lineHeight: 1, letterSpacing: -0.5 }}>
+                  {weather.current?.temp}°<span style={{ fontSize: "0.95rem", fontWeight: 700, color: th.muted, marginLeft: 1 }}>F</span>
+                </div>
+                <div style={{ fontSize: "0.62rem", color: th.muted, marginTop: "0.3rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                  {weather.today ? `H ${weather.today.high}° · L ${weather.today.low}°` : ""}
+                </div>
+                <div style={{ fontSize: "0.62rem", color: th.muted, opacity: 0.75, marginTop: "0.15rem" }}>
+                  {weather.today?.label} · Philadelphia
+                </div>
+              </div>
+
+              {/* 7-day dropdown on hover — portaled to <body> so no ancestor stacking
+                  context (greeting card, KPI badges, deck cards) can paint over it */}
+              {showWeekWeather && weather.week && weatherRectRef.current && ReactDOM.createPortal(
+                <div
+                  onMouseEnter={holdWeekWeather}
+                  onMouseLeave={closeWeekWeather}
+                  style={{
+                  position: "fixed",
+                  top: weatherRectRef.current.bottom + 8,
+                  left: Math.max(8, weatherRectRef.current.right - 300),
+                  minWidth: 300,
+                  background: th.card,
+                  border: `1px solid ${th.cardBorder}`,
+                  borderRadius: "0.875rem",
+                  padding: "0.875rem",
+                  boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
+                  zIndex: 9992, // above the Orion FAB (9990); toasts/backdrops (9998+) stay on top
+                  animation: "fadeIn .15s ease",
+                }}>
+                  <div style={{ fontSize: "0.65rem", color: th.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.6rem" }}>7-Day Forecast</div>
+                  {weather.week.map((d, i) => {
+                    const dayName = i === 0 ? "Today" : new Date(d.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+                    return (
+                      <div key={d.date} style={{
+                        display: "flex", alignItems: "center", gap: "0.75rem",
+                        padding: "0.4rem 0.25rem",
+                        borderBottom: i < weather.week.length - 1 ? `1px solid ${th.cardBorder}` : "none",
+                      }}>
+                        <div style={{ width: 42, fontSize: "0.72rem", fontWeight: 700, color: i === 0 ? O : th.text }}>{dayName}</div>
+                        <div style={{ fontSize: "1.2rem", width: 26, textAlign: "center" }}>{d.icon}</div>
+                        <div style={{ flex: 1, fontSize: "0.68rem", color: th.muted }}>{d.label}</div>
+                        {d.precip > 0 && <div style={{ fontSize: "0.62rem", color: "#74c0fc" }}>💧 {d.precip}%</div>}
+                        <div style={{ fontSize: "0.75rem", fontWeight: 700, color: th.text, minWidth: 60, textAlign: "right" }}>
+                          {d.high}° <span style={{ color: th.muted, fontWeight: 500 }}>/ {d.low}°</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>,
+                document.body
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function DashboardHeadlines({ th, isMobile, dailyFeed }) {
+  const [newsTab, setNewsTab] = useState("general"); // "general" | "restaurant" | "inspire" | "papajohns"
+  return (
+    <>
+      {/* ─── News Feed ────────────────────────────────────────────────────
+          Editorial grid with 16:9 hero images, source pills, and a clean
+          scale-up hover that lifts the card and darkens the image slightly. */}
+      {dailyFeed?.news && Object.values(dailyFeed.news).some(arr => Array.isArray(arr) && arr.length > 0) && (() => {
+        const SOURCE_COLORS = {
+          "Fox News": "#003366",
+          "CNN": "#cc0000",
+          "Google News": "#4285f4",
+          "Nation's Restaurant News": "#8b5cf6",
+          "Restaurant Dive": "#f59e0b",
+        };
+        const NEWS_TABS = [
+          { key: "general",    label: "Top News" },
+          { key: "restaurant", label: "Restaurant" },
+          { key: "inspire",    label: "Inspire Brands" },
+          { key: "papajohns",  label: "Papa John's" },
+        ];
+        const currentList = dailyFeed.news[newsTab] || [];
+        const items = currentList.slice(0, 10);
+        return (
+          <div style={{ marginBottom: "1.75rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem", flexWrap: "wrap" }}>
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: "0.5rem",
+                padding: "0.3rem 0.75rem", background: `${O}15`, border: `1px solid ${O}33`,
+                borderRadius: "999px",
+              }}>
+                <span style={{ fontSize: "0.85rem" }}>📰</span>
+                <span style={{ fontSize: "0.66rem", fontWeight: 800, color: O, textTransform: "uppercase", letterSpacing: 1.3 }}>
+                  Today's Headlines
+                </span>
+              </div>
+              <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.cardBorder}, transparent)`, minWidth: 24 }} />
+              {/* Tab switcher */}
+              <div style={{
+                display: "inline-flex", gap: "0.2rem",
+                background: th.card2, padding: "0.25rem",
+                border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem",
+                flexWrap: "wrap",
+              }}>
+                {NEWS_TABS.map(t => (
+                  <button key={t.key} onClick={() => setNewsTab(t.key)} style={{
+                    background: newsTab === t.key ? O : "transparent",
+                    color: newsTab === t.key ? "#fff" : th.muted,
+                    border: "none", padding: "0.35rem 0.8rem", borderRadius: "0.375rem",
+                    cursor: "pointer", fontFamily: "'Source Sans 3'", fontSize: "0.7rem", fontWeight: 700,
+                    transition: "all .2s", whiteSpace: "nowrap",
+                    boxShadow: newsTab === t.key ? `0 2px 8px ${O}44` : "none",
+                  }}>{t.label}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(340px, 1fr))", gap: "0.9rem" }}>
+              {items.map((n, i) => {
+                const srcColor = SOURCE_COLORS[n.source] || O;
+                return (
+                  <a key={n.source + "_" + i} href={n.link} target="_blank" rel="noopener noreferrer"
+                    style={{
+                      background: th.card,
+                      border: `1px solid ${th.cardBorder}`,
+                      borderRadius: "0.875rem",
+                      textDecoration: "none",
+                      display: "flex",
+                      flexDirection: "column",
+                      overflow: "hidden",
+                      transition: "all .25s cubic-bezier(.4,0,.2,1)",
+                      boxShadow: `0 1px 3px rgba(0,0,0,0.04)`,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = `0 14px 32px rgba(0,0,0,0.12), 0 0 0 1px ${O}33`; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = `0 1px 3px rgba(0,0,0,0.04)`; }}
+                  >
+                    {/* Image */}
+                    {n.image ? (
+                      <div style={{ width: "100%", aspectRatio: "16 / 9", background: th.card2, overflow: "hidden", position: "relative" }}>
+                        <img src={n.image} alt="" loading="lazy"
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                        {/* Gradient scrim for badge legibility */}
+                        <div style={{
+                          position: "absolute", inset: 0,
+                          background: "linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, transparent 50%)",
+                          pointerEvents: "none",
+                        }} />
+                        {/* Source pill */}
+                        <div style={{
+                          position: "absolute", top: 10, left: 10,
+                          background: srcColor, color: "#fff", fontSize: "0.58rem", fontWeight: 900,
+                          padding: "4px 9px", borderRadius: "999px",
+                          textTransform: "uppercase", letterSpacing: 0.7,
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                        }}>{n.source}</div>
+                      </div>
+                    ) : (
+                      <div style={{ padding: "0.6rem 1rem 0" }}>
+                        <span style={{
+                          display: "inline-block",
+                          background: srcColor, color: "#fff", fontSize: "0.58rem", fontWeight: 900,
+                          padding: "4px 9px", borderRadius: "999px",
+                          textTransform: "uppercase", letterSpacing: 0.7,
+                        }}>{n.source}</span>
+                      </div>
+                    )}
+                    {/* Content */}
+                    <div style={{ padding: "1rem 1.1rem 1.1rem", flex: 1, display: "flex", flexDirection: "column" }}>
+                      <div style={{
+                        fontFamily: "'Raleway'", fontSize: "0.95rem", fontWeight: 800,
+                        color: th.text, lineHeight: 1.3, letterSpacing: -0.2,
+                        marginBottom: n.description ? "0.5rem" : 0,
+                        display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden",
+                      }}>
+                        {n.title}
+                      </div>
+                      {n.description && (
+                        <div style={{
+                          fontSize: "0.72rem", color: th.muted, lineHeight: 1.5,
+                          overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                          marginBottom: "0.75rem", flex: 1,
+                        }}>
+                          {n.description}
+                        </div>
+                      )}
+                      {n.pubDate && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "auto", paddingTop: "0.5rem", borderTop: `1px solid ${th.cardBorder}` }}>
+                          <span style={{ width: 4, height: 4, borderRadius: "50%", background: th.muted, opacity: 0.5 }} />
+                          <div style={{ fontSize: "0.62rem", color: th.muted, fontWeight: 600, opacity: 0.8 }}>
+                            {(() => {
+                              try { return new Date(n.pubDate).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+                              catch { return n.pubDate; }
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+            {items.length === 0 && (
+              <div style={{ textAlign: "center", padding: "2rem", color: th.muted, fontSize: "0.8rem", background: th.card2, borderRadius: "0.75rem", border: `1px dashed ${th.cardBorder}` }}>
+                No {(NEWS_TABS.find(t => t.key === newsTab)?.label || '').toLowerCase()} news available right now.
+              </div>
+            )}
+          </div>
+        );
+      })()}
+    </>
+  );
+}
+
+// ── SimpleDashboard (v21.79) ─────────────────────────────────────────────────
+// The simplified dashboard: a slim greeting row, then three blocks only —
+// "Needs attention" (top 3, View all expands in place), "Business opportunities"
+// (exec/IT only, since case-list is exec-only server-side) and "Quick actions".
+// Replaces the old 12-block Dashboard (still defined below, unused, for an easy
+// rollback). Every source keeps its existing role scoping: a DM sees only their
+// district, a manager only their own store.
+//   • Labor + ticket items: useActionQueue (same rules/ack/logging as before)
+//   • Food safety: tasks.mjs rollup, label 'Food Safety', overdue + missed today
+//   • Construction: active projects past their dueDate
+//   • Overdue to-dos assigned to this user
+function SimpleDashboard({ user, th, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, isMobile, todoDeepLinkRef, showAlert, users }) {
+  const ut = user?.userType;
+  const isExecIT = ut === 'executive' || ut === 'it';
+  const isOffice = ut === 'office_staff';
+  const isDM = ut === 'dm';
+  const isManager = ut === 'manager';
+  const isConstruction = ut === 'construction';
+  const opsRole = isExecIT || isOffice || isDM || isManager;
+  const allowedTabIds = React.useMemo(() => new Set(getTabs(user).map(t => t.id)), [user]);
+  const go = (tabId) => (allowedTabIds.has(tabId) ? () => setTab(tabId) : null);
+
+  // Store scope for labor/ticket/food-safety signals.
+  const scopedStores = React.useMemo(() => {
+    const all = stores || [];
+    if (isDM) return all.filter(s => String(s.district) === String(user?.district));
+    if (isManager) return all.filter(s => isManagersStore(s, user));
+    return all;
+  }, [stores, user, isDM, isManager]);
+
+  const { actions, acknowledge, delegate, delegating } = useActionQueue({ stores: scopedStores, user, users, showAlert, enabled: opsRole });
+
+  // ── Food safety (overdue + missed checks today) ──
+  const [foodSafety, setFoodSafety] = useState(null);
+  useEffect(() => {
+    if (!opsRole) return;
+    if (isManager && !scopedStores.length) return;
+    const district = isDM ? user?.district : isManager ? scopedStores[0]?.district : null;
+    const cacheKey = `pcg_dash_foodsafety_v1_${user?.id}`;
+    try {
+      const c = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
+      if (c && Date.now() - c.at < 10 * 60000) { setFoodSafety(c.data); return; }
+    } catch {}
+    let cancelled = false;
+    fetch('/.netlify/functions/tasks', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'rollup', label: 'Food Safety', district: district || null }),
+    }).then(r => r.json()).then(d => {
+      if (cancelled || !Array.isArray(d?.stores)) return;
+      const inScope = new Set(scopedStores.map(s => String(s.pc)));
+      const hits = d.stores.filter(s => inScope.has(String(s.pc))).map(s => ({ name: s.name, n: (s.overdue || 0) + (s.missed || 0) })).filter(s => s.n > 0);
+      const data = { checks: hits.reduce((a, s) => a + s.n, 0), stores: hits.length, only: hits.length === 1 ? hits[0].name : null };
+      setFoodSafety(data);
+      try { sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data })); } catch {}
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [opsRole, scopedStores.length]);
+
+  // ── Business opportunities (exec/IT) ──
+  const [cases, setCases] = useState(null);
+  const [showAllCases, setShowAllCases] = useState(false);
+  useEffect(() => {
+    if (!isExecIT) return;
+    fetch('/.netlify/functions/analyst', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'case-list', userId: user.id, district: null, limit: 10 }),
+    }).then(r => r.json()).then(d => setCases(Array.isArray(d?.cases) ? d.cases : [])).catch(() => setCases([]));
+  }, [isExecIT]);
+  const CLOSED_CASE = new Set(['Done', 'Dismissed', 'Rejected', 'Closed']);
+  const openCases = (cases || []).filter(c => !CLOSED_CASE.has(c.status)).sort((a, b) => (b.dollarOpportunity || 0) - (a.dollarOpportunity || 0));
+
+  // Quote of the day + headlines (shared by DashboardHero and DashboardHeadlines).
+  const [dailyFeed, setDailyFeed] = useState(null);
+  useEffect(() => {
+    fetch('/.netlify/functions/daily-feed').then(r => (r.ok ? r.json() : null)).then(d => { if (d) setDailyFeed(d); }).catch(() => {});
+  }, []);
+
+  const [showAllAttention, setShowAllAttention] = useState(false);
+  const [showBrief, setShowBrief] = useState(false);
+
+  // ── Build the "Needs attention" rows ──
+  const now = new Date();
+  const sevRank = { High: 0, Medium: 1, Low: 2 };
+  const ICON_STORE = <><path d="M3 9 4.5 4h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9h18M9 20v-6h6v6"/></>;
+  const ICON_SHIELD = <><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z"/></>;
+  const ICON_HARDHAT = <><path d="M2 18h20M4 18v-3a8 8 0 0 1 16 0v3"/><path d="M10 7V5h4v2"/></>;
+  const ICON_WRENCH = <><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5Z"/></>;
+  const ICON_CHECK = <><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m9 12 2 2 4-4"/></>;
+  const rows = [];
+  (actions || []).forEach(a => {
+    const sev = a.priority === 0 ? 'High' : a.priority === 1 ? 'Medium' : 'Low';
+    // Labor lives inside the Finance hub (no standalone 'labor' tab in any role list).
+    const onClick = a.type === 'labor' ? go('finance') : go('tickets');
+    rows.push({ key: a.key, icon: a.type === 'labor' ? ICON_STORE : ICON_WRENCH, title: a.store?.name || 'Store', sub: String(a.msg || '').replace(/\s*\u{1F525}\s*/u, ' · '), sev, onClick, qItem: a });
+  });
+  if (foodSafety?.checks > 0) {
+    rows.push({ key: 'food_safety', icon: ICON_SHIELD, title: 'Food safety', sev: 'Medium', onClick: go('tasks'),
+      sub: `${foodSafety.checks} overdue check${foodSafety.checks !== 1 ? 's' : ''} ${foodSafety.only ? `at ${foodSafety.only}` : `across ${foodSafety.stores} stores`} today` });
+  }
+  if (isExecIT || isOffice || isDM || isConstruction) {
+    const late = (projects || []).filter(p => {
+      if (p.completed || !p.dueDate) return false;
+      if (isDM && String(p.district) !== String(user?.district)) return false;
+      try { if (getCurrentPhase(p)?.id === 'complete') return false; } catch {}
+      return new Date(p.dueDate) < now;
+    });
+    if (late.length) rows.push({ key: 'construction', icon: ICON_HARDHAT, title: 'Construction', sev: 'Medium', onClick: go('projects'),
+      sub: `${late.length} project${late.length !== 1 ? 's' : ''} past due date` });
+  }
+  const myOverdue = (todos || []).filter(t => {
+    if (t.done || !t.dueDate) return false;
+    const ids = t.assigneeIds || (t.assigneeId !== undefined ? [t.assigneeId] : []);
+    if (!ids.includes(user?.id)) return false;
+    const d = String(t.dueDate);
+    return new Date(d.length === 10 ? `${d}T23:59:59` : d) < now;
+  });
+  if (myOverdue.length) {
+    rows.push({ key: 'todos', icon: ICON_CHECK, title: 'Your to-dos', sev: myOverdue.some(t => t.priority === 'High') ? 'High' : 'Medium',
+      sub: `${myOverdue.length} task${myOverdue.length !== 1 ? 's' : ''} past due`,
+      onClick: allowedTabIds.has('todos') ? () => { if (myOverdue.length === 1 && todoDeepLinkRef) todoDeepLinkRef.current = myOverdue[0].id; setTab('todos'); } : null });
+  }
+  rows.sort((a, b) => sevRank[a.sev] - sevRank[b.sev]);
+  const attentionLoading = opsRole && actions == null;
+  const shownRows = showAllAttention ? rows : rows.slice(0, 3);
+
+  // ── Announcements ──
+  const myDist = user?.district ? Number(user.district) : (user?.storePC ? Number((stores || []).find(s => String(s.pc) === String(user.storePC))?.district || 0) : null);
+  const unread = (announcements || []).filter(a => {
+    if (!a.active || a.type === 'leaderboard' || announcementsDismissed?.[`${user?.id}_${a.id}`]) return false;
+    if (!a.targets) return true;
+    const { roles, districts, users: ids } = a.targets;
+    return !!(roles?.includes(ut) || ids?.includes(user?.id) || (myDist && districts?.includes(myDist)));
+  });
+
+  // ── Quick actions (same set/gating as before, capped at four for the 2×2 grid) ──
+  const quick = [
+    { label: 'Browse links', icon: ICONS.links, tab: 'links' },
+    { label: 'New note', icon: ICONS.notes, tab: 'notes' },
+    { label: 'Add task', icon: ICONS.todos, tab: 'todos' },
+    ...((isExecIT || isOffice || isDM || isConstruction) ? [{ label: 'View projects', icon: ICONS.projects, tab: 'projects' }] : []),
+  ].filter(a => allowedTabIds.has(a.tab)).slice(0, 4);
+
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const firstName = (user?.name || '').split(' ')[0];
+  const managerStore = isManager ? getManagerStore(stores, user) : null;
+  const hasBrief = isExecIT || isDM || !!(isManager && managerStore?.pc);
+
+  const sevStyle = (s) => s === 'High' ? { bg: '#ef44441f', fg: '#dc2626' } : s === 'Medium' ? { bg: '#f59e0b24', fg: '#c2730a' } : { bg: th.card3, fg: th.muted };
+  const cardStyle = { ...card(th), borderRadius: '0.9rem', padding: '1.1rem 1.25rem', minWidth: 0, boxSizing: 'border-box' };
+  const chevron = <span aria-hidden="true" style={{ display: 'flex', opacity: 0.5, transform: 'rotate(-90deg)', flexShrink: 0 }}>{ICONS.chevronDown(th.muted)}</span>;
+  const linkBtn = (label, onClick) => (
+    <button onClick={onClick} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: O, fontSize: '0.8rem', fontWeight: 700, fontFamily: "'Source Sans 3'", display: 'inline-flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap' }}>
+      {label}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  );
+  const cardHeader = (icon, title, right) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.6rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+        {icon}
+        <h3 style={{ margin: 0, fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.02rem', color: th.text }}>{title}</h3>
+      </div>
+      {right}
+    </div>
+  );
+  const rowBase = { display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.75rem 0.4rem', borderTop: `1px solid ${th.cardBorder}`, borderRadius: '0.4rem', fontFamily: "'Source Sans 3'", transition: 'background .15s' };
+  const hoverOn = e => { e.currentTarget.style.background = th.card3; };
+  const hoverOff = e => { e.currentTarget.style.background = 'transparent'; };
+
+  return (
+    <div className="fade-in">
+      {/* Greeting card — greeting, date, quote of the day, weather */}
+      <Guard name="dash-hero" fallback={null}><DashboardHero user={user} th={th} isMobile={isMobile} dailyFeed={dailyFeed} /></Guard>
+
+      {hasBrief && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.9rem' }}>
+          <button onClick={() => setShowBrief(b => !b)} aria-expanded={showBrief}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.5rem 0.95rem', borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6.3 6.3 4.9 4.9M19.1 19.1l-1.4-1.4M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg>
+            {showBrief ? "Hide today's brief" : "Today's brief"}
+            <span aria-hidden="true" style={{ display: 'flex', opacity: 0.55, transform: showBrief ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>{ICONS.chevronDown(th.muted)}</span>
+          </button>
+        </div>
+      )}
+
+      {showBrief && hasBrief && (
+        <div style={{ marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {(isExecIT || isDM) && <Guard name="dash-brief" fallback={null}><TodayBrief user={user} th={th} setAnnouncements={setAnnouncements} showAlert={showAlert} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} /></Guard>}
+          {isManager && managerStore?.pc && (
+            <>
+              <Guard name="manager-brief" fallback={null}><ManagerOrionBrief pc={managerStore.pc} storeName={managerStore.name} th={th} /></Guard>
+              <Guard name="forecast-preplan" fallback={null}><ForecastPrePlanCard pc={managerStore.pc} storeName={managerStore.name} th={th} /></Guard>
+              <Guard name="manager-caps" fallback={null}><ManagerCapCard user={user} th={th} stores={stores} showAlert={showAlert} /></Guard>
+            </>
+          )}
+        </div>
+      )}
+
+      {unread.length > 0 && (
+        <button onClick={() => setTab('announcements')} onMouseEnter={e => { e.currentTarget.style.background = `${O}1f`; }} onMouseLeave={e => { e.currentTarget.style.background = `${O}12`; }}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', width: '100%', padding: '0.7rem 1rem', marginBottom: '1.1rem', borderRadius: '0.75rem', border: 'none', background: `${O}12`, cursor: 'pointer', fontFamily: "'Source Sans 3'", textAlign: 'left' }}>
+          <span style={{ display: 'flex' }}>{ICONS.announcements(O)}</span>
+          <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600, color: th.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {unread.length} unread announcement{unread.length !== 1 ? 's' : ''}
+            {typeof unread[0]?.title === 'string' && unread[0].title ? <span style={{ color: th.muted, fontWeight: 400 }}> · {unread[0].title}</span> : null}
+          </span>
+          {chevron}
+        </button>
+      )}
+
+      {/* Needs attention */}
+      <div style={{ ...cardStyle, marginBottom: '1.1rem' }}>
+        {cardHeader(
+          <span style={{ width: 22, height: 22, borderRadius: '50%', background: rows.length ? '#ef4444' : '#22c55e', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 900 }}>{rows.length ? '!' : '✓'}</span>,
+          'Needs attention',
+          rows.length > 3 ? linkBtn(showAllAttention ? 'Show less' : `View all ${rows.length}`, () => setShowAllAttention(v => !v)) : null
+        )}
+        {attentionLoading && rows.length === 0 && <div style={{ fontSize: '0.85rem', color: th.muted, padding: '0.5rem 0.4rem' }}>Checking your stores…</div>}
+        {!attentionLoading && rows.length === 0 && <div style={{ fontSize: '0.88rem', color: th.muted, padding: '0.5rem 0.4rem' }}>All clear. Nothing needs your attention right now.</div>}
+        {shownRows.map(r => {
+          const s = sevStyle(r.sev);
+          return (
+            <div key={r.key} role={r.onClick ? 'button' : undefined} tabIndex={r.onClick ? 0 : undefined}
+              onClick={r.onClick || undefined} onKeyDown={e => { if (r.onClick && e.target === e.currentTarget && e.key === 'Enter') r.onClick(); }}
+              onMouseEnter={r.onClick ? hoverOn : undefined} onMouseLeave={r.onClick ? hoverOff : undefined}
+              style={{ ...rowBase, cursor: r.onClick ? 'pointer' : 'default' }}>
+              <span style={{ width: 38, height: 38, borderRadius: '0.6rem', background: `${O}17`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <HubIcon color={O} size={19} d={r.icon} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: th.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</div>
+                <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isMobile ? 'normal' : 'nowrap' }}>{r.sub}</div>
+              </div>
+              {showAllAttention && r.qItem && (
+                <span style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                  <button onClick={() => acknowledge(r.qItem.key)} title="Hide this item for 4 hours"
+                    style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.2rem 0.55rem', borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: 'transparent', color: th.muted, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Dismiss</button>
+                  {isExecIT && (
+                    <button onClick={() => delegate(r.qItem)} disabled={!!delegating[r.qItem.key]} title="Send a push notification to this store's DM"
+                      style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.2rem 0.55rem', borderRadius: 999, border: `1px solid ${O}55`, background: 'transparent', color: O, cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>{delegating[r.qItem.key] ? 'Sent' : 'Notify DM'}</button>
+                  )}
+                </span>
+              )}
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.65rem', borderRadius: 999, background: s.bg, color: s.fg, flexShrink: 0 }}>{r.sev}</span>
+              {r.onClick ? chevron : <span style={{ width: 16, flexShrink: 0 }} />}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Opportunities + Quick actions */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile || !isExecIT ? 'minmax(0, 1fr)' : 'minmax(0, 3fr) minmax(0, 2fr)', gap: '1.1rem', alignItems: 'stretch' }}>
+        {isExecIT && (
+          <div style={cardStyle}>
+            {cardHeader(
+              <HubIcon color={O} size={20} d={<><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></>} />,
+              'Business opportunities',
+              openCases.length > 0 ? linkBtn(showAllCases ? 'Show less' : 'View all', () => setShowAllCases(v => !v)) : null
+            )}
+            {cases == null && <div style={{ fontSize: '0.85rem', color: th.muted, padding: '0.5rem 0.4rem' }}>Loading…</div>}
+            {cases != null && openCases.length === 0 && <div style={{ fontSize: '0.88rem', color: th.muted, padding: '0.5rem 0.4rem' }}>No open opportunities right now.</div>}
+            {!showAllCases && openCases.slice(0, 3).map(c => (
+              <div key={c.id} role="button" tabIndex={0} onClick={() => setShowAllCases(true)} onKeyDown={e => { if (e.key === 'Enter') setShowAllCases(true); }}
+                onMouseEnter={hoverOn} onMouseLeave={hoverOff}
+                style={{ ...rowBase, cursor: 'pointer' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: th.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || c.storeName || 'Opportunity'}</div>
+                  <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.summary || c.storeName || ''}</div>
+                </div>
+                {c.dollarOpportunity > 0 && <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#16a34a', flexShrink: 0 }}>{fmtDollars(c.dollarOpportunity)}</span>}
+                {chevron}
+              </div>
+            ))}
+            {showAllCases && (
+              <div style={{ marginTop: '0.25rem' }}>
+                <Guard name="dash-cases" fallback={null}><BusinessCasesCard user={user} th={th} inline={true} stores={stores} setAnnouncements={setAnnouncements} showAlert={showAlert} /></Guard>
+              </div>
+            )}
+          </div>
+        )}
+
+        {quick.length > 0 && (
+          <div style={cardStyle}>
+            {cardHeader(<HubIcon color={O} size={20} d={<path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/>} />, 'Quick actions', null)}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile || isExecIT ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: '0.75rem', marginTop: '0.85rem' }}>
+              {quick.map(a => (
+                <button key={a.tab} onClick={() => setTab(a.tab)}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${O}66`; }} onMouseLeave={e => { e.currentTarget.style.borderColor = th.cardBorder; }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.9rem 0.85rem', minWidth: 0, borderRadius: '0.7rem', border: `1px solid ${th.cardBorder}`, background: th.card, cursor: 'pointer', fontFamily: "'Source Sans 3'", textAlign: 'left', transition: 'border-color .15s' }}>
+                  <span style={{ display: 'flex', flexShrink: 0 }}>{a.icon(O)}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', fontWeight: 600, color: th.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.label}</span>
+                  {chevron}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Today's Headlines */}
+      <div style={{ marginTop: '1.75rem' }}>
+        <Guard name="dash-news" fallback={null}><DashboardHeadlines th={th} isMobile={isMobile} dailyFeed={dailyFeed} /></Guard>
+      </div>
+    </div>
+  );
+}
 
 function Dashboard({ user, th, links, todos, stores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion, showAlert, users }) {
   const hour = new Date().getHours();
@@ -43294,27 +44028,67 @@ function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
 const HubIcon = ({ d, color, size = 19 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
 );
-const HubTile = ({ th, color, icon, name, sub, badge, onClick, pinned, onTogglePin }) => (
-  <div onClick={onClick} style={{ ...card(th), padding: badge ? '1.15rem 1.2rem 2rem' : '1.15rem 1.2rem 1.25rem', cursor: 'pointer', position: 'relative' }}>
+// Redesigned 2026-10-12 (v21.77): roomier card, larger title, and an explicit
+// "Open <name> →" call-to-action pinned to the bottom of every tile, so tiles in
+// one row line up regardless of description length. The whole card stays clickable.
+const HubTile = ({ th, color, icon, name, sub, badge, onClick, pinned, onTogglePin, cta }) => (
+  <div onClick={onClick} role="button" tabIndex={0}
+    onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick && onClick(); } }}
+    onMouseEnter={e => { e.currentTarget.style.borderColor = `${color}66`; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.07)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+    onMouseLeave={e => { e.currentTarget.style.borderColor = th.cardBorder; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}
+    style={{ ...card(th), borderRadius: '0.9rem', padding: '1.4rem 1.5rem 1.3rem', cursor: 'pointer', position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box', transition: 'border-color .15s, box-shadow .15s, transform .15s', outline: 'none' }}>
     {/* Quick Access star — same pin glyph/behavior as the sidebar's NavButton pin toggle,
         just reachable from the tile itself so a tool doesn't have to be opened once first. */}
     {onTogglePin && (
       <button onClick={e => { e.stopPropagation(); onTogglePin(); }} title={pinned ? 'Remove from Quick Access' : 'Add to Quick Access'}
-        style={{ position: 'absolute', top: '0.85rem', right: '0.85rem', width: 26, height: 26, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: pinned ? color : th.muted, opacity: pinned ? 1 : 0.45, transition: 'opacity .15s, color .15s' }}
+        aria-label={pinned ? `Remove ${name} from Quick Access` : `Add ${name} to Quick Access`}
+        style={{ position: 'absolute', top: '1.1rem', right: '1.1rem', width: 28, height: 28, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: pinned ? color : th.muted, opacity: pinned ? 1 : 0.55, transition: 'opacity .15s, color .15s' }}
         onMouseEnter={e => { e.currentTarget.style.opacity = 1; }}
-        onMouseLeave={e => { e.currentTarget.style.opacity = pinned ? 1 : 0.45; }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        onMouseLeave={e => { e.currentTarget.style.opacity = pinned ? 1 : 0.55; }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" />
         </svg>
       </button>
     )}
-    <div style={{ width: 38, height: 38, borderRadius: '0.65rem', background: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.7rem' }}>
+    <div style={{ width: 42, height: 42, borderRadius: '0.6rem', background: `${color}1f`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', flexShrink: 0 }}>
       {icon}
     </div>
-    <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '0.95rem', color: th.text }}>{name}</div>
-    <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.3rem', lineHeight: 1.45 }}>{sub}</div>
-    {badge && <span style={{ position: 'absolute', bottom: '1rem', right: '1.2rem', fontSize: '0.65rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: 999, background: '#ef444428', color: '#ef4444' }}>{badge}</span>}
+    <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.12rem', color: th.text, lineHeight: 1.3, paddingRight: onTogglePin ? '1.5rem' : 0 }}>{name}</div>
+    <div style={{ fontSize: '0.84rem', color: th.muted, marginTop: '0.55rem', lineHeight: 1.5 }}>{sub}</div>
+    <div style={{ marginTop: 'auto', paddingTop: '1.1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: '0.84rem', fontWeight: 600, color, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+        {cta || `Open ${name}`}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </span>
+      {badge && <span style={{ fontSize: '0.68rem', fontWeight: 800, padding: '0.18rem 0.55rem', borderRadius: 999, background: '#ef444428', color: '#ef4444' }}>{badge}</span>}
+    </div>
   </div>
+);
+// Shared hub-page header: big title + muted subtitle on the left, a tile search box
+// on the right (stacks full-width on mobile). Used by every TileGrid hub and by
+// Finance's overview so all five category pages share one header.
+const HubHeader = ({ th, title, subtitle, query, setQuery, isMobile }) => (
+  <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'flex-start', justifyContent: 'space-between', gap: '1rem', marginBottom: '1.5rem' }}>
+    <div>
+      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: '2rem', color: th.text, margin: 0, lineHeight: 1.15 }}>{title}</h2>
+      {subtitle && <div style={{ fontSize: '0.95rem', color: th.muted, marginTop: '0.35rem' }}>{subtitle}</div>}
+    </div>
+    {setQuery && (
+      <div style={{ position: 'relative', width: isMobile ? '100%' : 260, flexShrink: 0 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+          style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+        </svg>
+        <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder={`Search ${title.toLowerCase()}...`} aria-label={`Search ${title}`}
+          style={{ width: '100%', boxSizing: 'border-box', padding: '0.65rem 0.9rem 0.65rem 2.3rem', borderRadius: '0.65rem', border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none' }} />
+      </div>
+    )}
+  </div>
+);
+// Case-insensitive name/description match for the hub search box.
+const hubTileMatches = (t, q) => { const s = (q || '').trim().toLowerCase(); return !s || `${t.name} ${t.sub}`.toLowerCase().includes(s); };
+const HubNoMatches = ({ th, query }) => (
+  <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.88rem' }}>No matches for "{query.trim()}".</div>
 );
 // A category hub page: title + a grid of HubTiles. Shared by the ops-hub/team-hub/
 // system-hub routes so the three category pages can't drift apart in grid/heading markup.
@@ -43379,7 +44153,9 @@ function LauncherSection({ th, title, tiles, pinnedNavIds, togglePinNav, onNavig
 // but looking it up defensively here means a match still renders sensibly
 // even for a hub whose top-level tab entry a given role doesn't carry).
 const QUICKFIND_HUB_LABELS = { 'ops-hub': 'Operations', 'team-hub': 'Team & Sites', 'system-hub': 'System', 'tools-hub': 'Tools', finance: 'Finance' };
-function QuickFindBar({ th, tabs, onNavigate }) {
+// `compact` = the desktop sidebar's variant (v21.78 sidebar redesign): softer
+// filled pill, shorter placeholder, no helper caption under it.
+function QuickFindBar({ th, tabs, onNavigate, compact }) {
   const [query, setQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const matches = React.useMemo(() => {
@@ -43437,9 +44213,9 @@ function QuickFindBar({ th, tabs, onNavigate }) {
   };
 
   return (
-    <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
+    <div style={{ position: 'relative', marginBottom: compact ? '0.6rem' : '1.25rem' }}>
       <div style={{ position: 'relative' }}>
-        <span style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: th.muted, pointerEvents: 'none' }}>
+        <span style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: th.muted, pointerEvents: 'none', display: 'flex' }}>
           {ICONS.search(th.muted)}
         </span>
         <input
@@ -43448,13 +44224,16 @@ function QuickFindBar({ th, tabs, onNavigate }) {
           onFocus={() => setShowSuggestions(true)}
           onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
           onKeyDown={e => { if (e.key === 'Enter' && matches[0]) goToMatch(matches[0]); if (e.key === 'Escape') { setQuery(''); setShowSuggestions(false); } }}
-          placeholder="Search anything…"
-          style={{ ...inp(th), paddingLeft: '2.5rem', width: '100%' }}
+          placeholder={compact ? 'Search...' : 'Search anything…'}
+          aria-label="Search the portal"
+          style={compact
+            ? { width: '100%', boxSizing: 'border-box', padding: '0.62rem 0.9rem 0.62rem 2.4rem', borderRadius: '0.7rem', border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: '0.86rem', fontFamily: "'Source Sans 3'", outline: 'none' }
+            : { ...inp(th), paddingLeft: '2.5rem', width: '100%' }}
         />
       </div>
       {/* Static helper caption — only while idle (empty query, nothing to search
           yet) so it never competes with the suggestions dropdown below. */}
-      {query.trim().length === 0 && (
+      {!compact && query.trim().length === 0 && (
         <div style={{ fontSize: '0.66rem', color: th.muted, opacity: 0.7, marginTop: '0.3rem', marginLeft: '0.2rem' }}>
           Stores, employees, tasks, projects…
         </div>
@@ -43547,17 +44326,25 @@ function MobileAppLauncher({ user, th, dark, tabs, onNavigate, pinnedNavIds, tog
     </div>
   );
 }
-const TileGrid = ({ title, tiles, color, th, isMobile, onNavigate, pinnedNavIds, togglePinNav }) => (
-  <div>
-    <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>{title}</h2>
-    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem' }}>
-      {tiles.map(t => (
-        <HubTile key={t.id} th={th} color={color} icon={<HubIcon color={color} d={t.icon} />} name={t.name} sub={t.sub} onClick={() => onNavigate(t.id)}
-          pinned={pinnedNavIds?.includes(t.id)} onTogglePin={togglePinNav ? () => togglePinNav(t.id) : undefined} />
-      ))}
+// Shared column template for every hub tile grid (TileGrid + Finance overview):
+// three columns on a typical desktop, one column on mobile.
+const HUB_GRID_COLUMNS = (isMobile) => isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))';
+function TileGrid({ title, subtitle, tiles, color, th, isMobile, onNavigate, pinnedNavIds, togglePinNav }) {
+  const [query, setQuery] = React.useState('');
+  const shown = tiles.filter(t => hubTileMatches(t, query));
+  return (
+    <div>
+      <HubHeader th={th} title={title} subtitle={subtitle} query={query} setQuery={tiles.length ? setQuery : null} isMobile={isMobile} />
+      {tiles.length > 0 && shown.length === 0 && <HubNoMatches th={th} query={query} />}
+      <div style={{ display: 'grid', gridTemplateColumns: HUB_GRID_COLUMNS(isMobile), gap: '1.1rem' }}>
+        {shown.map(t => (
+          <HubTile key={t.id} th={th} color={color} icon={<HubIcon color={color} size={21} d={t.icon} />} name={t.name} sub={t.sub} cta={t.cta} onClick={() => onNavigate(t.id)}
+            pinned={pinnedNavIds?.includes(t.id)} onTogglePin={togglePinNav ? () => togglePinNav(t.id) : undefined} />
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+}
 
 // ── AdminFinance ─────────────────────────────────────────────────────────────
 // Merges P&L, NDCP Orders, Cash Management, Reconciliation, and Expense Log into one
@@ -43579,6 +44366,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
   const finSub = (id) => accessSubOn(accessOverrides, user?.userType, 'finance', id);
 
   const [viewMode, setViewMode] = useState('overview');
+  const [hubQuery, setHubQuery] = useState('');
 
   // Overview: real numbers only — the same P&L blob AdminPnL reads (for revenue/margin
   // and the district breakdown), plus a real pending-expense count from the same
@@ -43640,7 +44428,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
       )}
       <div style={{ display: viewMode === 'overview' ? 'block' : 'none' }}>
         <div>
-            <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '1rem' }}>Finance Overview</h2>
+            <HubHeader th={th} title="Finance" subtitle="Financial reports, cash, tips, and labor" query={hubQuery} setQuery={tiles.length ? setHubQuery : null} isMobile={isMobile} />
             {canPnl && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
                 <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: '3px solid #3b82f6' }}>
@@ -43658,8 +44446,9 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
               </div>
             )}
             <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: '0.7rem' }}>Tools</div>
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem' }}>
-              {tiles.map(t => (
+            {tiles.length > 0 && !tiles.some(t => hubTileMatches(t, hubQuery)) && <HubNoMatches th={th} query={hubQuery} />}
+            <div style={{ display: 'grid', gridTemplateColumns: HUB_GRID_COLUMNS(isMobile), gap: '1.1rem' }}>
+              {tiles.filter(t => hubTileMatches(t, hubQuery)).map(t => (
                 <HubTile key={t.id} th={th} color={FIN} icon={t.icon} name={t.name} sub={t.sub} badge={t.badge} onClick={() => setViewMode(t.id)}
                   pinned={pinnedNavIds?.includes(t.id)} onTogglePin={togglePinNav ? () => togglePinNav(t.id) : undefined} />
               ))}
@@ -53437,125 +54226,99 @@ function PCGPortal() {
   const isAuditor      = user?.userType === "auditor";
 
   // ─── Reusable nav button — same shape for all sections, just different color ───
+  // Redesigned v21.78 (sidebar declutter): quiet rows with dark labels and
+  // muted icons; the active row gets a light accent tint plus a 3px accent bar
+  // on its left edge (no more solid filled pill + glow). Rows in Favorites
+  // (`favoriteTint`) always show a filled star; rows elsewhere show a trailing
+  // chevron, with the pin star appearing on hover (.nav-pin CSS in index.html).
   const NavButton = ({ tabDef, accent, isActive, onClick, collapsed, badge, glow, dotColor, pinned, onTogglePin, favoriteTint, removeMode }) => {
+    // `accent` now only colors badges/live dots; the active state is always brand orange.
     const C = accent;
-    const inactiveColor = th.muted;
-    // Active rows are now a solid filled pill with white text/icon (previously
-    // a subtle tinted background with colored text) — matching the requested
-    // redesign. Favorites rows additionally keep a soft, permanent tint even
-    // while inactive (the "peach" look), instead of sitting fully transparent
-    // like every other section's rows until hovered.
-    const restBg = isActive ? C : (favoriteTint ? `${C}14` : "transparent");
-    const restColor = isActive ? "#fff" : inactiveColor;
+    const restBg = isActive ? `${O}17` : "transparent";
+    const iconColor = isActive ? O : th.muted;
+    const showPin = !collapsed && onTogglePin && !tabDef.noPinToggle;
     return (
       <button
         key={tabDef.id}
         className="nav-row"
         onClick={removeMode ? undefined : onClick}
         title={collapsed ? tabDef.label : undefined}
+        aria-current={isActive ? "page" : undefined}
         style={{
           position: "relative",
           display: "flex", alignItems: "center",
-          gap: collapsed ? 0 : "0.55rem",
+          gap: collapsed ? 0 : "0.75rem",
           width: "100%",
-          padding: collapsed ? "0.7rem 0" : "0.65rem 0.85rem",
-          borderRadius: "0.625rem",
+          padding: collapsed ? "0.7rem 0" : "0.6rem 0.7rem 0.6rem 0.85rem",
+          borderRadius: "0.55rem",
           border: "none",
           cursor: removeMode ? "default" : "pointer",
           justifyContent: collapsed ? "center" : "flex-start",
           fontFamily: "'Source Sans 3'",
-          fontSize: "0.8rem",
+          fontSize: "0.88rem",
           fontWeight: isActive ? 700 : 500,
           background: restBg,
-          color: restColor,
-          boxShadow: isActive ? `0 4px 14px ${C}55` : "none",
-          transition: "all .2s cubic-bezier(.4,0,.2,1)",
-          marginBottom: "0.2rem",
+          color: th.text,
+          transition: "background .15s",
+          marginBottom: "0.1rem",
           textAlign: "left",
           overflow: "hidden",
         }}
-        onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = favoriteTint ? `${C}26` : th.card3; e.currentTarget.style.color = th.text; e.currentTarget.style.transform = "translateX(2px)"; } }}
-        onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = restBg; e.currentTarget.style.color = restColor; e.currentTarget.style.transform = "none"; } }}
+        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = th.card3; }}
+        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = restBg; }}
       >
-        <span style={{
-          fontSize: "0.95rem",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          flexShrink: 0,
-          width: collapsed ? undefined : 18,
-          filter: isActive && glow ? `drop-shadow(0 0 6px #fff)` : "none",
-          transition: "filter .2s",
-        }}>
-          {typeof tabDef.icon === "function" ? tabDef.icon(isActive ? "#fff" : inactiveColor) : tabDef.icon}
+        {isActive && <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 3, background: O }} />}
+        <span style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, width: collapsed ? undefined : 20 }}>
+          {typeof tabDef.icon === "function" ? tabDef.icon(iconColor) : tabDef.icon}
         </span>
         {!collapsed && <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tabDef.label}</span>}
-        {/* Pin / unpin toggle — in Favorites' "Manage" mode this becomes an
-            explicit, prominent "Remove" pill instead of the small star, since
-            the whole row's normal click-to-navigate is disabled while managing. */}
-        {!collapsed && onTogglePin && !tabDef.noPinToggle && (
-          removeMode ? (
-            <button
-              role="button"
-              title="Remove from Favorites"
-              onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
-              style={{
-                display: "flex", alignItems: "center", gap: "0.25rem", flexShrink: 0,
-                padding: "0.2rem 0.5rem", borderRadius: 999, border: "1px solid #ef444455",
-                background: "#ef444418", color: "#ef4444",
-                fontSize: "0.6rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4,
-                fontFamily: "'Source Sans 3'", cursor: "pointer",
-              }}
-            >
-              ✕ Remove
-            </button>
+        {/* Live dot (Pulse + Cash) sits right after the label, like the reference. */}
+        {glow && badge == null && (
+          collapsed ? (
+            <span style={{ position: "absolute", top: 6, right: 8, width: 7, height: 7, borderRadius: "50%", background: dotColor || C, animation: "pulse 2s ease-in-out infinite" }} />
           ) : (
-            <span
-              className={"nav-pin" + (pinned ? " pinned" : "")}
-              role="button"
-              title={pinned ? "Unpin from top" : "Pin to top"}
-              onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0, marginLeft: 2, width: 18, height: 18, borderRadius: 5,
-                color: pinned ? (isActive ? "#fff" : C) : (isActive ? "#ffffffaa" : th.muted),
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" />
-              </svg>
-            </span>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor || C, animation: "pulse 2s ease-in-out infinite", flexShrink: 0, marginLeft: "-0.35rem", marginRight: "auto" }} />
           )
         )}
         {/* Number badge */}
         {badge != null && badge > 0 && (
           collapsed ? (
-            <span style={{ position: "absolute", top: 4, right: 4, minWidth: 8, height: 8, borderRadius: "50%", background: isActive ? "#fff" : C, boxShadow: `0 0 6px ${C}` }} />
+            <span style={{ position: "absolute", top: 4, right: 6, minWidth: 8, height: 8, borderRadius: "50%", background: C }} />
           ) : (
-            <span style={{
-              minWidth: 20, height: 18, borderRadius: 999,
-              background: isActive ? "rgba(255,255,255,0.3)" : C, color: "#fff",
-              fontSize: "0.58rem", fontWeight: 900,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              padding: "0 6px",
-              boxShadow: isActive ? "none" : `0 2px 10px ${C}99`,
-              letterSpacing: "0.3px",
-            }}>
+            <span style={{ minWidth: 20, height: 18, borderRadius: 999, background: C, color: "#fff", fontSize: "0.62rem", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flexShrink: 0 }}>
               {badge > 99 ? "99+" : badge}
             </span>
           )
         )}
-        {/* Pulse dot (Pulse + Cash live indicators) */}
-        {glow && !isActive && badge == null && (
-          collapsed ? (
-            <span style={{ position: "absolute", top: 4, right: 4, width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite" }} />
-          ) : (
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor || C, boxShadow: `0 0 6px ${dotColor || C}`, animation: "pulse 2s ease-in-out infinite", flexShrink: 0 }} />
-          )
+        {/* Pin / unpin — in Favorites' "Manage" mode this becomes an explicit
+            "Remove" pill, since the row's normal click-to-navigate is disabled. */}
+        {showPin && removeMode && (
+          <button
+            title="Remove from Favorites"
+            onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
+            style={{ display: "flex", alignItems: "center", gap: "0.25rem", flexShrink: 0, padding: "0.2rem 0.5rem", borderRadius: 999, border: "1px solid #ef444455", background: "#ef444418", color: "#ef4444", fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, fontFamily: "'Source Sans 3'", cursor: "pointer" }}
+          >
+            ✕ Remove
+          </button>
         )}
-        {/* Trailing chevron — purely an affordance (every row already navigates
-            on click), matches the redesign's row style across the whole sidebar. */}
-        {!collapsed && (
-          <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", opacity: isActive ? 0.85 : 0.45, transform: "rotate(-90deg)", marginLeft: 2 }}>
-            {ICONS.chevronDown(isActive ? "#fff" : th.muted)}
+        {showPin && !removeMode && (
+          <span
+            className={"nav-pin" + (pinned ? " pinned" : "")}
+            role="button"
+            aria-label={pinned ? `Remove ${tabDef.label} from Favorites` : `Add ${tabDef.label} to Favorites`}
+            title={pinned ? "Remove from Favorites" : "Add to Favorites"}
+            onClick={(e) => { e.stopPropagation(); onTogglePin(tabDef.id); }}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, width: 20, height: 20, color: pinned ? O : th.muted }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="12 2 15 8.5 22 9.3 17 14 18.2 21 12 17.6 5.8 21 7 14 2 9.3 9 8.5 12 2" />
+            </svg>
+          </span>
+        )}
+        {/* Trailing chevron for every non-favorite row (favorites end on their star). */}
+        {!collapsed && !favoriteTint && (
+          <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", opacity: 0.5, transform: "rotate(-90deg)" }}>
+            {ICONS.chevronDown(th.muted)}
           </span>
         )}
       </button>
@@ -53566,52 +54329,35 @@ function PCGPortal() {
   // `right` is an optional trailing action rendered after the divider line
   // (currently just Favorites' "Manage" link) — kept generic rather than a
   // one-off special case, in case another section wants one later.
-  const SectionHeader = ({ label, accent, collapsed, onToggle, open, right }) => {
+  // Redesigned v21.78: a plain small-caps muted label, left-aligned, with a thin
+  // divider line above it (skipped for the first section, `first`). Collapsible
+  // sections show a small chevron on the right; `right` is an optional trailing
+  // action (currently just Favorites' "Manage" link). `accent` is no longer used
+  // for the label color — kept in the signature so existing callers don't change.
+  const SectionHeader = ({ label, accent, collapsed, onToggle, open, right, first }) => {
     if (collapsed) return (
-      <div style={{ height: 1, margin: "0.85rem 0.65rem", background: `linear-gradient(90deg, transparent, ${th.sidebarBorder}, transparent)` }} />
+      <div style={{ height: 1, margin: "0.75rem 0.65rem", background: th.sidebarBorder }} />
     );
     const clickable = typeof onToggle === "function";
     return (
-      // `right` (currently just Favorites' "Manage" link) is positioned
-      // absolutely on its own, rather than taking flex space from the right-
-      // hand divider line — that used to shrink the line to make room, which
-      // dragged the centered label off-center toward it. This way the label
-      // stays dead-center regardless of whether `right` is present at all.
-      <div style={{ position: "relative", margin: "1rem 0.5rem 0.55rem" }}>
-        <div
-          onClick={onToggle}
-          title={clickable ? (open ? "Collapse section" : "Expand section") : undefined}
-          style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: clickable ? "pointer" : "default", userSelect: "none" }}
-        >
-          <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, transparent, ${th.sidebarBorder} 80%)` }} />
-          <span style={{
-            display: "inline-flex", alignItems: "center", gap: "0.3rem",
-            fontSize: "0.55rem", fontWeight: 800,
-            color: accent, letterSpacing: 1.6, textTransform: "uppercase",
-            padding: "0.15rem 0.5rem",
-            background: `${accent}12`,
-            borderTop: `1px solid ${accent}33`,
-            borderLeft: `1px solid ${accent}33`,
-            borderRight: `1px solid ${accent}33`,
-            borderBottom: `2px solid ${accent}66`,
-            borderRadius: 999,
-          }}>
-            {label}
-            {clickable && (
-              <span style={{
-                fontSize: "0.45rem", opacity: 0.7,
-                transition: "transform 0.22s", display: "inline-block",
-                transform: open ? "rotate(90deg)" : "none",
-              }}>▶</span>
+      <div style={{ margin: first ? "0.6rem 0 0.35rem" : "0.75rem 0 0.35rem", paddingTop: first ? 0 : "0.85rem", borderTop: first ? "none" : `1px solid ${th.sidebarBorder}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0 0.35rem 0 0.85rem" }}>
+          <div
+            onClick={onToggle}
+            role={clickable ? "button" : undefined}
+            aria-expanded={clickable ? !!open : undefined}
+            title={clickable ? (open ? "Collapse section" : "Expand section") : undefined}
+            style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: clickable ? "pointer" : "default", userSelect: "none", minWidth: 0 }}
+          >
+            <span style={{ fontSize: "0.68rem", fontWeight: 700, color: th.muted, letterSpacing: 1.1, textTransform: "uppercase" }}>{label}</span>
+            {clickable && !right && (
+              <span aria-hidden="true" style={{ display: "flex", opacity: 0.5, transition: "transform .2s", transform: open ? "none" : "rotate(-90deg)" }}>
+                {ICONS.chevronDown(th.muted)}
+              </span>
             )}
-          </span>
-          <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${th.sidebarBorder} 20%, transparent)` }} />
-        </div>
-        {right && (
-          <div style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", background: th.sidebar || th.card, paddingLeft: "0.4rem" }}>
-            {right}
           </div>
-        )}
+          {right}
+        </div>
       </div>
     );
   };
@@ -53632,198 +54378,104 @@ function PCGPortal() {
   const SidebarContent = ({ onNav, collapsed, navRef, onNavScroll }) => (
     <>
       {/* ─── Header / Brand block ─────────────────────────────────────── */}
-      <div style={{
-        position: "relative",
-        padding: collapsed ? "16px 8px 12px" : "22px 20px 16px",
-        borderBottom: `1px solid ${th.sidebarBorder}`,
-        transition: "padding .25s",
-      }}>
-        {/* Ambient orange glow (clipped to its own layer so it doesn't cut the UOP text) */}
-        <div aria-hidden="true" style={{
-          position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none",
-        }}>
-          <div style={{
-            position: "absolute", top: -60, left: "50%", width: 200, height: 120,
-            marginLeft: -100, borderRadius: "50%",
-            background: `radial-gradient(circle, ${O}22 0%, transparent 65%)`,
-            filter: "blur(20px)",
-          }} />
-        </div>
-
-        {/* Logo + UOP wordmark — side-by-side (logo left, UOP over subtitle
-            stacked to its right), not a centered vertical stack, matching the
-            reference exactly. Collapsed (icon-only) width still centers just
-            the logo alone, since there's no room for the text pair there. */}
-        <div style={{ position: "relative", display: "flex", flexDirection: collapsed ? "column" : "row", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: collapsed ? 0 : "0.65rem", padding: "0.25rem 0" }}>
+      {/* Redesigned v21.78 (sidebar declutter): logo + wordmark, a soft-tinted
+          profile card, ONE row of icon-only actions (theme / download / upload /
+          sign out) split by thin dividers, then the search box. Everything that
+          used to compete up here (role pills, settings glyph, labeled buttons, a
+          separate sign-out line, the ambient glow) is gone or folded into that row. */}
+      <div style={{ padding: collapsed ? "16px 8px 10px" : "20px 16px 6px", transition: "padding .25s" }}>
+        <div style={{ display: "flex", flexDirection: collapsed ? "column" : "row", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: collapsed ? 0 : "0.7rem", padding: collapsed ? 0 : "0 0.15rem" }}>
           <img
             ref={logoRef}
             src={LOGOS[th.logoSeal]}
             alt="People Capital Group"
             className={logoAnim ? "logo-transitioning" : ""}
             onClick={handleToggle}
-            style={{
-              width: collapsed ? 40 : 52,
-              height: collapsed ? 40 : 52,
-              objectFit: "contain",
-              cursor: "pointer",
-              flexShrink: 0,
-              transition: "filter 0.1s, width .25s, height .25s, transform .2s",
-              filter: `drop-shadow(0 6px 16px ${O}55)`,
-            }}
+            style={{ width: collapsed ? 40 : 48, height: collapsed ? 40 : 48, objectFit: "contain", cursor: "pointer", flexShrink: 0, transition: "filter 0.1s, width .25s, height .25s, transform .2s" }}
             title="Click to toggle theme"
-            onMouseEnter={e => e.currentTarget.style.transform = "scale(1.06) rotate(-3deg)"}
+            onMouseEnter={e => e.currentTarget.style.transform = "scale(1.05)"}
             onMouseLeave={e => e.currentTarget.style.transform = "none"}
           />
           {!collapsed && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem", minWidth: 0 }}>
-              <div style={{
-                fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem",
-                letterSpacing: -1, lineHeight: 1,
-                background: "linear-gradient(135deg, #FF671F 0%, #ff9055 50%, #FF671F 100%)",
-                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-              }}>
-                UOP
-              </div>
-              <div style={{
-                fontSize: "0.68rem", fontWeight: 500, color: th.muted,
-                whiteSpace: "nowrap",
-              }}>
-                Unified Operations Portal
-              </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", minWidth: 0 }}>
+              <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", letterSpacing: -0.5, lineHeight: 1, color: O }}>UOP</div>
+              <div style={{ fontSize: "0.72rem", fontWeight: 500, color: th.muted, whiteSpace: "nowrap" }}>Unified Operations Portal</div>
             </div>
           )}
         </div>
 
-        {/* User card */}
+        {/* Profile card */}
         <div
           onClick={() => { setShowProfile(true); onNav && onNav(); }}
+          role="button"
+          title={collapsed ? `${user.name} · ${user.role}` : "Open profile"}
           style={{
             display: "flex", alignItems: "center",
-            gap: collapsed ? 0 : "0.7rem",
+            gap: collapsed ? 0 : "0.75rem",
             cursor: "pointer",
-            padding: collapsed ? "0.4rem" : "0.625rem 0.75rem",
-            borderRadius: "0.625rem",
-            transition: "all 0.2s",
-            marginTop: collapsed ? "1rem" : "1.25rem",
-            background: th.card3,
-            border: `1px solid ${th.cardBorder}`,
+            padding: collapsed ? "0.35rem" : "0.7rem 0.75rem",
+            borderRadius: "0.75rem",
+            marginTop: collapsed ? "1rem" : "1.1rem",
+            background: `${O}12`,
             justifyContent: collapsed ? "center" : "flex-start",
-            position: "relative",
-            overflow: "hidden",
+            transition: "background .15s",
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = th.card2; e.currentTarget.style.borderColor = `${O}55`; e.currentTarget.style.transform = "translateY(-1px)"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; e.currentTarget.style.transform = "none"; }}
+          onMouseEnter={e => { e.currentTarget.style.background = `${O}1f`; }}
+          onMouseLeave={e => { e.currentTarget.style.background = `${O}12`; }}
         >
           <div style={{
-            width: "2.25rem", height: "2.25rem", borderRadius: "0.5rem",
-            background: `linear-gradient(135deg, ${O} 0%, #ff9055 100%)`,
+            width: "2.4rem", height: "2.4rem", borderRadius: "50%",
+            background: dark ? "#f3f4f6" : "#1f2937", color: dark ? "#111827" : "#fff",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontWeight: 800, fontSize: "0.78rem", color: "#fff", flexShrink: 0,
-            boxShadow: `0 4px 12px ${O}55`,
-            letterSpacing: 0.5,
+            fontWeight: 700, fontSize: "0.8rem", flexShrink: 0, letterSpacing: 0.5,
           }}>{user.initials}</div>
           {!collapsed && (
             <>
               <div style={{ overflow: "hidden", flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                  <span style={{ fontSize: "0.82rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.name}</span>
-                  {isFullAdmin(user) && <span style={{ fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: `${O}22`, color: O, letterSpacing: 0.6, flexShrink: 0, border: `1px solid ${O}44` }}>{user.userType === "executive" ? "EXEC" : "IT"}</span>}
-                  {user.userType === "office_staff" && <span style={{ fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: "#8b5cf622", color: "#8b5cf6", letterSpacing: 0.6, flexShrink: 0, border: "1px solid #8b5cf644" }}>OFFICE</span>}
-                  {user.userType === "dm" && <span style={{ fontSize: "0.55rem", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: 999, background: "#f59e0b22", color: "#f59e0b", letterSpacing: 0.6, flexShrink: 0, border: "1px solid #f59e0b44" }}>D{user.district}</span>}
+                <div style={{ fontSize: "0.9rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.name}</div>
+                <div style={{ fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {user.role}{user.userType === "dm" && user.district ? ` · District ${user.district}` : ""}
                 </div>
-                <div style={{ fontSize: "0.66rem", color: th.muted, marginTop: "0.1rem" }}>{user.role}</div>
               </div>
-              <span style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: "0.1rem", opacity: 0.6 }}>
-                {ICONS.settings(th.muted)}
-                <span style={{ display: "flex", transform: "rotate(-90deg)" }}>{ICONS.chevronDown(th.muted)}</span>
-              </span>
+              <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", opacity: 0.5, transform: "rotate(-90deg)" }}>{ICONS.chevronDown(th.muted)}</span>
             </>
           )}
         </div>
 
-        {/* Quick actions row — theme toggle, export, import. Matches the
-            reference exactly: 3 across in one row (Light / Download /
-            Upload), no 4th button competing for the same space. Sign out
-            moved to its own slim line below instead of being squeezed in
-            here — it's a distinct, rarer, more consequential action anyway,
-            so giving it its own row also reads as more intentional than
-            cramming it in beside Light/Download/Upload. */}
-        {!collapsed && (
-          <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.7rem" }}>
-            {/* Theme switch */}
-            <button onClick={handleToggle} title="Toggle theme" style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem",
-              flex: 1, minWidth: 0,
-              padding: "0.4rem 0.5rem",
-              background: th.card3,
-              border: `1px solid ${th.cardBorder}`,
-              borderRadius: "0.5rem",
-              color: th.muted,
-              fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4,
-              cursor: "pointer", fontFamily: "'Source Sans 3'", transition: "all .2s",
-              overflow: "hidden", whiteSpace: "nowrap",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.borderColor = `${O}55`; }}
-            onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>
-              {dark ? ICONS.moon(th.muted) : ICONS.sun(th.muted)}
-              {dark ? "Dark" : "Light"}
-              <span style={{ display: "flex", opacity: 0.6 }}>{ICONS.chevronDown(th.muted)}</span>
-            </button>
-            {(isFullAdmin(user) || isOfficeStaff) && (
-              <>
-                <button onClick={handleExport} title="Download a backup of this data" style={{
-                  flex: 1, minWidth: 0,
-                  padding: "0.4rem 0.35rem", background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem",
-                  color: O, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.25rem",
-                  fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, fontFamily: "'Source Sans 3'",
-                  transition: "all .2s", overflow: "hidden", whiteSpace: "nowrap",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.borderColor = `${O}55`; }}
-                onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>{ICONS.download(O)}Download</button>
-                <button onClick={() => importRef.current?.click()} title="Upload data from a backup file" style={{
-                  flex: 1, minWidth: 0,
-                  padding: "0.4rem 0.35rem", background: th.card3, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem",
-                  color: O, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.25rem",
-                  fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, fontFamily: "'Source Sans 3'",
-                  transition: "all .2s", overflow: "hidden", whiteSpace: "nowrap",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.borderColor = `${O}55`; }}
-                onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.borderColor = th.cardBorder; }}>{ICONS.upload(O)}Upload</button>
-              </>
-            )}
-          </div>
-        )}
-        {!collapsed && (
-          <button onClick={handleLogout} title="Sign out" style={{
-            width: "100%",
-            marginTop: "0.4rem",
-            padding: "0.35rem 0.55rem",
-            background: "transparent",
-            border: "none",
-            color: th.muted,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: "0.35rem",
-            fontSize: "0.62rem", fontWeight: 700,
-            cursor: "pointer", fontFamily: "'Source Sans 3'", transition: "color .2s",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = "#ef4444"; }}
-          onMouseLeave={e => { e.currentTarget.style.color = th.muted; }}>
-            {ICONS.logout("currentColor")}
-            Sign out
-          </button>
-        )}
+        {/* Action row — icon-only, equal widths, thin dividers between. */}
+        {!collapsed && (() => {
+          const canBackup = isFullAdmin(user) || isOfficeStaff;
+          const actions = [
+            { key: "theme", title: dark ? "Switch to light mode" : "Switch to dark mode", onClick: handleToggle,
+              icon: <span style={{ display: "flex", alignItems: "center", gap: "0.2rem" }}>{dark ? ICONS.moon(th.muted) : ICONS.sun(th.muted)}<span style={{ display: "flex", opacity: 0.6 }}>{ICONS.chevronDown(th.muted)}</span></span> },
+            canBackup && { key: "download", title: "Download a backup of this data", onClick: handleExport, icon: ICONS.download(th.muted) },
+            canBackup && { key: "upload", title: "Upload data from a backup file", onClick: () => importRef.current?.click(), icon: ICONS.upload(th.muted) },
+            { key: "logout", title: "Sign out", onClick: handleLogout, icon: ICONS.logout(th.muted), danger: true },
+          ].filter(Boolean);
+          return (
+            <div style={{ display: "flex", alignItems: "center", marginTop: "0.75rem", padding: "0.15rem 0" }}>
+              {actions.map((a, i) => (
+                <React.Fragment key={a.key}>
+                  {i > 0 && <span aria-hidden="true" style={{ width: 1, height: 20, background: th.sidebarBorder, flexShrink: 0 }} />}
+                  <button onClick={a.onClick} title={a.title} aria-label={a.title}
+                    style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0.5rem 0", margin: "0 0.2rem", background: "transparent", border: "none", borderRadius: "0.5rem", cursor: "pointer", transition: "background .15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = a.danger ? "#ef444414" : th.card3; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+                    {a.icon}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* Search — lives in the fixed header now (not the scrolling nav body), so it's always reachable. */}
+        {!collapsed && <div style={{ marginTop: "0.65rem" }}><QuickFindBar th={th} tabs={TABS} onNavigate={setTab} compact /></div>}
       </div>
 
       {/* ─── Nav body ─────────────────────────────────────────────────── */}
-      <div ref={navRef} onScroll={onNavScroll} className="sidebar-nav-scroll" style={{ padding: collapsed ? "12px 8px" : "14px 12px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
-        {/* Quick-nav search — the actual sidebar the user sees (2026-10-05: an
-            earlier pass put this on the MOBILE icon-grid launcher's own,
-            separate "Quick Access" screen, going on a guess about which
-            "Quick Access" the request meant — this expanded desktop/tablet
-            sidebar, with its own SectionHeader "Quick Access" just below, was
-            the real one). Hidden when collapsed to icon-only width — a text
-            input has nowhere to go there. */}
-        {!collapsed && <QuickFindBar th={th} tabs={TABS} onNavigate={setTab} />}
+      <div ref={navRef} onScroll={onNavScroll} className="sidebar-nav-scroll" style={{ padding: collapsed ? "8px 8px 12px" : "2px 12px 14px", flex: 1, overflowY: "auto", transition: "padding .25s" }}>
+        {/* Quick-nav search moved into the fixed header above (v21.78). */}
         {/* ── Pinned favorites — surfaced at the very top, user-customizable.
              Dashboard is always pinned first (it can't be unpinned) so every role
              lands on it; store tablets use a separate view and never reach here. ── */}
@@ -53834,10 +54486,10 @@ function PCGPortal() {
           if (quickTabs.length === 0) return null;
           return (
             <>
-              <SectionHeader label="Favorites" accent={O} collapsed={collapsed} right={!collapsed && (
+              <SectionHeader label="Favorites" accent={O} collapsed={collapsed} first right={!collapsed && (
                 <span role="button" onClick={() => setManagingFavorites(m => !m)}
-                  style={{ fontSize: '0.62rem', fontWeight: 700, color: managingFavorites ? '#22c55e' : O, cursor: 'pointer', whiteSpace: 'nowrap', paddingRight: '0.2rem' }}>
-                  {managingFavorites ? 'Done ✓' : 'Manage ›'}
+                  style={{ fontSize: '0.68rem', fontWeight: 600, color: managingFavorites ? '#22c55e' : th.muted, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  {managingFavorites ? 'Done' : 'Manage'}
                 </span>
               )} />
               {quickTabs.map(t => {
@@ -54145,35 +54797,31 @@ function PCGPortal() {
           // is often enough for a footer status line.
           const online = typeof navigator === "undefined" || navigator.onLine;
           return (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", minWidth: 0 }}>
-              <div style={{
-                display: "inline-flex", alignItems: "center", gap: "0.35rem",
-                fontSize: "0.58rem", color: online ? th.muted : "#ef4444", fontWeight: 700, letterSpacing: 0.3,
-                opacity: online ? 0.7 : 0.9,
-              }}>
-                <span style={{ width: 5, height: 5, borderRadius: "50%", background: online ? "#22c55e" : "#ef4444", boxShadow: `0 0 5px ${online ? "#22c55e" : "#ef4444"}`, animation: online ? "pulse 2s ease-in-out infinite" : "none", flexShrink: 0 }} />
-                {online ? "System operational" : "Connection lost"}
-              </div>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.55rem", color: th.muted, fontWeight: 700, letterSpacing: 0.5, opacity: 0.55 }}>
-                {APP_VERSION}
-                <SyncStatus dark={dark} />
-              </div>
+            // v21.78: one quiet line instead of two — the status text only
+            // appears when something is actually wrong (offline).
+            <div title={online ? "System operational" : "Connection lost"}
+              style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", minWidth: 0, fontSize: "0.62rem", fontWeight: 600, color: online ? th.muted : "#ef4444", opacity: online ? 0.65 : 0.95 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: online ? "#22c55e" : "#ef4444", flexShrink: 0 }} />
+              {!online && <span>Offline ·</span>}
+              {APP_VERSION}
+              <SyncStatus dark={dark} />
             </div>
           );
         })()}
         {/* Collapse toggle — desktop only */}
         {!onNav && (
           <button onClick={() => setSidebarCollapsed(c => !c)} style={{
-            background: th.card3,
-            border: `1px solid ${th.cardBorder}`,
+            background: "transparent",
+            border: "none",
             cursor: "pointer",
-            padding: "0.35rem 0.5rem",
-            borderRadius: "0.4rem",
+            padding: "0.4rem 0.5rem",
+            borderRadius: "0.45rem",
             color: th.muted, display: "flex", alignItems: "center",
-            transition: "all .2s",
+            transition: "background .15s, color .15s",
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = `${O}22`; e.currentTarget.style.color = O; e.currentTarget.style.borderColor = `${O}55`; }}
-          onMouseLeave={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.color = th.muted; e.currentTarget.style.borderColor = th.cardBorder; }}
+          onMouseEnter={e => { e.currentTarget.style.background = th.card3; e.currentTarget.style.color = th.text; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = th.muted; }}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
             <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
               <polyline points={collapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6"} />
@@ -54684,7 +55332,7 @@ function PCGPortal() {
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
           <Guard key={tab} name="tab-content" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"2rem auto", maxWidth:520, textAlign:"center", color:th.muted }}>This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.</div>}>
           {tab === MOBILE_LAUNCHER_TAB_ID && <MobileAppLauncher user={user} th={th} dark={dark} tabs={TABS} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} navBadge={navBadge} onOpenProfile={() => setShowProfile(true)} onToggleTheme={handleToggle} onLogout={handleLogout} />}
-          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><Dashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
+          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><SimpleDashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
@@ -54714,7 +55362,7 @@ function PCGPortal() {
               { id: 'audits', name: 'Audits', sub: 'Field operations audits — conduct, review, score.', show: (auditCanView(user) || safeCanView(user)) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'audits'), icon: <><path d="M9 11.5 11 13.5 15.5 9"/><rect x="3" y="4" width="18" height="17" rx="2"/></> },
               { id: 'network-complaints', name: 'Complaints', sub: 'Worst-tier guest complaints, network-wide — add comments.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'ops-hub', 'network-complaints'), icon: <><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></> },
             ].filter(t => t.show);
-            return <TileGrid title="Operations" tiles={opsTiles} color={OPS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
+            return <TileGrid title="Operations" subtitle="Day-to-day store performance and field operations" tiles={opsTiles} color={OPS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}
           {tab === "team-hub" && (() => {
             const TEAM = '#7C5CD9';
@@ -54728,7 +55376,7 @@ function PCGPortal() {
               // standalone "users" route/tab entry today, so only show this tile for them.
               { id: 'users', name: 'Users', sub: 'Accounts, roles, and access management.', show: isOfficeStaff && accessSubOn(accessOverrides, user?.userType, 'team-hub', 'users'), icon: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6"/></> },
             ].filter(t => t.show);
-            return <TileGrid title="Team & Sites" tiles={teamTiles} color={TEAM} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
+            return <TileGrid title="Team & Sites" subtitle="Stores, people, and site development" tiles={teamTiles} color={TEAM} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}
           {tab === "system-hub" && (() => {
             const SYS = '#726A5C';
@@ -54738,7 +55386,7 @@ function PCGPortal() {
               { id: 'reports', name: 'Reports', sub: 'Dashboards, decks, and scheduled reports from Orion.', show: accessSubOn(accessOverrides, user?.userType, 'system-hub', 'reports'), icon: <><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></> },
               { id: 'system-health', name: 'System Health', sub: 'Feed freshness, cron monitoring, and outage alerts.', show: isFullAdmin(user) && accessSubOn(accessOverrides, user?.userType, 'system-hub', 'system-health'), icon: <>{ICONS.folder(SYS)}</> },
             ].filter(t => t.show);
-            return <TileGrid title="System" tiles={sysTiles} color={SYS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
+            return <TileGrid title="System" subtitle="Administration, email, reports, and system status" tiles={sysTiles} color={SYS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />;
           })()}
           {tab === "tools-hub" && (() => {
             // Open to every role (it's a Workspace base tab, not gated by userType) —
@@ -54763,7 +55411,7 @@ function PCGPortal() {
             ].filter(t => t.show);
             return (
               <div>
-                <TileGrid title="Tools" tiles={toolsTiles} color={TOOLS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />
+                <TileGrid title="Tools" subtitle="Quick access to your workplace tools" tiles={toolsTiles} color={TOOLS} th={th} isMobile={isMobile} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} />
                 {toolsTiles.length === 0 && (
                   <div style={{ ...card(th), padding: '1.5rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem', marginTop: '0.5rem' }}>
                     Nothing here yet — tools will show up in this section as they're added.
