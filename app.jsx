@@ -18723,6 +18723,52 @@ function FleetAlertAccessPanel({ th, user, users, showAlert }) {
   );
 }
 
+// "Send last week's report now" for the Weekly Hours + Schedule report (v21.83).
+// Calls the exec/IT-only manual trigger with the most recently COMPLETED
+// Sun–Sat week (computed here rather than relying on the endpoint's default,
+// which is only right when clicked on a Monday). Goes to everyone on the list.
+function WeeklyReportSendNow({ th, showAlert }) {
+  const [state, setState] = useState('idle'); // idle | sending | sent
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = new Date();
+  const daysSinceSat = ((today.getDay() + 1) % 7) || 7; // Sat itself → previous Sat (week not closed yet)
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysSinceSat);
+  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 6);
+  const label = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  const send = async () => {
+    if (!window.confirm(`Send the ${label} Timecard + Schedule report to everyone on this list now?`)) return;
+    setState('sending');
+    try {
+      const res = await fetch('/.netlify/functions/weekly-hours-schedule-report-manual-background', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ weekStart: iso(start), weekEnd: iso(end) }),
+      });
+      if (res.status === 202 || res.ok) {
+        setState('sent');
+        showAlert && showAlert('success', `Sending the ${label} report — it should arrive within a few minutes.`);
+      } else {
+        setState('idle');
+        showAlert && showAlert('error', res.status === 403 ? 'Only exec/IT can send this report.' : `Send failed (HTTP ${res.status}).`);
+      }
+    } catch {
+      setState('idle');
+      showAlert && showAlert('error', 'Network error — report not sent.');
+    }
+  };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem', padding: '0.85rem 1rem', borderRadius: '0.75rem', border: `1px solid ${th.cardBorder}`, background: th.card2 }}>
+      <div style={{ fontSize: '0.85rem', color: th.muted }}>
+        Missed a week? Send the <strong style={{ color: th.text }}>{label}</strong> report to this list now.
+      </div>
+      <button onClick={send} disabled={state !== 'idle'}
+        style={{ ...btn(th), padding: '0.55rem 1.1rem', opacity: state === 'idle' ? 1 : 0.6, cursor: state === 'idle' ? 'pointer' : 'default' }}>
+        {state === 'sending' ? 'Sending…' : state === 'sent' ? 'Sent ✓' : 'Send now'}
+      </button>
+    </div>
+  );
+}
+
 // Food License due-date recipients — same manual email/phone list pattern as
 // Fleet, just a separate blob key. Generic version (not copy-pasted) since
 // this is now the second identical pattern; parameterized by blobKey/label
@@ -19353,11 +19399,13 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {/* Weekly Hours + Schedule — full admins only. Read directly by
           weekly-hours-schedule-report-cron.mjs at send time (no manager/DM
           fallback like Minor Timecard — this list IS the whole recipient
-          set). Empty until you add someone; the scheduled send is currently
-          paused regardless (see PAUSED in that file). */}
+          set). Empty until you add someone. Scheduled send resumed 2026-10-12. */}
       {notifSubTab === 'weeklyHoursSchedule' && isFullAdmin(user) && (
-        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_weekly_hours_schedule_notify_v1"
-          description="These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun–Sat week — one Excel file and one PDF per store). There's no other fallback recipient — this list is the entire send list. Empty until you add someone." />
+        <>
+          <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_weekly_hours_schedule_notify_v1"
+            description="These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun–Sat week — one Excel file and one PDF per store). There's no other fallback recipient — this list is the entire send list. Empty until you add someone." />
+          <WeeklyReportSendNow th={th} showAlert={showAlert} />
+        </>
       )}
       </div>
 
@@ -30392,7 +30440,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.82";
+const APP_VERSION = "v21.83";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

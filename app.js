@@ -16196,6 +16196,46 @@ ${t2.slice(0, 300)}`);
       }
     );
   }
+  function WeeklyReportSendNow({ th, showAlert: showAlert2 }) {
+    const [state, setState] = useState("idle");
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const today = /* @__PURE__ */ new Date();
+    const daysSinceSat = (today.getDay() + 1) % 7 || 7;
+    const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysSinceSat);
+    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 6);
+    const label = `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} \u2013 ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+    const send = async () => {
+      if (!window.confirm(`Send the ${label} Timecard + Schedule report to everyone on this list now?`)) return;
+      setState("sending");
+      try {
+        const res = await fetch("/.netlify/functions/weekly-hours-schedule-report-manual-background", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ weekStart: iso(start), weekEnd: iso(end) })
+        });
+        if (res.status === 202 || res.ok) {
+          setState("sent");
+          showAlert2 && showAlert2("success", `Sending the ${label} report \u2014 it should arrive within a few minutes.`);
+        } else {
+          setState("idle");
+          showAlert2 && showAlert2("error", res.status === 403 ? "Only exec/IT can send this report." : `Send failed (HTTP ${res.status}).`);
+        }
+      } catch {
+        setState("idle");
+        showAlert2 && showAlert2("error", "Network error \u2014 report not sent.");
+      }
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", marginTop: "1rem", padding: "0.85rem 1rem", borderRadius: "0.75rem", border: `1px solid ${th.cardBorder}`, background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted } }, "Missed a week? Send the ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, label), " report to this list now."), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: send,
+        disabled: state !== "idle",
+        style: { ...btn(th), padding: "0.55rem 1.1rem", opacity: state === "idle" ? 1 : 0.6, cursor: state === "idle" ? "pointer" : "default" }
+      },
+      state === "sending" ? "Sending\u2026" : state === "sent" ? "Sent \u2713" : "Send now"
+    ));
+  }
   function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel, seedUserTypes }) {
     const [emails, setEmails] = useState(null);
     const [phones, setPhones] = useState(null);
@@ -16710,7 +16750,7 @@ ${t2.slice(0, 300)}`);
         blobKey: "pcg_minor_timecard_notify_v1",
         description: "These email addresses receive the Monday escalation for a Minor Timecard Compliance issue that's still open (PA under-18 break violations) \u2014 manager and DM still get their own copy regardless of this list; this is specifically the office-side recipients. Empty until you add someone."
       }
-    ), notifSubTab === "weeklyHoursSchedule" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+    ), notifSubTab === "weeklyHoursSchedule" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       ManualNotifyListPanel,
       {
         th,
@@ -16720,7 +16760,7 @@ ${t2.slice(0, 300)}`);
         blobKey: "pcg_weekly_hours_schedule_notify_v1",
         description: "These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun\u2013Sat week \u2014 one Excel file and one PDF per store). There's no other fallback recipient \u2014 this list is the entire send list. Empty until you add someone."
       }
-    )), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 }))), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => {
@@ -24135,7 +24175,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.82";
+  var APP_VERSION = "v21.83";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
