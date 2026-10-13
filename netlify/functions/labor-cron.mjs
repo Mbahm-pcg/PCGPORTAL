@@ -940,6 +940,44 @@ async function processAllStores(busDt, batchSize = 8, opts = {}) {
 
 // ── Blob helpers ──────────────────────────────────────────────────────────────
 
+// Merge + write the per-day labor snapshot (see the call site in the handler).
+export async function saveLaborDaySnapshot(blobStore, busDt, networkBlob) {
+  const key = `pcg_labor_day_${busDt}`;
+  let prev = null;
+  try { const raw = await blobStore.get(key, { type: 'json' }); prev = raw?.data || null; } catch {}
+  const stores = { ...(networkBlob.stores || {}) };
+  if (prev?.stores) {
+    for (const [pc, s] of Object.entries(stores)) {
+      const old = prev.stores[pc];
+      if (s?.error && old && !old.error) stores[pc] = old;
+    }
+    for (const [pc, old] of Object.entries(prev.stores)) {
+      if (!stores[pc] && old && !old.error) stores[pc] = old;
+    }
+  }
+  const ok = Object.values(stores).filter(s => s && !s.error && s.today);
+  const sum = (f) => ok.reduce((a, s) => a + (Number(s.today[f]) || 0), 0);
+  const laborDollars = sum('laborDollars');
+  const sales = sum('sales');
+  const snapshot = {
+    ...networkBlob,
+    busDt,
+    lastUpdated: networkBlob.lastUpdated || new Date().toISOString(),
+    network: {
+      ...(networkBlob.network || {}),
+      laborDollars: Math.round(laborDollars * 100) / 100,
+      sales: Math.round(sales * 100) / 100,
+      laborPct: sales > 0 ? Math.round((laborDollars / sales) * 1000) / 10 : 0,
+      totalEmployees: sum('employees'),
+      overtimeCount: sum('overtimeCount'),
+    },
+    stores,
+    source: 'snapshot',
+  };
+  await blobStore.setJSON(key, { savedAt: new Date().toISOString(), data: snapshot });
+  console.log(`[labor-cron] Wrote ${key} (${ok.length} stores)`);
+}
+
 export function getLaborStore() {
   return getStore({
     name: 'pcg-portal',
@@ -1464,6 +1502,18 @@ export default async (request, context) => {
     // 1) Network summary blob
     await blobStore.setJSON('pcg_labor_v1', { savedAt: new Date().toISOString(), data: networkBlob });
     console.log('[labor-cron] Wrote pcg_labor_v1');
+
+    // 1b) Per-day snapshot (v21.90) — pcg_labor_day_{busDt}, same shape as pcg_labor_v1,
+    // read by labor-day.mjs for the Labor page's "pick a day" view. Every hourly run
+    // overwrites that day's key, so the last run of the business day (~11pm ET) is what
+    // stays as its end-of-day record. A store that errored THIS run keeps its entry from
+    // an earlier run of the same day instead of being blanked, and network totals are
+    // recomputed from the merged stores — one flaky Paycor hour can't damage a good day.
+    try {
+      await saveLaborDaySnapshot(blobStore, busDt, networkBlob);
+    } catch (e) {
+      console.warn('[labor-cron] day snapshot write failed (non-fatal):', e.message);
+    }
 
     // 2) Per-store blobs (in batches of 8)
     const weekOfStr = weekStart(busDt);

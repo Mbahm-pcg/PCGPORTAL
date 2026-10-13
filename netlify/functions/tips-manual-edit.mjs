@@ -17,7 +17,7 @@
 // the 26s manual-invocation budget.
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { loadDaySnapshot, saveDaySnapshot, fetchAllEmployees } from './tips-report-cron-background.mjs';
+import { loadDaySnapshot, saveDaySnapshot, fetchAllEmployees, callPaycorProxy, punchHours } from './tips-report-cron-background.mjs';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -128,6 +128,108 @@ export default async (request) => {
 
       await saveDaySnapshot(date, dayResults);
       return json(200, { ok: true, store: dayResults[idx] });
+    }
+
+    // ── Several-days mode (v21.89) ───────────────────────────────────────────
+    // rangePreview { pc, legalEntityId, guid, name, startDate, endDate }
+    //   -> per day: whether a snapshot exists, the store's pool, this person's
+    //      current crew hours (null = not in that day's crew), and their real
+    //      Paycor punched hours for that day (null if the lookup failed).
+    //      Punches are fetched ONE DAY PER CALL (startDate = endDate), exactly
+    //      like fetchStoreCrew, so the hours match what the nightly report
+    //      would have counted for that business date.
+    // bulkSave { pc, person: { name, guid, payrollId }, entries: [{ date, hours }], reason? }
+    //   -> for each date: put this person in that day's crew with `hours`
+    //      (0 removes them), recalc every share from the day's pool with the
+    //      same math as `save`, stamp manualEdit. Days without a snapshot are
+    //      skipped and reported, never created.
+    if (action === 'rangePreview' || action === 'bulkSave') {
+      const MAX_DAYS = 31;
+      const daysBetween = (a, b) => {
+        const out = [];
+        const d = new Date(`${a}T12:00:00Z`), end = new Date(`${b}T12:00:00Z`);
+        while (d <= end && out.length <= MAX_DAYS) { out.push(d.toISOString().slice(0, 10)); d.setUTCDate(d.getUTCDate() + 1); }
+        return out;
+      };
+      const matchRow = (c, person) => (person.guid && c.guid && c.guid === person.guid)
+        || (!person.guid || !c.guid) && c.name && person.name && c.name.trim().toLowerCase() === person.name.trim().toLowerCase();
+
+      if (action === 'rangePreview') {
+        const { pc, legalEntityId, guid, name, startDate, endDate } = payload;
+        if (!pc || !startDate || !endDate || !(guid || name)) return json(400, { error: 'Missing pc, person, or date range' });
+        const dates = daysBetween(startDate, endDate);
+        if (!dates.length) return json(400, { error: 'End date must be on or after start date' });
+        if (dates.length > MAX_DAYS) return json(400, { error: `Pick ${MAX_DAYS} days or fewer` });
+        const person = { guid: guid || null, name: name || '' };
+
+        const snapshots = await Promise.all(dates.map(d => loadDaySnapshot(d).catch(() => null)));
+        // Punched hours: small pool so a 31-day range stays well inside 26s.
+        const punched = {};
+        if (legalEntityId && guid) {
+          let i = 0;
+          const worker = async () => {
+            while (i < dates.length) {
+              const d = dates[i++];
+              try {
+                const raw = await callPaycorProxy('punches', { legalEntityId, startDate: d, endDate: d });
+                const body = JSON.parse(raw || '{}');
+                const recs = Array.isArray(body.records) ? body.records : (Array.isArray(body) ? body : null);
+                if (!recs) { punched[d] = null; continue; }
+                punched[d] = round2(recs.filter(p => p.employeeId === guid).reduce((s, p) => s + punchHours(p), 0));
+              } catch { punched[d] = null; }
+            }
+          };
+          await Promise.all(Array.from({ length: Math.min(6, dates.length) }, worker));
+        }
+        const days = dates.map((d, k) => {
+          const store = (snapshots[k] || []).find(s => String(s.pc) === String(pc)) || null;
+          const row = store ? (store.crew || []).find(c => matchRow(c, person)) : null;
+          return {
+            date: d,
+            hasSnapshot: !!store,
+            tipPool: store ? round2(store.tipPool || 0) : null,
+            crewSize: store ? (store.crew || []).length : null,
+            currentHours: row ? row.hours : null,
+            currentShare: row ? row.share : null,
+            punchedHours: guid && legalEntityId ? (punched[d] ?? null) : null,
+            manualEdit: store?.manualEdit || null,
+          };
+        });
+        return json(200, { days });
+      }
+
+      // bulkSave
+      const { pc, person, entries, reason } = payload;
+      if (!pc || !person || typeof person.name !== 'string' || !person.name.trim()) return json(400, { error: 'Missing pc or person' });
+      if (!Array.isArray(entries) || !entries.length) return json(400, { error: 'No days selected' });
+      if (entries.length > MAX_DAYS) return json(400, { error: `Pick ${MAX_DAYS} days or fewer` });
+      for (const e of entries) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(e?.date || ''))) return json(400, { error: 'Bad date in selection' });
+        if (typeof e.hours !== 'number' || !Number.isFinite(e.hours) || e.hours < 0 || e.hours > 24) return json(400, { error: `Invalid hours for ${e.date}` });
+      }
+      const p = { name: person.name.trim(), guid: person.guid || null, payrollId: person.payrollId || null };
+      const results = [];
+      for (const e of entries) {
+        const dayResults = await loadDaySnapshot(e.date);
+        const idx = dayResults ? dayResults.findIndex(s => String(s.pc) === String(pc)) : -1;
+        if (idx === -1) { results.push({ date: e.date, ok: false, reason: 'No saved tips snapshot for this day' }); continue; }
+        const store = dayResults[idx];
+        const others = (store.crew || []).filter(c => !matchRow(c, p)).map(c => ({ name: c.name, payrollId: c.payrollId || null, guid: c.guid || null, hours: Number(c.hours) || 0 }));
+        const crew = e.hours > 0 ? [...others, { ...p, hours: e.hours }] : others;
+        const pool = round2(store.tipPool || 0);
+        const totalHours = crew.reduce((s, c) => s + c.hours, 0);
+        const rate = totalHours > 0 ? pool / totalHours : 0;
+        dayResults[idx] = {
+          ...store,
+          crew: crew.map(c => ({ ...c, share: round2(rate * c.hours) })),
+          crewStatus: 'ok',
+          manualEdit: { by: authedUser.username, at: new Date().toISOString(), reason: reason || `Bulk edit: ${p.name}` },
+        };
+        await saveDaySnapshot(e.date, dayResults);
+        const mine = dayResults[idx].crew.find(c => matchRow(c, p));
+        results.push({ date: e.date, ok: true, hours: e.hours, share: mine ? mine.share : 0 });
+      }
+      return json(200, { ok: results.every(r => r.ok), results });
     }
 
     return json(400, { error: `Unknown action: ${action}` });

@@ -30501,7 +30501,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.88";
+const APP_VERSION = "v21.91";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -39909,6 +39909,30 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
   useEffect(() => { if (selectedStore) window.scrollTo(0, 0); }, [selectedStore]);
   const [timeFilter, setTimeFilter] = useState('today');
   const [districtFilter, setDistrictFilter] = useState('all');
+  // "Pick a day" (v21.90): '' = live view; a YYYY-MM-DD shows that day's end-of-day
+  // labor from labor-day.mjs (snapshot, or rebuilt from per-store history).
+  const [storeQuery, setStoreQuery] = useState('');
+  const [viewDate, setViewDate] = useState('');
+  const [dayData, setDayData] = useState(null);
+  const [dayLoading, setDayLoading] = useState(false);
+  const [dayError, setDayError] = useState(null);
+  useEffect(() => {
+    if (!viewDate) { setDayData(null); setDayError(null); return; }
+    let cancelled = false;
+    setDayLoading(true); setDayError(null); setDayData(null);
+    fetch('/.netlify/functions/labor-day', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ date: viewDate }),
+    }).then(async r => {
+      const j = await r.json().catch(() => ({}));
+      if (cancelled) return;
+      if (!r.ok) setDayError(j.error || `Could not load ${viewDate}`);
+      else setDayData(j);
+    }).catch(() => { if (!cancelled) setDayError('Network error — could not load that day.'); })
+      .finally(() => { if (!cancelled) setDayLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewDate]);
   const [forecastData, setForecastData] = useState({}); // pc → { loaded, days }
 
   const isDM = user?.userType === 'dm';
@@ -40059,7 +40083,10 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
   if (loading) return <div style={{ padding: '2rem', textAlign: 'center', color: th.muted }}>Loading labor data...</div>;
 
   // Filter stores by district or assigned manager
-  const storeEntries = laborData?.stores ? Object.entries(laborData.stores) : [];
+  // Live view vs a picked past day (viewDate) — everything below renders `shownData`.
+  const shownData = viewDate ? dayData : laborData;
+  const tf = viewDate ? 'today' : timeFilter;
+  const storeEntries = shownData?.stores ? Object.entries(shownData.stores) : [];
   const filtered = isManager
     ? storeEntries.filter(([pc]) => managerStorePCs.has(String(pc)))
     : districtFilter === 'all'
@@ -40071,7 +40098,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
 
   // Compute summary for filtered stores
   const summary = filtered.reduce((acc, [pc, s]) => {
-    const t = timeFilter === 'today' ? s?.today : s?.wtd;
+    const t = tf === 'today' ? s?.today : s?.wtd;
     if (!t) return acc;
     acc.laborDollars += t.laborDollars || 0;
     acc.sales += t.sales || 0;
@@ -40083,12 +40110,30 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
   }, { laborDollars: 0, sales: 0, employees: 0, employeesOnClock: 0, scheduledNow: 0, overtimeCount: 0 });
   summary.laborPct = summary.sales > 0 ? Math.round((summary.laborDollars / summary.sales) * 1000) / 10 : 0;
 
+  // Redesigned v21.91: horizontal stat cards (tinted icon tile, label, value, sub line).
+  const KPI_ICONS = {
+    labor: <><ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6"/><path d="M5 10v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6v-4"/><path d="M5 14v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6v-4"/></>,
+    pct: <><circle cx="12" cy="12" r="9"/><path d="M9 15l6-6"/><circle cx="9.2" cy="9.2" r="1.1"/><circle cx="14.8" cy="14.8" r="1.1"/></>,
+    sales: <><rect x="4" y="12" width="3.5" height="8" rx="1"/><rect x="10.25" y="8" width="3.5" height="12" rx="1"/><rect x="16.5" y="4" width="3.5" height="16" rx="1"/></>,
+    schedule: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M15.5 16.5h.01"/></>,
+  };
   const kpiCards = [
-    { label: 'Total Labor', value: fmtDollars(summary.laborDollars), color: laborColor(summary.laborPct), sub: `${fmtPct(summary.laborPct)} of sales` },
-    { label: 'Avg Labor %', value: fmtPct(summary.laborPct), color: laborColor(summary.laborPct), sub: 'threshold 23%' },
-    { label: 'Total Sales', value: fmtDollars(summary.sales), color: '#FF671F', sub: `${filtered.length} stores` },
-    { label: 'Scheduled Now', value: String(summary.scheduledNow || summary.employeesOnClock || 0), color: '#FF671F', sub: `${summary.overtimeCount || 0} on overtime` },
+    { key: 'labor', label: 'Total Labor', value: fmtDollars(summary.laborDollars), tint: '#FF671F', sub: `${fmtPct(summary.laborPct)} of sales`, subColor: laborColor(summary.laborPct) },
+    { key: 'pct', label: 'Avg. Labor %', value: fmtPct(summary.laborPct), tint: '#16a34a', sub: 'threshold 23%' },
+    { key: 'sales', label: 'Total Sales', value: fmtDollars(summary.sales), tint: '#FF671F', sub: `${filtered.length} stores` },
+    viewDate
+      ? { key: 'schedule', label: 'Employees Worked', value: String(summary.employees || 0), tint: '#7c5cd9', sub: dayData?.source === 'history' ? 'from daily history' : 'end of day' }
+      : { key: 'schedule', label: 'Scheduled Now', value: String(summary.scheduledNow || summary.employeesOnClock || 0), tint: '#7c5cd9', sub: `${summary.overtimeCount || 0} on overtime` },
   ];
+  const sq = storeQuery.trim().toLowerCase();
+  const visibleStores = sq ? filtered.filter(([, s]) => String(s?.name || '').toLowerCase().includes(sq)) : filtered;
+  const yesterdayIso = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const pillBtn = (active) => ({
+    display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1.1rem', borderRadius: 999,
+    border: `1px solid ${active ? '#FF671F' : th.cardBorder}`, background: active ? '#FF671F' : th.card,
+    color: active ? '#fff' : th.text, fontSize: '0.84rem', fontWeight: 600, fontFamily: "'Source Sans 3'", cursor: 'pointer', whiteSpace: 'nowrap',
+  });
+  const chev = (c = th.muted) => <span aria-hidden="true" style={{ display: 'flex', opacity: 0.7 }}>{ICONS.chevronDown(c)}</span>;
 
   return (
     <div>
@@ -40099,50 +40144,77 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <h2 style={{ ...pageTitle(th), margin: 0 }}>Labor</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span style={{ fontSize: '0.75rem', color: th.muted }}>Updated {timeAgo(laborData?.lastUpdated)}</span>
+          {viewDate ? (
+            <span style={{ fontSize: '0.75rem', color: th.muted }}>
+              {new Date(`${viewDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}{dayData ? (dayData.source === 'history' ? ' · rebuilt from daily history' : ' · end of day') : ''}
+              {' · '}<span role="button" onClick={() => setViewDate('')} style={{ color: '#FF671F', fontWeight: 700, cursor: 'pointer' }}>Back to live</span>
+            </span>
+          ) : (
+            <span style={{ fontSize: '0.75rem', color: th.muted }}>Updated {timeAgo(laborData?.lastUpdated)}</span>
+          )}
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {kpiCards.map((k, i) => (
-          <div key={i} style={{ ...card(th), padding: '0.85rem 1rem', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: k.color, opacity: 0.85 }} />
-            <div style={{ ...microLabel(th, { fontSize: '0.6rem' }) }}>{k.label}</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: k.color, marginTop: '0.15rem', fontFamily: "'Source Sans 3'" }}>{k.value}</div>
-            <div style={{ fontSize: '0.58rem', color: th.muted, marginTop: '0.1rem', fontWeight: 600 }}>{k.sub}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem', marginBottom: '1rem' }}>
+        {kpiCards.map(k => (
+          <div key={k.key} style={{ ...card(th), borderRadius: '0.9rem', padding: '1.1rem 1.1rem 1.1rem 1.2rem', display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0 }}>
+            <span style={{ width: 50, height: 50, borderRadius: '0.8rem', background: `${k.tint}1c`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <HubIcon color={k.tint} size={24} d={KPI_ICONS[k.key]} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.86rem', fontWeight: 600, color: th.text }}>{k.label}</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: th.text, lineHeight: 1.2, marginTop: '0.15rem', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.value}</div>
+              <div style={{ fontSize: '0.78rem', fontWeight: k.subColor ? 700 : 500, color: k.subColor || th.muted, marginTop: '0.15rem' }}>{k.sub}</div>
+            </div>
+            <span aria-hidden="true" style={{ display: 'flex', opacity: 0.45, transform: 'rotate(-90deg)', flexShrink: 0 }}>{ICONS.chevronDown(th.muted)}</span>
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ display: 'flex', borderRadius: '0.5rem', overflow: 'hidden', border: `1px solid ${th.cardBorder}` }}>
-          {['today', 'wtd'].map(t => (
-            <button key={t} onClick={() => setTimeFilter(t)} style={{
-              background: timeFilter === t ? '#FF671F' : th.card,
-              color: timeFilter === t ? '#fff' : th.text,
-              border: 'none', padding: '0.4rem 1rem', cursor: 'pointer',
-              fontSize: '0.8125rem', fontWeight: 600, fontFamily: "'Source Sans 3'",
-            }}>
-              {t === 'today' ? 'Today' : 'This Week'}
-            </button>
-          ))}
-        </div>
+      <div style={{ ...card(th), borderRadius: '0.9rem', padding: '0.75rem', display: 'flex', gap: '0.6rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        {['today', 'wtd'].map(t => (
+          <button key={t} onClick={() => { setTimeFilter(t); setViewDate(''); }} style={pillBtn(!viewDate && timeFilter === t)}>
+            {t === 'today' ? 'Today' : 'This Week'}
+          </button>
+        ))}
+        <button onClick={() => { if (!viewDate) setViewDate(yesterdayIso); }} title="Look at one past day's end-of-day labor" style={pillBtn(!!viewDate)}>
+          Day {chev(viewDate ? '#fff' : th.muted)}
+        </button>
+        <label style={{ ...pillBtn(false), cursor: 'text', padding: '0.35rem 0.9rem' }}>
+          {ICONS.calendar(th.muted)}
+          <input type="date" aria-label="Pick a day" value={viewDate} max={yesterdayIso}
+            onChange={e => setViewDate(e.target.value)}
+            style={{ border: 'none', background: 'transparent', color: viewDate ? th.text : th.muted, fontFamily: "'Source Sans 3'", fontSize: '0.84rem', padding: '0.2rem 0', outline: 'none' }} />
+        </label>
         {!isDM && !isManager && (
-          <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} style={{ ...inp(th, { width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.8125rem' }) }}>
-            <option value="all">All Districts</option>
-            {[1,2,3,4,5,6,7,8].map(d => <option key={d} value={String(d)}>{districtLabel(d)}</option>)}
-          </select>
+          <label style={{ ...pillBtn(false), position: 'relative', padding: 0 }}>
+            <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} aria-label="District"
+              style={{ appearance: 'none', WebkitAppearance: 'none', border: 'none', background: 'transparent', color: th.text, fontFamily: "'Source Sans 3'", fontSize: '0.84rem', fontWeight: 600, padding: '0.55rem 2.4rem 0.55rem 1.1rem', cursor: 'pointer', outline: 'none', minWidth: 160 }}>
+              <option value="all">All Districts</option>
+              {[1,2,3,4,5,6,7,8].map(d => <option key={d} value={String(d)}>{districtLabel(d)}</option>)}
+            </select>
+            <span style={{ position: 'absolute', right: '0.9rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', display: 'flex' }}>{chev()}</span>
+          </label>
         )}
         {summary.overtimeCount > 0 && (
           <span style={pill('#f44336', { fontSize: '0.75rem', padding: '0.3rem 0.6rem' })}>
             {summary.overtimeCount} OT
           </span>
         )}
+        <div style={{ flex: 1 }} />
+        <label style={{ position: 'relative', flex: '0 1 300px', minWidth: 200 }}>
+          <span style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', pointerEvents: 'none' }}>{ICONS.search(th.muted)}</span>
+          <input type="search" value={storeQuery} onChange={e => setStoreQuery(e.target.value)} placeholder="Search stores..." aria-label="Search stores"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '0.58rem 0.9rem 0.58rem 2.4rem', borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontSize: '0.84rem', fontFamily: "'Source Sans 3'", outline: 'none' }} />
+        </label>
       </div>
 
+      {viewDate && dayLoading && <div style={{ ...card(th), padding: '1rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem', marginBottom: '0.75rem' }}>Loading {viewDate}…</div>}
+      {viewDate && dayError && <div style={{ ...card(th), padding: '1rem', color: '#e8590c', fontSize: '0.85rem', marginBottom: '0.75rem' }}>{dayError}</div>}
+      {sq && visibleStores.length === 0 && <div style={{ ...card(th), padding: '1rem', textAlign: 'center', color: th.muted, fontSize: '0.85rem', marginBottom: '0.75rem' }}>No stores match "{storeQuery.trim()}".</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
-        {filtered.map(([pc, s]) => {
-          const t = timeFilter === 'today' ? s?.today : s?.wtd;
+        {visibleStores.map(([pc, s]) => {
+          const t = tf === 'today' ? s?.today : s?.wtd;
           if (!t) return null;
           const pct = t.laborPct || 0;
           const clr = laborColor(pct);
@@ -40180,7 +40252,12 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
               <div style={{ fontSize: '1.2rem', fontWeight: 700, color: th.text, marginBottom: '0.2rem' }}>{fmtDollars(t.laborDollars)}</div>
               <div style={{ fontSize: '0.72rem', color: th.muted, marginBottom: '0.35rem' }}>of {fmtDollars(t.sales)} sales</div>
               {/* Employee status chips */}
-              {timeFilter === 'today' && (
+              {viewDate && (t.employees || 0) > 0 && (
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                  <span style={pill('#74c0fc', { fontSize: '0.58rem', fontWeight: 800 })}>{t.employees} worked · {Math.round((t.hoursWorked || 0) * 10) / 10} hrs</span>
+                </div>
+              )}
+              {!viewDate && timeFilter === 'today' && (
                 <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                   {(t.scheduledNow || t.employeesOnClock || 0) > 0 && (
                     <span style={pill('#22c55e', { fontSize: '0.58rem', fontWeight: 800 })}>
@@ -45683,7 +45760,206 @@ function TipsReportBuilder({ th, stores, user }) {
 // is never hand-edited here (it's real Pulse sales data); only who worked
 // and how many hours is correctable, which is exactly the "someone's
 // missing" case this exists for.
+// ── Tips Editor · Several days (v21.89) ─────────────────────────────────────
+// Fix ONE person across MANY saved days at once (e.g. someone missing from every
+// day of a pay period). Pulls their real Paycor punched hours for each day (one
+// Paycor call per day, same as the nightly report), shows what each day's saved
+// crew currently has for them, and applies the checked days in one go through
+// tips-manual-edit.mjs `bulkSave` — same per-day recalculation as a single-day save.
+function TipsBulkEditor({ th, stores }) {
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return tipsFormatISODate(d); })();
+  const twoWeeksAgo = (() => { const d = new Date(); d.setDate(d.getDate() - 14); return tipsFormatISODate(d); })();
+  const [storePc, setStorePc] = useState('');
+  const [roster, setRoster] = useState(null);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [personQuery, setPersonQuery] = useState('');
+  const [person, setPerson] = useState(null); // { name, guid, payrollId, jobTitle }
+  const [startDate, setStartDate] = useState(twoWeeksAgo);
+  const [endDate, setEndDate] = useState(yesterday);
+  const [days, setDays] = useState(null); // preview rows
+  const [edits, setEdits] = useState({}); // date -> { checked, hours }
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [reason, setReason] = useState('');
+  const selectedStore = stores.find(s => String(s.pc) === String(storePc));
+
+  const api = async (body) => {
+    const res = await fetch('/.netlify/functions/tips-manual-edit', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j?.error || `Request failed (${res.status})`);
+    return j;
+  };
+
+  const pickStore = async (pc) => {
+    setStorePc(pc); setRoster(null); setPerson(null); setDays(null); setResult(null); setError(null);
+    const s = stores.find(x => String(x.pc) === String(pc));
+    if (!s?.paycor) return;
+    setRosterLoading(true);
+    try { const j = await api({ action: 'employeeRoster', legalEntityId: s.paycor }); setRoster(j.roster || []); }
+    catch (e) { setError(e.message); }
+    setRosterLoading(false);
+  };
+
+  const loadDays = async () => {
+    if (!selectedStore || !person) return;
+    setLoading(true); setError(null); setResult(null); setDays(null);
+    try {
+      const j = await api({ action: 'rangePreview', pc: storePc, legalEntityId: selectedStore.paycor, guid: person.guid, name: person.name, startDate, endDate });
+      const rows = j.days || [];
+      const init = {};
+      rows.forEach(d => {
+        const suggested = d.punchedHours != null ? d.punchedHours : (d.currentHours != null ? d.currentHours : 0);
+        const differs = d.punchedHours != null && Math.abs((d.currentHours || 0) - d.punchedHours) > 0.009;
+        init[d.date] = { checked: d.hasSnapshot && differs, hours: String(suggested) };
+      });
+      setEdits(init);
+      setDays(rows);
+    } catch (e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const setEdit = (date, patch) => setEdits(prev => ({ ...prev, [date]: { ...prev[date], ...patch } }));
+  const selectable = (days || []).filter(d => d.hasSnapshot);
+  const checkedDays = selectable.filter(d => edits[d.date]?.checked);
+  const allChecked = selectable.length > 0 && checkedDays.length === selectable.length;
+
+  const apply = async () => {
+    if (!checkedDays.length) return;
+    const entries = checkedDays.map(d => ({ date: d.date, hours: Math.max(0, Number(edits[d.date]?.hours) || 0) }));
+    if (!window.confirm(`Update ${person.name} on ${entries.length} day${entries.length !== 1 ? 's' : ''} at ${selectedStore.name}? Every person's share on those days is recalculated.`)) return;
+    setSaving(true); setError(null);
+    try {
+      const j = await api({ action: 'bulkSave', pc: storePc, person: { name: person.name, guid: person.guid, payrollId: person.payrollId }, entries, reason: reason.trim() || undefined });
+      setResult(j.results || []);
+      await loadDays();
+    } catch (e) { setError(e.message); }
+    setSaving(false);
+  };
+
+  const filteredRoster = (roster || []).filter(r => !personQuery.trim() || r.name.toLowerCase().includes(personQuery.trim().toLowerCase())).slice(0, 12);
+  const dayLabel = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const cell = { padding: '0.55rem 0.9rem', borderBottom: `1px solid ${th.cardBorder}`, fontSize: '0.84rem', color: th.text };
+  const headCell = { textAlign: 'left', padding: '0.55rem 0.9rem', color: th.muted, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${th.cardBorder}`, background: th.card2 };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
+        <label style={{ fontSize: '0.78rem', color: th.muted }}>
+          Store<br />
+          <select style={{ ...inp(th), minWidth: 220 }} value={storePc} onChange={e => pickStore(e.target.value)}>
+            <option value="">Select a store…</option>
+            {stores.map(s => <option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: '0.78rem', color: th.muted, position: 'relative' }}>
+          Employee<br />
+          {person ? (
+            <div style={{ ...inp(th), minWidth: 220, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+              <span style={{ color: th.text, fontWeight: 600 }}>{person.name}</span>
+              <span role="button" onClick={() => { setPerson(null); setDays(null); setResult(null); }} style={{ color: th.muted, cursor: 'pointer' }}>×</span>
+            </div>
+          ) : (
+            <>
+              <input type="text" disabled={!storePc || rosterLoading} placeholder={rosterLoading ? 'Loading roster…' : (storePc ? 'Search this store\'s employees…' : 'Pick a store first')}
+                value={personQuery} onChange={e => setPersonQuery(e.target.value)} style={{ ...inp(th), minWidth: 220 }} />
+              {personQuery.trim() && roster && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 240, overflowY: 'auto' }}>
+                  {filteredRoster.length === 0 && <div style={{ padding: '0.5rem 0.7rem', fontSize: '0.8rem', color: th.muted }}>No matching active employees.</div>}
+                  {filteredRoster.map(r => (
+                    <div key={r.guid} onClick={() => { setPerson(r); setPersonQuery(''); setDays(null); setResult(null); }}
+                      onMouseEnter={e => e.currentTarget.style.background = th.card3} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      style={{ padding: '0.45rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                      <span>{r.name}</span><span style={{ color: th.muted, fontSize: '0.72rem' }}>{r.jobTitle || ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </label>
+        <label style={{ fontSize: '0.78rem', color: th.muted }}>
+          From<br />
+          <input type="date" style={inp(th)} value={startDate} max={endDate} onChange={e => setStartDate(e.target.value)} />
+        </label>
+        <label style={{ fontSize: '0.78rem', color: th.muted }}>
+          To<br />
+          <input type="date" style={inp(th)} value={endDate} min={startDate} max={tipsFormatISODate(new Date())} onChange={e => setEndDate(e.target.value)} />
+        </label>
+        <button onClick={loadDays} disabled={!person || loading} style={{ ...btn(th), opacity: (!person || loading) ? 0.5 : 1 }}>
+          {loading ? 'Checking Paycor…' : 'Load days'}
+        </button>
+      </div>
+
+      {error && <div style={{ ...card(th), padding: '0.85rem 1rem', color: '#e03131', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
+      {result && (
+        <div style={{ ...card(th), padding: '0.85rem 1rem', fontSize: '0.82rem', marginBottom: '1rem', color: result.every(r => r.ok) ? '#2f9e44' : '#e8590c' }}>
+          {result.every(r => r.ok) ? '✓ ' : ''}Updated {result.filter(r => r.ok).length} of {result.length} day{result.length !== 1 ? 's' : ''}.
+          {result.filter(r => !r.ok).map(r => <div key={r.date} style={{ color: '#e03131', marginTop: '0.2rem' }}>{dayLabel(r.date)}: {r.reason}</div>)}
+        </div>
+      )}
+
+      {days && (
+        <div style={{ ...card(th), padding: 0, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', padding: '0.9rem 1rem' }}>
+            <div>
+              <div style={{ fontWeight: 800, color: th.text }}>{person.name} · {selectedStore?.name}</div>
+              <div style={{ fontSize: '0.73rem', color: th.muted, marginTop: '0.1rem' }}>Days where Paycor's punched hours differ from the saved crew are pre-checked. Hours set to 0 remove them from that day.</div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={() => setEdits(prev => { const n = { ...prev }; selectable.forEach(d => { n[d.date] = { ...n[d.date], checked: !allChecked }; }); return n; })}
+                style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.45rem 0.8rem', fontSize: '0.78rem' }) }}>{allChecked ? 'Uncheck all' : 'Check all'}</button>
+              <button onClick={() => setEdits(prev => { const n = { ...prev }; selectable.forEach(d => { if (d.punchedHours != null) n[d.date] = { ...n[d.date], hours: String(d.punchedHours) }; }); return n; })}
+                style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.45rem 0.8rem', fontSize: '0.78rem' }) }}>Use Paycor hours</button>
+            </div>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+              <thead><tr>
+                <th style={{ ...headCell, width: 40 }}></th>
+                {['Day', 'Saved crew now', 'Paycor punched', 'New hours', 'Day\'s pool'].map(h => <th key={h} style={headCell}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {days.map(d => {
+                  const e = edits[d.date] || {};
+                  const disabled = !d.hasSnapshot;
+                  const differs = d.punchedHours != null && Math.abs((d.currentHours || 0) - d.punchedHours) > 0.009;
+                  return (
+                    <tr key={d.date} style={{ opacity: disabled ? 0.5 : 1 }}>
+                      <td style={cell}><input type="checkbox" disabled={disabled} checked={!!e.checked} onChange={ev => setEdit(d.date, { checked: ev.target.checked })} aria-label={`Include ${d.date}`} /></td>
+                      <td style={{ ...cell, fontWeight: 600, whiteSpace: 'nowrap' }}>{dayLabel(d.date)}</td>
+                      <td style={cell}>{disabled ? <span style={{ color: th.muted }}>No tips data saved</span> : d.currentHours == null ? <span style={{ color: '#e8590c', fontWeight: 700 }}>Missing</span> : `${tipsRound2(d.currentHours)} hrs${d.currentShare != null ? ` · $${Number(d.currentShare).toFixed(2)}` : ''}`}</td>
+                      <td style={{ ...cell, color: differs ? '#e8590c' : th.text, fontWeight: differs ? 700 : 400 }}>{d.punchedHours == null ? <span style={{ color: th.muted }}>—</span> : `${d.punchedHours} hrs`}</td>
+                      <td style={cell}><input type="number" min="0" max="24" step="0.01" disabled={disabled} value={e.hours ?? ''} onChange={ev => setEdit(d.date, { hours: ev.target.value, checked: true })} style={{ ...inp(th), width: 100, padding: '0.4rem 0.55rem' }} /></td>
+                      <td style={{ ...cell, color: th.muted }}>{d.tipPool != null ? `$${Number(d.tipPool).toFixed(2)}` : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ padding: '0.9rem 1rem', borderTop: `1px solid ${th.cardBorder}` }}>
+            <textarea rows={2} placeholder="Correction reason (optional, saved on every changed day)…" value={reason} onChange={e => setReason(e.target.value)} style={{ ...inp(th), width: '100%', resize: 'vertical', fontFamily: "'Source Sans 3'" }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.9rem', padding: '0.8rem 1rem', borderTop: `1px solid ${th.cardBorder}`, background: th.card2 }}>
+            <span style={{ fontSize: '0.78rem', color: th.muted, marginRight: 'auto' }}>{checkedDays.length} day{checkedDays.length !== 1 ? 's' : ''} selected</span>
+            <button onClick={apply} disabled={saving || !checkedDays.length} style={{ ...btn(th), opacity: (saving || !checkedDays.length) ? 0.5 : 1 }}>
+              {saving ? 'Saving…' : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? 's' : ''}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TipsEditor({ th, stores, user, onGoToReport }) {
+  const [mode, setMode] = useState('day'); // 'day' | 'range' (v21.89)
   const todayStr = tipsFormatISODate(new Date());
   const [storePc, setStorePc] = useState('');
   const [dateStr, setDateStr] = useState(todayStr);
@@ -45807,6 +46083,18 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
         {onGoToReport && <> Already fixed what you needed? <span onClick={onGoToReport} style={{ color: '#FF671F', fontWeight: 700, cursor: 'pointer' }}>Go to the Tips Report →</span> to re-send the corrected period to Paycor.</>}
       </p>
 
+      <div role="tablist" aria-label="Edit mode" style={{ display: 'inline-flex', gap: '0.25rem', padding: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, marginBottom: '1rem' }}>
+        {[['day', 'One day'], ['range', 'Several days']].map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={mode === k} onClick={() => setMode(k)}
+            style={{ padding: '0.4rem 1rem', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, fontFamily: "'Source Sans 3'", background: mode === k ? '#FF671F' : 'transparent', color: mode === k ? '#fff' : th.muted }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'range' && <TipsBulkEditor th={th} stores={stores} />}
+
+      {mode === 'day' && (<>
       <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
         <label style={{ fontSize: '0.78rem', color: th.muted }}>
           Store<br />
@@ -45923,6 +46211,7 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
           )}
         </div>
       )}
+      </>)}
     </div>
   );
 }

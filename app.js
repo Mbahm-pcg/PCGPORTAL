@@ -24252,7 +24252,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v21.88";
+  var APP_VERSION = "v21.91";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29373,6 +29373,40 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [selectedStore]);
     const [timeFilter, setTimeFilter] = useState("today");
     const [districtFilter, setDistrictFilter] = useState("all");
+    const [storeQuery, setStoreQuery] = useState("");
+    const [viewDate, setViewDate] = useState("");
+    const [dayData, setDayData] = useState(null);
+    const [dayLoading, setDayLoading] = useState(false);
+    const [dayError, setDayError] = useState(null);
+    useEffect(() => {
+      if (!viewDate) {
+        setDayData(null);
+        setDayError(null);
+        return;
+      }
+      let cancelled = false;
+      setDayLoading(true);
+      setDayError(null);
+      setDayData(null);
+      fetch("/.netlify/functions/labor-day", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ date: viewDate })
+      }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok) setDayError(j.error || `Could not load ${viewDate}`);
+        else setDayData(j);
+      }).catch(() => {
+        if (!cancelled) setDayError("Network error \u2014 could not load that day.");
+      }).finally(() => {
+        if (!cancelled) setDayLoading(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [viewDate]);
     const [forecastData, setForecastData] = useState({});
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
@@ -29510,11 +29544,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       );
     }
     if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", textAlign: "center", color: th.muted } }, "Loading labor data...");
-    const storeEntries = laborData?.stores ? Object.entries(laborData.stores) : [];
+    const shownData = viewDate ? dayData : laborData;
+    const tf = viewDate ? "today" : timeFilter;
+    const storeEntries = shownData?.stores ? Object.entries(shownData.stores) : [];
     const filtered = isManager ? storeEntries.filter(([pc]) => managerStorePCs.has(String(pc))) : districtFilter === "all" ? storeEntries : storeEntries.filter(([pc, s]) => s && String(s.district) === districtFilter);
     filtered.sort((a, b) => (b[1]?.today?.laborPct || 0) - (a[1]?.today?.laborPct || 0));
     const summary = filtered.reduce((acc, [pc, s]) => {
-      const t = timeFilter === "today" ? s?.today : s?.wtd;
+      const t = tf === "today" ? s?.today : s?.wtd;
       if (!t) return acc;
       acc.laborDollars += t.laborDollars || 0;
       acc.sales += t.sales || 0;
@@ -29525,23 +29561,78 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return acc;
     }, { laborDollars: 0, sales: 0, employees: 0, employeesOnClock: 0, scheduledNow: 0, overtimeCount: 0 });
     summary.laborPct = summary.sales > 0 ? Math.round(summary.laborDollars / summary.sales * 1e3) / 10 : 0;
+    const KPI_ICONS = {
+      labor: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("ellipse", { cx: "12", cy: "6", rx: "7", ry: "2.6" }), /* @__PURE__ */ React.createElement("path", { d: "M5 6v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6" }), /* @__PURE__ */ React.createElement("path", { d: "M5 10v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6v-4" }), /* @__PURE__ */ React.createElement("path", { d: "M5 14v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6v-4" })),
+      pct: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M9 15l6-6" }), /* @__PURE__ */ React.createElement("circle", { cx: "9.2", cy: "9.2", r: "1.1" }), /* @__PURE__ */ React.createElement("circle", { cx: "14.8", cy: "14.8", r: "1.1" })),
+      sales: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "4", y: "12", width: "3.5", height: "8", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "10.25", y: "8", width: "3.5", height: "12", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "16.5", y: "4", width: "3.5", height: "16", rx: "1" })),
+      schedule: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "M15.5 16.5h.01" }))
+    };
     const kpiCards = [
-      { label: "Total Labor", value: fmtDollars(summary.laborDollars), color: laborColor(summary.laborPct), sub: `${fmtPct(summary.laborPct)} of sales` },
-      { label: "Avg Labor %", value: fmtPct(summary.laborPct), color: laborColor(summary.laborPct), sub: "threshold 23%" },
-      { label: "Total Sales", value: fmtDollars(summary.sales), color: "#FF671F", sub: `${filtered.length} stores` },
-      { label: "Scheduled Now", value: String(summary.scheduledNow || summary.employeesOnClock || 0), color: "#FF671F", sub: `${summary.overtimeCount || 0} on overtime` }
+      { key: "labor", label: "Total Labor", value: fmtDollars(summary.laborDollars), tint: "#FF671F", sub: `${fmtPct(summary.laborPct)} of sales`, subColor: laborColor(summary.laborPct) },
+      { key: "pct", label: "Avg. Labor %", value: fmtPct(summary.laborPct), tint: "#16a34a", sub: "threshold 23%" },
+      { key: "sales", label: "Total Sales", value: fmtDollars(summary.sales), tint: "#FF671F", sub: `${filtered.length} stores` },
+      viewDate ? { key: "schedule", label: "Employees Worked", value: String(summary.employees || 0), tint: "#7c5cd9", sub: dayData?.source === "history" ? "from daily history" : "end of day" } : { key: "schedule", label: "Scheduled Now", value: String(summary.scheduledNow || summary.employeesOnClock || 0), tint: "#7c5cd9", sub: `${summary.overtimeCount || 0} on overtime` }
     ];
-    return /* @__PURE__ */ React.createElement("div", null, error && /* @__PURE__ */ React.createElement("div", { style: { background: "#ff980020", border: "1px solid #ff9800", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ff9800", fontSize: "0.875rem" } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Labor"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Updated ", timeAgo(laborData?.lastUpdated)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.85rem 1rem", textAlign: "center", position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 3, background: k.color, opacity: 0.85 } }), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th, { fontSize: "0.6rem" }) } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", fontWeight: 700, color: k.color, marginTop: "0.15rem", fontFamily: "'Source Sans 3'" } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, marginTop: "0.1rem", fontWeight: 600 } }, k.sub)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}` } }, ["today", "wtd"].map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setTimeFilter(t), style: {
-      background: timeFilter === t ? "#FF671F" : th.card,
-      color: timeFilter === t ? "#fff" : th.text,
-      border: "none",
-      padding: "0.4rem 1rem",
-      cursor: "pointer",
-      fontSize: "0.8125rem",
+    const sq = storeQuery.trim().toLowerCase();
+    const visibleStores = sq ? filtered.filter(([, s]) => String(s?.name || "").toLowerCase().includes(sq)) : filtered;
+    const yesterdayIso = (() => {
+      const d = /* @__PURE__ */ new Date();
+      d.setDate(d.getDate() - 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    })();
+    const pillBtn = (active) => ({
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "0.45rem",
+      padding: "0.55rem 1.1rem",
+      borderRadius: 999,
+      border: `1px solid ${active ? "#FF671F" : th.cardBorder}`,
+      background: active ? "#FF671F" : th.card,
+      color: active ? "#fff" : th.text,
+      fontSize: "0.84rem",
       fontWeight: 600,
-      fontFamily: "'Source Sans 3'"
-    } }, t === "today" ? "Today" : "This Week"))), !isDM && !isManager && /* @__PURE__ */ React.createElement("select", { value: districtFilter, onChange: (e) => setDistrictFilter(e.target.value), style: { ...inp(th, { width: "auto", padding: "0.4rem 0.75rem", fontSize: "0.8125rem" }) } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Districts"), [1, 2, 3, 4, 5, 6, 7, 8].map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, districtLabel(d)))), summary.overtimeCount > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#f44336", { fontSize: "0.75rem", padding: "0.3rem 0.6rem" }) }, summary.overtimeCount, " OT")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.75rem" } }, filtered.map(([pc, s]) => {
-      const t = timeFilter === "today" ? s?.today : s?.wtd;
+      fontFamily: "'Source Sans 3'",
+      cursor: "pointer",
+      whiteSpace: "nowrap"
+    });
+    const chev = (c = th.muted) => /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { display: "flex", opacity: 0.7 } }, ICONS.chevronDown(c));
+    return /* @__PURE__ */ React.createElement("div", null, error && /* @__PURE__ */ React.createElement("div", { style: { background: "#ff980020", border: "1px solid #ff9800", borderRadius: "0.5rem", padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ff9800", fontSize: "0.875rem" } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { ...pageTitle(th), margin: 0 } }, "Labor"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem" } }, viewDate ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, (/* @__PURE__ */ new Date(`${viewDate}T12:00:00`)).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" }), dayData ? dayData.source === "history" ? " \xB7 rebuilt from daily history" : " \xB7 end of day" : "", " \xB7 ", /* @__PURE__ */ React.createElement("span", { role: "button", onClick: () => setViewDate(""), style: { color: "#FF671F", fontWeight: 700, cursor: "pointer" } }, "Back to live")) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "Updated ", timeAgo(laborData?.lastUpdated)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.9rem", marginBottom: "1rem" } }, kpiCards.map((k) => /* @__PURE__ */ React.createElement("div", { key: k.key, style: { ...card(th), borderRadius: "0.9rem", padding: "1.1rem 1.1rem 1.1rem 1.2rem", display: "flex", alignItems: "center", gap: "1rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 50, height: 50, borderRadius: "0.8rem", background: `${k.tint}1c`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement(HubIcon, { color: k.tint, size: 24, d: KPI_ICONS[k.key] })), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", fontWeight: 600, color: th.text } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.6rem", fontWeight: 800, color: th.text, lineHeight: 1.2, marginTop: "0.15rem", fontFamily: "'Source Sans 3'", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: k.subColor ? 700 : 500, color: k.subColor || th.muted, marginTop: "0.15rem" } }, k.sub)), /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { display: "flex", opacity: 0.45, transform: "rotate(-90deg)", flexShrink: 0 } }, ICONS.chevronDown(th.muted))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: "0.9rem", padding: "0.75rem", display: "flex", gap: "0.6rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center" } }, ["today", "wtd"].map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => {
+      setTimeFilter(t);
+      setViewDate("");
+    }, style: pillBtn(!viewDate && timeFilter === t) }, t === "today" ? "Today" : "This Week")), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      if (!viewDate) setViewDate(yesterdayIso);
+    }, title: "Look at one past day's end-of-day labor", style: pillBtn(!!viewDate) }, "Day ", chev(viewDate ? "#fff" : th.muted)), /* @__PURE__ */ React.createElement("label", { style: { ...pillBtn(false), cursor: "text", padding: "0.35rem 0.9rem" } }, ICONS.calendar(th.muted), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "date",
+        "aria-label": "Pick a day",
+        value: viewDate,
+        max: yesterdayIso,
+        onChange: (e) => setViewDate(e.target.value),
+        style: { border: "none", background: "transparent", color: viewDate ? th.text : th.muted, fontFamily: "'Source Sans 3'", fontSize: "0.84rem", padding: "0.2rem 0", outline: "none" }
+      }
+    )), !isDM && !isManager && /* @__PURE__ */ React.createElement("label", { style: { ...pillBtn(false), position: "relative", padding: 0 } }, /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        value: districtFilter,
+        onChange: (e) => setDistrictFilter(e.target.value),
+        "aria-label": "District",
+        style: { appearance: "none", WebkitAppearance: "none", border: "none", background: "transparent", color: th.text, fontFamily: "'Source Sans 3'", fontSize: "0.84rem", fontWeight: 600, padding: "0.55rem 2.4rem 0.55rem 1.1rem", cursor: "pointer", outline: "none", minWidth: 160 }
+      },
+      /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Districts"),
+      [1, 2, 3, 4, 5, 6, 7, 8].map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, districtLabel(d)))
+    ), /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", right: "0.9rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", display: "flex" } }, chev())), summary.overtimeCount > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#f44336", { fontSize: "0.75rem", padding: "0.3rem 0.6rem" }) }, summary.overtimeCount, " OT"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), /* @__PURE__ */ React.createElement("label", { style: { position: "relative", flex: "0 1 300px", minWidth: 200 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.9rem", top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" } }, ICONS.search(th.muted)), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "search",
+        value: storeQuery,
+        onChange: (e) => setStoreQuery(e.target.value),
+        placeholder: "Search stores...",
+        "aria-label": "Search stores",
+        style: { width: "100%", boxSizing: "border-box", padding: "0.58rem 0.9rem 0.58rem 2.4rem", borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontSize: "0.84rem", fontFamily: "'Source Sans 3'", outline: "none" }
+      }
+    ))), viewDate && dayLoading && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginBottom: "0.75rem" } }, "Loading ", viewDate, "\u2026"), viewDate && dayError && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: "#e8590c", fontSize: "0.85rem", marginBottom: "0.75rem" } }, dayError), sq && visibleStores.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginBottom: "0.75rem" } }, 'No stores match "', storeQuery.trim(), '".'), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.75rem" } }, visibleStores.map(([pc, s]) => {
+      const t = tf === "today" ? s?.today : s?.wtd;
       if (!t) return null;
       const pct = t.laborPct || 0;
       const clr = laborColor(pct);
@@ -29574,7 +29665,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: th.cardBorder, borderRadius: 999, marginBottom: "0.45rem", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(pct / 35 * 100, 100)}%`, background: clr, borderRadius: 999, boxShadow: `0 0 8px ${clr}88`, transition: "width .5s ease" } })),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.2rem", fontWeight: 700, color: th.text, marginBottom: "0.2rem" } }, fmtDollars(t.laborDollars)),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.35rem" } }, "of ", fmtDollars(t.sales), " sales"),
-        timeFilter === "today" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap" } }, (t.scheduledNow || t.employeesOnClock || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#22c55e", { fontSize: "0.58rem", fontWeight: 800 }) }, t.scheduledNow || t.employeesOnClock, " clocked in"), (t.scheduledToday || t.employees || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#74c0fc", { fontSize: "0.58rem", fontWeight: 800 }) }, t.scheduledToday || t.employees, " today"), (t.overtimeCount || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#f44336", { fontSize: "0.58rem", fontWeight: 800 }) }, t.overtimeCount, " OT")),
+        viewDate && (t.employees || 0) > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: pill("#74c0fc", { fontSize: "0.58rem", fontWeight: 800 }) }, t.employees, " worked \xB7 ", Math.round((t.hoursWorked || 0) * 10) / 10, " hrs")),
+        !viewDate && timeFilter === "today" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap" } }, (t.scheduledNow || t.employeesOnClock || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#22c55e", { fontSize: "0.58rem", fontWeight: 800 }) }, t.scheduledNow || t.employeesOnClock, " clocked in"), (t.scheduledToday || t.employees || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#74c0fc", { fontSize: "0.58rem", fontWeight: 800 }) }, t.scheduledToday || t.employees, " today"), (t.overtimeCount || 0) > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#f44336", { fontSize: "0.58rem", fontWeight: 800 }) }, t.overtimeCount, " OT")),
         (() => {
           const fc = forecastData[pc];
           if (!fc?.loaded) return null;
@@ -33291,7 +33383,171 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       })), /* @__PURE__ */ React.createElement("style", null, "@keyframes tipsSendPulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }"));
     })(), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
   }
+  function TipsBulkEditor({ th, stores }) {
+    const yesterday = (() => {
+      const d = /* @__PURE__ */ new Date();
+      d.setDate(d.getDate() - 1);
+      return tipsFormatISODate(d);
+    })();
+    const twoWeeksAgo = (() => {
+      const d = /* @__PURE__ */ new Date();
+      d.setDate(d.getDate() - 14);
+      return tipsFormatISODate(d);
+    })();
+    const [storePc, setStorePc] = useState("");
+    const [roster, setRoster] = useState(null);
+    const [rosterLoading, setRosterLoading] = useState(false);
+    const [personQuery, setPersonQuery] = useState("");
+    const [person, setPerson] = useState(null);
+    const [startDate, setStartDate] = useState(twoWeeksAgo);
+    const [endDate, setEndDate] = useState(yesterday);
+    const [days, setDays] = useState(null);
+    const [edits, setEdits] = useState({});
+    const [loading, setLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+    const [result, setResult] = useState(null);
+    const [reason, setReason] = useState("");
+    const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
+    const api = async (body) => {
+      const res = await fetch("/.netlify/functions/tips-manual-edit", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify(body)
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || `Request failed (${res.status})`);
+      return j;
+    };
+    const pickStore = async (pc) => {
+      setStorePc(pc);
+      setRoster(null);
+      setPerson(null);
+      setDays(null);
+      setResult(null);
+      setError(null);
+      const s = stores.find((x) => String(x.pc) === String(pc));
+      if (!s?.paycor) return;
+      setRosterLoading(true);
+      try {
+        const j = await api({ action: "employeeRoster", legalEntityId: s.paycor });
+        setRoster(j.roster || []);
+      } catch (e) {
+        setError(e.message);
+      }
+      setRosterLoading(false);
+    };
+    const loadDays = async () => {
+      if (!selectedStore || !person) return;
+      setLoading(true);
+      setError(null);
+      setResult(null);
+      setDays(null);
+      try {
+        const j = await api({ action: "rangePreview", pc: storePc, legalEntityId: selectedStore.paycor, guid: person.guid, name: person.name, startDate, endDate });
+        const rows = j.days || [];
+        const init = {};
+        rows.forEach((d) => {
+          const suggested = d.punchedHours != null ? d.punchedHours : d.currentHours != null ? d.currentHours : 0;
+          const differs = d.punchedHours != null && Math.abs((d.currentHours || 0) - d.punchedHours) > 9e-3;
+          init[d.date] = { checked: d.hasSnapshot && differs, hours: String(suggested) };
+        });
+        setEdits(init);
+        setDays(rows);
+      } catch (e) {
+        setError(e.message);
+      }
+      setLoading(false);
+    };
+    const setEdit = (date, patch) => setEdits((prev) => ({ ...prev, [date]: { ...prev[date], ...patch } }));
+    const selectable = (days || []).filter((d) => d.hasSnapshot);
+    const checkedDays = selectable.filter((d) => edits[d.date]?.checked);
+    const allChecked = selectable.length > 0 && checkedDays.length === selectable.length;
+    const apply = async () => {
+      if (!checkedDays.length) return;
+      const entries = checkedDays.map((d) => ({ date: d.date, hours: Math.max(0, Number(edits[d.date]?.hours) || 0) }));
+      if (!window.confirm(`Update ${person.name} on ${entries.length} day${entries.length !== 1 ? "s" : ""} at ${selectedStore.name}? Every person's share on those days is recalculated.`)) return;
+      setSaving(true);
+      setError(null);
+      try {
+        const j = await api({ action: "bulkSave", pc: storePc, person: { name: person.name, guid: person.guid, payrollId: person.payrollId }, entries, reason: reason.trim() || void 0 });
+        setResult(j.results || []);
+        await loadDays();
+      } catch (e) {
+        setError(e.message);
+      }
+      setSaving(false);
+    };
+    const filteredRoster = (roster || []).filter((r) => !personQuery.trim() || r.name.toLowerCase().includes(personQuery.trim().toLowerCase())).slice(0, 12);
+    const dayLabel = (iso) => (/* @__PURE__ */ new Date(`${iso}T12:00:00`)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const cell = { padding: "0.55rem 0.9rem", borderBottom: `1px solid ${th.cardBorder}`, fontSize: "0.84rem", color: th.text };
+    const headCell = { textAlign: "left", padding: "0.55rem 0.9rem", color: th.muted, fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${th.cardBorder}`, background: th.card2 };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Store", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), minWidth: 220 }, value: storePc, onChange: (e) => pickStore(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")")))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted, position: "relative" } }, "Employee", /* @__PURE__ */ React.createElement("br", null), person ? /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), minWidth: 220, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, person.name), /* @__PURE__ */ React.createElement("span", { role: "button", onClick: () => {
+      setPerson(null);
+      setDays(null);
+      setResult(null);
+    }, style: { color: th.muted, cursor: "pointer" } }, "\xD7")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "text",
+        disabled: !storePc || rosterLoading,
+        placeholder: rosterLoading ? "Loading roster\u2026" : storePc ? "Search this store's employees\u2026" : "Pick a store first",
+        value: personQuery,
+        onChange: (e) => setPersonQuery(e.target.value),
+        style: { ...inp(th), minWidth: 220 }
+      }
+    ), personQuery.trim() && roster && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.15)", maxHeight: 240, overflowY: "auto" } }, filteredRoster.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.7rem", fontSize: "0.8rem", color: th.muted } }, "No matching active employees."), filteredRoster.map((r) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: r.guid,
+        onClick: () => {
+          setPerson(r);
+          setPersonQuery("");
+          setDays(null);
+          setResult(null);
+        },
+        onMouseEnter: (e) => e.currentTarget.style.background = th.card3,
+        onMouseLeave: (e) => e.currentTarget.style.background = "transparent",
+        style: { padding: "0.45rem 0.7rem", cursor: "pointer", fontSize: "0.82rem", color: th.text, display: "flex", justifyContent: "space-between", gap: "0.5rem" }
+      },
+      /* @__PURE__ */ React.createElement("span", null, r.name),
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, r.jobTitle || "")
+    ))))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "From", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: startDate, max: endDate, onChange: (e) => setStartDate(e.target.value) })), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "To", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: endDate, min: startDate, max: tipsFormatISODate(/* @__PURE__ */ new Date()), onChange: (e) => setEndDate(e.target.value) })), /* @__PURE__ */ React.createElement("button", { onClick: loadDays, disabled: !person || loading, style: { ...btn(th), opacity: !person || loading ? 0.5 : 1 } }, loading ? "Checking Paycor\u2026" : "Load days")), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", color: "#e03131", fontSize: "0.82rem", marginBottom: "1rem" } }, error), result && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", fontSize: "0.82rem", marginBottom: "1rem", color: result.every((r) => r.ok) ? "#2f9e44" : "#e8590c" } }, result.every((r) => r.ok) ? "\u2713 " : "", "Updated ", result.filter((r) => r.ok).length, " of ", result.length, " day", result.length !== 1 ? "s" : "", ".", result.filter((r) => !r.ok).map((r) => /* @__PURE__ */ React.createElement("div", { key: r.date, style: { color: "#e03131", marginTop: "0.2rem" } }, dayLabel(r.date), ": ", r.reason))), days && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text } }, person.name, " \xB7 ", selectedStore?.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.1rem" } }, "Days where Paycor's punched hours differ from the saved crew are pre-checked. Hours set to 0 remove them from that day.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setEdits((prev) => {
+          const n = { ...prev };
+          selectable.forEach((d) => {
+            n[d.date] = { ...n[d.date], checked: !allChecked };
+          });
+          return n;
+        }),
+        style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.45rem 0.8rem", fontSize: "0.78rem" }) }
+      },
+      allChecked ? "Uncheck all" : "Check all"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setEdits((prev) => {
+          const n = { ...prev };
+          selectable.forEach((d) => {
+            if (d.punchedHours != null) n[d.date] = { ...n[d.date], hours: String(d.punchedHours) };
+          });
+          return n;
+        }),
+        style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.45rem 0.8rem", fontSize: "0.78rem" }) }
+      },
+      "Use Paycor hours"
+    ))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 640 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...headCell, width: 40 } }), ["Day", "Saved crew now", "Paycor punched", "New hours", "Day's pool"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: headCell }, h)))), /* @__PURE__ */ React.createElement("tbody", null, days.map((d) => {
+      const e = edits[d.date] || {};
+      const disabled = !d.hasSnapshot;
+      const differs = d.punchedHours != null && Math.abs((d.currentHours || 0) - d.punchedHours) > 9e-3;
+      return /* @__PURE__ */ React.createElement("tr", { key: d.date, style: { opacity: disabled ? 0.5 : 1 } }, /* @__PURE__ */ React.createElement("td", { style: cell }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", disabled, checked: !!e.checked, onChange: (ev) => setEdit(d.date, { checked: ev.target.checked }), "aria-label": `Include ${d.date}` })), /* @__PURE__ */ React.createElement("td", { style: { ...cell, fontWeight: 600, whiteSpace: "nowrap" } }, dayLabel(d.date)), /* @__PURE__ */ React.createElement("td", { style: cell }, disabled ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "No tips data saved") : d.currentHours == null ? /* @__PURE__ */ React.createElement("span", { style: { color: "#e8590c", fontWeight: 700 } }, "Missing") : `${tipsRound2(d.currentHours)} hrs${d.currentShare != null ? ` \xB7 $${Number(d.currentShare).toFixed(2)}` : ""}`), /* @__PURE__ */ React.createElement("td", { style: { ...cell, color: differs ? "#e8590c" : th.text, fontWeight: differs ? 700 : 400 } }, d.punchedHours == null ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2014") : `${d.punchedHours} hrs`), /* @__PURE__ */ React.createElement("td", { style: cell }, /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", max: "24", step: "0.01", disabled, value: e.hours ?? "", onChange: (ev) => setEdit(d.date, { hours: ev.target.value, checked: true }), style: { ...inp(th), width: 100, padding: "0.4rem 0.55rem" } })), /* @__PURE__ */ React.createElement("td", { style: { ...cell, color: th.muted } }, d.tipPool != null ? `$${Number(d.tipPool).toFixed(2)}` : "\u2014"));
+    })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("textarea", { rows: 2, placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: "'Source Sans 3'" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.8rem 1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, marginRight: "auto" } }, checkedDays.length, " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
+  }
   function TipsEditor({ th, stores, user, onGoToReport }) {
+    const [mode, setMode] = useState("day");
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
     const [storePc, setStorePc] = useState("");
     const [dateStr, setDateStr] = useState(todayStr);
@@ -33408,7 +33664,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setError(null);
     };
     const StatBlock = ({ label, value }) => /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1rem", fontWeight: 800, color: th.text } }, value));
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "0.3rem" } }, "Tips Editor"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Correct one store's crew for one already-saved day \u2014 add someone who's missing, fix their hours, or remove a mistake. Saving recalculates every person's share from the real tip pool, same math the nightly report already uses. The pool itself (real Pulse sales data) isn't editable here.", onGoToReport && /* @__PURE__ */ React.createElement(React.Fragment, null, " Already fixed what you needed? ", /* @__PURE__ */ React.createElement("span", { onClick: onGoToReport, style: { color: "#FF671F", fontWeight: 700, cursor: "pointer" } }, "Go to the Tips Report \u2192"), " to re-send the corrected period to Paycor.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Store", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), minWidth: 220 }, value: storePc, onChange: (e) => {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "0.3rem" } }, "Tips Editor"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Correct one store's crew for one already-saved day \u2014 add someone who's missing, fix their hours, or remove a mistake. Saving recalculates every person's share from the real tip pool, same math the nightly report already uses. The pool itself (real Pulse sales data) isn't editable here.", onGoToReport && /* @__PURE__ */ React.createElement(React.Fragment, null, " Already fixed what you needed? ", /* @__PURE__ */ React.createElement("span", { onClick: onGoToReport, style: { color: "#FF671F", fontWeight: 700, cursor: "pointer" } }, "Go to the Tips Report \u2192"), " to re-send the corrected period to Paycor.")), /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "Edit mode", style: { display: "inline-flex", gap: "0.25rem", padding: "0.25rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, marginBottom: "1rem" } }, [["day", "One day"], ["range", "Several days"]].map(([k, label]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: k,
+        role: "tab",
+        "aria-selected": mode === k,
+        onClick: () => setMode(k),
+        style: { padding: "0.4rem 1rem", borderRadius: 999, border: "none", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700, fontFamily: "'Source Sans 3'", background: mode === k ? "#FF671F" : "transparent", color: mode === k ? "#fff" : th.muted }
+      },
+      label
+    ))), mode === "range" && /* @__PURE__ */ React.createElement(TipsBulkEditor, { th, stores }), mode === "day" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Store", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), minWidth: 220 }, value: storePc, onChange: (e) => {
       setStorePc(e.target.value);
       setStore(null);
       setCrew([]);
@@ -33428,7 +33694,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const hoursNum = Number(c.hours) || 0;
       const previewShare = totalHours > 0 ? tipsRound2(rate * hoursNum) : 0;
       return /* @__PURE__ */ React.createElement("tr", { key: c.guid || c.name + idx, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.6rem 1.1rem", color: th.text, fontWeight: 600 } }, c.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 1.1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", step: "0.01", value: c.hours, onChange: (e) => setCrewHours(idx, e.target.value), style: { ...inp(th), width: 110, padding: "0.45rem 0.6rem" } })), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.6rem 1.1rem", color: th.text, fontWeight: 600 } }, "$", previewShare.toFixed(2)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 1.1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => removeCrew(idx), style: { background: "none", border: "1px solid #e0313155", color: "#e03131", borderRadius: "0.5rem", padding: "0.35rem 0.7rem", cursor: "pointer", fontSize: "0.76rem", fontWeight: 700 } }, "\u{1F5D1} Remove")));
-    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.84rem", fontWeight: 700, color: th.text, marginBottom: "0.15rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.5rem" } }, "Provide a reason for this correction (optional, saved for the record)."), /* @__PURE__ */ React.createElement("textarea", { rows: 2, placeholder: "e.g. Adjusted tip share due to hours correction\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: "'Source Sans 3'" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2 } }, hasChanges && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, marginRight: "auto" } }, "\u23F1 Unsaved changes"), /* @__PURE__ */ React.createElement("button", { onClick: cancelEdits, disabled: !hasChanges || saving, style: { ...btn(th, { background: th.card3, color: th.text }), opacity: !hasChanges || saving ? 0.5 : 1 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: save, disabled: saving || crew.length === 0, style: { ...btn(th), opacity: saving || crew.length === 0 ? 0.5 : 1 } }, saving ? "Saving\u2026" : "Save Correction")), store.manualEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, padding: "0 1.1rem 1rem" } }, "Last manually corrected by ", store.manualEdit.by, " on ", new Date(store.manualEdit.at).toLocaleString(), store.manualEdit.reason ? ` \u2014 "${store.manualEdit.reason}"` : "", ".")));
+    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.84rem", fontWeight: 700, color: th.text, marginBottom: "0.15rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.5rem" } }, "Provide a reason for this correction (optional, saved for the record)."), /* @__PURE__ */ React.createElement("textarea", { rows: 2, placeholder: "e.g. Adjusted tip share due to hours correction\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: "'Source Sans 3'" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2 } }, hasChanges && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, marginRight: "auto" } }, "\u23F1 Unsaved changes"), /* @__PURE__ */ React.createElement("button", { onClick: cancelEdits, disabled: !hasChanges || saving, style: { ...btn(th, { background: th.card3, color: th.text }), opacity: !hasChanges || saving ? 0.5 : 1 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: save, disabled: saving || crew.length === 0, style: { ...btn(th), opacity: saving || crew.length === 0 ? 0.5 : 1 } }, saving ? "Saving\u2026" : "Save Correction")), store.manualEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, padding: "0 1.1rem 1rem" } }, "Last manually corrected by ", store.manualEdit.by, " on ", new Date(store.manualEdit.at).toLocaleString(), store.manualEdit.reason ? ` \u2014 "${store.manualEdit.reason}"` : "", "."))));
   }
   function EmployeeHoursReport({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
