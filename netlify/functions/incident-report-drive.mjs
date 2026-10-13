@@ -20,8 +20,14 @@ import { neon } from '@neondatabase/serverless';
 import { Readable } from 'node:stream';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { buildFolderFindQuery, buildFolderCreateParams, buildFileUploadParams } from '../../src/incident-report-drive.mjs';
+import { canViewReport } from '../../src/incident-report.mjs';
 
-const DRIVE_FOLDER_ID = '1A2aYyLns90Qv1LqgxZ8HQhxUW9epiP5r';
+// v21.98: the ROOT of the "Incident Reports" Shared Drive (0A… = a shared drive id; the
+// v21.97 target 1hPDmYQqj9gdIhKIT7jt78z-bcHwtgpgo turned out to be a My Drive folder).
+// Originally: a folder inside the "Incident Reports" Shared Drive (service accounts have no
+// storage quota, so the old My Drive folder 1A2aYyLns90Qv1LqgxZ8HQhxUW9epiP5r rejected
+// every file upload). INCIDENT_DRIVE_FOLDER_ID overrides it without a code change.
+const DRIVE_FOLDER_ID = process.env.INCIDENT_DRIVE_FOLDER_ID || '0ADXmlrVnaZBJUk9PVA';
 const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
 
 const cors = {
@@ -110,6 +116,23 @@ export default async (request) => {
   const { reportId, storeName, pdfKey, attachments } = payload;
   if (!reportId || !storeName || !pdfKey) return json(400, { error: 'Missing reportId, storeName, or pdfKey' });
 
+  // v21.97: only someone who can see the report may back it up (it reads that
+  // report's files out of Blobs), and every run's result is recorded on the row.
+  try {
+    await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS drive_backup_status text`;
+    await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS drive_backup_at timestamptz`;
+    await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS drive_backup_error text`;
+  } catch (e) { console.warn('[incident-report-drive] column ensure failed:', e.message); }
+  const idNum = Math.trunc(Number(reportId));
+  const own = await sql`SELECT prepared_by_user_id FROM incident_reports WHERE id = ${idNum}`;
+  if (!own.length) return json(404, { error: 'Report not found' });
+  if (!canViewReport({ preparedByUserId: own[0].prepared_by_user_id }, caller)) return json(403, { error: 'Not allowed' });
+  const recordResult = async (ok, error) => {
+    try {
+      await sql`UPDATE incident_reports SET drive_backup_status = ${ok ? 'ok' : 'failed'}, drive_backup_at = now(), drive_backup_error = ${ok ? null : String(error || '').slice(0, 1000)} WHERE id = ${idNum}`;
+    } catch (e) { console.warn('[incident-report-drive] result write failed:', e.message); }
+  };
+
   const blobStore = getBlobStore();
   const uploaded = [];
   const failed = [];
@@ -120,7 +143,7 @@ export default async (request) => {
 
     try {
       const dateStr = new Date().toISOString().slice(0, 10);
-      await uploadFile(drive, blobStore, { fileKey: pdfKey, name: `Incident-Report-${reportId}-${dateStr}.pdf`, mimeType: 'application/pdf', parentFolderId: folderId });
+      await uploadFile(drive, blobStore, { fileKey: pdfKey, name: `Incident-Report-${reportId}-${dateStr}${payload.edited ? '-edited' : ''}.pdf`, mimeType: 'application/pdf', parentFolderId: folderId });
       uploaded.push(pdfKey);
     } catch (e) { failed.push({ key: pdfKey, error: e.message }); }
 
@@ -134,6 +157,7 @@ export default async (request) => {
     // Couldn't even get a Drive client or find/create the folder — everything failed.
     console.error('[incident-report-drive] backup failed entirely:', e.message);
     await notifyDriveBackupFailed(blobStore, { reportId, storeName, error: e.message });
+    await recordResult(false, e.message);
     return json(200, { ok: false, uploaded, failed: [{ key: 'all', error: e.message }] });
   }
 
@@ -142,5 +166,6 @@ export default async (request) => {
     await notifyDriveBackupFailed(blobStore, { reportId, storeName, error: failed.map(f => `${f.key}: ${f.error}`).join('; ') });
   }
 
+  await recordResult(failed.length === 0, failed.map(f => `${f.key}: ${f.error}`).join('; '));
   return json(200, { ok: failed.length === 0, uploaded, failed });
 };

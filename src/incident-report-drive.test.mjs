@@ -4,17 +4,18 @@ import { buildFolderFindQuery, buildFolderCreateParams, buildFileUploadParams } 
 
 const DRIVE_ID = '1A2aYyLns90Qv1LqgxZ8HQhxUW9epiP5r';
 
-test('buildFolderFindQuery: a name+mimeType+parent query, supportsAllDrives but no Shared-Drive-only params', () => {
+test('buildFolderFindQuery: searches all drives (target is a Shared Drive folder since v21.97) without pinning a driveId', () => {
   const q = buildFolderFindQuery('Bustleton', DRIVE_ID);
   assert.equal(q.supportsAllDrives, true);
-  // corpora/driveId/includeItemsFromAllDrives are Shared-Drive-only params —
-  // the actual target is a regular "My Drive" folder shared as Editor, and
-  // Google's API errors out if driveId doesn't resolve to a real Shared Drive.
-  assert.equal(q.includeItemsFromAllDrives, undefined);
-  assert.equal(q.corpora, undefined);
+  // Without includeItemsFromAllDrives + corpora:allDrives, files.list silently skips
+  // Shared Drive items, the store folder is never found, and a duplicate is created
+  // on every backup. driveId stays unset: it errors unless the ID is a Shared Drive
+  // ROOT, and the target here is a folder inside one.
+  assert.equal(q.includeItemsFromAllDrives, true);
+  assert.equal(q.corpora, 'allDrives');
   assert.equal(q.driveId, undefined);
   assert.match(q.q, /name = 'Bustleton'/);
-  assert.match(q.q, /mimeType = 'application\/vnd\.google-apps\.folder'/);
+  assert.ok(q.q.includes("mimeType = 'application/vnd.google-apps.folder'"));
   assert.match(q.q, new RegExp(`'${DRIVE_ID}' in parents`));
 });
 

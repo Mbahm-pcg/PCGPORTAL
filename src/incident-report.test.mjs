@@ -93,3 +93,35 @@ test('filterVisibleReports: exec/IT gets every report, others get only their own
   assert.equal(filterVisibleReports(reports, { userType: 'it', sub: '9' }).length, 2);
   assert.equal(filterVisibleReports(reports, { userType: 'manager', sub: '2' }).length, 1);
 });
+
+// ── Editing (v21.94) ─────────────────────────────────────────────────────────
+import { evidenceToForm, canEditReport, diffReportFields } from './incident-report.mjs';
+
+test('evidenceToForm: round-trips buildEvidenceList output back to checkbox ids + custom rows', () => {
+  const ev = buildEvidenceList(['camera', 'witness'], ['Receipt copy']);
+  const f = evidenceToForm(ev);
+  assert.deepEqual(f.evidenceChecked.sort(), ['camera', 'witness']);
+  assert.deepEqual(f.evidenceCustom, ['Receipt copy']);
+});
+
+test('evidenceToForm: empty/missing evidence gives no checks and one blank custom row', () => {
+  assert.deepEqual(evidenceToForm(undefined), { evidenceChecked: [], evidenceCustom: [''] });
+});
+
+test('canEditReport: exec/IT can edit any report; others only their own', () => {
+  const r = { preparedByUserId: '7' };
+  assert.equal(canEditReport(r, { userType: 'it', sub: 1 }), true);
+  assert.equal(canEditReport(r, { userType: 'manager', sub: 7 }), true);
+  assert.equal(canEditReport(r, { userType: 'manager', sub: 8 }), false);
+  assert.equal(canEditReport(r, null), false);
+});
+
+test('diffReportFields: lists human labels for changed fields only', () => {
+  const before = { incidentSummary: 'a', wcClaim: '', people: [{ name: 'X' }], incidentDate: '2026-10-01' };
+  const after = { incidentSummary: 'b', wcClaim: '', people: [{ name: 'X' }, { name: 'Y' }], incidentDate: '2026-10-01' };
+  assert.deepEqual(diffReportFields(before, after), ['Incident summary', 'People involved']);
+});
+
+test('diffReportFields: treats null, undefined and empty string as the same', () => {
+  assert.deepEqual(diffReportFields({ wcClaim: null }, { wcClaim: '' }), []);
+});

@@ -67,3 +67,54 @@ export function canViewReport(report, caller) {
 export function filterVisibleReports(reports, caller) {
   return (reports || []).filter(r => canViewReport(r, caller));
 }
+
+// ── Editing (v21.94) ─────────────────────────────────────────────────────────
+// Same people who can see a report can edit it: exec/IT any report, everyone
+// else only the one they filed. Kept as its own name so the rule can diverge
+// from viewing later without touching every call site.
+export function canEditReport(report, caller) {
+  return canViewReport(report, caller);
+}
+
+// Inverse of buildEvidenceList — turns a saved evidence list back into the
+// form's checkbox ids + custom rows, so editing starts from what was saved.
+export function evidenceToForm(evidence) {
+  const list = Array.isArray(evidence) ? evidence : [];
+  const byLabel = new Map(DEFAULT_EVIDENCE_ITEMS.map(i => [i.label, i.id]));
+  const evidenceChecked = [];
+  const evidenceCustom = [];
+  for (const e of list) {
+    const label = String(e?.label || '').trim();
+    if (!label) continue;
+    if (byLabel.has(label)) { if (e.checked) evidenceChecked.push(byLabel.get(label)); }
+    else evidenceCustom.push(label);
+  }
+  return { evidenceChecked, evidenceCustom: evidenceCustom.length ? evidenceCustom : [''] };
+}
+
+// Field key -> label shown in the edit history ("Edited by X: Incident summary, W/C claim").
+export const EDITABLE_REPORT_FIELDS = {
+  incidentDate: 'Incident date', incidentTime: 'Incident time',
+  storePC: 'Location', storeName: 'Location', address: 'Address', operatingEntity: 'Operating entity',
+  incidentType: 'Incident type', wcClaim: 'W/C claim', reportedInjury: 'Reported injury',
+  employeeName: 'Employee name', employeeDob: 'Employee DOB', employeeStatus: 'Employee status',
+  employeeAddress: 'Employee address', employeePhone: 'Employee phone', employeeEmail: 'Employee email',
+  incidentSummary: 'Incident summary', people: 'People involved', evidence: 'Evidence preserved',
+  attachments: 'Photos / videos',
+};
+
+const norm = (v) => {
+  if (v == null || v === '') return '';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v).trim();
+};
+
+// Human labels of the fields that actually changed between two report versions
+// (deduplicated, in EDITABLE_REPORT_FIELDS order).
+export function diffReportFields(before, after) {
+  const out = [];
+  for (const [key, label] of Object.entries(EDITABLE_REPORT_FIELDS)) {
+    if (norm(before?.[key]) !== norm(after?.[key]) && !out.includes(label)) out.push(label);
+  }
+  return out;
+}

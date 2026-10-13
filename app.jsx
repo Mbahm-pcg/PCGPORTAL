@@ -5,7 +5,7 @@ import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
-import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty } from './src/incident-report.mjs';
+import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
@@ -6291,12 +6291,37 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
   );
 }
 
-function DistrictAlignmentTool({ user, th, stores, users }) {
+function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
   const [draft, setDraft] = React.useState(null);
   const [metrics, setMetrics] = React.useState({});
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
   const [actionError, setActionError] = React.useState('');
+  const [hoverHoursPc, setHoverHoursPc] = React.useState(null); // { pc, rect } of the open busiest-hours card (v21.92/93)
+  React.useEffect(() => {
+    if (!hoverHoursPc) return;
+    const close = () => setHoverHoursPc(null);
+    window.addEventListener('scroll', close, { passive: true, capture: true });
+    return () => window.removeEventListener('scroll', close, { capture: true });
+  }, [hoverHoursPc]);
+  // Drag-to-move (v21.93): which store is being dragged, which district it's hovering.
+  const [dragPc, setDragPc] = React.useState(null);
+  const [dragOverDistrict, setDragOverDistrict] = React.useState(null);
+  const dragFromControlRef = React.useRef(false);
+  // While dragging, holding near the top/bottom edge of the window scrolls the page
+  // (native drag auto-scroll is unreliable across browsers).
+  React.useEffect(() => {
+    if (!dragPc) return;
+    let y = null; let raf = 0;
+    const onOver = (e) => { y = e.clientY; };
+    const tick = () => {
+      if (y != null) { const edge = 90; if (y < edge) window.scrollBy(0, -Math.ceil((edge - y) / 4)); else if (y > window.innerHeight - edge) window.scrollBy(0, Math.ceil((y - (window.innerHeight - edge)) / 4)); }
+      raf = requestAnimationFrame(tick);
+    };
+    document.addEventListener('dragover', onOver);
+    raf = requestAnimationFrame(tick);
+    return () => { document.removeEventListener('dragover', onOver); cancelAnimationFrame(raf); };
+  }, [dragPc]);
   const isAdmin = isFullAdmin(user);
 
   const activeStores = React.useMemo(
@@ -6423,6 +6448,9 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
 
   const fmtMoney = n => n == null ? '—' : `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const fmtHour = h => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toLocaleTimeString(undefined, { hour: 'numeric' }); };
+  // v21.92: weekly sales label + busiest-hour ranges ("8–9 AM").
+  const fmtWeekRange = (m) => { if (!m.weekStart || !m.weekEnd) return ''; const f = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); return `${f(m.weekStart)} – ${f(m.weekEnd)}${m.weekComplete ? '' : ' (partial)'}`; };
+  const fmtHourRange = h => `${fmtHour(h)}–${fmtHour((h + 1) % 24)}`;
   const assetCombined = s => `${s.isNextGen ? 'NXT-' : ''}${s.baseAsset || '—'}`;
 
   // Builds a self-contained, forced-light-mode HTML string (not the live
@@ -6436,7 +6464,9 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
       const m = metrics[pc] || {};
       const nearest = nearestSiblingMiles(pc, pcs);
       const maxAvg = Math.max(1, ...((m.hourlyAvg || []).map(h => h.avgSales)));
-      const barsHtml = (m.hourlyAvg || []).map(h => `<div style="display:inline-block;width:3px;height:${Math.max(1, Math.round((h.avgSales / maxAvg) * 16))}px;background:${O};margin-right:1px;vertical-align:bottom;"></div>`).join('');
+      const topSet = new Set((m.topHours || []).map(t => t.h));
+      const barsHtml = (m.hourlyAvg || []).map(h => `<div style="display:inline-block;width:3px;height:${Math.max(1, Math.round((h.avgSales / maxAvg) * 16))}px;background:${topSet.has(h.h) ? '#b8430f' : O + '99'};margin-right:1px;vertical-align:bottom;"></div>`).join('')
+        + ((m.topHours || []).length ? `<div style="font-size:6.5px;color:#555;white-space:normal;">${m.topHours.map(t => `${fmtHourRange(t.h)} ${fmtMoney(t.avgSales)}`).join(' · ')}</div>` : '');
       return `
         <tr style="background:${bg};">
           <td style="${cell}font-weight:700;color:#c2540c;">${s.pc}</td>
@@ -6447,7 +6477,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
           <td style="${cell}">${assetCombined(s)}</td>
           <td style="${cell}">${storeMgrName(s, users) || "Unassigned"}</td>
           <td style="${cell}">${s.email || "—"}</td>
-          <td style="${cell}">${fmtMoney(m.netSales)}${m.netSalesDate ? `<div style="font-size:6.5px;color:#888;">${m.netSalesDate}</div>` : ''}</td>
+          <td style="${cell}">${fmtMoney(m.weeklySales)}${m.weekStart ? `<div style="font-size:6.5px;color:#888;">${fmtWeekRange(m)}</div>` : ''}</td>
           <td style="${cell}white-space:nowrap;height:16px;">${barsHtml}</td>
           <td style="${cell}">${nearest != null ? `${Math.round(nearest * 10) / 10} mi` : '—'}</td>
         </tr>`;
@@ -6472,7 +6502,7 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
         <table style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="background:#e5e7eb;">
-              ${['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Net Sales', 'Busiest Hours', 'Nearest Sibling'].map(h => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join('')}
+              ${['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Weekly Sales', 'Busiest Hours', 'Nearest Sibling'].map(h => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join('')}
             </tr>
           </thead>
           <tbody>${districtsHtml}</tbody>
@@ -6482,157 +6512,243 @@ function DistrictAlignmentTool({ user, th, stores, users }) {
     html2pdf().set({ margin: 0.15, filename: `PCG-District-Alignment-Draft-${dateStr}.pdf`, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: "in", format: "letter", orientation: "landscape" }, pagebreak: { mode: ["css", "legacy"] } }).from(el).save();
   };
 
-  const thStyle = { position: 'sticky', top: 0, zIndex: 2, textAlign: 'left', padding: '0.55rem 0.6rem', fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap', color: th.muted, background: th.card2, boxShadow: `0 1px 0 ${th.cardBorder}` };
-  const tdStyle = { padding: '0.55rem 0.6rem', fontSize: '0.76rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'top', transition: 'background 0.15s ease' };
-  const metricDivider = { borderLeft: `2px solid ${O}26` };
-  const pillBtn = (color) => ({ display: 'inline-block', marginLeft: '0.5rem', fontSize: '0.65rem', fontWeight: 700, whiteSpace: 'nowrap', background: color + '1a', border: `1px solid ${color}40`, borderRadius: 999, padding: '0.15rem 0.55rem', color, cursor: 'pointer', transition: 'transform 0.12s ease, background 0.15s ease' });
+  // ── Layout (redesigned v21.93) ────────────────────────────────────────────
+  const COLS = ['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Weekly Sales', 'Busiest Hours', 'Nearest Sibling'];
+  const thStyle = { position: 'sticky', top: 0, zIndex: 2, textAlign: 'left', padding: '0.85rem 0.75rem', fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', color: th.muted, background: th.card, borderBottom: `1px solid ${th.cardBorder}` };
+  const tdStyle = { padding: '0.85rem 0.75rem', fontSize: '0.78rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'middle', transition: 'background 0.15s ease' };
+  const mutedTd = { ...tdStyle, color: th.muted };
+  const textLink = { background: 'none', border: 'none', padding: 0, marginLeft: '1rem', fontSize: '0.72rem', fontWeight: 600, color: O, cursor: 'pointer', fontFamily: "'Source Sans 3'" };
+  const outlineBtn = (accent) => ({ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.62rem 1.1rem', borderRadius: '0.6rem', border: `1px solid ${accent ? O + '88' : th.cardBorder}`, background: th.card, color: accent ? O : th.text, fontSize: '0.8rem', fontWeight: 600, fontFamily: "'Source Sans 3'", cursor: 'pointer' });
+  const solidBtn = { ...outlineBtn(false), background: O, border: `1px solid ${O}`, color: '#fff' };
+  const Ico = ({ d, c = th.muted, s = 16 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>;
 
-  // 11 columns total: 8 identity/contact columns (matching the Directory
-  // view's own layout exactly, per spec) + 3 new metrics columns. A subtle
-  // accent divider (metricDivider) marks where the metrics group starts. The
-  // district header row spans 8 + 3 to stay aligned under both blocks.
+  // Summary strip figures
+  const realDistricts = selectableDistrictNums.filter(n => n > 0);
+  const storesShown = Object.keys(draft.stores).filter(pc => storeByPc[pc]).length;
+  const siblingDistances = Object.entries(byDistrict).flatMap(([, pcs]) => pcs.map(pc => nearestSiblingMiles(pc, pcs)).filter(v => v != null));
+  const avgSibling = siblingDistances.length ? Math.round((siblingDistances.reduce((a, b) => a + b, 0) / siblingDistances.length) * 10) / 10 : null;
+  const StatTile = ({ icon, value, label }) => (
+    <div style={{ flex: '1 1 170px', display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.85rem 1rem', borderRadius: '0.7rem', border: `1px solid ${th.cardBorder}`, background: th.card, minWidth: 0 }}>
+      <span style={{ display: 'flex', flexShrink: 0 }}>{icon}</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: '1.05rem', fontWeight: 800, color: th.text, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+        <div style={{ fontSize: '0.72rem', color: th.muted }}>{label}</div>
+      </div>
+    </div>
+  );
+
+  // Drag-to-move: press and hold any store row, drag it onto another district's
+  // header or rows, release. Uses the same reassignStore action as the dropdown.
+  const dropOn = (dNum) => {
+    const pc = dragPc;
+    setDragPc(null); setDragOverDistrict(null);
+    if (!pc || draft.stores[pc]?.district === dNum) return;
+    reassignStore(pc, dNum);
+  };
+  const dropHandlers = (dNum) => isAdmin ? {
+    onDragOver: (e) => { if (!dragPc) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDistrict !== dNum) setDragOverDistrict(dNum); },
+    onDrop: (e) => { e.preventDefault(); dropOn(dNum); },
+  } : {};
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.6rem' }}>
-        <div style={{ fontSize: '0.78rem', color: th.muted }}>
-          Draft seeded {draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleString() : '—'}. Editing here never changes the real Locations data.
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+          {onBack && (
+            <button onClick={onBack} aria-label="Back to Tools" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.35rem 0.2rem 0 0', display: 'flex' }}>
+              <Ico d={<path d="m15 18-6-6 6-6" />} c={th.text} s={22} />
+            </button>
+          )}
+          <div>
+            <h2 style={{ margin: 0, fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.75rem', color: th.text }}>District Alignment</h2>
+            <div style={{ fontSize: '0.88rem', color: th.muted, marginTop: '0.2rem' }}>Plan district groupings without changing live Locations data.</div>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button className="da-btn" onClick={exportDistrictAlignmentPdf} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem' }) }}>
-            ⬇ Download as PDF
+        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="da-btn" onClick={exportDistrictAlignmentPdf} style={outlineBtn(false)}>
+            <Ico d={<><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></>} c={th.text} />Download PDF
           </button>
           {isAdmin && (
-            <>
-            {showNewDistrict ? (
-              <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', background: th.card2, padding: '0.3rem 0.5rem', borderRadius: 8, border: `1px solid ${th.cardBorder}`, animation: 'daPopIn 0.18s ease-out both' }}>
-                <input type="number" placeholder="District #" value={newDistrictNum} onChange={e => setNewDistrictNum(e.target.value)}
-                  style={{ width: 64, fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
-                <input placeholder="DM Name" value={newDmName} onChange={e => setNewDmName(e.target.value)}
-                  style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
-                <input placeholder="DM Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)}
-                  style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: `1px solid ${th.cardBorder}` }} />
-                <button className="da-btn" onClick={() => addDm(Number(newDistrictNum))} disabled={saving || !newDistrictNum || !newDmName.trim()} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Save</button>
-                <button className="da-btn" onClick={() => { setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail(''); }} style={{ fontSize: '0.7rem', cursor: 'pointer' }}>Cancel</button>
+            showNewDistrict ? (
+              <span style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center', background: th.card, padding: '0.35rem 0.5rem', borderRadius: '0.6rem', border: `1px solid ${th.cardBorder}`, animation: 'daPopIn 0.18s ease-out both' }}>
+                <input type="number" placeholder="District #" value={newDistrictNum} onChange={e => setNewDistrictNum(e.target.value)} style={{ ...inp(th, { width: 80, fontSize: '0.75rem', padding: '0.35rem 0.5rem' }) }} />
+                <input placeholder="DM name" value={newDmName} onChange={e => setNewDmName(e.target.value)} style={{ ...inp(th, { width: 140, fontSize: '0.75rem', padding: '0.35rem 0.5rem' }) }} />
+                <input placeholder="DM email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)} style={{ ...inp(th, { width: 170, fontSize: '0.75rem', padding: '0.35rem 0.5rem' }) }} />
+                <button className="da-btn" onClick={() => addDm(Number(newDistrictNum))} disabled={saving || !newDistrictNum || !newDmName.trim()} style={{ ...solidBtn, padding: '0.4rem 0.8rem' }}>Save</button>
+                <button className="da-btn" onClick={() => { setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail(''); }} style={{ ...outlineBtn(false), padding: '0.4rem 0.8rem' }}>Cancel</button>
               </span>
             ) : (
-              <button className="da-btn"
+              <button className="da-btn" disabled={saving}
                 onClick={() => { setNewDistrictNum(String(Math.max(0, ...districtNums.filter(n => n > 0)) + 1)); setShowNewDistrict(true); }}
-                disabled={saving}
-                style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
-                + New District
+                style={{ ...solidBtn, opacity: saving ? 0.6 : 1 }}>
+                <Ico d={<path d="M12 5v14M5 12h14"/>} c="#fff" />New District
               </button>
-            )}
-            <button className="da-btn" onClick={resetToLive} disabled={saving} style={{ ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: '0.72rem', opacity: saving ? 0.6 : 1 }) }}>
-              ↺ Reset to live data
+            )
+          )}
+          {isAdmin && (
+            <button className="da-btn" onClick={resetToLive} disabled={saving} style={{ ...outlineBtn(true), opacity: saving ? 0.6 : 1 }}>
+              <Ico d={<><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></>} c={O} />Reset to live data
             </button>
-            </>
           )}
         </div>
       </div>
+
+      {/* Summary strip */}
+      <div style={{ ...card(th), borderRadius: '0.9rem', padding: '0.75rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <div style={{ flex: '1.4 1 220px', display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.85rem 1rem' }}>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: O, flexShrink: 0, boxShadow: `0 0 0 4px ${O}22` }} />
+          <div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: th.text }}>Draft</div>
+            <div style={{ fontSize: '0.72rem', color: th.muted }}>Changes are not live yet</div>
+          </div>
+        </div>
+        <StatTile icon={<Ico d={<><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></>} s={20} />} value={realDistricts.length} label="Districts" />
+        <StatTile icon={<Ico d={<><path d="M3 9 4.5 4h15L21 9"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></>} s={20} />} value={storesShown} label="Stores shown" />
+        <StatTile icon={<Ico d={<><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></>} s={20} />} value={avgSibling != null ? `${avgSibling} mi` : '—'} label="Avg. sibling distance" />
+        <StatTile icon={<Ico d={<><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5M9 13h6M9 17h6"/></>} s={20} />}
+          value={draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'} label="Draft started from live data" />
+      </div>
+
       {actionError && (
         <div style={{ padding: '0.5rem 0.75rem', marginBottom: '0.6rem', borderRadius: 8, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', animation: 'daPopIn 0.2s ease-out both' }}>
           <span>{actionError}</span>
           <button onClick={() => setActionError('')} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }} aria-label="Dismiss">×</button>
         </div>
       )}
-      <div style={{ overflowX: 'auto', borderRadius: 10, border: `1px solid ${th.cardBorder}` }}>
+      {isAdmin && (
+        <div style={{ fontSize: '0.74rem', color: th.muted, margin: '0 0 0.5rem 0.25rem' }}>
+          Tip: press and hold a store row, then drag it onto another district to move it. Hold near the top or bottom of the window to scroll.
+        </div>
+      )}
+
+      {/* Table */}
+      <div style={{ ...card(th), borderRadius: '0.9rem', padding: '0 0.5rem 0.5rem', overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
           <thead>
-            <tr>
-              {['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Net Sales', 'Busiest Hours', 'Nearest Sibling'].map((h, i) => (
-                <th key={h} style={i === 8 ? { ...thStyle, ...metricDivider } : thStyle}>{h}</th>
-              ))}
-            </tr>
+            <tr>{COLS.map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {selectableDistrictNums.map((dNum, dIdx) => {
               const pcs = byDistrict[dNum] || [];
               const dm = draft.dms.find(d => d.district === dNum);
-              const dc = DISTRICT_COLORS[dNum] || { bg: th.card3, text: th.text };
+              const dc = DISTRICT_COLORS[dNum] || { bg: th.muted, text: th.text };
               const spread = districtSpread(pcs);
+              const isTarget = !!dragPc && dragOverDistrict === dNum && draft.stores[dragPc]?.district !== dNum;
               const rowEnterStyle = (extra) => ({ ...extra, animation: `daRowIn 0.35s ease-out both`, animationDelay: `${Math.min(dIdx, 10) * 40}ms` });
               return (
                 <React.Fragment key={dNum}>
-                  <tr style={rowEnterStyle({ background: dc.bg })}>
-                    <td colSpan={8} style={{ padding: '0.5rem 0.6rem', fontSize: '0.78rem', fontWeight: 800, color: dc.text, whiteSpace: 'nowrap' }}>
-                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: dc.text, marginRight: '0.5rem', verticalAlign: 'middle', boxShadow: `0 0 0 3px ${dc.text}22` }} />
-                      {dNum ? `District #${dNum}` : 'Unassigned'}
-                      <span style={{ marginLeft: '0.4rem', fontWeight: 600, opacity: 0.85 }}>{dm ? dm.name : (dNum ? '— Unassigned' : '')}</span>
-                      {isAdmin && dm && (
-                        <button className="da-btn" onClick={() => removeDm(dm.id)} disabled={saving} title="Remove this DM from the draft" style={pillBtn(dc.text)}>
-                          remove DM
-                        </button>
-                      )}
-                      {isAdmin && !dm && dNum > 0 && (
-                        showAddDm === dNum ? (
-                          <span style={{ marginLeft: '0.5rem', display: 'inline-flex', gap: '0.3rem', alignItems: 'center', animation: 'daPopIn 0.18s ease-out both' }}>
-                            <input placeholder="Name" value={newDmName} onChange={e => setNewDmName(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: 'none' }} />
-                            <input placeholder="Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: 4, border: 'none' }} />
-                            <button className="da-btn" onClick={() => addDm(dNum)} disabled={saving} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Save</button>
-                            <button className="da-btn" onClick={() => setShowAddDm(null)} style={{ fontSize: '0.65rem', cursor: 'pointer' }}>Cancel</button>
+                  <tr style={rowEnterStyle({})} {...dropHandlers(dNum)}>
+                    <td colSpan={COLS.length} style={{ padding: '0.6rem 0.15rem 0.35rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.6rem 0.9rem', borderRadius: '0.6rem', background: districtTint(dc.bg, isTarget ? 0.32 : 0.14), outline: isTarget ? `2px dashed ${dc.bg}` : 'none', transition: 'background 0.15s ease' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0, flexWrap: 'wrap' }}>
+                          <span style={{ width: 10, height: 10, borderRadius: '50%', background: dc.bg, flexShrink: 0 }} />
+                          <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.05rem', color: th.text }}>{dNum ? `District ${dNum}` : 'Unassigned'}</span>
+                          <span style={{ fontSize: '0.8rem', color: th.muted }}>{dm ? dm.name : (dNum ? 'No district manager' : '')}</span>
+                          {isTarget && <span style={{ fontSize: '0.75rem', fontWeight: 700, color: th.text }}>· Drop to move {storeByPc[dragPc]?.name || dragPc} here</span>}
+                          {isAdmin && dm && !isTarget && (
+                            <button className="da-btn" onClick={() => removeDm(dm.id)} disabled={saving} style={textLink}>Remove district manager</button>
+                          )}
+                          {isAdmin && !dm && dNum > 0 && !isTarget && (
+                            showAddDm === dNum ? (
+                              <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', animation: 'daPopIn 0.18s ease-out both' }}>
+                                <input placeholder="Name" value={newDmName} onChange={e => setNewDmName(e.target.value)} style={{ ...inp(th, { fontSize: '0.72rem', padding: '0.25rem 0.5rem', width: 130 }) }} />
+                                <input placeholder="Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)} style={{ ...inp(th, { fontSize: '0.72rem', padding: '0.25rem 0.5rem', width: 160 }) }} />
+                                <button className="da-btn" onClick={() => addDm(dNum)} disabled={saving} style={{ ...solidBtn, padding: '0.25rem 0.7rem', fontSize: '0.72rem' }}>Save</button>
+                                <button className="da-btn" onClick={() => setShowAddDm(null)} style={{ ...outlineBtn(false), padding: '0.25rem 0.7rem', fontSize: '0.72rem' }}>Cancel</button>
+                              </span>
+                            ) : (
+                              <button className="da-btn" onClick={() => setShowAddDm(dNum)} style={textLink}>+ Add district manager</button>
+                            )
+                          )}
+                        </div>
+                        {spread.avg != null && (
+                          <span style={{ fontSize: '0.72rem', fontWeight: 600, color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: '0.25rem 0.75rem', whiteSpace: 'nowrap' }}>
+                            Avg. distance <strong>{spread.avg} mi</strong> · Max <strong>{spread.max} mi</strong>
                           </span>
-                        ) : (
-                          <button className="da-btn" onClick={() => setShowAddDm(dNum)} style={pillBtn(dc.text)}>
-                            + add DM
-                          </button>
-                        )
-                      )}
-                    </td>
-                    <td colSpan={3} style={{ padding: '0.5rem 0.6rem', textAlign: 'right' }}>
-                      {spread.avg != null && (
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: dc.text, background: 'rgba(255,255,255,0.35)', borderRadius: 999, padding: '0.2rem 0.6rem', whiteSpace: 'nowrap' }}>
-                          spread: {spread.avg} mi avg · {spread.max} mi max
-                        </span>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                   {pcs.length === 0 && (
-                    <tr style={rowEnterStyle({ background: districtTint(dc.bg) })}>
-                      <td colSpan={11} style={{ padding: '0.75rem 0.6rem' }}>
-                        <div style={{ border: `1.5px dashed ${dc.text}55`, borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: '0.72rem', color: th.muted, textAlign: 'center' }}>
-                          No stores assigned yet — use a store's district dropdown below to move one here.
+                    <tr style={rowEnterStyle({})} {...dropHandlers(dNum)}>
+                      <td colSpan={COLS.length} style={{ padding: '0.5rem 0.75rem 0.85rem' }}>
+                        <div style={{ border: `1.5px dashed ${isTarget ? dc.bg : th.cardBorder}`, borderRadius: 8, padding: '0.7rem 0.75rem', fontSize: '0.74rem', color: th.muted, textAlign: 'center' }}>
+                          No stores yet. Drag a store here, or use a store's district dropdown.
                         </div>
                       </td>
                     </tr>
                   )}
-                  {pcs.map((pc, pIdx) => {
+                  {pcs.map((pc) => {
                     const s = storeByPc[pc];
                     if (!s) return null;
                     const m = metrics[pc] || {};
                     const nearest = nearestSiblingMiles(pc, pcs);
                     const maxAvg = Math.max(1, ...((m.hourlyAvg || []).map(h => h.avgSales)));
-                    const baseBg = districtTint(dc.bg, pIdx % 2 ? 0.22 : 0.14);
+                    const dragging = dragPc === pc;
+                    const baseBg = isTarget ? districtTint(dc.bg, 0.1) : 'transparent';
                     return (
                       <tr key={pc}
-                        style={rowEnterStyle({ background: baseBg })}
-                        onMouseEnter={e => e.currentTarget.style.background = (O + '14')}
-                        onMouseLeave={e => e.currentTarget.style.background = baseBg}>
-                        <td style={{ ...tdStyle, color: O, fontWeight: 700 }}>{pc}</td>
+                        draggable={isAdmin && !saving}
+                        onMouseDownCapture={e => { dragFromControlRef.current = !!e.target.closest('select, input, button, textarea'); }}
+                        onDragStart={e => {
+                          if (dragFromControlRef.current) { e.preventDefault(); return; }
+                          e.dataTransfer.effectAllowed = 'move';
+                          try { e.dataTransfer.setData('text/plain', pc); } catch {}
+                          setDragPc(pc);
+                        }}
+                        onDragEnd={() => { setDragPc(null); setDragOverDistrict(null); }}
+                        {...dropHandlers(dNum)}
+                        style={rowEnterStyle({ background: baseBg, opacity: dragging ? 0.45 : 1, cursor: isAdmin ? 'grab' : 'default' })}
+                        onMouseEnter={e => { if (!dragPc) e.currentTarget.style.background = th.card2; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = baseBg; }}>
+                        <td style={{ ...tdStyle, color: O, fontWeight: 700 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                            {isAdmin && <Ico d={<><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></>} c={th.muted} s={14} />}
+                            {pc}
+                          </span>
+                        </td>
                         <td style={tdStyle}>{s.paycor || '—'}</td>
-                        <td style={tdStyle}>{s.legal || '—'}</td>
+                        <td style={mutedTd}>{s.legal || '—'}</td>
                         <td style={{ ...tdStyle, fontWeight: 700 }}>
                           {s.name || '—'}
                           {isAdmin && (
                             <select value={dNum} disabled={saving} onChange={e => reassignStore(pc, Number(e.target.value))}
-                              style={{ ...inp(th, { fontSize: '0.68rem', padding: '0.25rem 0.5rem', borderRadius: 6 }), display: 'block', marginTop: '0.35rem', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, transition: 'border-color 0.15s ease, box-shadow 0.15s ease' }}>
+                              style={{ ...inp(th, { fontSize: '0.72rem', padding: '0.35rem 0.6rem', borderRadius: 8 }), display: 'block', marginTop: '0.35rem', minWidth: 120, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, background: th.card }}>
                               {selectableDistrictNums.map(n => <option key={n} value={n}>{n ? `District ${n}` : 'Unassigned'}</option>)}
                             </select>
                           )}
                         </td>
-                        <td style={tdStyle}>{[s.address, s.city, s.state].filter(Boolean).join(', ')}</td>
-                        <td style={tdStyle}>{assetCombined(s)}</td>
+                        <td style={{ ...mutedTd, maxWidth: 220 }}>{[s.address, s.city, s.state].filter(Boolean).join(', ')}</td>
+                        <td style={mutedTd}>{assetCombined(s)}</td>
                         <td style={tdStyle}>{storeMgrName(s, users) || 'Unassigned'}</td>
-                        <td style={tdStyle}>{s.email || '—'}</td>
-                        <td style={{ ...tdStyle, ...metricDivider }}>
-                          {fmtMoney(m.netSales)}
-                          {m.netSalesDate && <div style={{ fontSize: '0.62rem', color: th.muted }}>{m.netSalesDate}</div>}
-                        </td>
+                        <td style={mutedTd}>{s.email || '—'}</td>
                         <td style={tdStyle}>
-                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 28 }}>
+                          <div style={{ fontWeight: 700 }}>{fmtMoney(m.weeklySales)}</div>
+                          {m.weekStart && <div style={{ fontSize: '0.66rem', color: th.muted, whiteSpace: 'nowrap' }}>{fmtWeekRange(m)}</div>}
+                        </td>
+                        <td style={tdStyle}
+                          onMouseEnter={e => setHoverHoursPc({ pc, rect: e.currentTarget.getBoundingClientRect() })} onMouseLeave={() => setHoverHoursPc(null)}>
+                          {hoverHoursPc?.pc === pc && !dragPc && (m.topHours || []).length > 0 && ReactDOM.createPortal(
+                            // Rendered into <body> (v21.93): each row's entry animation leaves a transform on
+                            // the <tr>, which traps any z-index inside it — the card was painting UNDER the
+                            // next rows. A fixed-position portal sits above everything.
+                            <div role="tooltip" style={{ position: 'fixed', top: hoverHoursPc.rect.top + hoverHoursPc.rect.height / 2, left: hoverHoursPc.rect.left - 8, transform: 'translate(-100%, -50%)', zIndex: 1000, minWidth: 190, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.6rem', boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: '0.6rem 0.75rem', pointerEvents: 'none' }}>
+                              <div style={{ fontSize: '0.66rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.35rem' }}>Busiest hours · avg last {m.hourlyDays || 7} days</div>
+                              {m.topHours.map((t, i) => (
+                                <div key={t.h} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.8rem', padding: '0.12rem 0', color: th.text }}>
+                                  <span><span style={{ color: O, fontWeight: 800, marginRight: '0.35rem' }}>{i + 1}</span>{fmtHourRange(t.h)}</span>
+                                  <span style={{ fontWeight: 700 }}>{fmtMoney(t.avgSales)}</span>
+                                </div>
+                              ))}
+                            </div>,
+                            document.body
+                          )}
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 26, cursor: (m.topHours || []).length ? 'help' : 'default' }}>
                             {(m.hourlyAvg || []).map((h, hIdx) => (
-                              <div key={h.h} title={`${fmtHour(h.h)}: ${fmtMoney(h.avgSales)}`}
+                              <div key={h.h}
                                 style={{
-                                  width: 5, height: Math.max(2, (h.avgSales / maxAvg) * 28), background: O, borderRadius: 1.5,
+                                  width: 4, height: Math.max(2, (h.avgSales / maxAvg) * 26), background: (m.topHours || []).some(t => t.h === h.h) ? '#c2410c' : O + '99', borderRadius: 1.5,
                                   transformOrigin: 'bottom', animation: 'daBarGrow 0.4s ease-out both', animationDelay: `${hIdx * 12}ms`,
                                 }} />
                             ))}
@@ -20251,7 +20367,7 @@ async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
 // (never raw bytes) to incident-report-drive.mjs, which does the actual
 // Drive upload server-side. Any failure here is swallowed by the caller —
 // never surfaced to the person who just successfully filed their report.
-async function backupToDrive(reportId, report, attachmentsBeforeUpload) {
+async function backupToDrive(reportId, report, attachmentsBeforeUpload, opts = {}) {
   const employeeParty = buildSubjectEmployeeParty(report);
   const { parties } = splitPeopleForPdf(employeeParty ? [employeeParty, ...(report.people || [])] : (report.people || []));
   const rowsHtml = (rows) => rows.map(r => `<tr><td style="padding:4px 8px;border:1px solid #ddd;">${r[0]}</td><td style="padding:4px 8px;border:1px solid #ddd;">${r[1]}</td></tr>`).join('');
@@ -20281,18 +20397,19 @@ async function backupToDrive(reportId, report, attachmentsBeforeUpload) {
       margin: 0.4, image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true },
       jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
     }).from(el).outputPdf('blob');
-  } catch { return; } // PDF generation failing here just means no Drive backup this time — never surfaced
+  } catch { return { ok: false, failed: [{ key: 'pdf', error: 'Could not generate the PDF in this browser' }] }; } // never surfaced on filing
 
   const pdfKey = `incident_pdf_${reportId}`;
   await cloudSaveFile(pdfKey, new File([pdfBlob], `incident-${reportId}.pdf`, { type: 'application/pdf' }), report.preparedByName || '');
 
   const attachmentMeta = (attachmentsBeforeUpload || []).map(a => ({ fileKey: a.fileKey, name: a.name, mimeType: a.mimeType }));
 
-  await fetch('/.netlify/functions/incident-report-drive', {
+  const res = await fetch('/.netlify/functions/incident-report-drive', {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
-    body: JSON.stringify({ action: 'backup', reportId, storeName: report.storeName || 'Unknown', pdfKey, attachments: attachmentMeta }),
+    body: JSON.stringify({ action: 'backup', reportId, storeName: report.storeName || 'Unknown', pdfKey, attachments: attachmentMeta, edited: !!opts.edited }),
   });
+  return res.json().catch(() => ({ ok: false, failed: [{ key: 'all', error: `HTTP ${res.status}` }] }));
 }
 
 // ── Workplace Incident Report Tab ───────────────────────────────────────────
@@ -20338,6 +20455,7 @@ async function exportIncidentReportPdf(report) {
     <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
       ['Report Date', report.reportDate || ''],
       ['Report Prepared By', report.preparedByName || ''],
+      ...(report.lastEditedBy ? [['Last Edited', `${report.lastEditedBy} · ${report.lastEditedAt ? new Date(report.lastEditedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}${(report.editHistory || []).length > 1 ? ` (${report.editHistory.length} edits)` : ''}`]] : []),
       ['Incident Date', report.incidentDate || ''],
       ['Incident Time (Approx.)', report.incidentTime || ''],
       ['Incident Location', `PC#${report.storePC || ''} ${report.address || ''}`],
@@ -20396,10 +20514,18 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
   const [loading, setLoading] = React.useState(true);
   const [showForm, setShowForm] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  // Editing (v21.94): the report being edited (null = filing a new one), and the
+  // attachments it already has (refs, not files) — new files go in form.attachments.
+  const [editing, setEditing] = React.useState(null);
+  const [existingAttachments, setExistingAttachments] = React.useState([]);
+  // Drive backup retry (v21.97, exec/IT): report id currently backing up, and bulk progress.
+  const [backingUp, setBackingUp] = React.useState(null);
+  const [bulkBackup, setBulkBackup] = React.useState(null); // { done, total } | null
   const [error, setError] = React.useState('');
   const [employeeMatches, setEmployeeMatches] = React.useState([]);
   const [employeeSearchOpen, setEmployeeSearchOpen] = React.useState(false);
   const employeeSearchTimer = React.useRef(null);
+  const [contactLookup, setContactLookup] = React.useState(null); // null | loading | done | empty | denied | failed (v21.96)
 
   const searchEmployees = (storePC, query) => {
     if (employeeSearchTimer.current) clearTimeout(employeeSearchTimer.current);
@@ -20427,6 +20553,30 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
     }));
     setEmployeeSearchOpen(false);
     setEmployeeMatches([]);
+    // v21.96: also pull home address / phone / email (and DOB if the directory
+    // didn't have it) live from Paycor's person record. Only fills a field when
+    // Paycor actually has a value, so anything typed by hand is never blanked.
+    if (!m.paycorEmployeeId) return;
+    setContactLookup('loading');
+    fetch('/.netlify/functions/employee-directory', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'contact', paycorEmployeeId: m.paycorEmployeeId }),
+    })
+      .then(r => r.json().then(j => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok || !j?.ok) { setContactLookup(j?.error === 'Not allowed for this store' ? 'denied' : 'failed'); return; }
+        const c = j.contact || {};
+        setForm(f => ({
+          ...f,
+          employeeAddress: c.address || f.employeeAddress,
+          employeePhone: c.phone || f.employeePhone,
+          employeeEmail: c.email || f.employeeEmail,
+          employeeDob: f.employeeDob || c.birthDate || '',
+        }));
+        setContactLookup(c.address || c.phone ? 'done' : 'empty');
+      })
+      .catch(() => setContactLookup('failed'));
   };
 
   const EMPTY_FORM = {
@@ -20505,7 +20655,69 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
   };
   const removeAttachment = (idx) => setForm(f => ({ ...f, attachments: f.attachments.filter((_, i) => i !== idx) }));
 
-  const resetForm = () => { setForm({ ...EMPTY_FORM, incidentDate: todayISO(), incidentTime: nowTimeLabel() }); setStoreQuery(''); };
+  const resetForm = () => { setForm({ ...EMPTY_FORM, incidentDate: todayISO(), incidentTime: nowTimeLabel() }); setStoreQuery(''); setEditing(null); setExistingAttachments([]); setError(''); setContactLookup(null); };
+  const startEdit = (r) => {
+    const ev = evidenceToForm(r.evidence);
+    setForm({
+      ...EMPTY_FORM,
+      incidentDate: r.incidentDate || '', incidentTime: r.incidentTime || '',
+      employeeName: r.employeeName || '', employeeDob: r.employeeDob || '', employeeStatus: r.employeeStatus || '',
+      employeeAddress: r.employeeAddress || '', employeePhone: r.employeePhone || '', employeeEmail: r.employeeEmail || '',
+      storePC: r.storePC || '', storeName: r.storeName || '', address: r.address || '', operatingEntity: r.operatingEntity || '',
+      incidentType: r.incidentType || '', wcClaim: r.wcClaim || '', reportedInjury: r.reportedInjury || '',
+      incidentSummary: r.incidentSummary || '',
+      people: (r.people || []).length ? r.people.map(p => ({ name: p.name || '', role: p.role || '', phone: p.phone || '', email: p.email || '' })) : [{ ...EMPTY_PEOPLE_ROW }],
+      evidenceChecked: ev.evidenceChecked, evidenceCustom: ev.evidenceCustom,
+      attachments: [],
+    });
+    setExistingAttachments(r.attachments || []);
+    setStoreQuery(r.storeName || '');
+    setEditing(r);
+    setError('');
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // ── v21.95 form support: layout width, file drop zone, on-device draft autosave ──
+  const [isNarrow, setIsNarrow] = React.useState(() => typeof window !== 'undefined' && window.innerWidth < 820);
+  React.useEffect(() => {
+    const fn = () => setIsNarrow(window.innerWidth < 820);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
+  const [dropActive, setDropActive] = React.useState(false);
+  const fileInputRef = React.useRef(null);
+  // A NEW report's text fields are kept in this browser while it's being filled
+  // in (photos/videos can't be), so closing the tab doesn't lose the write-up.
+  // Cleared on submit or Cancel; edits of existing reports are never drafted.
+  const DRAFT_KEY = `pcg_incident_draft_${user?.id || 'anon'}`;
+  const [draftSavedAt, setDraftSavedAt] = React.useState(null);
+  const formHasContent = !!(form.storePC || form.incidentSummary.trim() || form.employeeName.trim() || form.people.some(p => p.name.trim()));
+  const clearIncidentDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch {} setDraftSavedAt(null); };
+  React.useEffect(() => {
+    if (!showForm || editing || !formHasContent) return;
+    const t = setTimeout(() => {
+      try {
+        const { attachments, ...rest } = form;
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ form: rest, storeQuery, at: Date.now() }));
+        setDraftSavedAt(new Date());
+      } catch {}
+    }, 800);
+    return () => clearTimeout(t);
+  }, [form, storeQuery, showForm, editing]);
+  const openNewReport = () => {
+    resetForm();
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      const d = raw ? JSON.parse(raw) : null;
+      if (d?.form) {
+        setForm(f => ({ ...f, ...d.form, attachments: [] }));
+        setStoreQuery(d.storeQuery || '');
+        setDraftSavedAt(d.at ? new Date(d.at) : null);
+      }
+    } catch {}
+    setShowForm(true);
+  };
 
   const submit = async () => {
     setError('');
@@ -20513,13 +20725,14 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
     if (!form.incidentSummary.trim()) { setError('Incident summary is required.'); return; }
     setSubmitting(true);
     try {
-      const tempId = Date.now();
+      const tempId = editing ? editing.id : Date.now();
+      const mediaStamp = Date.now(); // keeps an edit's new files from colliding with the original upload keys
       // Upload attachments first (chunked blob helper — same one ticket photos/videos use),
       // storing only the reference on the report row, never the raw file.
       const attachmentRefs = [];
       for (let i = 0; i < form.attachments.length; i++) {
         const a = form.attachments[i];
-        const fileKey = `incident_media_${tempId}_${i}`;
+        const fileKey = editing ? `incident_media_${tempId}_e${mediaStamp}_${i}` : `incident_media_${tempId}_${i}`;
         await cloudSaveFile(fileKey, a.file, user?.name || '');
         attachmentRefs.push({ fileKey, name: a.file.name, type: a.kind, mimeType: a.file.type, size: a.file.size });
       }
@@ -20533,8 +20746,24 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
         incidentType: form.incidentType, wcClaim: form.wcClaim,
         reportedInjury: form.reportedInjury, incidentSummary: form.incidentSummary,
         people: form.people.filter(p => p.name.trim()),
-        evidence, attachments: attachmentRefs,
+        evidence, attachments: editing ? [...existingAttachments, ...attachmentRefs] : attachmentRefs,
       };
+      if (editing) {
+        const res = await fetch('/.netlify/functions/incident-reports', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ action: 'update', id: editing.id, report }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.ok) { setError(j?.error || 'Could not save your changes — please try again.'); setSubmitting(false); return; }
+        if (!j.unchanged) backupToDrive(editing.id, j.report || { ...editing, ...report }, attachmentRefs, { edited: true }).then(() => loadReports()).catch(() => {});
+        resetForm();
+        setShowForm(false);
+        showAlert && showAlert('success', j.unchanged ? 'No changes to save.' : 'Report updated.');
+        loadReports();
+        setSubmitting(false);
+        return;
+      }
       const res = await fetch('/.netlify/functions/incident-reports', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
@@ -20547,6 +20776,7 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
       // (the report is already safely saved; backend logs + notifies
       // exec/IT instead — see incident-report-drive.mjs).
       backupToDrive(j.id, report, attachmentRefs).catch(() => {});
+      clearIncidentDraft();
       resetForm();
       setShowForm(false);
       showAlert && showAlert('success', 'Incident report filed.');
@@ -20557,30 +20787,161 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
     setSubmitting(false);
   };
 
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <div style={sectionTitle(th)}>{isReviewer ? 'All Incident Reports' : 'My Incident Reports'}</div>
-        <button style={btn(th)} onClick={() => setShowForm(s => !s)}>{showForm ? 'Cancel' : '+ New Report'}</button>
+  // ── Redesigned form (v21.95) ───────────────────────────────────────────────
+  // Plain render helpers (called as functions, NOT components) so inputs never
+  // remount and lose focus while typing.
+  const IR_ICONS = {
+    store: <><path d="M3 9 4.5 4h15L21 9"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></>,
+    building: <><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/></>,
+    calendar: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></>,
+    clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+    alert: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></>,
+    heart: <><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></>,
+    doc: <><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5M9 13h6M9 17h6"/></>,
+    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></>,
+    tag: <><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.2"/></>,
+    phone: <><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></>,
+    mail: <><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/></>,
+    pin: <><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></>,
+    user: <><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
+    users: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6"/></>,
+    camera: <><path d="M3 8a2 2 0 0 1 2-2h2l2-3h6l2 3h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><circle cx="12" cy="13" r="3.5"/></>,
+    upload: <><path d="M12 16V4M7 9l5-5 5 5"/><path d="M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3"/></>,
+    send: <><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></>,
+    trash: <><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></>,
+    shield: <><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></>,
+    plus: <path d="M12 5v14M5 12h14"/>,
+    back: <path d="M19 12H5M12 19l-7-7 7-7"/>,
+  };
+  const irIcon = (k, c = th.muted, size = 17) => <HubIcon d={IR_ICONS[k]} color={c} size={size} />;
+  const fieldInp = { ...inp(th), paddingLeft: '2.5rem', width: '100%', boxSizing: 'border-box' };
+  const labelEl = (text, required) => (
+    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: th.text, marginBottom: '0.35rem' }}>
+      {text}{required && <span style={{ color: '#ef4444' }}> *</span>}
+    </label>
+  );
+  const withIcon = (k, control) => (
+    <div style={{ position: 'relative' }}>
+      <span style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', pointerEvents: 'none', zIndex: 1 }}>{irIcon(k)}</span>
+      {control}
+    </div>
+  );
+  const sectionCard = (num, title, sub, body) => (
+    <div style={{ ...card(th), borderRadius: '0.9rem', padding: '1.25rem 1.4rem', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1.1rem' }}>
+        <span style={{ width: 30, height: 30, borderRadius: '50%', background: O, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.9rem', flexShrink: 0 }}>{num}</span>
+        <div>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.05rem', color: th.text }}>{title}</div>
+          <div style={{ fontSize: '0.78rem', color: th.muted, marginTop: '0.1rem' }}>{sub}</div>
+        </div>
       </div>
+      {body}
+    </div>
+  );
+  const subCard = (iconKey, title, sub, body, tinted) => (
+    <div style={{ border: `1px solid ${tinted ? O + '33' : th.cardBorder}`, background: tinted ? O + '0a' : 'transparent', borderRadius: '0.75rem', padding: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.55rem', marginBottom: '0.8rem' }}>
+        <span style={{ display: 'flex', marginTop: 1 }}>{irIcon(iconKey, O)}</span>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '0.88rem', color: th.text }}>{title}</div>
+          {sub && <div style={{ fontSize: '0.72rem', color: th.muted }}>{sub}</div>}
+        </div>
+      </div>
+      {body}
+    </div>
+  );
+  const grid = (cols) => ({ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : `repeat(${cols}, minmax(0, 1fr))`, gap: '0.9rem 1rem' });
+  const ghostBtn = { ...btn(th, { background: th.card, color: O, border: `1px solid ${O}66`, padding: '0.5rem 0.95rem', fontSize: '0.8rem' }), display: 'inline-flex', alignItems: 'center', gap: '0.4rem' };
+  const submitBtn = { ...btn(th, { padding: '0.65rem 1.25rem', fontSize: '0.88rem' }), display: 'inline-flex', alignItems: 'center', gap: '0.5rem', opacity: submitting ? 0.6 : 1 };
+  const submitLabel = submitting ? (editing ? 'Saving…' : 'Submitting…') : (editing ? 'Save Changes' : 'Submit Report');
 
-      {showForm && (
-        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <div style={{ ...pill('#0ea5e9'), marginBottom: '0.75rem' }}>Report Prepared By: {user?.name || 'Unknown'} · {todayISO()}</div>
+  const leaveForm = (discard) => {
+    if (discard && !editing && formHasContent && !window.confirm('Discard this draft report?')) return;
+    if (discard && !editing) clearIncidentDraft();
+    resetForm();
+    setShowForm(false);
+  };
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', marginBottom: '0.75rem' }}>
+  const retryDriveBackup = async (r) => {
+    setBackingUp(r.id);
+    try {
+      const result = await backupToDrive(r.id, r, r.attachments || []);
+      if (result?.ok) showAlert && showAlert('success', `Backed up ${r.storeName || 'report'} to Google Drive.`);
+      else showAlert && showAlert('error', `Drive backup failed: ${(result?.failed || []).map(f => f.error).join('; ') || 'unknown error'}`);
+    } catch { showAlert && showAlert('error', 'Drive backup failed: network error.'); }
+    setBackingUp(null);
+    loadReports();
+  };
+  const missingBackups = isReviewer ? reports.filter(r => r.driveBackupStatus !== 'ok') : [];
+  const backUpAllMissing = async () => {
+    const list = missingBackups.slice();
+    if (!list.length) return;
+    let okCount = 0;
+    setBulkBackup({ done: 0, total: list.length });
+    for (let i = 0; i < list.length; i++) {
+      setBackingUp(list[i].id);
+      try { const res = await backupToDrive(list[i].id, list[i], list[i].attachments || []); if (res?.ok) okCount++; } catch {}
+      setBulkBackup({ done: i + 1, total: list.length });
+    }
+    setBackingUp(null);
+    setBulkBackup(null);
+    showAlert && showAlert(okCount === list.length ? 'success' : 'error', `Backed up ${okCount} of ${list.length} report${list.length !== 1 ? 's' : ''} to Google Drive.`);
+    loadReports();
+  };
+
+  if (showForm) {
+    return (
+      <div>
+        <datalist id="ir-incident-types">
+          {["Worker's Compensation / employee injury", 'Customer injury', 'Property damage', 'Security / theft', 'Workplace violence', 'Other'].map(v => <option key={v} value={v} />)}
+        </datalist>
+        <datalist id="ir-statuses">{['Active', 'On leave', 'Inactive', 'Terminated'].map(v => <option key={v} value={v} />)}</datalist>
+        <datalist id="ir-roles">{['Injured employee', 'Witness', 'Manager on duty', 'Customer', 'Other'].map(v => <option key={v} value={v} />)}</datalist>
+
+        {/* Header */}
+        <button onClick={() => leaveForm(false)} style={{ background: 'none', border: 'none', padding: 0, color: O, fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.6rem', fontFamily: "'Source Sans 3'" }}>
+          {irIcon('back', O, 15)} Back to Incidents
+        </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+            <span style={{ width: 52, height: 52, borderRadius: '0.8rem', background: O + '1c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{irIcon('doc', O, 26)}</span>
+            <div>
+              <h2 style={{ margin: 0, fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.6rem', color: th.text }}>{editing ? 'Edit Incident Report' : 'Incident Report'}</h2>
+              <div style={{ fontSize: '0.85rem', color: th.muted }}>
+                {editing ? `Filed by ${editing.preparedByName} on ${editing.reportDate}. Your name and the time are recorded as the last edit.` : `Prepared by ${user?.name || 'you'} · ${todayISO()}`}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', padding: '0.55rem 1rem', borderRadius: '0.7rem', border: `1px solid ${th.cardBorder}`, background: th.card, fontSize: '0.8rem' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontWeight: 600, color: th.text }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: editing ? '#3b82f6' : '#c9a227' }} />{editing ? 'Editing' : 'Draft'}
+              </span>
+              {!editing && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: th.muted, borderLeft: `1px solid ${th.cardBorder}`, paddingLeft: '0.9rem' }}
+                  title="Saved on this device only. Photos and videos aren't kept in the draft.">
+                  {irIcon('clock', th.muted, 14)} {draftSavedAt ? `Auto-saved ${draftSavedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : 'Not saved yet'}
+                </span>
+              )}
+            </div>
+            <button style={submitBtn} disabled={submitting} onClick={submit}>{irIcon('send', '#fff', 15)} {submitLabel}</button>
+          </div>
+        </div>
+
+        {/* 1 — Incident details */}
+        {sectionCard(1, 'Incident Details', 'Provide the basic information about the incident.', (
+          <div style={grid(3)}>
             <div style={{ position: 'relative' }}>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Location (store)</label>
-              <input
-                style={inp(th)}
-                value={storeQuery}
-                onChange={e => { setStoreQuery(e.target.value); setStoreSearchOpen(true); }}
-                onFocus={() => setStoreSearchOpen(true)}
-                onBlur={() => setTimeout(() => setStoreSearchOpen(false), 150)}
-                placeholder="Start typing a store name…"
-              />
+              {labelEl('Incident Location (store)', true)}
+              {withIcon('store', (
+                <input style={fieldInp} value={storeQuery}
+                  onChange={e => { setStoreQuery(e.target.value); setStoreSearchOpen(true); }}
+                  onFocus={() => setStoreSearchOpen(true)}
+                  onBlur={() => setTimeout(() => setStoreSearchOpen(false), 150)}
+                  placeholder="Start typing a store name…" />
+              ))}
               {storeSearchOpen && storeMatches.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 6, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, marginTop: '0.2rem', maxHeight: '12rem', overflowY: 'auto' }}>
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 6, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, marginTop: '0.2rem', maxHeight: '12rem', overflowY: 'auto', boxShadow: '0 10px 24px rgba(0,0,0,0.12)' }}>
                   {storeMatches.map(s => (
                     <div key={s.pc} onMouseDown={() => onPickStore(s.pc)}
                       style={{ padding: '0.5rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}` }}>
@@ -20591,129 +20952,189 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
               )}
             </div>
             <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Operating Entity</label>
-              <input style={inp(th)} value={form.operatingEntity} onChange={e => setForm(f => ({ ...f, operatingEntity: e.target.value }))} />
+              {labelEl('Operating Entity')}
+              {withIcon('building', <input style={fieldInp} placeholder="Fills in from the store" value={form.operatingEntity} onChange={e => setForm(f => ({ ...f, operatingEntity: e.target.value }))} />)}
             </div>
             <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Date</label>
-              <input type="date" style={inp(th)} value={form.incidentDate} onChange={e => setForm(f => ({ ...f, incidentDate: e.target.value }))} />
+              {labelEl('Incident Date')}
+              {withIcon('calendar', <input type="date" style={fieldInp} value={form.incidentDate} onChange={e => setForm(f => ({ ...f, incidentDate: e.target.value }))} />)}
             </div>
             <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Time (approx.)</label>
-              <input style={inp(th)} value={form.incidentTime} onChange={e => setForm(f => ({ ...f, incidentTime: e.target.value }))} />
+              {labelEl('Incident Time (approx.)')}
+              {withIcon('clock', <input style={fieldInp} value={form.incidentTime} onChange={e => setForm(f => ({ ...f, incidentTime: e.target.value }))} />)}
             </div>
             <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Type</label>
-              <input style={inp(th)} placeholder="e.g. Worker's Compensation / employee injury" value={form.incidentType} onChange={e => setForm(f => ({ ...f, incidentType: e.target.value }))} />
+              {labelEl('Incident Type')}
+              {withIcon('alert', <input list="ir-incident-types" style={fieldInp} placeholder="Select or type an incident type…" value={form.incidentType} onChange={e => setForm(f => ({ ...f, incidentType: e.target.value }))} />)}
             </div>
             <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Reported Injury</label>
-              <input style={inp(th)} value={form.reportedInjury} onChange={e => setForm(f => ({ ...f, reportedInjury: e.target.value }))} />
-            </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>W/C Claim</label>
-              <input style={inp(th)} placeholder="e.g. Travelers, WC Claim # EDY7201" value={form.wcClaim} onChange={e => setForm(f => ({ ...f, wcClaim: e.target.value }))} />
-            </div>
-          </div>
-
-          <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.4rem', fontWeight: 700 }}>Subject Employee</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', marginBottom: '0.9rem' }}>
-            <div style={{ position: 'relative' }}>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Employee Name</label>
-              <input
-                style={inp(th)}
-                value={form.employeeName}
-                onChange={e => { const v = e.target.value; setForm(f => ({ ...f, employeeName: v })); searchEmployees(form.storePC, v); }}
-                onFocus={() => { if (employeeMatches.length) setEmployeeSearchOpen(true); }}
-                onBlur={() => setTimeout(() => setEmployeeSearchOpen(false), 150)}
-                placeholder={form.storePC ? "Start typing to search this store's roster…" : 'Select a store first to search'}
-              />
-              {employeeSearchOpen && employeeMatches.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, marginTop: '0.2rem', maxHeight: '10rem', overflowY: 'auto' }}>
-                  {employeeMatches.map(m => (
-                    <div key={m.paycorEmployeeId} onMouseDown={() => pickEmployeeMatch(m)}
-                      style={{ padding: '0.5rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}` }}>
-                      {m.firstName} {m.lastName} {m.status && m.status !== 'Active' ? <span style={{ color: th.muted }}>({m.status})</span> : null}
-                    </div>
-                  ))}
-                </div>
-              )}
+              {labelEl('Reported Injury')}
+              {withIcon('heart', <input style={fieldInp} placeholder="e.g. sprain, cut, none" value={form.reportedInjury} onChange={e => setForm(f => ({ ...f, reportedInjury: e.target.value }))} />)}
             </div>
             <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>DOB</label>
-              <input type="date" style={inp(th)} value={form.employeeDob} onChange={e => setForm(f => ({ ...f, employeeDob: e.target.value }))} />
+              {labelEl('W/C Claim #')}
+              {withIcon('doc', <input style={fieldInp} placeholder="e.g. Travelers, WC Claim # EDY7201" value={form.wcClaim} onChange={e => setForm(f => ({ ...f, wcClaim: e.target.value }))} />)}
             </div>
-            <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Status</label>
-              <input style={inp(th)} placeholder="e.g. Active, On leave" value={form.employeeStatus} onChange={e => setForm(f => ({ ...f, employeeStatus: e.target.value }))} />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Phone</label>
-              <input style={inp(th)} value={form.employeePhone} onChange={e => setForm(f => ({ ...f, employeePhone: e.target.value }))} />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Email</label>
-              <input style={inp(th)} value={form.employeeEmail} onChange={e => setForm(f => ({ ...f, employeeEmail: e.target.value }))} />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.75rem', color: th.muted }}>Address</label>
-              <input style={inp(th)} value={form.employeeAddress} onChange={e => setForm(f => ({ ...f, employeeAddress: e.target.value }))} />
-            </div>
-          </div>
-
-          <label style={{ fontSize: '0.75rem', color: th.muted }}>Incident Summary</label>
-          <textarea style={{ ...inp(th), minHeight: '6rem', marginBottom: '0.9rem' }} value={form.incidentSummary} onChange={e => setForm(f => ({ ...f, incidentSummary: e.target.value }))} />
-
-          <div style={{ marginBottom: '0.9rem' }}>
-            <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.4rem' }}>Evidence Preserved</div>
-            {DEFAULT_EVIDENCE_ITEMS.map(item => (
-              <label key={item.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.85rem', color: th.text, marginBottom: '0.3rem' }}>
-                <input type="checkbox" checked={form.evidenceChecked.includes(item.id)} onChange={() => toggleEvidence(item.id)} />
-                {item.label}
-              </label>
-            ))}
-            {form.evidenceCustom.map((v, i) => (
-              <input key={i} style={{ ...inp(th), marginTop: '0.3rem' }} placeholder="Add another item…" value={v} onChange={e => setCustomEvidence(i, e.target.value)} />
-            ))}
-            <button type="button" style={{ ...btn(th, { background: 'transparent', color: th.muted, border: `1px solid ${th.cardBorder}`, padding: '0.4rem 0.8rem', fontSize: '0.75rem', marginTop: '0.4rem' }) }} onClick={addCustomEvidenceRow}>+ Add item</button>
-          </div>
-
-          <div style={{ marginBottom: '0.9rem' }}>
-            <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.4rem' }}>Photo / Video Evidence</div>
-            <input type="file" accept="image/*,video/*" multiple onChange={e => onAttachFiles(e.target.files)} />
-            {form.attachments.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
-                {form.attachments.map((a, i) => (
-                  <div key={i} style={{ position: 'relative' }}>
-                    {a.kind === 'image'
-                      ? <img src={a.previewUrl} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: `1px solid ${th.cardBorder}` }} />
-                      : <video src={a.previewUrl} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: `1px solid ${th.cardBorder}` }} />}
-                    <button type="button" onClick={() => removeAttachment(i)} style={{ position: 'absolute', top: -6, right: -6, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 999, width: 18, height: 18, fontSize: '0.65rem', cursor: 'pointer' }}>×</button>
-                  </div>
-                ))}
+            {form.address && (
+              <div style={{ gridColumn: isNarrow ? 'auto' : 'span 2' }}>
+                {labelEl('Store Address')}
+                {withIcon('pin', <input style={fieldInp} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />)}
               </div>
             )}
           </div>
+        ))}
 
-          <div style={{ marginBottom: '0.9rem' }}>
-            <div style={{ fontSize: '0.75rem', color: th.muted, marginBottom: '0.4rem' }}>Parties Involved / Witnesses / Contacts</div>
-            {form.people.map((p, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '0.4rem', marginBottom: '0.4rem' }}>
-                <input style={inp(th)} placeholder="Name" value={p.name} onChange={e => setPersonField(i, 'name', e.target.value)} />
-                <input style={inp(th)} placeholder="Role / relationship" value={p.role} onChange={e => setPersonField(i, 'role', e.target.value)} />
-                <input style={inp(th)} placeholder="Phone" value={p.phone} onChange={e => setPersonField(i, 'phone', e.target.value)} />
-                <input style={inp(th)} placeholder="Email" value={p.email} onChange={e => setPersonField(i, 'email', e.target.value)} />
-                <button type="button" onClick={() => removePersonRow(i)} style={{ ...btn(th, { background: 'transparent', color: '#ef4444', border: `1px solid ${th.cardBorder}`, padding: '0.4rem 0.6rem' }) }}>Remove</button>
+        {/* 2 — People involved */}
+        {sectionCard(2, 'People Involved', 'Add the affected employee and anyone who was involved or saw it.', (
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            {subCard('user', 'Subject Employee', contactLookup === 'loading' ? 'Looking up contact info in Paycor…' : contactLookup === 'done' ? 'Address and phone filled in from Paycor — check before submitting.' : contactLookup === 'empty' ? 'Paycor has no address or phone on file for this person.' : contactLookup === 'denied' ? 'Contact details for this store are limited to its manager, DM, and the office.' : contactLookup === 'failed' ? 'Could not reach Paycor for contact info — fill it in by hand.' : 'Pick the employee from the search to fill in their details from Paycor.', (
+              <div style={grid(3)}>
+                <div style={{ position: 'relative' }}>
+                  {labelEl('Employee Name')}
+                  {withIcon('search', (
+                    <input style={fieldInp} value={form.employeeName}
+                      onChange={e => { const v = e.target.value; setForm(f => ({ ...f, employeeName: v })); searchEmployees(form.storePC, v); }}
+                      onFocus={() => { if (employeeMatches.length) setEmployeeSearchOpen(true); }}
+                      onBlur={() => setTimeout(() => setEmployeeSearchOpen(false), 150)}
+                      placeholder={form.storePC ? "Search this store's employees…" : 'Pick a store first to search'} />
+                  ))}
+                  {employeeSearchOpen && employeeMatches.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, marginTop: '0.2rem', maxHeight: '10rem', overflowY: 'auto', boxShadow: '0 10px 24px rgba(0,0,0,0.12)' }}>
+                      {employeeMatches.map(m => (
+                        <div key={m.paycorEmployeeId} onMouseDown={() => pickEmployeeMatch(m)}
+                          style={{ padding: '0.5rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}` }}>
+                          {m.firstName} {m.lastName} {m.status && m.status !== 'Active' ? <span style={{ color: th.muted }}>({m.status})</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  {labelEl('DOB')}
+                  {withIcon('calendar', <input type="date" style={fieldInp} value={form.employeeDob} onChange={e => setForm(f => ({ ...f, employeeDob: e.target.value }))} />)}
+                </div>
+                <div>
+                  {labelEl('Status')}
+                  {withIcon('tag', <input list="ir-statuses" style={fieldInp} placeholder="Select status…" value={form.employeeStatus} onChange={e => setForm(f => ({ ...f, employeeStatus: e.target.value }))} />)}
+                </div>
+                <div>
+                  {labelEl('Phone')}
+                  {withIcon('phone', <input style={fieldInp} placeholder="(xxx) xxx-xxxx" value={form.employeePhone} onChange={e => setForm(f => ({ ...f, employeePhone: e.target.value }))} />)}
+                </div>
+                <div>
+                  {labelEl('Email')}
+                  {withIcon('mail', <input style={fieldInp} placeholder="name@company.com" value={form.employeeEmail} onChange={e => setForm(f => ({ ...f, employeeEmail: e.target.value }))} />)}
+                </div>
+                <div>
+                  {labelEl('Address')}
+                  {withIcon('pin', <input style={fieldInp} value={form.employeeAddress} onChange={e => setForm(f => ({ ...f, employeeAddress: e.target.value }))} />)}
+                </div>
+              </div>
+            ), true)}
+
+            {subCard('users', 'Parties Involved / Witnesses', 'Everyone involved, who saw it, or should be contacted. Appears in both the Parties and Contacts sections of the PDF.', (
+              <div style={{ display: 'grid', gap: '0.75rem' }}>
+                {form.people.map((p, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'repeat(4, minmax(0, 1fr)) auto', gap: '0.6rem', alignItems: 'end', paddingBottom: '0.75rem', borderBottom: i < form.people.length - 1 ? `1px dashed ${th.cardBorder}` : 'none' }}>
+                    <div>{labelEl('Name')}{withIcon('user', <input style={fieldInp} placeholder="e.g. injured person, manager" value={p.name} onChange={e => setPersonField(i, 'name', e.target.value)} />)}</div>
+                    <div>{labelEl('Role / relationship')}{withIcon('tag', <input list="ir-roles" style={fieldInp} placeholder="e.g. witness" value={p.role} onChange={e => setPersonField(i, 'role', e.target.value)} />)}</div>
+                    <div>{labelEl('Phone')}{withIcon('phone', <input style={fieldInp} placeholder="(xxx) xxx-xxxx" value={p.phone} onChange={e => setPersonField(i, 'phone', e.target.value)} />)}</div>
+                    <div>{labelEl('Email')}{withIcon('mail', <input style={fieldInp} placeholder="name@company.com" value={p.email} onChange={e => setPersonField(i, 'email', e.target.value)} />)}</div>
+                    <button type="button" onClick={() => removePersonRow(i)} aria-label={`Remove ${p.name || 'this person'}`}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.6rem 0.3rem', display: 'flex', justifySelf: 'start' }}>{irIcon('trash', '#ef4444', 17)}</button>
+                  </div>
+                ))}
+                <div><button type="button" style={ghostBtn} onClick={addPersonRow}>{irIcon('plus', O, 14)} Add Person</button></div>
               </div>
             ))}
-            <button type="button" style={{ ...btn(th, { background: 'transparent', color: th.muted, border: `1px solid ${th.cardBorder}`, padding: '0.4rem 0.8rem', fontSize: '0.75rem' }) }} onClick={addPersonRow}>+ Add person</button>
           </div>
+        ))}
 
-          {error && <div style={{ color: '#ef4444', fontSize: '0.8rem', marginBottom: '0.6rem' }}>{error}</div>}
-          <button style={btn(th, submitting ? { opacity: 0.6 } : {})} disabled={submitting} onClick={submit}>{submitting ? 'Filing…' : 'File Report'}</button>
+        {/* 3 — What happened */}
+        {sectionCard(3, 'What Happened', 'Describe the incident and what evidence has been kept.', (
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <div>
+              {labelEl('Incident Summary', true)}
+              <textarea style={{ ...inp(th), width: '100%', boxSizing: 'border-box', minHeight: '7rem', resize: 'vertical', fontFamily: "'Source Sans 3'" }} placeholder="What happened, in order. Who, where, when, and what was done right after." value={form.incidentSummary} onChange={e => setForm(f => ({ ...f, incidentSummary: e.target.value }))} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: '1rem' }}>
+              {subCard('shield', 'Evidence Preserved', null, (
+                <div>
+                  {DEFAULT_EVIDENCE_ITEMS.map(item => (
+                    <label key={item.id} style={{ display: 'flex', gap: '0.55rem', alignItems: 'center', fontSize: '0.85rem', color: th.text, marginBottom: '0.45rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={form.evidenceChecked.includes(item.id)} onChange={() => toggleEvidence(item.id)} style={{ accentColor: O, width: 16, height: 16 }} />
+                      {item.label}
+                    </label>
+                  ))}
+                  {form.evidenceCustom.map((v, i) => (
+                    <input key={i} style={{ ...inp(th), width: '100%', boxSizing: 'border-box', marginTop: '0.35rem' }} placeholder="Add another item…" value={v} onChange={e => setCustomEvidence(i, e.target.value)} />
+                  ))}
+                  <button type="button" style={{ ...ghostBtn, marginTop: '0.6rem' }} onClick={addCustomEvidenceRow}>{irIcon('plus', O, 14)} Add Item</button>
+                </div>
+              ))}
+              {subCard('camera', 'Photo / Video Evidence', null, (
+                <div>
+                  {editing && existingAttachments.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.6rem' }}>
+                      {existingAttachments.map((a, i) => (
+                        <span key={a.fileKey || i} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: th.text, background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: '0.2rem 0.6rem' }}>
+                          {a.type === 'video' ? 'Video' : 'Photo'} · {a.name || a.fileKey}
+                          <button type="button" onClick={() => setExistingAttachments(list => list.filter((_, j) => j !== i))} aria-label={`Remove ${a.name || 'attachment'}`} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 0 }}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div onDragOver={e => { e.preventDefault(); setDropActive(true); }} onDragLeave={() => setDropActive(false)}
+                    onDrop={e => { e.preventDefault(); setDropActive(false); onAttachFiles(e.dataTransfer.files); }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', flexWrap: 'wrap', padding: '1.1rem', borderRadius: '0.7rem', border: `1.5px dashed ${dropActive ? O : th.cardBorder}`, background: dropActive ? O + '0d' : 'transparent', fontSize: '0.8rem', color: th.muted }}>
+                    {irIcon('upload', th.muted, 22)}
+                    <span>Drag and drop files here, or</span>
+                    <button type="button" style={ghostBtn} onClick={() => fileInputRef.current?.click()}>Choose Files</button>
+                    <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple onChange={e => { onAttachFiles(e.target.files); e.target.value = ''; }} style={{ display: 'none' }} />
+                  </div>
+                  {form.attachments.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.6rem' }}>
+                      {form.attachments.map((a, i) => (
+                        <div key={i} style={{ position: 'relative' }}>
+                          {a.kind === 'image'
+                            ? <img src={a.previewUrl} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: `1px solid ${th.cardBorder}` }} />
+                            : <video src={a.previewUrl} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: `1px solid ${th.cardBorder}` }} />}
+                          <button type="button" onClick={() => removeAttachment(i)} aria-label="Remove file" style={{ position: 'absolute', top: -6, right: -6, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 999, width: 18, height: 18, fontSize: '0.65rem', cursor: 'pointer' }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {error && <div style={{ ...card(th), padding: '0.75rem 1rem', color: '#ef4444', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</div>}
+
+        {/* Footer */}
+        <div style={{ ...card(th), borderRadius: '0.9rem', padding: '0.85rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', position: 'sticky', bottom: '0.75rem', zIndex: 4, boxShadow: '0 -4px 20px rgba(0,0,0,0.06)' }}>
+          <button style={{ ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, padding: '0.6rem 1.1rem', fontSize: '0.85rem' }) }} onClick={() => leaveForm(true)}>Cancel</button>
+          <button style={submitBtn} disabled={submitting} onClick={submit}>{irIcon('send', '#fff', 15)} {submitLabel}</button>
         </div>
-      )}
+      </div>
+    );
+  }
 
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div style={sectionTitle(th)}>{isReviewer ? 'All Incident Reports' : 'My Incident Reports'}</div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {isReviewer && missingBackups.length > 0 && (
+            <button disabled={!!bulkBackup || !!backingUp} onClick={backUpAllMissing}
+              style={{ ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), opacity: bulkBackup || backingUp ? 0.6 : 1 }}>
+              {bulkBackup ? `Backing up ${bulkBackup.done}/${bulkBackup.total}…` : `Back up ${missingBackups.length} missing to Drive`}
+            </button>
+          )}
+          <button style={{ ...btn(th), display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }} onClick={openNewReport}>{irIcon('plus', '#fff', 15)} New Report</button>
+        </div>
+      </div>
       {loading ? (
         <div style={{ color: th.muted, fontSize: '0.85rem' }}>Loading…</div>
       ) : reports.length === 0 ? (
@@ -20725,8 +21146,36 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
               <div>
                 <div style={{ fontWeight: 700, color: th.text, fontSize: '0.9rem' }}>{r.storeName || 'Unknown store'} — {r.incidentDate || r.reportDate}{r.employeeName ? ` · ${r.employeeName}` : ''}</div>
                 <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.2rem' }}>Prepared by {r.preparedByName} · Filed {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}</div>
+                {r.lastEditedBy && (
+                  <div title={(r.editHistory || []).map(h => `${h.by} · ${new Date(h.at).toLocaleString()}${h.fields?.length ? ` — ${h.fields.join(', ')}` : ''}`).join('\n')}
+                    style={{ fontSize: '0.73rem', color: '#c2730a', marginTop: '0.15rem', fontWeight: 600 }}>
+                    Edited by {r.lastEditedBy} · {r.lastEditedAt ? new Date(r.lastEditedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
+                    {(r.editHistory || []).length > 1 ? ` · ${r.editHistory.length} edits` : ''}
+                    {r.editHistory?.[r.editHistory.length - 1]?.fields?.length ? <span style={{ color: th.muted, fontWeight: 400 }}> · changed {r.editHistory[r.editHistory.length - 1].fields.join(', ')}</span> : null}
+                  </div>
+                )}
+                {isReviewer && (
+                  <div title={r.driveBackupStatus === 'failed' ? r.driveBackupError || '' : undefined}
+                    style={{ fontSize: '0.72rem', marginTop: '0.15rem', fontWeight: 600, color: r.driveBackupStatus === 'ok' ? '#16a34a' : r.driveBackupStatus === 'failed' ? '#dc2626' : th.muted }}>
+                    {backingUp === r.id ? 'Backing up to Google Drive…'
+                      : r.driveBackupStatus === 'ok' ? `Backed up to Google Drive · ${r.driveBackupAt ? new Date(r.driveBackupAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}`
+                      : r.driveBackupStatus === 'failed' ? 'Google Drive backup failed'
+                      : 'Not backed up to Google Drive yet'}
+                    {backingUp !== r.id && r.driveBackupStatus !== 'ok' && (
+                      <button onClick={() => retryDriveBackup(r)} disabled={!!backingUp || !!bulkBackup}
+                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: '0.5rem', color: O, fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>
+                        {r.driveBackupStatus === 'failed' ? 'Retry' : 'Back up now'}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              <button style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.8rem' })} onClick={() => exportIncidentReportPdf(r)}>Download PDF</button>
+              <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                {canEditReport(r, { userType: user?.userType, sub: user?.id }) && (
+                  <button style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.8rem', background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` })} onClick={() => startEdit(r)}>Edit</button>
+                )}
+                <button style={btn(th, { padding: '0.5rem 1rem', fontSize: '0.8rem' })} onClick={() => exportIncidentReportPdf(r)}>Download PDF</button>
+              </div>
             </div>
           ))}
         </div>
@@ -30501,7 +30950,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.91";
+const APP_VERSION = "v21.98";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -55958,7 +56407,7 @@ function PCGPortal() {
               </div>
             );
           })()}
-          {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={stores} users={users} />}
+          {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={stores} users={users} onBack={() => setTab('tools-hub')} />}
           {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={stores} user={user} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}

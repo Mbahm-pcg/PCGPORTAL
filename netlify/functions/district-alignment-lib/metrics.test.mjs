@@ -66,3 +66,58 @@ test('computeStoreMetrics: hourlyAvg is sorted by hour ascending', () => {
   const result = computeStoreMetrics(history);
   assert.deepEqual(result.hourlyAvg.map(h => h.h), [9, 14, 20]);
 });
+
+// ── Weekly sales + busiest hours (v21.92) ──────────────────────────────────
+function weekOfDays(startIso, perDay) {
+  // 7 consecutive days starting at startIso, newest first (like the real blob)
+  const out = [];
+  const d = new Date(`${startIso}T12:00:00Z`);
+  for (let i = 0; i < 7; i++) {
+    out.push(makeDay(d.toISOString().slice(0, 10), [[9, perDay]]));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out.reverse();
+}
+
+test('computeStoreMetrics: weeklySales sums the newest complete Sun–Sat week', () => {
+  // Sun 2026-10-04 .. Sat 2026-10-10 complete (100/day), plus Sun 10-11 and Mon 10-12 of the next week
+  const history = [
+    makeDay('2026-10-12', [[9, 999]]),
+    makeDay('2026-10-11', [[9, 999]]),
+    ...weekOfDays('2026-10-04', 100),
+  ];
+  const r = computeStoreMetrics(history);
+  assert.equal(r.weeklySales, 700);
+  assert.equal(r.weekStart, '2026-10-04');
+  assert.equal(r.weekEnd, '2026-10-10');
+  assert.equal(r.weekComplete, true);
+});
+
+test('computeStoreMetrics: weeklySales falls back to the newest 7 days when no full Sun–Sat week exists', () => {
+  const history = [
+    makeDay('2026-10-12', [[9, 10]]),
+    makeDay('2026-10-11', [[9, 20]]),
+    makeDay('2026-10-09', [[9, 30]]),
+  ];
+  const r = computeStoreMetrics(history);
+  assert.equal(r.weeklySales, 60);
+  assert.equal(r.weekStart, '2026-10-09');
+  assert.equal(r.weekEnd, '2026-10-12');
+  assert.equal(r.weekComplete, false);
+});
+
+test('computeStoreMetrics: weeklySales is null with no history', () => {
+  const r = computeStoreMetrics([]);
+  assert.equal(r.weeklySales, null);
+  assert.deepEqual(r.topHours, []);
+});
+
+test('computeStoreMetrics: topHours lists the 3 busiest hours by average sales, highest first', () => {
+  const history = [
+    makeDay('2026-10-12', [[6, 50], [7, 300], [8, 400], [9, 200], [10, 100]]),
+    makeDay('2026-10-11', [[6, 50], [7, 300], [8, 400], [9, 200], [10, 100]]),
+  ];
+  const r = computeStoreMetrics(history);
+  assert.deepEqual(r.topHours.map(h => h.h), [8, 7, 9]);
+  assert.equal(r.topHours[0].avgSales, 400);
+});

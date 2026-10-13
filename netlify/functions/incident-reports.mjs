@@ -1,11 +1,13 @@
 // incident-reports.mjs — Workplace Incident Reports, backed by Neon Postgres.
-// Insert-only: no update/delete action. prepared_by_user_id/prepared_by_name/
+// Create + edit (v21.94), no delete. Edits never change who prepared the report;
+// every edit appends {by, byUserId, at, fields} to edit_history.
+// (Originally insert-only.) prepared_by_user_id/prepared_by_name/
 // report_date are always stamped server-side from the session on create —
 // client-supplied values for those three fields are ignored, so "Report
 // Prepared By" can never be spoofed to someone else's name.
 import { neon } from '@neondatabase/serverless';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { canViewReport, filterVisibleReports } from '../../src/incident-report.mjs';
+import { canViewReport, filterVisibleReports, canEditReport, diffReportFields } from '../../src/incident-report.mjs';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -63,6 +65,10 @@ async function ensureTables() {
   await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS employee_address text`;
   await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS employee_phone text`;
   await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS employee_email text`;
+  // Edit trail (v21.94)
+  await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS edit_history jsonb NOT NULL DEFAULT '[]'::jsonb`;
+  await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS last_edited_by text`;
+  await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS last_edited_at timestamptz`;
   _ready = true;
 }
 
@@ -73,6 +79,8 @@ const KNOWN = new Set([
   'employeeName', 'employeeDob', 'employeeStatus', 'employeeAddress', 'employeePhone', 'employeeEmail',
   'storePC', 'storeName', 'address', 'operatingEntity', 'incidentType', 'wcClaim',
   'reportedInjury', 'incidentSummary', 'people', 'evidence', 'attachments', 'createdAt',
+  'editHistory', 'lastEditedBy', 'lastEditedAt',
+  'driveBackupStatus', 'driveBackupAt', 'driveBackupError',
 ]);
 
 function rowToReport(r) {
@@ -102,6 +110,12 @@ function rowToReport(r) {
     evidence: r.evidence || [],
     attachments: r.attachments || [],
     createdAt: r.created_at ? new Date(r.created_at).toISOString() : undefined,
+    editHistory: r.edit_history || [],
+    lastEditedBy: r.last_edited_by ?? undefined,
+    lastEditedAt: r.last_edited_at ? new Date(r.last_edited_at).toISOString() : undefined,
+    driveBackupStatus: r.drive_backup_status ?? undefined,
+    driveBackupAt: r.drive_backup_at ? new Date(r.drive_backup_at).toISOString() : undefined,
+    driveBackupError: r.drive_backup_error ?? undefined,
   };
 }
 
@@ -143,6 +157,41 @@ export default async (request) => {
           ${JSON.stringify(t.attachments || [])}::jsonb, ${JSON.stringify(meta)}::jsonb
         )`;
       return json(200, { ok: true, id });
+    }
+
+    if (action === 'update') {
+      const id = toBigInt(payload.id);
+      if (id == null) return json(400, { error: 'Missing id' });
+      const rows = await sql`SELECT * FROM incident_reports WHERE id = ${id}`;
+      if (!rows.length) return json(404, { error: 'Not found' });
+      const before = rowToReport(rows[0]);
+      if (!canEditReport(before, caller)) return json(403, { error: 'You can only edit reports you filed.' });
+      const t = payload.report || {};
+      const after = { ...before, ...t };
+      const fields = diffReportFields(before, after);
+      if (!fields.length) return json(200, { ok: true, id, unchanged: true, report: before });
+      const meta = { ...(rows[0].meta || {}) };
+      for (const k of Object.keys(t)) if (!KNOWN.has(k)) meta[k] = t[k];
+      const editor = caller.name || caller.username || 'Unknown';
+      const entry = { by: editor, byUserId: String(caller.sub), at: new Date().toISOString(), fields };
+      const history = [...(Array.isArray(rows[0].edit_history) ? rows[0].edit_history : []), entry];
+      // id, report_date and prepared_by_* are never touched — the original filer stays the filer.
+      await sql`
+        UPDATE incident_reports SET
+          incident_date = ${after.incidentDate ?? null}, incident_time = ${after.incidentTime ?? null},
+          employee_name = ${after.employeeName ?? null}, employee_dob = ${after.employeeDob ?? null},
+          employee_status = ${after.employeeStatus ?? null}, employee_address = ${after.employeeAddress ?? null},
+          employee_phone = ${after.employeePhone ?? null}, employee_email = ${after.employeeEmail ?? null},
+          store_pc = ${after.storePC ?? null}, store_name = ${after.storeName ?? null},
+          address = ${after.address ?? null}, operating_entity = ${after.operatingEntity ?? null},
+          incident_type = ${after.incidentType ?? null}, wc_claim = ${after.wcClaim ?? null},
+          reported_injury = ${after.reportedInjury ?? null}, incident_summary = ${after.incidentSummary ?? null},
+          people = ${JSON.stringify(after.people || [])}::jsonb, evidence = ${JSON.stringify(after.evidence || [])}::jsonb,
+          attachments = ${JSON.stringify(after.attachments || [])}::jsonb, meta = ${JSON.stringify(meta)}::jsonb,
+          edit_history = ${JSON.stringify(history)}::jsonb, last_edited_by = ${editor}, last_edited_at = now()
+        WHERE id = ${id}`;
+      const fresh = await sql`SELECT * FROM incident_reports WHERE id = ${id}`;
+      return json(200, { ok: true, id, report: rowToReport(fresh[0]) });
     }
 
     if (action === 'list') {
