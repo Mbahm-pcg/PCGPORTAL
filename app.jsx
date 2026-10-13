@@ -3360,6 +3360,53 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
   const frameRef = React.useRef(null);
   const frameH = useFrameHeight(frameRef);
 
+  // Time-Off Balances (v21.84): balances per user id from our synced Paycor copy.
+  const canLinkTimeOff = isFullAdmin(currentUser);
+  const [timeOff, setTimeOff] = useState({});
+  const [timeOffSync, setTimeOffSync] = useState(null); // last sync run (exec/IT)
+  const [timeOffSyncing, setTimeOffSyncing] = useState(false);
+  const [linkTarget, setLinkTarget] = useState(null);
+  const loadTimeOff = useCallback(() => {
+    timeOffApi('users').then(j => setTimeOff(j.users || {})).catch(() => {});
+    if (canLinkTimeOff) return timeOffApi('status').then(j => { setTimeOffSync(j.lastRun || null); return j.lastRun || null; }).catch(() => undefined);
+    return Promise.resolve(undefined);
+  }, [canLinkTimeOff]);
+  // `silent` = the automatic refresh below: no toast unless something actually failed.
+  const syncTimeOffNow = async ({ silent = false, lastRun = timeOffSync, start = true } = {}) => {
+    setTimeOffSyncing(true);
+    const before = lastRun?.id || 0;
+    try {
+      if (start) await fetch('/.netlify/functions/time-off-sync-background', { method: 'POST', credentials: 'include', headers: { ...authHeader() } });
+      // Poll for a newer finished run (normally well under a minute).
+      for (let i = 0; i < 36; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const j = await timeOffApi('status').catch(() => null);
+        if (j?.lastRun && j.lastRun.id > before && j.lastRun.finished_at) {
+          setTimeOffSync(j.lastRun);
+          if (j.lastRun.entities_failed) showAlert && showAlert('error', `Time-off sync: ${j.lastRun.entities_failed} store(s) failed — they'll retry on the next sync.`);
+          else if (!silent) showAlert && showAlert('success', `Time-off balances synced${j.lastRun.auto_linked ? ` · ${j.lastRun.auto_linked} account(s) auto-linked` : ''}.`);
+          break;
+        }
+      }
+    } catch { if (!silent) showAlert && showAlert('error', 'Could not start the sync.'); }
+    loadTimeOff();
+    setTimeOffSyncing(false);
+  };
+  // Automatic (v21.85): exec/IT never need to click anything. Balances refresh daily at
+  // 6:15 AM ET on their own; on top of that, opening this page kicks off a background
+  // refresh whenever the data has never been synced or is more than 12 hours old.
+  // A run started in the last 10 minutes that hasn't finished is treated as in progress.
+  useEffect(() => {
+    loadTimeOff().then(last => {
+      if (!canLinkTimeOff || last === undefined) return;
+      const now = Date.now();
+      const running = last && !last.finished_at && now - new Date(last.started_at).getTime() < 10 * 60000;
+      const stale = !last || (last.finished_at && now - new Date(last.finished_at).getTime() > 12 * 3600000) || (!last.finished_at && !running);
+      if (running) syncTimeOffNow({ silent: true, lastRun: { id: (last.id || 1) - 1 }, start: false }); // just wait for it
+      else if (stale) syncTimeOffNow({ silent: true, lastRun: last });
+    });
+  }, [loadTimeOff]);
+
   const nextId = () => Math.max(0, ...users.map(u => u.id)) + 1;
   const initials = (name) => name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2);
 
@@ -3785,6 +3832,10 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
   // ── List view ─────────────────────────────────────────────────────────────
   return (
     <div className="fade-in" ref={frameRef} style={{ display:"flex", flexDirection:"column", height: frameH || "calc(100vh - 200px)", minHeight:360 }}>
+      {linkTarget && (
+        <TimeOffLinkPicker th={th} target={linkTarget} showAlert={showAlert}
+          onClose={() => setLinkTarget(null)} onSaved={() => { setLinkTarget(null); loadTimeOff(); }} />
+      )}
       {/* ─── Section 1 — controls (fixed, non-scrolling) ─────────── */}
       <div style={{ flexShrink:0 }}>
       {/* Top bar */}
@@ -3806,6 +3857,14 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
             <span style={{ width:6, height:6, borderRadius:"50%", background:"#f59e0b" }} />
             {managerPendingCount} Pending
           </div>
+        )}
+        {canLinkTimeOff && (
+          <button onClick={syncTimeOffNow} disabled={timeOffSyncing}
+            aria-label="Time-off balances status — click to refresh now" title={timeOffSync?.finished_at ? `Refreshes automatically. Click to refresh now. Last synced ${new Date(timeOffSync.finished_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}` : 'Time-off balances have not been synced yet'}
+            style={{ display:"inline-flex", alignItems:"center", gap:"0.45rem", padding:"0.5rem 0.85rem", background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:999, fontSize:"0.72rem", fontWeight:700, color:th.muted, cursor: timeOffSyncing ? "default" : "pointer", fontFamily:"'Source Sans 3'" }}>
+            <span style={{ width:6, height:6, borderRadius:"50%", background: timeOffSyncing ? "#f59e0b" : (timeOffSync?.finished_at ? "#22c55e" : th.muted), animation: timeOffSyncing ? "pulse 1.2s ease-in-out infinite" : "none" }} />
+            {timeOffSyncing ? 'Updating time off…' : (timeOffSync?.finished_at ? `Time off updated ${new Date(timeOffSync.finished_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}` : 'Time off not synced yet')}
+          </button>
         )}
         <div style={{ flex:1 }} />
         {canManageUser(currentUser, { userType: "manager" }) && (
@@ -3931,6 +3990,8 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                     ? <div style={{ fontSize:"0.68rem", color:"#3b82f6", fontWeight:700, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.pin} size={12} color="#3b82f6" />{assigned.name} · D{assigned.district}</div>
                     : <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.alert} size={12} color="#f59e0b" />No store assigned</div>;
                 })()}
+                <UserTimeOffLine th={th} info={timeOff[u.id]} userType={u.userType} canLink={canLinkTimeOff}
+                  onLink={() => setLinkTarget({ id: u.id, name: u.name, linked: !!timeOff[u.id]?.linked })} />
               </div>
 
               {/* Card actions — icon-only, animated tooltip on hover. Routine actions left,
@@ -30440,7 +30501,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.83";
+const APP_VERSION = "v21.88";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32156,6 +32217,145 @@ function FirstLoginSetup({ user, setUser, setUsers, th }) {
   );
 }
 
+// ── Time-Off Balances (v21.84) ──────────────────────────────────────────────
+// Balances come from our own synced copy of Paycor's time-off accruals
+// (time-off.mjs → time_off_people, refreshed daily 6:15 AM ET). Paycor stores
+// hours; days are shown alongside assuming an 8-hour day.
+const TIME_OFF_ORDER = ['Vacation', 'Sick'];
+function sortTimeOff(balances) {
+  const rank = (t) => { const i = TIME_OFF_ORDER.findIndex(k => String(t || '').toLowerCase().startsWith(k.toLowerCase())); return i < 0 ? 99 : i; };
+  return [...(balances || [])].sort((a, b) => rank(a.type) - rank(b.type));
+}
+function fmtTimeOffHours(h, { days = true } = {}) {
+  if (h == null) return '—';
+  const hrs = Math.round(h * 10) / 10;
+  const d = Math.round((h / 8) * 10) / 10;
+  return days ? `${hrs} hrs (${d} day${d === 1 ? '' : 's'})` : `${hrs}h`;
+}
+async function timeOffApi(action, payload = {}) {
+  const r = await fetch('/.netlify/functions/time-off', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+// Profile panel card — the signed-in user's own balances. Renders nothing for an
+// account that isn't linked to Paycor (no empty/confusing box for those roles).
+function MyTimeOffCard({ th }) {
+  const [data, setData] = useState(null);
+  useEffect(() => { timeOffApi('mine').then(setData).catch(() => setData({ linked: false, balances: [] })); }, []);
+  if (!data || !data.linked) return null;
+  const rows = sortTimeOff(data.balances);
+  return (
+    <div style={{ marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem' }}>
+        <div style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>My time off</div>
+        {data.syncedAt && <div style={{ fontSize: '0.65rem', color: th.muted }}>Updated {new Date(data.syncedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>}
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: '0.78rem', color: th.muted, padding: '0.6rem 0.75rem', background: th.card2, borderRadius: '0.5rem' }}>No time-off plan is set up for you in Paycor.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          {rows.map((b, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '0.6rem 0.75rem', background: th.card2, borderRadius: '0.5rem' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text }}>{b.type}</div>
+                <div style={{ fontSize: '0.66rem', color: th.muted }}>{[b.used != null && `used ${fmtTimeOffHours(b.used, { days: false })}`, b.scheduled ? `${fmtTimeOffHours(b.scheduled, { days: false })} scheduled` : null].filter(Boolean).join(' · ')}</div>
+              </div>
+              <div style={{ fontSize: '0.86rem', fontWeight: 800, color: O, whiteSpace: 'nowrap' }}>{fmtTimeOffHours(b.current)} left</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Admin · Users card line — compact balances for one user, plus (exec/IT) a link
+// control when the account isn't tied to a Paycor employee yet.
+function UserTimeOffLine({ th, info, canLink, onLink, userType }) {
+  const relevant = ['manager', 'dm', 'office_staff', 'executive', 'it'].includes(userType);
+  if (!info) return null;
+  if (!info.linked) {
+    if (!relevant) return null;
+    return (
+      <div style={{ fontSize: '0.68rem', color: th.muted, marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <span>Time off: not linked to Paycor</span>
+        {canLink && <button onClick={onLink} style={{ fontSize: '0.66rem', fontWeight: 700, color: O, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>Link</button>}
+      </div>
+    );
+  }
+  const rows = sortTimeOff(info.balances);
+  return (
+    <div style={{ fontSize: '0.68rem', color: th.muted, marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+      {rows.length === 0 ? <span>Time off: no plan in Paycor</span> : rows.map((b, i) => (
+        <span key={i} title={`${b.plan || b.type} · used ${fmtTimeOffHours(b.used)}${b.scheduled ? ` · ${fmtTimeOffHours(b.scheduled)} scheduled` : ''}`}
+          style={{ fontWeight: 700, color: th.text, background: th.card3, borderRadius: 999, padding: '0.08rem 0.5rem' }}>
+          {b.type} {fmtTimeOffHours(b.current, { days: false })}{b.scheduled ? <span style={{ color: O }}> · {fmtTimeOffHours(b.scheduled, { days: false })} booked</span> : null}
+        </span>
+      ))}
+      {canLink && <button onClick={onLink} title="Change the linked Paycor employee" style={{ fontSize: '0.62rem', color: th.muted, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>change</button>}
+    </div>
+  );
+}
+
+// exec/IT picker: choose which Paycor employee a portal account is. Lists the right
+// legal entity's people first (store for a manager, office otherwise); typing 2+
+// letters searches everyone in the synced list.
+function TimeOffLinkPicker({ th, target, onClose, onSaved, showAlert }) {
+  const [q, setQ] = useState('');
+  const [list, setList] = useState(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(() => {
+      timeOffApi('candidates', { userId: target.id, q }).then(j => { if (!cancelled) setList(j.candidates || []); }).catch(() => { if (!cancelled) setList([]); });
+    }, q ? 250 : 0);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [q, target.id]);
+  const save = async (empId) => {
+    setSaving(true);
+    try {
+      await timeOffApi('link', { userId: target.id, paycorEmployeeId: empId });
+      showAlert && showAlert('success', empId ? `Linked ${target.name} to Paycor.` : `Unlinked ${target.name}.`);
+      onSaved();
+    } catch (e) {
+      showAlert && showAlert('error', e.message || 'Could not save the link.');
+    }
+    setSaving(false);
+  };
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, background: '#00000075', zIndex: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ ...card(th), width: '100%', maxWidth: 460, maxHeight: '80vh', display: 'flex', flexDirection: 'column', padding: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+          <div style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text }}>Link {target.name} to Paycor</div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: th.muted, fontSize: '1.3rem', cursor: 'pointer' }}>×</button>
+        </div>
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search by name…" style={{ ...inp(th), marginBottom: '0.6rem' }} />
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {list == null && <div style={{ fontSize: '0.8rem', color: th.muted, padding: '0.5rem' }}>Loading…</div>}
+          {list != null && list.length === 0 && <div style={{ fontSize: '0.8rem', color: th.muted, padding: '0.5rem' }}>No matches. Balances sync daily; a brand-new hire may not appear until tomorrow.</div>}
+          {(list || []).map(c => (
+            <button key={c.paycorEmployeeId} disabled={saving || c.taken} onClick={() => save(c.paycorEmployeeId)}
+              style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 0.6rem', background: 'none', border: 'none', borderBottom: `1px solid ${th.cardBorder}`, cursor: c.taken ? 'default' : 'pointer', opacity: c.taken ? 0.45 : 1, textAlign: 'left', fontFamily: "'Source Sans 3'" }}>
+              <span style={{ fontSize: '0.84rem', color: th.text, fontWeight: 600 }}>{c.name}</span>
+              <span style={{ fontSize: '0.68rem', color: th.muted }}>{c.where}{c.employeeNumber ? ` · #${c.employeeNumber}` : ''}{c.taken ? ' · already linked' : ''}</span>
+            </button>
+          ))}
+        </div>
+        {target.linked && (
+          <button disabled={saving} onClick={() => save(null)} style={{ marginTop: '0.75rem', alignSelf: 'flex-start', fontSize: '0.75rem', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Unlink this account</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ProfileModal({ user, setUser, setUsers, th, onClose }) {
   const [profileForm, setProfileForm] = useState({
     email: user.email || "",
@@ -32250,7 +32450,7 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"#00000075", backdropFilter:"blur(4px)", zIndex:700, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
       onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div style={{ ...card(th), padding:32, width:"100%", maxWidth:480, boxShadow:"0 24px 80px #00000060" }} className="fade-in">
+      <div style={{ ...card(th), padding:32, width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto", boxSizing:"border-box", boxShadow:"0 24px 80px #00000060" }} className="fade-in">
         <div style={{ display:"flex", alignItems:"center", gap:"1rem", marginBottom:"1.5rem" }}>
           <div style={{ width:56, height:56, borderRadius:"50%", background:O, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:"1.1rem", color:W, flexShrink:0 }}>{user.initials}</div>
           <div>
@@ -32274,6 +32474,7 @@ function ProfileModal({ user, setUser, setUsers, th, onClose }) {
             <div style={{ fontSize:"0.8rem", color:th.text, fontWeight:600 }}>{user.userType || "—"}</div>
           </div>
         </div>
+        <MyTimeOffCard th={th} />
         <div style={{ fontSize:"0.75rem", color:th.muted, fontWeight:600, marginBottom:"0.5rem", textTransform:"uppercase", letterSpacing:0.5 }}>Contact Info</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem", marginBottom:"1.25rem" }}>
           <div>
