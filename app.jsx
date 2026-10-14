@@ -19177,9 +19177,9 @@ function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, sh
 // nobody." — superseded: now a plain manually-managed email/phone list, same
 // pattern as Project/Ticket, since those intentionally include people who
 // aren't Portal users at all (vendors, external contacts).
-function FleetAlertAccessPanel({ th, user, users, showAlert }) {
+function FleetAlertAccessPanel({ th, user, users, showAlert, onCountChange }) {
   return (
-    <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_fleet_notify_v1"
+    <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_fleet_notify_v1" tagKey="fleet" onCountChange={onCountChange}
       description="These email addresses and phone numbers receive company vehicle due-date reminders (registration/inspection/insurance). The vehicle's own operator (matched from the fleet database) always gets notified too, regardless of this list."
       smsLabel="Fleet SMS Numbers" />
   );
@@ -19231,11 +19231,94 @@ function WeeklyReportSendNow({ th, showAlert }) {
   );
 }
 
+// ── Notification Access Panel building blocks (v22.2) ───────────────────────
+// One look for every recipient list in Admin > Notification Access Panel:
+// initials avatar, address, a small tag naming the list, a bordered trash
+// button; and one add bar (mail icon input + orange "Add recipient").
+const NOTIFY_ICONS = {
+  project: <><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></>,
+  ticket: <><path d="M3 8a2 2 0 0 0 0 4v0a2 2 0 0 0 0 4v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-1a2 2 0 0 1 0-4 2 2 0 0 1 0-4V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1Z"/><path d="M9 6v12" strokeDasharray="2 2"/></>,
+  fleet: <><path d="M5 16V11l2-4h10l2 4v5"/><path d="M3 16h18v2H3z"/><circle cx="7.5" cy="16" r="1.6"/><circle cx="16.5" cy="16" r="1.6"/></>,
+  foodLicense: <><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></>,
+  systemHealth: <path d="M3 12h4l2-6 4 12 2-6h6"/>,
+  minorTimecard: <><circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 1.5M5 5 3 7M19 5l2 2"/></>,
+  weeklyHoursSchedule: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></>,
+  mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></>,
+  phone: <><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></>,
+  search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></>,
+  trash: <><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"/></>,
+  plus: <path d="M12 5v14M5 12h14"/>,
+  users: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6"/></>,
+};
+const NOTIFY_TAGS = {
+  project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
+  foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
+  minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
+};
+const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
+// Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
+// else the first letter of the address itself (e.g. "C" for casey@…).
+const recipientInitials = (value, users) => {
+  const v = String(value || '').trim();
+  const u = (users || []).find(x => (x.email && x.email.toLowerCase() === v.toLowerCase()) || (x.phone && String(x.phone).replace(/\D/g, '') === v.replace(/\D/g, '') && v.replace(/\D/g, '').length >= 7));
+  if (u?.name) return u.name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  const ch = v.replace(/[^A-Za-z0-9]/g, '').charAt(0);
+  return (ch || '?').toUpperCase();
+};
+
+function NotifyRecipientRow({ th, value, display, users, tagKey, tagText, onRemove, disabled }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', padding: '0.7rem 0.85rem 0.7rem 0.75rem', border: `1px solid ${th.cardBorder}`, borderRadius: '0.75rem', background: th.card }}>
+      <span style={{ width: 38, height: 38, borderRadius: '50%', background: '#FF671F1f', color: '#c2410c', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>
+        {recipientInitials(value, users)}
+      </span>
+      <span style={{ flex: '0 1 300px', minWidth: 0, fontSize: '0.92rem', fontWeight: 600, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{display || value}</span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', color: th.muted, background: th.card2, borderRadius: 999, padding: '0.28rem 0.7rem', whiteSpace: 'nowrap' }}>
+        {nIco(tagKey, th.muted, 13)}{tagText}
+      </span>
+      <span style={{ flex: 1 }} />
+      <button onClick={onRemove} disabled={disabled} title="Remove" aria-label={`Remove ${display || value}`}
+        style={{ width: 34, height: 34, borderRadius: '0.55rem', border: `1px solid ${th.cardBorder}`, background: th.card, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: disabled ? 'default' : 'pointer', flexShrink: 0 }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = '#ef444466'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = th.cardBorder; }}>
+        {nIco('trash', th.muted, 15)}
+      </button>
+    </div>
+  );
+}
+
+function NotifyAddBar({ th, value, onChange, onSubmit, placeholder, icon = 'mail', label = 'Add recipient', disabled }) {
+  return (
+    <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'stretch' }}>
+      <div style={{ position: 'relative', flex: 1 }}>
+        <span style={{ position: 'absolute', left: '0.95rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', pointerEvents: 'none' }}>{nIco(icon, th.muted, 16)}</span>
+        <input value={value} onChange={e => onChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') onSubmit(); }} placeholder={placeholder}
+          style={{ ...inp(th), width: '100%', boxSizing: 'border-box', padding: '0.8rem 1rem 0.8rem 2.6rem', borderRadius: '0.75rem', fontSize: '0.88rem' }} />
+      </div>
+      <button onClick={onSubmit} disabled={disabled}
+        style={{ ...btn(th, { padding: '0 1.3rem', fontSize: '0.86rem', borderRadius: '0.75rem' }), display: 'inline-flex', alignItems: 'center', gap: '0.45rem', whiteSpace: 'nowrap', opacity: disabled ? 0.6 : 1 }}>
+        {nIco('plus', '#fff', 15)} {label}
+      </button>
+    </div>
+  );
+}
+
+// "Add by name, or type a role" search — same behaviour as before, new look.
+function NotifyNameSearch({ th, value, onChange, onFocus, onBlur, placeholder, children }) {
+  return (
+    <div style={{ position: 'relative', marginBottom: '1rem' }}>
+      <span style={{ position: 'absolute', left: '0.95rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', pointerEvents: 'none' }}>{nIco('search', th.muted, 16)}</span>
+      <input style={{ ...inp(th), width: '100%', boxSizing: 'border-box', padding: '0.8rem 1rem 0.8rem 2.6rem', borderRadius: '0.75rem', fontSize: '0.88rem' }}
+        placeholder={placeholder} value={value} onChange={onChange} onFocus={onFocus} onBlur={onBlur} />
+      {children}
+    </div>
+  );
+}
+
 // Food License due-date recipients — same manual email/phone list pattern as
 // Fleet, just a separate blob key. Generic version (not copy-pasted) since
 // this is now the second identical pattern; parameterized by blobKey/label
 // so a third one later doesn't need another near-duplicate component.
-function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, description, smsLabel, seedUserTypes }) {
+function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, description, smsLabel, seedUserTypes, tagKey = 'mail', onCountChange }) {
   const [emails, setEmails] = useState(null);
   const [phones, setPhones] = useState(null);
   // Parallel arrays: emailOwners[i]/phoneOwners[i] is the Portal user id that
@@ -19279,11 +19362,11 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
     const ok = await cloudSave(blobKey, { emails: nextEmails, phones: nextPhones, emailOwners: nextEmailOwners, phoneOwners: nextPhoneOwners, updatedAt: new Date().toISOString(), updatedBy: user?.username || user?.email || 'unknown' });
     setSaving(false);
     if (ok) { setEmails(nextEmails); setPhones(nextPhones); setEmailOwners(nextEmailOwners); setPhoneOwners(nextPhoneOwners); }
-    else showAlert && showAlert('Failed to save recipients', 'error');
+    else showAlert && showAlert('error', 'Failed to save recipients');
   };
   const addEmail = () => {
     const email = newEmail.trim().toLowerCase();
-    if (!email || !email.includes('@')) { showAlert && showAlert('Enter a valid email', 'error'); return; }
+    if (!email || !email.includes('@')) { showAlert && showAlert('error', 'Enter a valid email'); return; }
     if ((emails || []).map(e => e.toLowerCase()).includes(email)) { setNewEmail(''); return; }
     persist([...(emails || []), newEmail.trim()], phones || [], [...(emailOwners || []), null], phoneOwners || []);
     setNewEmail('');
@@ -19343,7 +19426,7 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
       }
     }
     persist(nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners);
-    showAlert && showAlert(addedCount > 0 ? `Added ${addedCount} ${role.label} (already-added people skipped).` : `Everyone in ${role.label} is already on this list.`, 'success');
+    showAlert && showAlert('success', addedCount > 0 ? `Added ${addedCount} ${role.label} (already-added people skipped).` : `Everyone in ${role.label} is already on this list.`);
     setNameQuery('');
     setShowSuggestions(false);
   };
@@ -19356,8 +19439,8 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
     const nextPhoneOwners = nextPhones === phones ? (phoneOwners || []) : [...(phoneOwners || []), u.id];
     if (nextEmails === emails && nextPhones === phones) { setNameQuery(''); setShowSuggestions(false); return; }
     persist(nextEmails, nextPhones, nextEmailOwners, nextPhoneOwners);
-    if (!u.email) showAlert && showAlert(`${u.name} added — no email on file, phone only`, 'success');
-    else if (!u.phone) showAlert && showAlert(`${u.name} added — no phone on file, email only`, 'success');
+    if (!u.email) showAlert && showAlert('success', `${u.name} added — no email on file, phone only`);
+    else if (!u.phone) showAlert && showAlert('success', `${u.name} added — no phone on file, email only`);
     setNameQuery('');
     setShowSuggestions(false);
   };
@@ -19386,6 +19469,8 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [users, emails, phones, emailOwners, phoneOwners]);
 
+  // v22.2: keep the parent pill's "(n)" count in step with this list.
+  useEffect(() => { if (emails !== null && onCountChange) onCountChange(emails.length); }, [emails]);
   if (emails === null) return <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading recipients…</div>;
   return (
     <div>
@@ -19395,12 +19480,11 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
           a role keyword ("manager", "dm"...) offers a group suggestion that
           adds everyone in that role at once, Gmail-group-style. */}
       {users && (
-        <div style={{ position: 'relative', marginBottom: '1rem' }}>
-          <input style={{ ...inp(th), width: '100%' }} placeholder={'🔎 Add by name, or type a role (e.g. "manager") to add everyone in it'}
+        <NotifyNameSearch th={th} placeholder={'Add by name, or type a role (e.g. "manager") to add everyone in it'}
             value={nameQuery}
             onChange={e => { setNameQuery(e.target.value); setShowSuggestions(true); }}
             onFocus={() => setShowSuggestions(true)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)} />
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}>
           {showSuggestions && (roleMatches.length > 0 || nameMatches.length > 0) && (
             <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
               {roleMatches.map(r => (
@@ -19408,7 +19492,7 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
                   style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}`, background: O + '0c' }}
                   onMouseEnter={e => e.currentTarget.style.background = O + '22'}
                   onMouseLeave={e => e.currentTarget.style.background = O + '0c'}>
-                  <div style={{ fontSize: '0.83rem', fontWeight: 700, color: O }}>👥 All {r.label} ({r.members.length})</div>
+                  <div style={{ fontSize: '0.83rem', fontWeight: 700, color: O, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>{nIco('users', O, 15)} All {r.label} ({r.members.length})</div>
                   <div style={{ fontSize: '0.7rem', color: th.muted }}>Adds everyone in this role at once — each stays individually removable after.</div>
                 </div>
               ))}
@@ -19423,35 +19507,23 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
               ))}
             </div>
           )}
-        </div>
+        </NotifyNameSearch>
       )}
 
-      <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+      <div style={{ display: "grid", gap: "0.6rem", marginBottom: "1rem" }}>
         {(emails || []).length === 0 && (
           <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No emails configured.</div>
         )}
         {(emails || []).map((email, idx) => (
-          <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
-                {email.charAt(0).toUpperCase()}
-              </span>
-              <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
-            </div>
-            <button onClick={() => removeEmail(idx)} disabled={saving} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-          </div>
+          <NotifyRecipientRow key={idx} th={th} value={email} users={users} tagKey={tagKey} tagText={NOTIFY_TAGS[tagKey] || 'Notifications'} onRemove={() => removeEmail(idx)} disabled={saving} />
         ))}
       </div>
-      <div style={{ display: "flex", gap: "0.5rem" }}>
-        <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
-        <button onClick={addEmail} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-      </div>
+      <NotifyAddBar th={th} value={newEmail} onChange={setNewEmail} onSubmit={addEmail} placeholder="Add email address..." disabled={saving} />
 
       {/* SMS section omitted when no smsLabel is passed (e.g. System Health — email/push only) */}
       {smsLabel && <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-          <span style={{ fontSize: "1.125rem" }}>📱</span>
+          {nIco('phone', th.muted, 17)}
           <span style={{ fontWeight: 700, fontSize: "0.95rem", color: th.text }}>{smsLabel}</span>
           <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(phones || []).length})</span>
         </div>
@@ -19460,20 +19532,10 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
             <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No SMS numbers configured.</div>
           )}
           {(phones || []).map((phone, idx) => (
-            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" }}>📱</span>
-                <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{formatPhone(phone)}</span>
-              </div>
-              <button onClick={() => removePhone(idx)} disabled={saving} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-            </div>
+            <NotifyRecipientRow key={idx} th={th} value={phone} display={formatPhone(phone)} users={users} tagKey="phone" tagText="SMS" onRemove={() => removePhone(idx)} disabled={saving} />
           ))}
         </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input style={{ ...inp(th), flex: 1 }} placeholder="(555) 123-4567" value={newPhone} onChange={e => setNewPhone(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addPhone(); }} />
-          <button onClick={addPhone} disabled={saving} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-        </div>
+        <NotifyAddBar th={th} value={newPhone} onChange={setNewPhone} onSubmit={addPhone} placeholder="(555) 123-4567" icon="phone" label="Add number" disabled={saving} />
       </div>}
     </div>
   );
@@ -19494,6 +19556,22 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   // instead of stacked collapsible cards — only the selected one's content
   // renders below the pill row.
   const [notifSubTab, setNotifSubTab] = useState('project');
+  // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
+  // here, then kept live by each ManualNotifyListPanel's onCountChange.
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1' };
+  const [notifCounts, setNotifCounts] = useState({});
+  useEffect(() => {
+    Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
+      cloudLoad(key).then(d => {
+        let n = Array.isArray(d?.emails) ? d.emails.length : 0;
+        // System Health goes to every active VP/IT until the list is first edited.
+        if (id === 'systemHealth' && !d?.updatedAt) n = (users || []).filter(u => u.active !== false && u.email && ['executive', 'it'].includes(u.userType)).length;
+        setNotifCounts(c => ({ ...c, [id]: n }));
+      }).catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [(users || []).length > 0]);
+  const setNotifCount = (id) => (n) => setNotifCounts(c => (c[id] === n ? c : { ...c, [id]: n }));
   const [userNotifsOpen, setUserNotifsOpen] = useState(false);
 
   // ── Orion Report Settings ──────────────────────────────────────────
@@ -19701,24 +19779,30 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[
-            { id: 'project', icon: '📧', label: 'Project', count: globalNotifyEmails.length },
-            { id: 'ticket',  icon: '🎫', label: 'Ticket',  count: (ticketNotifyEmails || []).length },
-            ...(isFullAdmin(user) ? [{ id: 'fleet', icon: '🚗', label: 'Car', count: null }] : []),
-            ...(isFullAdmin(user) ? [{ id: 'foodLicense', icon: '📋', label: 'Food License', count: null }] : []),
-            ...(isFullAdmin(user) ? [{ id: 'systemHealth', icon: '🩺', label: 'System Health', count: null }] : []),
-            ...(isFullAdmin(user) ? [{ id: 'minorTimecard', icon: '⏰', label: 'Minor Timecard', count: null }] : []),
-            ...(isFullAdmin(user) ? [{ id: 'weeklyHoursSchedule', icon: '📅', label: 'Weekly Hours + Schedule', count: null }] : []),
-          ].map(t => (
-            <button key={t.id} onClick={() => setNotifSubTab(t.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1.1rem', borderRadius: '999px',
-                border: `1px solid ${notifSubTab === t.id ? O : th.cardBorder}`,
-                background: notifSubTab === t.id ? O + '18' : 'transparent',
-                color: notifSubTab === t.id ? O : th.text, fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
-              }}>
-              <span>{t.icon}</span>{t.label}{t.count != null && <span style={{ fontSize: '0.7rem', color: th.muted, fontWeight: 500 }}>({t.count})</span>}
-            </button>
-          ))}
+            { id: 'project', label: 'Project', count: globalNotifyEmails.length },
+            { id: 'ticket',  label: 'Ticket',  count: (ticketNotifyEmails || []).length },
+            ...(isFullAdmin(user) ? [
+              { id: 'fleet', label: 'Car', count: notifCounts.fleet },
+              { id: 'foodLicense', label: 'Food License', count: notifCounts.foodLicense },
+              { id: 'systemHealth', label: 'System Health', count: notifCounts.systemHealth },
+              { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
+              { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
+            ] : []),
+          ].map(t => {
+            const on = notifSubTab === t.id;
+            return (
+              <button key={t.id} onClick={() => setNotifSubTab(t.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.15rem', borderRadius: '999px',
+                  border: `1px solid ${on ? '#FF671F66' : th.cardBorder}`,
+                  background: on ? '#FF671F14' : th.card,
+                  color: on ? '#FF671F' : th.text, fontWeight: 600, fontSize: '0.86rem', cursor: 'pointer', fontFamily: "'Source Sans 3'",
+                }}>
+                {nIco(t.id, on ? '#FF671F' : th.muted, 16)}{t.label}
+                {t.count != null && <span style={{ fontSize: '0.78rem', color: on ? '#FF671Fb3' : th.muted, fontWeight: 500 }}>({t.count})</span>}
+              </button>
+            );
+          })}
         </div>
 
       {/* Project */}
@@ -19727,27 +19811,15 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             These email addresses receive notifications for <strong>all projects</strong> — phase changes, new projects, deadline alerts, and checklist updates.
             Individual projects can also have their own additional notify emails.
           </p>
-          <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+          <div style={{ display: "grid", gap: "0.6rem", marginBottom: "1rem" }}>
             {globalNotifyEmails.length === 0 && (
-              <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No global notify emails configured.</div>
+              <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.75rem" }}>No global notify emails configured.</div>
             )}
             {globalNotifyEmails.map((email, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
-                    {email.charAt(0).toUpperCase()}
-                  </span>
-                  <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
-                </div>
-                <button onClick={() => removeEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-              </div>
+              <NotifyRecipientRow key={idx} th={th} value={email} users={users} tagKey="project" tagText={NOTIFY_TAGS.project} onRemove={() => removeEmail(idx)} />
             ))}
           </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") addEmail(); }} />
-            <button onClick={addEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-          </div>
+          <NotifyAddBar th={th} value={newEmail} onChange={setNewEmail} onSubmit={addEmail} placeholder="Add email address..." />
       </>}
 
       {/* Ticket */}
@@ -19757,12 +19829,11 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           </p>
 
           {/* Add by name — adds a matched Portal user's email + phone together */}
-          <div style={{ position: 'relative', marginBottom: '1rem' }}>
-            <input style={{ ...inp(th), width: '100%' }} placeholder="🔎 Add by name (fills in email + phone together)"
+          <NotifyNameSearch th={th} placeholder="Add by name (fills in email + phone together)"
               value={ticketNameQuery}
               onChange={e => { setTicketNameQuery(e.target.value); setTicketShowSuggestions(true); }}
               onFocus={() => setTicketShowSuggestions(true)}
-              onBlur={() => setTimeout(() => setTicketShowSuggestions(false), 150)} />
+              onBlur={() => setTimeout(() => setTicketShowSuggestions(false), 150)}>
             {ticketShowSuggestions && ticketNameMatches.length > 0 && (
               <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
                 {ticketNameMatches.map(u => (
@@ -19776,34 +19847,22 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                 ))}
               </div>
             )}
-          </div>
+          </NotifyNameSearch>
 
-          <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem" }}>
+          <div style={{ display: "grid", gap: "0.6rem", marginBottom: "1rem" }}>
             {(ticketNotifyEmails || []).length === 0 && (
               <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No ticket notify emails configured.</div>
             )}
             {(ticketNotifyEmails || []).map((email, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>
-                    {email.charAt(0).toUpperCase()}
-                  </span>
-                  <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{email}</span>
-                </div>
-                <button onClick={() => removeTicketEmail(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-              </div>
+              <NotifyRecipientRow key={idx} th={th} value={email} users={users} tagKey="ticket" tagText={NOTIFY_TAGS.ticket} onRemove={() => removeTicketEmail(idx)} />
             ))}
           </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <input style={{ ...inp(th), flex: 1 }} placeholder="email@example.com" value={newTicketEmail} onChange={e => setNewTicketEmail(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") addTicketEmail(); }} />
-            <button onClick={addTicketEmail} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-          </div>
+          <NotifyAddBar th={th} value={newTicketEmail} onChange={setNewTicketEmail} onSubmit={addTicketEmail} placeholder="Add email address..." />
 
           {/* Ticket Notify Phone Numbers — SMS alongside the email list above */}
           <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              <span style={{ fontSize: "1.125rem" }}>📱</span>
+              {nIco('phone', th.muted, 17)}
               <span style={{ fontWeight: 700, fontSize: "0.95rem", color: th.text }}>Ticket SMS Numbers</span>
               <span style={{ fontSize: "0.75rem", color: th.muted, fontWeight: 500 }}>({(ticketNotifyPhones || []).length})</span>
             </div>
@@ -19815,36 +19874,26 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                 <div style={{ padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" }}>No ticket SMS numbers configured.</div>
               )}
               {(ticketNotifyPhones || []).map((phone, idx) => (
-                <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", background: th.card2, borderRadius: "0.5rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <span style={{ width: 32, height: 32, borderRadius: "50%", background: O + "22", color: O, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.85rem" }}>📱</span>
-                    <span style={{ fontSize: "0.875rem", color: th.text, fontWeight: 500 }}>{formatPhone(phone)}</span>
-                  </div>
-                  <button onClick={() => removeTicketPhone(idx)} style={{ background: "#ff444422", color: "#ff4444", border: "none", borderRadius: "0.375rem", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Remove</button>
-                </div>
+                <NotifyRecipientRow key={idx} th={th} value={phone} display={formatPhone(phone)} users={users} tagKey="phone" tagText="Ticket SMS" onRemove={() => removeTicketPhone(idx)} />
               ))}
             </div>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <input style={{ ...inp(th), flex: 1 }} placeholder="(555) 123-4567" value={newTicketPhone} onChange={e => setNewTicketPhone(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") addTicketPhone(); }} />
-              <button onClick={addTicketPhone} style={btn(th, { padding: "0.5rem 1.25rem", fontSize: "0.8125rem" })}>+ Add</button>
-            </div>
+            <NotifyAddBar th={th} value={newTicketPhone} onChange={setNewTicketPhone} onSubmit={addTicketPhone} placeholder="(555) 123-4567" icon="phone" label="Add number" />
           </div>
       </>}
 
       {/* Car / Fleet — full admins only */}
-      {notifSubTab === 'fleet' && isFullAdmin(user) && <FleetAlertAccessPanel th={th} user={user} users={users} showAlert={showAlert} />}
+      {notifSubTab === 'fleet' && isFullAdmin(user) && <FleetAlertAccessPanel th={th} user={user} users={users} showAlert={showAlert} onCountChange={setNotifCount('fleet')} />}
 
       {/* Food License — full admins only */}
       {notifSubTab === 'foodLicense' && isFullAdmin(user) && (
-        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_food_license_notify_v1"
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_food_license_notify_v1" tagKey="foodLicense" onCountChange={setNotifCount('foodLicense')}
           description="These email addresses and phone numbers receive food license due-date reminders at 30/14/7 days out, for every store's food license on file."
           smsLabel="Food License SMS Numbers" />
       )}
 
       {/* System Health — full admins only */}
       {notifSubTab === 'systemHealth' && isFullAdmin(user) && (
-        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_system_health_notify_v1" seedUserTypes={['executive', 'it']}
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_system_health_notify_v1" seedUserTypes={['executive', 'it']} tagKey="systemHealth" onCountChange={setNotifCount('systemHealth')}
           description="These email addresses receive System Health DOWN / recovered alerts (push goes to anyone added by name). By default that's every active VP and IT user — remove anyone here to stop their alerts; from your first change on, only this list gets them." />
       )}
 
@@ -19854,7 +19903,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           manager/DM — replaces the old "every active office_staff account"
           blast with exactly who's added here, nobody else. */}
       {notifSubTab === 'minorTimecard' && isFullAdmin(user) && (
-        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_minor_timecard_notify_v1"
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_minor_timecard_notify_v1" tagKey="minorTimecard" onCountChange={setNotifCount('minorTimecard')}
           description="These email addresses receive the Monday escalation for a Minor Timecard Compliance issue that's still open (PA under-18 break violations) — manager and DM still get their own copy regardless of this list; this is specifically the office-side recipients. Empty until you add someone." />
       )}
 
@@ -19864,7 +19913,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           set). Empty until you add someone. Scheduled send resumed 2026-10-12. */}
       {notifSubTab === 'weeklyHoursSchedule' && isFullAdmin(user) && (
         <>
-          <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_weekly_hours_schedule_notify_v1"
+          <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_weekly_hours_schedule_notify_v1" tagKey="weeklyHoursSchedule" onCountChange={setNotifCount('weeklyHoursSchedule')}
             description="These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun–Sat week — one Excel file and one PDF per store). There's no other fallback recipient — this list is the entire send list. Empty until you add someone." />
           <WeeklyReportSendNow th={th} showAlert={showAlert} />
         </>
@@ -23820,8 +23869,18 @@ const HUB_SUBITEMS = {
 // per-role sub-item toggle to drive off `accessSubOn` the way the hubs
 // above need). Pulled to module scope 2026-10-06 so QuickFindBar can search
 // these too, not because AdminConsole itself needed it to move.
+// Line icons for the Admin console tab bar (v22.2; Orion keeps its purple dot).
+const ADMIN_TAB_ICONS = {
+  notifications: <><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></>,
+  tasks: <><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12 2.5 2.5 4.5-5"/></>,
+  users: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6"/></>,
+  access: <><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></>,
+  vendors: <><path d="M4 21V5h10l4 4v12"/><path d="M4 9h14M9 21v-6h4v6M2 21h20"/></>,
+  sensors: <><circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></>,
+  system: <><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5M9 13h6M9 17h6"/></>,
+};
 const ADMIN_CONSOLE_SUBS = [
-  { id: 'notifications', label: 'Notifications', icon: '📬', accent: '#FF671F' },
+  { id: 'notifications', label: 'Notification Access Panel', icon: '📬', accent: '#FF671F' },
   { id: 'tasks',         label: 'Tasks',         icon: '✅', accent: '#38bdf8' },
   { id: 'users',         label: 'Users',         icon: '👥', accent: '#a78bfa' },
   { id: 'access',        label: 'Access',        icon: '🔐', accent: '#ef4444' },
@@ -24540,14 +24599,16 @@ function AdminConsole(props) {
           return (
             <button key={s.id} onClick={() => go(s.id)} style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.5rem 1rem', fontSize: '0.82rem', fontWeight: 700,
+              padding: '0.6rem 1.05rem', fontSize: '0.84rem', fontWeight: 600,
               fontFamily: "'Source Sans 3'", cursor: 'pointer',
-              borderRadius: RADIUS.control,
-              border: `1px solid ${on ? s.accent : th.cardBorder}`,
-              background: on ? `${s.accent}1a` : 'transparent',
-              color: on ? s.accent : th.muted, transition: 'all .15s',
+              borderRadius: '0.65rem',
+              border: `1px solid ${on ? '#FF671F66' : th.cardBorder}`,
+              background: on ? '#FF671F14' : th.card,
+              color: on ? '#FF671F' : th.text, transition: 'all .15s',
             }}>
-              <span>{s.icon}</span>{s.label}
+              <span style={{ display: 'flex' }}>{s.id === 'orion'
+                ? <span style={{ width: 13, height: 13, borderRadius: '50%', background: 'radial-gradient(circle at 35% 35%, #a78bfa, #6d28d9)', display: 'inline-block' }} />
+                : <HubIcon d={ADMIN_TAB_ICONS[s.id]} color={on ? '#FF671F' : th.muted} size={16} />}</span>{s.label}
               {badge != null && <span title={`${badge} unreviewed knowledge gap${badge !== 1 ? 's' : ''}`} style={{ minWidth: 16, height: 16, padding: '0 5px', borderRadius: 999, background: '#ef4444', color: '#fff', fontSize: '0.6rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{badge}</span>}
             </button>
           );
@@ -31113,7 +31174,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.1";
+const APP_VERSION = "v22.2";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
