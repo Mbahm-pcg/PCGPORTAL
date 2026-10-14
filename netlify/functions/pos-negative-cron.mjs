@@ -10,6 +10,7 @@ import https from 'node:https';
 import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
 import { isNegativeDefect } from '../../src/pos-negative-shared.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 export const config = { schedule: '30 11 * * *' };
 
@@ -29,7 +30,7 @@ const APIS = {
 };
 
 // Keep in sync with schedule-alerts.mjs / labor-cron.mjs (see CLAUDE.md gotcha #9).
-const STORES = [
+const ALL_STORES = [
   { pc:'339616', name:'Wadsworth',       district:1 },
   { pc:'340794', name:'Front',           district:1 },
   { pc:'351099', name:'Sonic',           district:2 },
@@ -77,6 +78,9 @@ const STORES = [
   { pc:'342184', name:'Lansdale',        district:8 },
   { pc:'356316', name:"BJ's",            district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+const STORES = [...ALL_STORES];
 
 function callUpstream(cfg, endpoint, body) {
   return new Promise((resolve, reject) => {
@@ -121,6 +125,8 @@ function etDate(offsetDays) {
 }
 
 export default async () => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   const yesterday = etDate(1);
   console.log(`[pos-negative-cron] Checking ${STORES.length} stores for negative-total checks on ${yesterday}`);
 

@@ -9,6 +9,7 @@ import { neon } from '@neondatabase/serverless';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { recordHealth } from './health-lib/record-health.mjs';
 import { buildPulseSms } from '../../src/pulse-sms.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 // Lazy Neon client — same pattern as paycor.mjs — used only to gate the
 // testSms path below via requireActiveUser's DB-backed active/revocation check.
@@ -16,7 +17,7 @@ let _sql = null;
 const db = () => (_sql ||= neon(process.env.NEON_DATABASE_URL));
 
 // ── Store configs ─────────────────────────────────────────────────────────────
-const STORES = [
+const ALL_STORES = [
   { pc:"339616", name:"Wadsworth", district:1 },
   { pc:"340794", name:"Front", district:1 },
   { pc:"351099", name:"Sonic", district:2 },
@@ -64,6 +65,9 @@ const STORES = [
   { pc:"342184", name:"Lansdale", district:8 },
   { pc:"356316", name:"BJ's", district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+const STORES = [...ALL_STORES];
 
 const APIS = {
   p227: {
@@ -437,6 +441,8 @@ async function loadConfig(store) {
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',

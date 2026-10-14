@@ -91,7 +91,7 @@ async function getDailyNetSales(pc, busDt) {
 }
 
 // ── Store config (mirrors index.html STORES_SEED) ───────────────────────────
-const STORES = [
+const ALL_STORES = [
   { pc:"339616", paycor:"193919", name:"Wadsworth",       district:1 },
   { pc:"340794", paycor:"193904", name:"Front",           district:1 },
   { pc:"351099", paycor:"193900", name:"Sonic",           district:2 },
@@ -139,6 +139,9 @@ const STORES = [
   { pc:"342184", paycor:"193917", name:"Lansdale",        district:8 },
   { pc:"356316", paycor:"193889", name:"BJ's",            district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+const STORES = [...ALL_STORES];
 
 // ── Data accessors ──────────────────────────────────────────────────────────
 
@@ -1414,6 +1417,7 @@ async function buildMaintenanceContext({ now = new Date() } = {}) {
 
 export {
   STORES,
+  ALL_STORES,
   getAllStores,
   getStoresByDistrict,
   resolveStoreFromText,

@@ -5,8 +5,12 @@
 // Sends a weekly digest email. Dedicated cron so it doesn't re-trigger analyst-cron.
 // No schedule config here — the -background wrapper carries the schedule.
 import { runCompetitorIntel } from './analyst-lib/competitor.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
 
 export default async (request, context) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 0 });
   const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 

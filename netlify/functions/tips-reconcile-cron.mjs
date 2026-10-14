@@ -19,6 +19,8 @@
 import https from 'node:https';
 import { STORES, fetchStoreCrew, saveDaySnapshot, getBlobStore, etDate, MANUALLY_EXCLUDED_EMPLOYEES } from './tips-report-cron-background.mjs';
 import { planStoreDayReconciliation } from '../../src/tips-reconcile.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './tips-report-cron-background.mjs';
 
 export const config = { schedule: '0 13 * * *' };
 
@@ -169,6 +171,8 @@ export async function runReconcile(daysBack = 3, onlyPc = null) {
 }
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 14 });
   const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Content-Type': 'application/json' };
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
   try {

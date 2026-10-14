@@ -22,7 +22,8 @@
 // entity). Ambiguous or missing matches are left unlinked for IT to pick manually —
 // never guessed.
 import { sql } from '../_shared/db.mjs';
-import { STORES, callPaycorProxy } from '../tips-report-cron-background.mjs';
+import { STORES, ALL_STORES, callPaycorProxy } from '../tips-report-cron-background.mjs';
+import { refreshStoreList } from '../_shared/store-status.mjs';
 
 export const OFFICE_LE = String(process.env.OFFICE_LEGAL_ENTITY_ID || '193872');
 
@@ -110,6 +111,8 @@ async function runPool(items, size, fn) {
 }
 
 export async function runTimeOffSync({ trigger = 'cron' } = {}) {
+  // v22.0: don't sync legal entities of stores closed more than 14 days ago.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 14 });
   const db = sql();
   await ensureTables(db);
   const run = await db`INSERT INTO time_off_sync_runs (trigger) VALUES (${trigger}) RETURNING id`;

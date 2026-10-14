@@ -14,7 +14,8 @@
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { STORES } from './labor-cron.mjs';
+import { STORES, ALL_STORES } from './labor-cron.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const blobs = () => getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
@@ -31,6 +32,8 @@ export default async (request) => {
   try { body = await request.json(); } catch { /* empty */ }
   const date = String(body.date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { error: 'date must be YYYY-MM-DD' });
+  // v22.0: a store closed BEFORE this date isn't rebuilt into that day's view.
+  await refreshStoreList(STORES, ALL_STORES, { onDate: date });
 
   const store = blobs();
   try {

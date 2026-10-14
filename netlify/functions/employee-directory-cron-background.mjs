@@ -15,6 +15,8 @@ import { neon } from '@neondatabase/serverless';
 import { STORES } from './labor-cron.mjs';
 import { fetchAllEmployees, fetchAllIdentifyingData } from './tips-report-cron-background.mjs';
 import { buildDirectoryRows } from '../../src/employee-directory.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './labor-cron.mjs';
 
 export const config = { schedule: '0 8 * * *' }; // 4am ET
 
@@ -59,6 +61,8 @@ async function upsertRows(rows) {
 }
 
 export default async () => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 14 });
   await ensureTable();
   const results = [];
   for (const store of STORES) {

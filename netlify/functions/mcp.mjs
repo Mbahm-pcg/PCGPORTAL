@@ -27,6 +27,8 @@ import { cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { buildDataContext, buildKPISnapshot, buildStoreContext, resolveStoreFromText } from './analyst-lib/analyst-data.mjs';
 import { buildAskPrompt, PERSONA } from './analyst-lib/analyst-prompts.mjs';
 import { askAnalyst } from './analyst-lib/analyst-claude.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'PCG Portal', version: '7.7' };
@@ -191,6 +193,8 @@ function isAuthorized(request) {
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export default async (request, context) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 0 });
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',

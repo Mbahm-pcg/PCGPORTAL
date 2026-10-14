@@ -8,6 +8,7 @@ import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
+import { closedPcSet } from './_shared/store-status.mjs';
 
 function etDate() {
   const f = new Intl.DateTimeFormat('en-CA', {
@@ -49,7 +50,9 @@ export default async (_req, _ctx) => {
   const yesterday = etYesterday();
   const dow = dowOf(date);
   const dayNum = daysSinceEpoch(date);
-  const allPcs = Object.values(STORE_BY_PC).map((s) => s.pc);
+  // v22.0: no task instances or alerts for permanently closed stores.
+  const closedPcs = await closedPcSet();
+  const allPcs = Object.values(STORE_BY_PC).map((s) => s.pc).filter((pc) => !closedPcs.has(String(pc)));
 
   // ── 1. Pre-generate today's instances ──────────────────────────────────────
   const result = await db`
@@ -115,6 +118,7 @@ export default async (_req, _ctx) => {
 
   for (const storeInfo of Object.values(STORE_BY_PC)) {
     const pc = String(storeInfo.pc);
+    if (closedPcs.has(pc)) continue;
     const missed = missedMap[pc] || 0;
     const avg = avgMap[pc] || 0;
     const open = openTodayMap[pc] || 0;

@@ -10,6 +10,8 @@
 // saves the one day's pcg_tips_snapshot_{busDt} blob so it's available to the
 // nightly cron's own weekly/biweekly rollups and to the in-app Tips Report.
 import { STORES, APIS, callUpstream, callPaycorProxy, fetchStoreCrew, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt } from './tips-report-cron-background.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './tips-report-cron-background.mjs';
 
 // Deliberately NOT using tips-report-cron-background.mjs's loadDaySnapshot —
 // it memoizes per busDt in a module-level Map that survives across
@@ -32,6 +34,8 @@ async function loadDaySnapshotUncached(busDt) {
 export const config = { background: true };
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 14 });
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',

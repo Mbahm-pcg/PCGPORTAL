@@ -7,10 +7,14 @@ import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
 import { sendEmail, wrapEmail, loadReportSettings } from './analyst-lib/analyst-reports.mjs';
 import { getStore } from '@netlify/blobs';
 import { DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
 
 export const config = { schedule: '0 11 1 * *' };
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 0 });
   const isManual = request.method === 'POST';
   const now = new Date();
   const targetMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);

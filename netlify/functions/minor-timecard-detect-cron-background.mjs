@@ -38,6 +38,8 @@ import { STORES, fetchAllEmployees, fetchAllIdentifyingData } from './tips-repor
 import { weekRangeEndingYesterday, groupPunchesByDate, analyzeDayForViolation, ageFromBirthDate, isMinor } from '../../src/minor-timecard-detect.mjs';
 import { buildIssueRecord, resolveNotificationRecipients } from '../../src/minor-timecard-lifecycle.mjs';
 import { buildEmailSubject, buildDigestEmailHtml } from '../../src/minor-timecard-email.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './tips-report-cron-background.mjs';
 
 export const config = { schedule: '0 10 * * 0' }; // 6:00 AM ET, Sundays
 
@@ -200,6 +202,8 @@ function applyShadowMode(recipients, subject, html, mode) {
 }
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 14 });
   const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 

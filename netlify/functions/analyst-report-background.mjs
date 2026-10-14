@@ -2,10 +2,14 @@
 // generates and sends the report asynchronously. Supports: exec (weekly), daily, dm.
 import { sendExecReport, sendExecDailyReport, sendDMBriefs, loadReportSettings } from './analyst-lib/analyst-reports.mjs';
 import { cacheLoad, cacheSave } from './analyst-lib/analyst-cache.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
 
 export const config = { background: true };
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 0 });
   let payload = {};
   try { payload = await request.json(); } catch {}
 

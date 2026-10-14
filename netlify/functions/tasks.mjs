@@ -33,6 +33,7 @@ import { sql } from './_shared/db.mjs';
 import { resolveCaller, isExec } from './_shared/auth.mjs';
 import { sessionGate } from './auth-lib/require-user.js';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
+import { closedPcSet } from './_shared/store-status.mjs';
 import { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG } from './tasks-lib/catalog.js';
 import { STORE_COORDS } from './analyst-lib/store-coords.mjs';
 
@@ -788,7 +789,8 @@ export default async (request, context) => {
     if (action === 'rollup') {
       const date = String(body.date || now.date);
       const district = body.district ? +body.district : null;
-      const stores = Object.values(STORE_BY_PC).filter((s) => !district || s.district === district);
+      const closedPcs = await closedPcSet(); // v22.0
+      const stores = Object.values(STORE_BY_PC).filter((s) => (!district || s.district === district) && !closedPcs.has(String(s.pc)));
       await generateInstances(db, stores.map((s) => s.pc), date);
       // Optional `label` filter (e.g. 'Food Safety') — added for the simplified
       // Dashboard's "Needs attention" food-safety row. Omitted = every task, same
@@ -827,10 +829,9 @@ export default async (request, context) => {
       let storePcs;
       if (storePc) {
         storePcs = [storePc];
-      } else if (district) {
-        storePcs = Object.values(STORE_BY_PC).filter((s) => s.district === district).map((s) => s.pc);
       } else {
-        storePcs = Object.values(STORE_BY_PC).map((s) => s.pc);
+        const closedPcs = await closedPcSet(); // v22.0: hide permanently closed stores' CAs from the network/district list
+        storePcs = Object.values(STORE_BY_PC).filter((s) => (!district || s.district === district) && !closedPcs.has(String(s.pc))).map((s) => s.pc);
       }
 
       const rows = status
@@ -1027,7 +1028,8 @@ export default async (request, context) => {
     }
 
     if (action === 'seed') {
-      const all45 = Object.values(STORE_BY_PC).map((s) => s.pc);
+      const closedPcs = await closedPcSet(); // v22.0
+      const all45 = Object.values(STORE_BY_PC).map((s) => s.pc).filter((pc) => !closedPcs.has(String(pc)));
       const col = (k, map) => CATALOG.map((c) => (map ? map(c[k]) : c[k]) ?? null);
       await db`
         INSERT INTO task_templates

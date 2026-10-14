@@ -13,11 +13,12 @@ import { managerMatches, namesCorrespond, detectManagerCandidate, advanceVacantS
 import { sql } from './_shared/db.mjs';
 import { hashPassword } from './auth-lib/passwords.js';
 import { sendEmail } from './_shared/channels.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 export const config = { schedule: "0 9-23,0-3 * * *" };
 
 // ── Store configs (pc = Dunkin store number, paycor = Paycor legal entity ID) ──
-export const STORES = [
+export const ALL_STORES = [
   { pc:"339616", paycor:"193919", name:"Wadsworth",       district:1 },
   { pc:"340794", paycor:"193904", name:"Front",           district:1 },
   { pc:"351099", paycor:"193900", name:"Sonic",           district:2 },
@@ -65,6 +66,9 @@ export const STORES = [
   { pc:"342184", paycor:"193917", name:"Lansdale",        district:8 },
   { pc:"356316", paycor:"193889", name:"BJ's",            district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+export const STORES = [...ALL_STORES];
 
 // ── Pulse POS API configs ─────────────────────────────────────────────────────
 const APIS = {
@@ -1350,6 +1354,8 @@ async function runManagerSync(storeResults, blobStore, nowMs) {
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export default async (request, context) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   const startMs = Date.now();
   const headers = {
     'Access-Control-Allow-Origin': '*',

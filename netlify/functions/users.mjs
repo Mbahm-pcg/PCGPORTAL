@@ -338,7 +338,8 @@ export default async (request) => {
           role                = COALESCE(${patch.role ?? null}, role),
           user_type           = COALESCE(${patch.userType ?? null}, user_type),
           district            = COALESCE(${patch.district ?? null}, district),
-          store_pc            = COALESCE(${patch.storePC != null ? String(patch.storePC) : null}, store_pc),
+          -- v22.0: an explicit storePC: null / '' clears the store ("Unassigned"); omitting the key keeps it.
+          store_pc            = CASE WHEN ${Object.prototype.hasOwnProperty.call(patch, 'storePC')} THEN ${patch.storePC != null && patch.storePC !== '' ? String(patch.storePC) : null} ELSE store_pc END,
           active              = COALESCE(${patch.active ?? null}, active),
           dark_mode           = COALESCE(${patch.darkMode ?? null}, dark_mode),
           initials            = COALESCE(${patch.initials ?? null}, initials),

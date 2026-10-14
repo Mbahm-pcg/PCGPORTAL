@@ -16,6 +16,8 @@ import { sendDMBriefs, sendExecReport, loadReportSettings } from './analyst-lib/
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
 import { sql } from './_shared/db.mjs';
 import { dcpPct } from './ndcp-lib/store-map.js';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
 
 export const config = { schedule: "0 11,14 * * *" };
 
@@ -331,6 +333,8 @@ async function regradeRecentQA() {
 }
 
 export default async (request, context) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 0 });
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',

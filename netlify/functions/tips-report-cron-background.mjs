@@ -47,6 +47,7 @@ import { runReconcileForDates } from './tips-reconcile-cron.mjs';
 import { retryErrorDays } from './tips-report-morning-sweep-background.mjs';
 import { computeFinalizeStatuses, deriveWithheldSet } from './tips-lib/period-settle.mjs';
 import { recordHealth } from './health-lib/record-health.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 export const config = { schedule: '0 7 * * *' };
 
@@ -66,7 +67,7 @@ export const APIS = {
 };
 
 // Keep in sync with schedule-alerts.mjs / labor-cron.mjs / pos-negative-cron.mjs (CLAUDE.md gotcha #9).
-export const STORES = [
+export const ALL_STORES = [
   { pc:'339616', paycor:'193919', name:'Wadsworth',       district:1 },
   { pc:'340794', paycor:'193904', name:'Front',           district:1 },
   { pc:'351099', paycor:'193900', name:'Sonic',           district:2 },
@@ -114,6 +115,9 @@ export const STORES = [
   { pc:'342184', paycor:'193917', name:'Lansdale',        district:8 },
   { pc:'356316', paycor:'193889', name:"BJ's",            district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+export const STORES = [...ALL_STORES];
 
 export function callUpstream(cfg, endpoint, body) {
   return new Promise((resolve, reject) => {
@@ -914,6 +918,8 @@ export async function fetchStoreCrew(s, busDt) {
 }
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 14 });
   const invocationStart = Date.now();
   // snapshotCache is module-scoped and this function is a separate deployed
   // Lambda from tips-report-refresh-background.mjs (the manual redo path) —

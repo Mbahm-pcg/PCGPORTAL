@@ -6,11 +6,12 @@
 import https from 'node:https';
 import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 export const config = { schedule: '0 10 * * 1,4' };
 
 // ── Store config (keep in sync with labor-cron.js) ───────────────────────────
-const STORES = [
+const ALL_STORES = [
   { pc:'339616', name:'Wadsworth',       district:1, email:'wadsworth@peoplecapitalgroup.com'    },
   { pc:'340794', name:'Front',           district:1, email:'front@peoplecapitalgroup.com'         },
   { pc:'351099', name:'Sonic',           district:2, email:'sonic@peoplecapitalgroup.com'         },
@@ -58,6 +59,9 @@ const STORES = [
   { pc:'342184', name:'Lansdale',        district:8, email:'lansdale@peoplecapitalgroup.com'      },
   { pc:'356316', name:"BJ's",            district:8, email:'bjs@peoplecapitalgroup.com'           },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+const STORES = [...ALL_STORES];
 
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DAY_ABB   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -220,6 +224,8 @@ function buildAlertEmail(store, riskDays, recipientRole) {
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',

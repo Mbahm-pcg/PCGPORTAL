@@ -1,6 +1,7 @@
 // weather-forecast-cron.mjs — Daily: 7-day forecast per district + weekly correlation rebuild
 import https from 'node:https';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 export const config = { schedule: '0 12 * * *' };
 
@@ -15,7 +16,7 @@ const DISTRICT_COORDS = {
   8: { lat: 40.310, lon: -75.230 },
 };
 
-const STORES = [
+const ALL_STORES = [
   { pc:"339616", district:1 },{ pc:"340794", district:1 },
   { pc:"351099", district:2 },{ pc:"351259", district:2 },{ pc:"302642", district:2 },
   { pc:"352894", district:2 },{ pc:"341350", district:2 },{ pc:"337839", district:2 },
@@ -34,6 +35,9 @@ const STORES = [
   { pc:"358933", district:8 },{ pc:"354865", district:8 },{ pc:"353689", district:8 },
   { pc:"342184", district:8 },{ pc:"356316", district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+const STORES = [...ALL_STORES];
 
 function wmoToCondition(code) {
   if (code === 0)  return 'clear';
@@ -172,6 +176,8 @@ async function computeAdjustedTargets(forecasts, correlations) {
 }
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   const isManual = request.method === 'POST';
   console.log('[weather-forecast] Starting', isManual ? '(manual)' : '(scheduled)');
 

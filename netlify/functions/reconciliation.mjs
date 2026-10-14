@@ -3,13 +3,14 @@
 
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 const POS = {
   p227: { host: 'pos-ra.dunkindonuts.com', path: '/p227', xkey: 'sUVxDiWxfv9xIUyBxJlpN3A7znHoIoPx1nfTR6DL', apikey: 'MjI3Onp2RnIrV1dWbnpFeXN0MThhejdyd0tHTFlOZlNGMmlZV0lRZGZXNTZ3L3FvUmFhUGMyQ1ZQalJjaHZtdWVFMWdJSzhremtJSnkxZ3E1YXlzWGN2OVpBPT0=' },
   p228: { host: 'pos-ra.dunkindonuts.com', path: '/p228', xkey: 'g6ge9xpyBo2I0tNXGXntQ8fm104dt3VD3lQ7HjTP', apikey: 'MjI4Onp2RnIrV1dWbnpFeXN0MThhejdyd0tHTFlOZlNGMmlZV0lRZGZXNTZ3L3FvUmFhUGMyQ1ZQalJjaHZtdWVFMWdJSzhremtJSnkxZ3E1YXlzWGN2OVpBPT0=' },
 };
 
-const STORES = [
+const ALL_STORES = [
   { pc:"339616", name:"Wadsworth", district:1 }, { pc:"340794", name:"Front", district:1 },
   { pc:"351099", name:"Sonic", district:2 }, { pc:"351259", name:"Rosemore", district:2 },
   { pc:"302642", name:"County Line", district:2 }, { pc:"352894", name:"Street Rd", district:2 },
@@ -34,6 +35,9 @@ const STORES = [
   { pc:"353689", name:"Fort Washington", district:8 }, { pc:"342184", name:"Lansdale", district:8 },
   { pc:"356316", name:"BJ's", district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+const STORES = [...ALL_STORES];
 
 function posRoute(pc) { return pc === '345986' ? 'p227' : 'p228'; }
 
@@ -83,6 +87,8 @@ const headers = {
 };
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
   if (request.method !== 'POST') return new Response(JSON.stringify({ error: 'POST only' }), { status: 405, headers });
 

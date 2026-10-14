@@ -80,6 +80,8 @@ import { getStore } from '@netlify/blobs';
 import { STORES, fetchAllEmployees, punchHours, etDate, toET } from './tips-report-cron-background.mjs';
 import { fetchSchedulingShifts } from './labor-cron.mjs';
 import { callPaycor } from './paycor.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './tips-report-cron-background.mjs';
 
 // Recipient list lives in the Admin · Notifications tab ("Weekly Hours +
 // Schedule" pill), same ManualNotifyListPanel pattern as Minor Timecard/Fleet/
@@ -471,6 +473,8 @@ export async function runWeeklyReport(weekStart, weekEnd, recipientOverride = nu
 const PAUSED = false;
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 14 });
   if (PAUSED) {
     console.log('[weekly-hours-schedule-report-cron] skipped — PAUSED is true');
     return new Response(JSON.stringify({ ok: true, skipped: 'paused' }), { status: 200 });

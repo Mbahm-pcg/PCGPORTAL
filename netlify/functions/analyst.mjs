@@ -18,6 +18,8 @@ import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs }
 import { resolveCaller } from './_shared/auth.mjs';
 import { sql } from './_shared/db.mjs';
 import { sessionGate } from './auth-lib/require-user.js';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +33,8 @@ function json(status, body) {
 }
 
 export default async (request, context) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 0 });
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
   if (request.method !== 'POST') return json(405, { error: 'POST only' });
 

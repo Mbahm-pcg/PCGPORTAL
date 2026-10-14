@@ -4,6 +4,7 @@
 
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 export const config = { schedule: '1 4 * * 0,2' };
 
@@ -12,7 +13,7 @@ const POS = {
   p228: { host: 'pos-ra.dunkindonuts.com', path: '/p228', xkey: 'g6ge9xpyBo2I0tNXGXntQ8fm104dt3VD3lQ7HjTP', apikey: 'MjI4Onp2RnIrV1dWbnpFeXN0MThhejdyd0tHTFlOZlNGMmlZV0lRZGZXNTZ3L3FvUmFhUGMyQ1ZQalJjaHZtdWVFMWdJSzhremtJSnkxZ3E1YXlzWGN2OVpBPT0=' },
 };
 
-const STORES = [
+const ALL_STORES = [
   { pc:"339616", name:"Wadsworth", district:1 }, { pc:"340794", name:"Front", district:1 },
   { pc:"351099", name:"Sonic", district:2 }, { pc:"351259", name:"Rosemore", district:2 },
   { pc:"302642", name:"County Line", district:2 }, { pc:"352894", name:"Street Rd", district:2 },
@@ -37,6 +38,9 @@ const STORES = [
   { pc:"353689", name:"Fort Washington", district:8 }, { pc:"342184", name:"Lansdale", district:8 },
   { pc:"356316", name:"BJ's", district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+const STORES = [...ALL_STORES];
 
 function posRoute(pc) { return pc === '345986' ? 'p227' : 'p228'; }
 
@@ -133,6 +137,8 @@ async function pullWeekSales(dates) {
 }
 
 export default async () => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const dow = et.getDay();

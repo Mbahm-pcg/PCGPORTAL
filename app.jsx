@@ -7,6 +7,7 @@ import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } f
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
+import { isClosedOn, PERMANENTLY_CLOSED } from './src/store-status.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
@@ -3759,7 +3760,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                       style={{ ...inp(th), width:"100%" }}
                       value={form.storePC || ""}
                       onChange={e => {
-                        const pc = e.target.value || undefined;
+                        const pc = e.target.value || null; // v22.0: null (not undefined) so "Unassigned" really clears it
                         // For a Store Tablet, picking the store auto-fills the login:
                         // username = PC#, name = that store's manager (so tickets/tasks
                         // are attributed to the manager). Other roles just set the store.
@@ -3774,11 +3775,12 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                     >
                       <option value="">— Unassigned —</option>
                       {(stores || [])
+                        .filter(s => s.status !== PERMANENTLY_CLOSED || String(s.pc) === String(form.storePC || ''))
                         .slice()
-                        .sort((a, b) => a.district - b.district || a.name.localeCompare(b.name))
+                        .sort((a, b) => (Number(a.district) || 99) - (Number(b.district) || 99) || String(a.name || '').localeCompare(String(b.name || '')))
                         .map(s => (
                           <option key={s.pc} value={String(s.pc)}>
-                            D{s.district} · {s.name} · {s.address}
+                            D{s.district} · {s.name} · {s.address}{s.status === PERMANENTLY_CLOSED ? ' (permanently closed)' : ''}
                           </option>
                         ))
                       }
@@ -4803,6 +4805,11 @@ const LOCATION_TOOLS = [
 
 // Popover: enter an address → rank the 10 nearest stores (straight-line, instant)
 // on a Leaflet map, with real driving distance/time fetched per store on click.
+// v22.0: live list of stores that are not Permanently Closed, kept current by PCGPortal.
+// For components that never received a `stores` prop (Closest-to finder, Impact Radar).
+let LIVE_OPEN_STORES = null;
+const openStoreList = () => LIVE_OPEN_STORES || STORES_SEED.filter(s => s.status !== PERMANENTLY_CLOSED);
+
 function ClosestToFinder({ th, onClose }) {
   const O = '#FF671F';
   const [addr, setAddr] = useState('');
@@ -4844,7 +4851,7 @@ function ClosestToFinder({ th, onClose }) {
     setAddr(s.label);
     setSuggestions([]); setShowSuggestions(false); setActiveSugIdx(-1);
     const o = { lat: s.lat, lng: s.lng, label: s.label };
-    const rows = STORES_SEED
+    const rows = openStoreList()
       .filter((st) => STORE_COORDS[st.pc])
       .map((st) => ({ pc: st.pc, name: st.name, address: `${st.address}, ${st.city}, ${st.state} ${st.zip}`,
                        miles: haversineMiles(o, STORE_COORDS[st.pc]) }))
@@ -4872,7 +4879,7 @@ function ClosestToFinder({ th, onClose }) {
       }).then((x) => x.json());
       if (r && r.matched) {
         const o = { lat: r.lat, lng: r.lng, label: q };
-        const rows = STORES_SEED
+        const rows = openStoreList()
           .filter((s) => STORE_COORDS[s.pc])
           .map((s) => ({ pc: s.pc, name: s.name, address: `${s.address}, ${s.city}, ${s.state} ${s.zip}`,
                           miles: haversineMiles(o, STORE_COORDS[s.pc]) }))
@@ -4908,7 +4915,7 @@ function ClosestToFinder({ th, onClose }) {
     map.eachLayer((l) => { if (!(l instanceof L.TileLayer)) map.removeLayer(l); });
     markersRef.current = {};
     const top = new Set(ranked.map((r) => r.pc));
-    STORES_SEED.forEach((s) => {
+    openStoreList().forEach((s) => {
       const c = STORE_COORDS[s.pc]; if (!c) return;
       const hot = top.has(s.pc);
       markersRef.current[s.pc] = L.circleMarker([c.lat, c.lng], {
@@ -5126,7 +5133,9 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
 
   const filtered = baseStores.filter(s => {
     const matchState    = filterState    === "All" || s.state            === filterState;
-    const matchStatus   = filterStatus   === "All" || s.status           === filterStatus;
+    // v22.0: "All" means all stores that are still part of the network — Permanently Closed
+    // only shows when that status is picked explicitly (the directory view keeps its own Closed section).
+    const matchStatus   = filterStatus   === "All" ? s.status !== "Permanently Closed" : s.status === filterStatus;
     const matchDistrict = filterDistrict === "All" || String(s.district) === filterDistrict;
     const matchNxt      = !filterNxt    || s.isNextGen;
     const matchBaskin   = !filterBaskin || s.isBaskin;
@@ -30998,7 +31007,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.99";
+const APP_VERSION = "v22.0";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -42677,7 +42686,7 @@ function ImpactRadar({ th, user, dark, salesWeeks }) {
   // Rank stores by distance whenever the event location or coords cache changes.
   useEffect(() => {
     if (!eventLatLng || !coords) return;
-    const rows = STORES_SEED
+    const rows = openStoreList()
       .filter((s) => coords[s.pc])
       .map((s) => ({
         pc: s.pc, name: s.name, address: `${s.address}, ${s.city}`,
@@ -52331,7 +52340,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
                 <div style={{ fontSize:'0.72rem', color:th.muted, marginBottom:'0.3rem' }}>Store</div>
                 <select value={maintForm.storePC} onChange={e => setMaintForm(p => ({...p, storePC: e.target.value}))} style={{ ...inp(th), width:'100%', boxSizing:'border-box' }}>
                   <option value=''>All Stores</option>
-                  {stores.filter(s => s.status !== 'Closed').sort((a,b) => (a.name||'').localeCompare(b.name||'')).map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
+                  {stores.filter(s => s.status !== PERMANENTLY_CLOSED).sort((a,b) => (a.name||'').localeCompare(b.name||'')).map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}
                 </select>
               </div>
               <div>
@@ -53412,6 +53421,13 @@ function PCGPortal() {
   const [todos, setTodos]       = useState(() => { const s=loadFromStorage(); return s?.todos    || []; });
   const [users, setUsers]       = useState([]);
   const [stores, setStores]     = useState(() => { const s=loadFromStorage(); return s?.stores   || STORES_SEED; });
+  // v22.0: every screen except Locations / Users / Admin gets only stores that aren't
+  // Permanently Closed (as of today) — one definition, src/store-status.mjs.
+  const openStores = React.useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return (stores || []).filter(s => !isClosedOn(s, today));
+  }, [stores]);
+  useEffect(() => { LIVE_OPEN_STORES = openStores; }, [openStores]);
   const [districts, setDistricts] = useState(() => { const s=loadFromStorage(); return s?.districts || DISTRICTS_SEED; });
   setDistrictsRef(districts);
   React.useEffect(() => { setDistrictsRef(districts); }, [districts]);
@@ -54372,23 +54388,56 @@ function PCGPortal() {
   // in production data after a handful of reloads. A Map-based merge is
   // idempotent regardless of how many times it runs: re-merging the same
   // cloud snapshot into an already-deduped local array changes nothing.
+  const storesSyncedRef = useRef(null); // key -> signature of the last saved/loaded copy
+  const storeKey = (s) => String(s?.pc || s?.id || '');
+  const storeSig = (s) => { if (!s) return ''; const { updatedAt, ...rest } = s; return JSON.stringify(rest); };
   useEffect(() => {
     cloudLoad('pcg_stores_v1').then(data => {
       cloudStoresLoaded.current = true;
       if (data && Array.isArray(data) && data.length > 0) {
+        // v22.0: the saved list decides WHICH stores exist (so STORES_SEED / stale
+        // localStorage can no longer resurrect a store); per store, the newer
+        // updatedAt wins (keeps an unsaved local edit made before this load finished).
         setStores(local => {
-          const merged = new Map();
-          local.forEach(s => merged.set(s.pc || s.id, s));
-          data.forEach(s => merged.set(s.pc || s.id, s));
-          return Array.from(merged.values());
+          const localByKey = new Map(local.map(s => [storeKey(s), s]));
+          const out = data.map(c => {
+            const l = localByKey.get(storeKey(c));
+            return l && String(l.updatedAt || '') > String(c.updatedAt || '') ? l : c;
+          });
+          storesSyncedRef.current = new Map(out.map(s => [storeKey(s), storeSig(s)]));
+          return out;
         });
       }
     }).catch(() => { cloudStoresLoaded.current = true; });
   }, []);
+  // v22.0: per-store save. Only stores actually changed in THIS tab get a fresh
+  // updatedAt; the latest saved copy is re-read right before saving and merged store
+  // by store (newer updatedAt wins). A tab left open from before a store was closed
+  // can no longer push its stale "Open" copy back over the closure.
   useEffect(() => {
     if (!cloudStoresLoaded.current) return;
     if (stores.length === 0) return;
-    cloudSave('pcg_stores_v1', stores);
+    const synced = storesSyncedRef.current || new Map();
+    const changed = stores.filter(s => synced.get(storeKey(s)) !== storeSig(s));
+    if (!changed.length) return;
+    const t = setTimeout(async () => {
+      const now = new Date().toISOString();
+      const changedKeys = new Set(changed.map(storeKey));
+      const mine = stores.map(s => changedKeys.has(storeKey(s)) ? { ...s, updatedAt: now } : s);
+      let cloud = [];
+      try { const d = await cloudLoad('pcg_stores_v1'); if (Array.isArray(d)) cloud = d; } catch {}
+      const byKey = new Map(cloud.map(c => [storeKey(c), c]));
+      for (const m of mine) {
+        const c = byKey.get(storeKey(m));
+        if (!c || changedKeys.has(storeKey(m)) || String(m.updatedAt || '') > String(c.updatedAt || '')) byKey.set(storeKey(m), m);
+      }
+      const merged = Array.from(byKey.values());
+      try { await cloudSave('pcg_stores_v1', merged); } catch {}
+      storesSyncedRef.current = new Map(merged.map(s => [storeKey(s), storeSig(s)]));
+      // Pull in anything another admin changed meanwhile (no-op if identical).
+      setStores(cur => (JSON.stringify(cur.map(storeSig)) === JSON.stringify(merged.map(storeSig)) ? cur : merged));
+    }, 500);
+    return () => clearTimeout(t);
   }, [stores]);
 
   // Cloud sync districts
@@ -54996,7 +55045,10 @@ function PCGPortal() {
     }
     return true; // vacant
   };
-  const managerPendingCount = Object.values(managerPending).filter(managerPendingIsActionable).length;
+  // v22.0: a permanently closed store never needs a manager — ignore its leftover pending item
+  // (labor-cron also stops creating them and deletes existing ones on its next run).
+  const openStorePcs = React.useMemo(() => new Set(openStores.map(s => String(s.pc))), [openStores]);
+  const managerPendingCount = Object.entries(managerPending).filter(([pc, item]) => openStorePcs.has(String(pc)) && managerPendingIsActionable(item)).length;
   // Which store's pending item the review modal is currently open for (null = closed). The
   // modal always reads the LIVE managerPending[pc] entry, not a snapshot, so it can't go stale.
   const [managerReviewPc, setManagerReviewPc] = useState(null);
@@ -55129,7 +55181,7 @@ function PCGPortal() {
       <MaintenanceMobileView
         th={th}
         user={user}
-        stores={stores}
+        stores={openStores}
         onFullPortal={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }}
         onLogout={handleLogout}
         chatChannels={chatChannels}
@@ -55145,7 +55197,7 @@ function PCGPortal() {
       <ConstructionMobileView
         th={th}
         user={user}
-        stores={stores}
+        stores={openStores}
         projects={projects}
         setProjects={setProjects}
         todos={todos}
@@ -55181,7 +55233,7 @@ function PCGPortal() {
     return (
       <ManagerEmbeddableView
         user={user}
-        stores={stores}
+        stores={openStores}
         th={th}
         dark={dark}
         toggleDark={() => setDark(d => !d)}
@@ -55220,7 +55272,7 @@ function PCGPortal() {
           🔒 Lock
         </button>
         <div style={{ padding:"1.5rem 2rem" }}>
-          <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} />
+          <AdminPulse stores={openStores} districts={districts} th={th} user={user} users={users} />
         </div>
       </div>
     );
@@ -55249,7 +55301,7 @@ function PCGPortal() {
 
   // ── Store Tablet: store-locked Tickets + Tasks (paired with Hexnode kiosk) ──
   if (user.userType === "store_tablet") {
-    return <StoreTabletView user={user} users={users} stores={stores} th={th} showAlert={showAlert}
+    return <StoreTabletView user={user} users={users} stores={openStores} th={th} showAlert={showAlert}
       dataAlert={dataAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} onLogout={handleLogout} deepLinkRef={ticketDeepLinkRef} />;
   }
 
@@ -55876,7 +55928,7 @@ function PCGPortal() {
           <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '0.8rem', cursor: 'pointer' }}>Log out</button>
         </div>
       }>
-        <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={stores} announcements={announcements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} onSwitchToFull={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} onExpenses={() => { togglePortalMode(true); setTab("expenses"); }} todos={todos} projects={projects} users={users} />
+        <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={openStores} announcements={announcements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} onSwitchToFull={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} onExpenses={() => { togglePortalMode(true); setTab("expenses"); }} todos={todos} projects={projects} users={users} />
       </Guard>
     );
   }
@@ -55909,7 +55961,7 @@ function PCGPortal() {
 
       {/* Global Ask Analyst Omnibar (Cmd-K) */}
       {(user.userType === 'executive' || user.userType === 'it' || user.userType === 'dm') && (
-        <AskBar user={user} stores={stores} th={th} />
+        <AskBar user={user} stores={openStores} th={th} />
       )}
 
       {/* Desktop sidebar */}
@@ -56326,7 +56378,7 @@ function PCGPortal() {
           <ManagerSyncReviewModal
             pc={managerReviewPc}
             item={managerPending[managerReviewPc]}
-            stores={stores}
+            stores={openStores}
             users={users}
             setUsers={setUsers}
             currentUser={user}
@@ -56367,24 +56419,24 @@ function PCGPortal() {
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}
           <Guard key={tab} name="tab-content" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"2rem auto", maxWidth:520, textAlign:"center", color:th.muted }}>This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.</div>}>
           {tab === MOBILE_LAUNCHER_TAB_ID && <MobileAppLauncher user={user} th={th} dark={dark} tabs={TABS} onNavigate={setTab} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} navBadge={navBadge} onOpenProfile={() => setShowProfile(true)} onToggleTheme={handleToggle} onLogout={handleLogout} />}
-          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><SimpleDashboard user={user} th={th} links={links} todos={todos} stores={stores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
+          {tab === "dashboard" && <Guard name="dashboard" fallback={<div style={{ ...card(th), padding:"1.5rem", margin:"1rem 0", textAlign:"center", color:th.muted }}>Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.</div>}><SimpleDashboard user={user} th={th} links={links} todos={todos} stores={openStores} projects={projects} announcements={announcements} setAnnouncements={setAnnouncements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} setTab={setTab} notifications={notifications} chatUnreadCount={chatUnreadCount} isMobile={isMobile} salesWeeks={salesWeeks} districts={districts} todoDeepLinkRef={todoDeepLinkRef} onAskOrion={(q) => { setPendingOrionQuestion(q); setTab("chat"); }} showAlert={showAlert} users={users} /></Guard>}
           {tab === "links"    && <LinksHub links={links} setLinks={setLinks} th={th} user={user} />}
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
-          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <StoreMap stores={stores.filter(s => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district)} th={th} setTab={setTab} users={users} />}
-          {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? stores : stores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
-          {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={stores} salesWeeks={salesWeeks} />}
+          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <StoreMap stores={openStores.filter(s => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district)} th={th} setTab={setTab} users={users} />}
+          {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? openStores : openStores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
+          {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={openStores} salesWeeks={salesWeeks} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} users={users} onMapModeChange={setLocationsMapMode} />}
-          {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={stores} setStores={setStores} users={users} th={th} />}
+          {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={openStores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} managerPendingCount={managerPendingCount} />}
-          {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={stores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
-          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
-          {tab === "pulse"     && isManager && <ManagerPulse stores={stores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
-          {tab === "schedule"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminSchedule stores={stores} th={th} user={user} />}
-          {tab === "schedule"  && isManager && <ManagerSchedule stores={stores} th={th} user={user} />}
-          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={stores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
-          {tab === "finance" && <AdminFinance stores={stores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} accessOverrides={accessOverrides} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
+          {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={openStores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
+          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={openStores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
+          {tab === "pulse"     && isManager && <ManagerPulse stores={openStores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
+          {tab === "schedule"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminSchedule stores={openStores} th={th} user={user} />}
+          {tab === "schedule"  && isManager && <ManagerSchedule stores={openStores} th={th} user={user} />}
+          {tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <AdminLabor stores={openStores} districts={districts} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} users={users} />}
+          {tab === "finance" && <AdminFinance stores={openStores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} showAlert={showAlert} isMobile={isMobile} cashDeposits={cashDeposits} setCashDeposits={setCashDeposits} cashUploads={cashUploads} setCashUploads={setCashUploads} cashNotes={cashNotes} setCashNotes={setCashNotes} cashPOS={cashPOS} setCashPOS={setCashPOS} canPnl={canPnl} accessOverrides={accessOverrides} pinnedNavIds={pinnedNavIds} togglePinNav={togglePinNav} cashMissingCount={cashMissingCount} />}
           {tab === "ops-hub" && (() => {
             const OPS = '#2F6FA8';
             const opsTiles = [
@@ -56455,32 +56507,32 @@ function PCGPortal() {
               </div>
             );
           })()}
-          {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={stores} users={users} onBack={() => setTab('tools-hub')} />}
-          {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={stores} user={user} />}
-          {tab === "pnl" && canPnl && <AdminPnL stores={stores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
+          {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={openStores} users={users} onBack={() => setTab('tools-hub')} />}
+          {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={openStores} user={user} />}
+          {tab === "pnl" && canPnl && <AdminPnL stores={openStores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
-          {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={stores} th={th} user={user} />}
+          {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={openStores} th={th} user={user} />}
           {tab === "deals" && canDeals && <AdminDeals th={th} user={user} dealAuth={dealAuth} />}
           {tab === "reports" && <ReportsTab th={th} user={user} showAlert={showAlert} reportsIndex={reportsIndex} reportsReadIds={reportsReadIds} setReportsReadIds={setReportsReadIds} setReportsUnreadCount={setReportsUnreadCount} />}
-          {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={stores} showAlert={showAlert} setTab={setTab} />}
-          {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={stores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "audits" && (auditCanView(user) || safeCanView(user)) && <AuditsTab user={user} th={th} stores={openStores} showAlert={showAlert} setTab={setTab} />}
+          {tab === "projects"  && canViewProjects(user) && <AdminProjects projects={projects} setProjects={setProjectsUser} stores={openStores} districts={districts} user={user} th={th} showAlert={showAlert} notifications={notifications} setNotifications={setNotifications} setTab={setTab} dailyReports={dailyReports} setDailyReports={setDailyReportsUser} deepLinkRef={deepLinkRef} chatChannels={chatChannels} setChatChannels={setChatChannels} chatMessages={chatMessages} setChatMessages={setChatMessages} chatReadState={chatReadState} setChatReadState={setChatReadState} users={users} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && <ProjectGalleryTab user={user} th={th} projects={projects} setProjects={setProjectsUser} dailyReports={dailyReports} isMobile={isMobile} />}
-          {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={stores} showAlert={showAlert} />}
+          {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={openStores} showAlert={showAlert} />}
           {tab === "system-health" && isFullAdmin(user) && <SystemHealth th={th} user={user} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
-          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={stores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
+          {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={openStores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} users={users} />}
-          {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={stores} />}
+          {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={openStores} />}
           {tab === "email"    && (isFullAdmin(user) || isOfficeStaff) && <EmailTab th={th} user={user} />}
-          {tab === "tickets"  && <AdminTickets user={user} users={users} stores={stores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} setTab={setTab} deepLinkRef={ticketDeepLinkRef} />}
-          {tab === "expenses" && <ExpensesTab user={user} th={th} stores={stores} />}
-          {tab === "incident-reports" && <IncidentReportsTab user={user} th={th} stores={stores} showAlert={showAlert} />}
+          {tab === "tickets"  && <AdminTickets user={user} users={users} stores={openStores} th={th} showAlert={showAlert} ticketNotifyEmails={ticketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setNotifications={setNotifications} setTab={setTab} deepLinkRef={ticketDeepLinkRef} />}
+          {tab === "expenses" && <ExpensesTab user={user} th={th} stores={openStores} />}
+          {tab === "incident-reports" && <IncidentReportsTab user={user} th={th} stores={openStores} showAlert={showAlert} />}
           {tab === "minor-timecard" && <MinorTimecardComplianceTab user={user} th={th} showAlert={showAlert} />}
           {tab === "office-clock" && user?.userType === 'office_staff' && <OfficeClockTab user={user} th={th} showAlert={showAlert} />}
           {tab === "office-clock-admin" && isFullAdmin(user) && <OfficeClockAdmin user={user} th={th} showAlert={showAlert} users={users} setUsers={setUsers} />}
           {tab === "office-clock-review" && isFullAdmin(user) && <OfficeClockReview user={user} th={th} showAlert={showAlert} />}
-          {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={stores} todos={todos} setTodos={setTodos} />}
-          {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={stores} todos={todos} projects={projects} />}
+          {tab === "calendar" && user?.userType === "maintenance" && <MaintenanceCalendar th={th} user={user} stores={openStores} todos={todos} setTodos={setTodos} />}
+          {tab === "calendar" && user?.userType !== "maintenance" && <PortalCalendar th={th} user={user} stores={openStores} todos={todos} projects={projects} />}
           </Guard>
         </div>
       </div>

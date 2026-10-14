@@ -7,10 +7,11 @@ import https from 'node:https';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { classifyItem } from './food-cost.mjs';
 import { loadNewProductRegistry, matchNewProducts } from './analyst-lib/new-products.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 export const config = { schedule: '30 2 * * *' };
 
-export const STORES = [
+export const ALL_STORES = [
   { pc:"339616", name:"Wadsworth",       district:1 },
   { pc:"340794", name:"Front",           district:1 },
   { pc:"351099", name:"Sonic",           district:2 },
@@ -58,6 +59,9 @@ export const STORES = [
   { pc:"342184", name:"Lansdale",        district:8 },
   { pc:"356316", name:"BJ's",            district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+export const STORES = [...ALL_STORES];
 
 // One representative coordinate per district (Philadelphia region)
 export const DISTRICT_COORDS = {
@@ -530,6 +534,8 @@ export async function appendItemSnapshot(pc, date, weather, bakery, flavors, cat
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export default async () => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   const date = yesterdayET();
   console.log(`[hourly-snapshot] Starting snapshot for ${date}`);
 

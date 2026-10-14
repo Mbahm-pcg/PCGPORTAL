@@ -4,10 +4,11 @@ import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { callClaude, HAIKU } from './analyst-lib/analyst-claude.mjs';
 import { REVIEW_ANALYSIS_SYSTEM } from './analyst-lib/analyst-prompts.mjs';
 import { logAudit } from './analyst-lib/analyst-audit.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 
 export const config = { schedule: '0 5 * * 0' };
 
-const STORES = [
+const ALL_STORES = [
   { pc:"339616", name:"Wadsworth",       district:1 },
   { pc:"340794", name:"Front",           district:1 },
   { pc:"351099", name:"Sonic",           district:2 },
@@ -55,6 +56,9 @@ const STORES = [
   { pc:"342184", name:"Lansdale",        district:8 },
   { pc:"356316", name:"BJ's",            district:8 },
 ];
+// Live copy for this invocation — refreshStoreList() trims permanently closed stores
+// (see _shared/store-status.mjs). ALL_STORES keeps the full configured list.
+const STORES = [...ALL_STORES];
 
 function fetchJSON(url, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -157,6 +161,8 @@ function computeTrend(reviews) {
 }
 
 export default async (request) => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(STORES, ALL_STORES, { graceDays: 0 });
   const isManual = request.method === 'POST';
   console.log('[reviews-cron] Starting', isManual ? '(manual)' : '(scheduled)');
 

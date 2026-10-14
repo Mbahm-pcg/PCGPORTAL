@@ -7,6 +7,8 @@
 
 import { STORES, getStoreToday, todayET } from './analyst-lib/analyst-data.mjs';
 import { cacheSave } from './analyst-lib/analyst-cache.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
+import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
 
 export const config = { schedule: '*/30 * * * *' };
 
@@ -25,6 +27,8 @@ async function mapLimit(items, limit, fn) {
 }
 
 export default async () => {
+  // v22.0: skip permanently closed stores (Locations status) for this run.
+  await refreshStoreList(__STORE_LIST, __STORE_ALL, { graceDays: 0 });
   // ET business-hours guard — Dunkin opens ~5am; skip before 4am ET to avoid empty churn.
   let etHour = Number(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: '2-digit', hour12: false }));
   if (etHour === 24) etHour = 0;
