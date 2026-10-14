@@ -16352,9 +16352,52 @@ ${t2.slice(0, 300)}`);
       "\u2715"
     ))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "0.25rem" } }, a.message), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", color: th.muted } }, new Date(a.createdAt).toLocaleString(), " by ", a.createdBy)))));
   }
+  var ACCESS_ICONS = {
+    shield: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" })),
+    lock: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "5", y: "11", width: "14", height: "10", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M8 11V7a4 4 0 0 1 8 0v4" })),
+    user: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "8", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M4 21a8 8 0 0 1 16 0" })),
+    users: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M16.5 5.5a3.2 3.2 0 0 1 0 6.2M21.5 20a6 6 0 0 0-5-6" })),
+    crown: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "m3 8 4.5 4L12 5l4.5 7L21 8l-2 11H5Z" })),
+    pin: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10", r: "2.5" })),
+    store: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M9 20v-6h6v6" })),
+    tablet: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "5", y: "2", width: "14", height: "20", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M11 18h2" })),
+    hardhat: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M2 18h20M4 18v-3a8 8 0 0 1 16 0v3" }), /* @__PURE__ */ React.createElement("path", { d: "M10 7V5h4v2" })),
+    wrench: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5Z" })),
+    truck: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 6h11v10H3zM14 9h4l3 3v4h-7" }), /* @__PURE__ */ React.createElement("circle", { cx: "7", cy: "17.5", r: "1.8" }), /* @__PURE__ */ React.createElement("circle", { cx: "17", cy: "17.5", r: "1.8" })),
+    tv: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2.5", y: "5", width: "19", height: "13", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M8 21h8" })),
+    upload: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 16V4M7 9l5-5 5 5" }), /* @__PURE__ */ React.createElement("path", { d: "M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3" })),
+    clipboard: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "6", y: "4", width: "12", height: "17", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M9 4h6v3H9zM9 12l2 2 4-4" })),
+    globe: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" })),
+    check: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "m8.5 12 2.5 2.5 4.5-5" })),
+    info: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 11v5M12 8h.01" })),
+    search: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "11", r: "7" }), /* @__PURE__ */ React.createElement("path", { d: "m20 20-3.5-3.5" })),
+    plus: /* @__PURE__ */ React.createElement("path", { d: "M12 5v14M5 12h14" }),
+    x: /* @__PURE__ */ React.createElement("path", { d: "M6 6l12 12M18 6 6 18" }),
+    chevron: /* @__PURE__ */ React.createElement("path", { d: "m6 9 6 6 6-6" })
+  };
+  var ROLE_ICON_KEY = { executive: "crown", it: "users", office_staff: "user", auditor: "clipboard", dm: "pin", manager: "store", store_tablet: "tablet", construction: "hardhat", maintenance: "wrench", vendor: "truck", kiosk_pulse: "tv", kiosk_upload: "upload" };
+  var ROLE_REACH = {
+    executive: ["Network-wide access", "All locations"],
+    it: ["Network-wide access", "All locations"],
+    office_staff: ["Network-wide access", "All locations"],
+    auditor: ["Network-wide access", "All locations (read)"],
+    dm: ["District access", "Own district only"],
+    manager: ["Store access", "Assigned store only"],
+    store_tablet: ["Store access", "Assigned store only"],
+    construction: ["Project access", "Assigned projects"],
+    maintenance: ["Network-wide access", "Tickets & calendar"],
+    vendor: ["Project access", "Assigned projects"],
+    kiosk_pulse: ["Display only", "No portal access"],
+    kiosk_upload: ["Upload only", "No portal access"]
+  };
+  var PRIMARY_ROLES = ["executive", "it", "office_staff"];
+  var accIco = (k, c, s = 18) => /* @__PURE__ */ React.createElement(HubIcon, { d: ACCESS_ICONS[k], color: c, size: s });
+  var initialsOf = (name) => String(name || "?").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "?";
   function PnlAccessPanel({ th, user, users, showAlert: showAlert2 }) {
     const [allowed, setAllowed] = useState(null);
-    const [input, setInput] = useState("");
+    const [query, setQuery] = useState("");
+    const [adding, setAdding] = useState(false);
+    const [addQuery, setAddQuery] = useState("");
     const [saving, setSaving] = useState(false);
     useEffect(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => setAllowed(Array.isArray(d?.allowed) ? d.allowed : [...DEFAULT_PNL_ALLOWED])).catch(() => setAllowed([...DEFAULT_PNL_ALLOWED]));
@@ -16365,29 +16408,211 @@ ${t2.slice(0, 300)}`);
       setSaving(false);
       if (ok) {
         setAllowed(next);
-        showAlert2 && showAlert2("P&L access updated", "success");
-      } else showAlert2 && showAlert2("Failed to save P&L access", "error");
+        showAlert2 && showAlert2("success", "P&L access updated");
+      } else showAlert2 && showAlert2("error", "Failed to save P&L access");
     };
-    const add = () => {
-      const id = normalizeId(input);
+    const addId = (raw) => {
+      const id = normalizeId(raw);
       if (!id) return;
       if ((allowed || []).map(normalizeId).includes(id)) {
-        setInput("");
+        setAddQuery("");
+        setAdding(false);
         return;
       }
       persist([...allowed || [], id]);
-      setInput("");
+      setAddQuery("");
+      setAdding(false);
     };
     const remove = (id) => persist((allowed || []).filter((a) => normalizeId(a) !== normalizeId(id)));
-    const nameFor = (id) => {
+    const userFor = (id) => {
       const n = normalizeId(id);
-      const u = (users || []).find((u2) => normalizeId(u2.username) === n || normalizeId(u2.email) === n);
-      return u ? u.name : id;
+      return (users || []).find((u) => normalizeId(u.username) === n || normalizeId(u.email) === n) || null;
     };
-    if (allowed === null) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1.25rem" } }, "Loading P&L access\u2026");
-    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontFamily: "'Raleway'", color: th.text, marginBottom: "0.25rem" } }, "\u{1F512} P&L Access"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginBottom: "0.9rem" } }, "Control who can see the P&L tab. You and Ahmed always have access and can manage this list."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.75rem" } }, ["Mike Bahm", "Ahmed Bhuiyan"].map((m) => /* @__PURE__ */ React.createElement("span", { key: m, style: { fontSize: "0.78rem", padding: "0.25rem 0.6rem", borderRadius: "0.5rem", background: th.card2 || th.card, color: th.muted, border: `1px solid ${th.cardBorder}` } }, m, " \xB7 manager \u{1F512}"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.9rem" } }, (allowed || []).length === 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "No additional users yet."), (allowed || []).map((id) => /* @__PURE__ */ React.createElement("span", { key: id, style: { fontSize: "0.78rem", padding: "0.25rem 0.5rem 0.25rem 0.6rem", borderRadius: "0.5rem", background: "#22c55e18", color: th.text, border: "1px solid #22c55e55", display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, nameFor(id), /* @__PURE__ */ React.createElement("button", { onClick: () => remove(id), disabled: saving, title: "Remove access", style: { border: "none", background: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "0.95rem", lineHeight: 1, padding: 0 } }, "\xD7")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("input", { value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => {
-      if (e.key === "Enter") add();
-    }, placeholder: "Add by email or username", style: { ...inp(th), flex: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: add, disabled: saving || !input.trim(), style: { ...btn(th), opacity: saving || !input.trim() ? 0.6 : 1 } }, saving ? "Saving\u2026" : "Add")));
+    const roleLabel = (u) => u ? ROLE_META[u.userType]?.label || u.role || "" : "Not a portal user yet";
+    const rows = (allowed || []).map((id) => ({ id, u: userFor(id) }));
+    const q = query.trim().toLowerCase();
+    const shown = q ? rows.filter((r) => `${r.u?.name || ""} ${r.u?.email || ""} ${r.id}`.toLowerCase().includes(q)) : rows;
+    const aq = addQuery.trim().toLowerCase();
+    const suggestions = aq.length < 2 ? [] : (users || []).filter((u) => u.active !== false && `${u.name || ""} ${u.email || ""} ${u.username || ""}`.toLowerCase().includes(aq)).filter((u) => !(allowed || []).map(normalizeId).some((a) => a === normalizeId(u.email) || a === normalizeId(u.username))).slice(0, 6);
+    if (allowed === null) return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem" } }, "Loading P&L access\u2026");
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: "0.9rem", padding: "1.4rem 1.5rem", display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.45fr)", gap: "1.5rem" }, className: "access-restricted" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 48, height: 48, borderRadius: "0.75rem", background: "#FF671F1a", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, accIco("lock", "#FF671F", 22)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text } }, "Restricted Access"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.5 } }, "P&L visibility and sensitive financial data. Only authorized users can access this section."), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.35rem", marginTop: "0.75rem", fontSize: "0.75rem", fontWeight: 600, color: "#c2410c", background: "#FF671F1a", borderRadius: 999, padding: "0.3rem 0.75rem" } }, accIco("user", "#c2410c", 13), " ", (allowed || []).length, " authorized user", (allowed || []).length !== 1 ? "s" : ""))), /* @__PURE__ */ React.createElement("div", { style: { borderLeft: `1px solid ${th.cardBorder}`, paddingLeft: "1.5rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.muted } }, "Authorized Users"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.7rem", top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" } }, accIco("search", th.muted, 14)), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: query,
+        onChange: (e) => setQuery(e.target.value),
+        placeholder: "Search by name or email",
+        "aria-label": "Search authorized users",
+        style: { ...inp(th), width: 210, padding: "0.5rem 0.75rem 0.5rem 2.1rem", fontSize: "0.78rem", borderRadius: "0.6rem" }
+      }
+    )), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setAdding((a) => !a),
+        disabled: saving,
+        style: { ...btn(th, { padding: "0.5rem 0.95rem", fontSize: "0.78rem", borderRadius: "0.6rem" }), display: "inline-flex", alignItems: "center", gap: "0.35rem" }
+      },
+      accIco("plus", "#fff", 14),
+      " Add user"
+    ))), adding && /* @__PURE__ */ React.createElement("div", { style: { position: "relative", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        autoFocus: true,
+        value: addQuery,
+        onChange: (e) => setAddQuery(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter" && addQuery.trim()) addId(suggestions[0]?.email || suggestions[0]?.username || addQuery);
+          if (e.key === "Escape") {
+            setAdding(false);
+            setAddQuery("");
+          }
+        },
+        placeholder: "Type a name, email or username, then pick a person",
+        style: { ...inp(th), width: "100%", boxSizing: "border-box", fontSize: "0.8rem" }
+      }
+    ), suggestions.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem", marginTop: "0.2rem", boxShadow: "0 10px 24px rgba(0,0,0,0.12)", overflow: "hidden" } }, suggestions.map((u) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: u.id,
+        onMouseDown: () => addId(u.email || u.username),
+        style: { display: "flex", justifyContent: "space-between", gap: "0.75rem", padding: "0.5rem 0.75rem", cursor: "pointer", fontSize: "0.8rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}` },
+        onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
+        onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 600 } }, u.name),
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, u.email || u.username)
+    )))), /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${th.cardBorder}`, borderRadius: "0.7rem", overflow: "hidden" } }, shown.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1rem", fontSize: "0.8rem", color: th.muted } }, rows.length ? "No one matches that search." : "No additional users yet."), shown.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.8rem", padding: "0.65rem 0.9rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 34, height: 34, borderRadius: "50%", background: "#FF671F1f", color: "#c2410c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 700, flexShrink: 0 } }, initialsOf(r.u?.name || r.id)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.u?.name || r.id), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.u?.email || r.id)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, flexShrink: 0, minWidth: 90 } }, roleLabel(r.u)), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => remove(r.id),
+        disabled: saving,
+        title: `Remove ${r.u?.name || r.id}`,
+        "aria-label": `Remove ${r.u?.name || r.id}`,
+        style: { background: "none", border: "none", cursor: "pointer", padding: "0.25rem", display: "flex" }
+      },
+      accIco("x", th.muted, 15)
+    )))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.74rem", color: th.muted, marginTop: "0.7rem" } }, accIco("info", th.muted, 14), " Mike Bahm and Ahmed Bhuiyan always have access and manage this list.")));
+  }
+  function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, showAlert: showAlert2 }) {
+    const roles = Object.keys(ROLE_META);
+    const userCounts = {};
+    (users || []).forEach((u) => {
+      if (u.active === false) return;
+      const t = u.userType || "unknown";
+      userCounts[t] = (userCounts[t] || 0) + 1;
+    });
+    const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
+    const ov = accessOverrides || {};
+    const [expandedHubs, setExpandedHubs] = useState(/* @__PURE__ */ new Set());
+    const [openRoles, setOpenRoles] = useState(/* @__PURE__ */ new Set());
+    const [showMore, setShowMore] = useState(false);
+    const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
+      const next = new Set(prev);
+      if (next.has(hubId)) next.delete(hubId);
+      else next.add(hubId);
+      return next;
+    });
+    const toggleRole = (rt) => setOpenRoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(rt)) next.delete(rt);
+      else next.add(rt);
+      return next;
+    });
+    const isLocked = (rt, tabId) => tabId === "admin" && (rt === "executive" || rt === "it") || rt === "store_tablet" && (tabId === "tickets" || tabId === "tasks");
+    const isOn = (rt, tabId) => ov[rt]?.[tabId] !== false;
+    const toggle = (rt, tabId) => {
+      if (isLocked(rt, tabId)) {
+        showAlert2 && showAlert2("error", rt === "store_tablet" ? "Store Tablet is a fixed Tickets + Tasks kiosk view \u2014 these can\u2019t be turned off." : "The Admin console stays visible for IT/Executive \u2014 lockout guard.");
+        return;
+      }
+      setAccessOverrides((prev) => {
+        const next = { ...prev, [rt]: { ...prev[rt] || {} } };
+        if (next[rt][tabId] === false) delete next[rt][tabId];
+        else next[rt][tabId] = false;
+        if (Object.keys(next[rt]).length === 0) delete next[rt];
+        return next;
+      });
+    };
+    const hiddenCount = Object.values(ov).reduce((n, m) => n + Object.values(m || {}).filter((v) => v === false).length, 0);
+    const tabsFor = (rt) => {
+      const seen = /* @__PURE__ */ new Set();
+      const rawTabs = rt === "store_tablet" ? [{ id: "tickets", label: "Tickets" }, { id: "tasks", label: "Tasks" }] : (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: "000000" })).filter((t) => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
+      const rawIds = new Set(rawTabs.map((t) => t.id));
+      const hubDupeIds = /* @__PURE__ */ new Set();
+      ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
+        if (rawIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
+      });
+      return rawTabs.filter((t) => !hubDupeIds.has(t.id));
+    };
+    const chipStyle = (on) => ({ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: on ? th.text : th.muted, background: on ? "#16a34a12" : "transparent", border: `1px solid ${on ? "#16a34a2e" : th.cardBorder}`, borderRadius: 999, padding: "0.22rem 0.6rem", textDecoration: on ? "none" : "line-through", opacity: on ? 1 : 0.6, whiteSpace: "nowrap" });
+    const RoleRow = (rt) => {
+      const meta = ROLE_META[rt];
+      const tabs = tabsFor(rt);
+      const open = openRoles.has(rt);
+      const reach = ROLE_REACH[rt] || ["Access", "\u2014"];
+      const n = userCounts[rt] || 0;
+      const MAX_CHIPS = 6;
+      return /* @__PURE__ */ React.createElement("div", { key: rt, style: { ...card(th), borderRadius: "0.9rem", padding: "1.1rem 1.25rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(220px, 1.1fr) minmax(0, 2fr) minmax(150px, 0.8fr) auto", gap: "1.25rem", alignItems: "center" }, className: "access-role-row" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.9rem", alignItems: "flex-start", minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 46, height: 46, borderRadius: "0.75rem", background: "#FF671F1a", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, accIco(ROLE_ICON_KEY[rt] || "user", "#FF671F", 21)), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.98rem", color: th.text } }, meta.label), meta.admin && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.66rem", fontWeight: 700, color: "#dc2626", background: "#ef44441a", borderRadius: 999, padding: "0.1rem 0.5rem" } }, "Admin")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: th.muted, marginTop: "0.2rem", lineHeight: 1.4 } }, meta.scope), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem", color: th.muted, marginTop: "0.45rem" } }, accIco("user", th.muted, 14), " ", n, " user", n !== 1 ? "s" : ""))), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 600, color: th.muted, marginBottom: "0.45rem" } }, "Permissions"), tabs.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: th.muted } }, "No portal sections") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, tabs.slice(0, MAX_CHIPS).map((t) => /* @__PURE__ */ React.createElement("span", { key: t.id, style: chipStyle(isOn(rt, t.id)) }, isOn(rt, t.id) && accIco("check", "#16a34a", 13), t.label)), tabs.length > MAX_CHIPS && /* @__PURE__ */ React.createElement("span", { style: { ...chipStyle(true), background: th.card2, border: `1px solid ${th.cardBorder}` } }, "+", tabs.length - MAX_CHIPS, " more"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" } }, reach[0]), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.76rem", color: th.text } }, accIco(reach[0].startsWith("Network") ? "globe" : "pin", th.muted, 15), " ", reach[1])), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => toggleRole(rt),
+          disabled: tabs.length === 0,
+          style: { padding: "0.5rem 1rem", borderRadius: "0.6rem", border: `1px solid #FF671F88`, background: th.card, color: "#FF671F", fontSize: "0.78rem", fontWeight: 600, fontFamily: "'Source Sans 3'", cursor: tabs.length ? "pointer" : "default", opacity: tabs.length ? 1 : 0.5, whiteSpace: "nowrap" }
+        },
+        open ? "Done" : "Edit permissions"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => toggleRole(rt),
+          "aria-label": open ? "Collapse" : "Expand",
+          disabled: tabs.length === 0,
+          style: { background: "none", border: "none", cursor: "pointer", padding: "0.3rem", display: "flex", transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }
+        },
+        accIco("chevron", th.muted, 18)
+      ))), open && tabs.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "0.6rem" } }, "Click a section to show or hide it for every ", meta.label, ". Changes save automatically and apply on their next refresh. Universal tabs (Dashboard, Chat, Notes\u2026) are always on."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, tabs.map((t) => {
+        const on = isOn(rt, t.id);
+        const locked = isLocked(rt, t.id);
+        const hasSub = !!HUB_SUBITEMS[t.id];
+        const expanded = expandedHubs.has(t.id);
+        return /* @__PURE__ */ React.createElement("span", { key: t.id, style: { display: "inline-flex", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => toggle(rt, t.id),
+            title: locked ? "Locked \u2014 always visible for this role" : on ? "Click to hide" : "Click to show",
+            style: { ...chipStyle(on), cursor: locked ? "default" : "pointer", fontFamily: "'Source Sans 3'", borderRadius: hasSub ? "999px 0 0 999px" : 999 }
+          },
+          locked ? accIco("lock", th.muted, 12) : on ? accIco("check", "#16a34a", 13) : null,
+          t.label
+        ), hasSub && /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => toggleHubExpanded(t.id),
+            title: expanded ? "Collapse individual items" : "Show and toggle individual items",
+            style: { ...chipStyle(on), textDecoration: "none", borderLeft: "none", borderRadius: "0 999px 999px 0", cursor: "pointer", padding: "0.22rem 0.45rem" }
+          },
+          expanded ? "\u25BE" : "\u25B8"
+        ));
+      })), tabs.filter((t) => HUB_SUBITEMS[t.id] && expandedHubs.has(t.id)).map((t) => {
+        const hubOn = isOn(rt, t.id);
+        return /* @__PURE__ */ React.createElement("div", { key: t.id + "-sub", style: { marginTop: "0.6rem", paddingLeft: "0.8rem", borderLeft: `2px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 600, color: th.muted, marginBottom: "0.35rem" } }, t.label), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.35rem" } }, HUB_SUBITEMS[t.id].map((sub) => {
+          const subOn = isOn(rt, `${t.id}:${sub.id}`);
+          return /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              key: sub.id,
+              disabled: !hubOn,
+              onClick: () => toggle(rt, `${t.id}:${sub.id}`),
+              title: !hubOn ? `${t.label} is hidden for this role` : subOn ? "Click to hide" : "Click to show",
+              style: { ...chipStyle(subOn && hubOn), fontSize: "0.68rem", fontFamily: "'Source Sans 3'", cursor: hubOn ? "pointer" : "not-allowed", opacity: hubOn ? subOn ? 1 : 0.6 : 0.35 }
+            },
+            subOn && hubOn && accIco("check", "#16a34a", 12),
+            sub.label
+          );
+        })));
+      })));
+    };
+    const moreRoles = roles.filter((r) => !PRIMARY_ROLES.includes(r));
+    const moreUsers = moreRoles.reduce((a, r) => a + (userCounts[r] || 0), 0);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("style", null, `@media (max-width: 900px) { .access-restricted, .access-role-row { grid-template-columns: 1fr !important; } .access-restricted > div:last-child { border-left: none !important; padding-left: 0 !important; } }`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.9rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 52, height: 52, borderRadius: "0.8rem", background: "#FF671F1a", display: "flex", alignItems: "center", justifyContent: "center" } }, accIco("shield", "#FF671F", 26)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.5rem", color: th.text } }, "Access & Permissions"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, marginTop: "0.15rem" } }, "Manage who can access different areas of the platform and control role-based permissions."))), canManagePnlAccess(user) && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.75rem" } }, /* @__PURE__ */ React.createElement(PnlAccessPanel, { th, user, users, showAlert: showAlert2 })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "1rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text } }, "Role-based Permissions"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.15rem" } }, "Each role has access to different sections of the platform. Click to view or edit permissions.", hiddenCount > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, hiddenCount, " section", hiddenCount !== 1 ? "s" : "", " hidden.")))), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.74rem", fontWeight: 600, color: th.muted, background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.25rem 0.7rem", whiteSpace: "nowrap" } }, roles.length, " roles")), PRIMARY_ROLES.filter((r) => ROLE_META[r]).map(RoleRow), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: "0.9rem", padding: "1rem 1.25rem", marginBottom: showMore ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowMore((v) => !v), "aria-label": showMore ? "Collapse" : "Expand", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", transform: showMore ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .2s" } }, accIco("chevron", th.muted, 18)), /* @__PURE__ */ React.createElement("span", { style: { width: 40, height: 40, borderRadius: "0.7rem", background: th.card2, display: "flex", alignItems: "center", justifyContent: "center" } }, accIco("lock", th.muted, 19)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "Additional Roles"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: th.muted } }, moreRoles.map((r) => ROLE_META[r].label).join(", "))), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.76rem", color: th.muted, whiteSpace: "nowrap" } }, accIco("user", th.muted, 14), " ", moreUsers, " user", moreUsers !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowMore((v) => !v), style: { padding: "0.5rem 1.2rem", borderRadius: "0.6rem", border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontSize: "0.78rem", fontWeight: 600, fontFamily: "'Source Sans 3'", cursor: "pointer" } }, showMore ? "Hide" : "View"))), showMore && /* @__PURE__ */ React.createElement("div", { style: { paddingLeft: "1.25rem", borderLeft: `2px solid ${th.cardBorder}`, marginLeft: "0.6rem" } }, moreRoles.map(RoleRow)));
   }
   function FleetAlertAccessPanel({ th, user, users, showAlert: showAlert2 }) {
     return /* @__PURE__ */ React.createElement(
@@ -19395,117 +19620,6 @@ ${t2.slice(0, 300)}`);
     { id: "system", label: "System & Logs", icon: "\u{1F5C4}\uFE0F", accent: "#94a3b8" }
   ];
   var accessSubOn = (overrides, rt, hubId, subId) => overrides?.[rt]?.[`${hubId}:${subId}`] !== false;
-  function AccessMatrix({ th, user, users, accessOverrides, setAccessOverrides, showAlert: showAlert2 }) {
-    const roles = Object.keys(ROLE_META);
-    const userCounts = {};
-    (users || []).forEach((u) => {
-      const t = u.userType || "unknown";
-      userCounts[t] = (userCounts[t] || 0) + 1;
-    });
-    const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
-    const ov = accessOverrides || {};
-    const [expandedHubs, setExpandedHubs] = useState(/* @__PURE__ */ new Set());
-    const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
-      const next = new Set(prev);
-      if (next.has(hubId)) next.delete(hubId);
-      else next.add(hubId);
-      return next;
-    });
-    const isLocked = (rt, tabId) => tabId === "admin" && (rt === "executive" || rt === "it") || rt === "store_tablet" && (tabId === "tickets" || tabId === "tasks");
-    const isOn = (rt, tabId) => ov[rt]?.[tabId] !== false;
-    const toggle = (rt, tabId) => {
-      if (isLocked(rt, tabId)) {
-        const msg = rt === "store_tablet" ? "Store Tablet is a fixed Tickets + Tasks kiosk view \u2014 these can\u2019t be turned off." : "The Admin console stays visible for IT/Executive \u2014 lockout guard.";
-        showAlert2 && showAlert2("error", msg);
-        return;
-      }
-      setAccessOverrides((prev) => {
-        const next = { ...prev, [rt]: { ...prev[rt] || {} } };
-        if (next[rt][tabId] === false) delete next[rt][tabId];
-        else next[rt][tabId] = false;
-        if (Object.keys(next[rt]).length === 0) delete next[rt];
-        return next;
-      });
-    };
-    const hiddenCount = Object.values(ov).reduce((n, m) => n + Object.values(m || {}).filter((v) => v === false).length, 0);
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#0ea5e9", { padding: "0.85rem 1rem", marginBottom: "1.1rem", display: "flex", gap: "0.6rem", alignItems: "flex-start" }) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.1rem" } }, "\u{1F510}"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, "Tap any section chip to ", /* @__PURE__ */ React.createElement("strong", null, "show / hide"), " it for that role. Changes save automatically and apply to everyone in that role network-wide. Hidden sections (", /* @__PURE__ */ React.createElement("span", { style: { textDecoration: "line-through", opacity: 0.6 } }, "dimmed"), ") disappear from their sidebar on next refresh. Universal tabs (Dashboard, Chat, Notes\u2026) are always available and aren't listed here.", hiddenCount > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " ", /* @__PURE__ */ React.createElement("strong", null, hiddenCount, " section", hiddenCount !== 1 ? "s" : "", " currently hidden.")))), canManagePnlAccess(user) && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement(PnlAccessPanel, { th, user, users, showAlert: showAlert2 })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.85rem" } }, roles.map((rt) => {
-      const meta = ROLE_META[rt];
-      const seen = /* @__PURE__ */ new Set();
-      const rawTabs = rt === "store_tablet" ? [{ id: "tickets", label: "Tickets" }, { id: "tasks", label: "Tasks" }] : (KIOSK.has(rt) ? [] : getTabs({ userType: rt, district: 1, storePC: "000000" })).filter((t) => !BASE_TAB_IDS.includes(t.id) && (seen.has(t.id) ? false : (seen.add(t.id), true)));
-      const rawIds = new Set(rawTabs.map((t) => t.id));
-      const hubDupeIds = /* @__PURE__ */ new Set();
-      ["ops-hub", "team-hub", "system-hub", "tools-hub"].forEach((hubId) => {
-        if (rawIds.has(hubId)) (HUB_SUBITEMS[hubId] || []).forEach((s) => hubDupeIds.add(s.id));
-      });
-      const tabs = rawTabs.filter((t) => !hubDupeIds.has(t.id));
-      const visibleN = tabs.filter((t) => isOn(rt, t.id)).length;
-      return /* @__PURE__ */ React.createElement("div", { key: rt, style: card(th, { padding: "1rem 1.15rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { ...sectionTitle(th) } }, meta.label), meta.admin && /* @__PURE__ */ React.createElement("span", { style: pill("#ef4444") }, "ADMIN"), /* @__PURE__ */ React.createElement("span", { style: pill("#94a3b8") }, userCounts[rt] || 0, " user", (userCounts[rt] || 0) !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.7rem", color: th.muted } }, KIOSK.has(rt) ? "\u2014" : `${visibleN}/${tabs.length} visible`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginBottom: tabs.length ? "0.6rem" : 0 } }, meta.scope), tabs.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.35rem" } }, tabs.map((t) => {
-        const on = isOn(rt, t.id);
-        const locked = isLocked(rt, t.id);
-        const hasSub = !!HUB_SUBITEMS[t.id];
-        const expanded = expandedHubs.has(t.id);
-        return /* @__PURE__ */ React.createElement("span", { key: t.id, style: { display: "inline-flex", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggle(rt, t.id), title: locked ? "Locked \u2014 always visible for this role" : on ? "Click to hide" : "Click to show", style: {
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "0.3rem",
-          fontSize: "0.68rem",
-          fontWeight: 600,
-          fontFamily: "'Source Sans 3'",
-          cursor: locked ? "default" : "pointer",
-          color: on ? th.text : th.muted,
-          textDecoration: on ? "none" : "line-through",
-          opacity: on ? 1 : 0.55,
-          background: on ? th.card2 || th.card : "transparent",
-          border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
-          borderRadius: hasSub ? "999px 0 0 999px" : RADIUS.chip,
-          padding: "0.18rem 0.5rem",
-          transition: "all .12s"
-        } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem" } }, locked ? "\u{1F512}" : on ? "\u25CF" : "\u25CB"), t.label), hasSub && /* @__PURE__ */ React.createElement("button", { onClick: () => toggleHubExpanded(t.id), title: expanded ? "Collapse individual items" : "Expand to see and toggle individual items", style: {
-          fontSize: "0.6rem",
-          color: th.muted,
-          cursor: "pointer",
-          padding: "0.18rem 0.4rem",
-          background: on ? th.card2 || th.card : "transparent",
-          border: `1px solid ${on ? th.cardBorder : `${th.muted}55`}`,
-          borderLeft: "none",
-          borderRadius: "0 999px 999px 0"
-        } }, expanded ? "\u25BE" : "\u25B8"));
-      })), tabs.filter((t) => HUB_SUBITEMS[t.id] && expandedHubs.has(t.id)).map((t) => {
-        const hubOn = isOn(rt, t.id);
-        return /* @__PURE__ */ React.createElement("div", { key: t.id + "-sub", style: { marginTop: "0.5rem", paddingLeft: "0.75rem", borderLeft: `2px solid ${th.cardBorder}`, display: "flex", flexWrap: "wrap", gap: "0.3rem" } }, HUB_SUBITEMS[t.id].map((sub) => {
-          const subOn = isOn(rt, `${t.id}:${sub.id}`);
-          return /* @__PURE__ */ React.createElement(
-            "button",
-            {
-              key: sub.id,
-              disabled: !hubOn,
-              onClick: () => toggle(rt, `${t.id}:${sub.id}`),
-              title: !hubOn ? `${t.label} is hidden for this role \u2014 sub-items won't matter until it's shown` : subOn ? "Click to hide" : "Click to show",
-              style: {
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.25rem",
-                fontSize: "0.65rem",
-                fontWeight: 600,
-                fontFamily: "'Source Sans 3'",
-                cursor: hubOn ? "pointer" : "not-allowed",
-                color: subOn && hubOn ? th.text : th.muted,
-                textDecoration: subOn ? "none" : "line-through",
-                opacity: hubOn ? subOn ? 1 : 0.55 : 0.35,
-                background: subOn && hubOn ? th.card3 || th.card2 || th.card : "transparent",
-                border: `1px solid ${th.muted}44`,
-                borderRadius: RADIUS.chip,
-                padding: "0.15rem 0.45rem",
-                transition: "all .12s"
-              }
-            },
-            /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem" } }, subOn ? "\u25CF" : "\u25CB"),
-            sub.label
-          );
-        }));
-      }));
-    })));
-  }
   var TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
   var TASK_LABELS = ["Food Safety", "Facility", "Fresh", "Planning Checklist"];
   var TASK_INPUTS = ["checklist", "temperature", "weight", "count", "photo"];
@@ -24714,7 +24828,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.0";
+  var APP_VERSION = "v22.1";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
