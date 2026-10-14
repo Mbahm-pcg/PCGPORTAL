@@ -20368,35 +20368,11 @@ async function compressImageToBase64(file, maxPx = 600, quality = 0.72) {
 // Drive upload server-side. Any failure here is swallowed by the caller —
 // never surfaced to the person who just successfully filed their report.
 async function backupToDrive(reportId, report, attachmentsBeforeUpload, opts = {}) {
-  const employeeParty = buildSubjectEmployeeParty(report);
-  const { parties } = splitPeopleForPdf(employeeParty ? [employeeParty, ...(report.people || [])] : (report.people || []));
-  const rowsHtml = (rows) => rows.map(r => `<tr><td style="padding:4px 8px;border:1px solid #ddd;">${r[0]}</td><td style="padding:4px 8px;border:1px solid #ddd;">${r[1]}</td></tr>`).join('');
-  const el = document.createElement('div');
-  el.style.cssText = 'width:800px;background:#fff;color:#111;font-family:Arial,sans-serif;padding:24px;font-size:11px;line-height:1.4;';
-  el.innerHTML = `
-    <div style="text-align:center;border-bottom:2px solid #FF671F;padding-bottom:8px;margin-bottom:14px;">
-      <div style="font-weight:700;font-size:13px;">PEOPLE CAPITAL GROUP</div>
-      <div style="font-size:9px;font-style:italic;color:#555;">CONFIDENTIAL — INTERNAL USE ONLY</div>
-      <div style="font-size:15px;font-weight:800;margin-top:6px;">WORKPLACE INCIDENT REPORT</div>
-    </div>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Case Information</h3>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
-      ['Report Date', report.reportDate || ''], ['Report Prepared By', report.preparedByName || ''],
-      ['Incident Date', report.incidentDate || ''], ['Incident Location', `PC#${report.storePC || ''} ${report.address || ''}`],
-      ['Incident Type', report.incidentType || ''], ['W/C Claim', report.wcClaim || ''],
-      ['Reported Injury', report.reportedInjury || ''],
-    ])}</table>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Incident Summary</h3>
-    <p style="white-space:pre-wrap;">${(report.incidentSummary || '').replace(/</g, '&lt;')}</p>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Name / Role of Parties Involved / Witnesses</h3>
-    <ol style="margin:0;padding-left:18px;">${parties.map(p => `<li>${p.name} / ${p.role}</li>`).join('')}</ol>
-  `;
+  // v21.99: same document as "Download PDF" (buildIncidentReportPdf), not an abbreviated copy.
   let pdfBlob;
   try {
-    pdfBlob = await html2pdf().set({
-      margin: 0.4, image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-    }).from(el).outputPdf('blob');
+    const { worker } = await buildIncidentReportPdf(report);
+    pdfBlob = await worker.outputPdf('blob');
   } catch { return { ok: false, failed: [{ key: 'pdf', error: 'Could not generate the PDF in this browser' }] }; } // never surfaced on filing
 
   const pdfKey = `incident_pdf_${reportId}`;
@@ -20417,83 +20393,152 @@ async function backupToDrive(reportId, report, attachmentsBeforeUpload, opts = {
 // else sees only reports they personally filed (enforced server-side in
 // incident-reports.mjs, not just here). See docs/superpowers/specs/2026-09-25-
 // incident-report-design.md for the full design.
-async function exportIncidentReportPdf(report) {
-  // The subject employee is listed both in their own "Subject Employee" block
-  // and as the first Parties/Witnesses + Contact List entry (role "Injured
-  // employee") — matching the source document without making anyone type the
-  // employee's name/phone/email twice.
+// ── Incident Report PDF (v21.99) ────────────────────────────────────────────
+// ONE builder for both "Download PDF" and the Google Drive backup, laid out to
+// match PCG's Workplace Incident Report template type-for-type: gold rules, grey
+// label column, long-form dates, full preparer certification + signature block,
+// confidentiality notice, Parties / Contact List, then photos on their own pages.
+// Page 2+ get the "PEOPLE CAPITAL GROUP / CONFIDENTIAL" header and every page gets
+// a "Workplace Incident Report | Page X of N" footer, stamped onto the finished PDF.
+const IR_GOLD = '#c9a43e';
+const irEsc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const irLongDate = (iso) => {
+  if (!iso) return '';
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  return isNaN(d) ? String(iso) : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+};
+const irShortDate = (iso) => {
+  if (!iso) return '';
+  const m = String(iso).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso);
+};
+const irIsMinor = (dob, onIso) => {
+  const b = new Date(`${String(dob || '').slice(0, 10)}T12:00:00`);
+  const on = new Date(`${String(onIso || '').slice(0, 10) || new Date().toISOString().slice(0, 10)}T12:00:00`);
+  if (isNaN(b) || isNaN(on)) return false;
+  let age = on.getFullYear() - b.getFullYear();
+  if (on.getMonth() < b.getMonth() || (on.getMonth() === b.getMonth() && on.getDate() < b.getDate())) age--;
+  return age < 18;
+};
+const IR_COMPANY = 'Rao Group Inc. / People Capital Group';
+
+async function buildIncidentReportPdf(report) {
   const employeeParty = buildSubjectEmployeeParty(report);
   const allPeople = employeeParty ? [employeeParty, ...(report.people || [])] : (report.people || []);
   const { parties, contacts } = splitPeopleForPdf(allPeople);
   const photos = (report.attachments || []).filter(a => a.type === 'image');
   const videos = (report.attachments || []).filter(a => a.type === 'video');
-
-  // Resolve attachment refs to viewable data URLs before building the DOM to export.
   const photoData = [];
   for (const p of photos) {
-    const loaded = await cloudLoadFile(p.fileKey);
-    if (loaded?.data) photoData.push({ ...p, dataUrl: loaded.data });
+    try { const loaded = await cloudLoadFile(p.fileKey); if (loaded?.data) photoData.push({ ...p, dataUrl: loaded.data }); } catch {}
   }
 
-  const rowsHtml = (rows) => rows.map(r => `<tr><td style="padding:4px 8px;border:1px solid #ddd;">${r[0]}</td><td style="padding:4px 8px;border:1px solid #ddd;">${r[1]}</td></tr>`).join('');
+  const title = report.preparedByTitle || '';
+  const preparedBy = `${report.preparedByName || ''}${title ? `, ${title}` : ''} — ${IR_COMPANY}`;
+  const cameraKept = (report.evidence || []).some(e => e.checked && /camera|footage|video/i.test(e.label || ''));
+  const videoEvidence = videos.length
+    ? `Yes; ${videos.length} video file${videos.length !== 1 ? 's' : ''} preserved (${videos.map(v => v.name).join(', ')})`
+    : cameraKept ? 'Yes; interior security camera footage captured and preserved' : 'No';
+  const addr = String(report.employeeAddress || '');
+  const addrHtml = addr.includes(',') ? `${irEsc(addr.slice(0, addr.indexOf(',')).trim())}<br/>${irEsc(addr.slice(addr.indexOf(',') + 1).trim())}` : irEsc(addr);
+  const minor = irIsMinor(report.employeeDob, report.incidentDate);
 
-  // Each photo (and the video note) gets page-break-before + page-break-inside:avoid
-  // so it always lands whole on its own page — a phone-screenshot-sized photo is
-  // often taller than the remaining space on the current page, and without this it
-  // gets sliced across two pages by html2pdf's page-height chunking.
+  const h2 = (text, rule) => `<div style="font-size:15px;font-weight:700;letter-spacing:0.2px;margin:18px 0 10px;padding-bottom:3px;border-bottom:1px solid ${rule === 'gold' ? IR_GOLD : '#9a9a9a'};">${text}</div>`;
+  const table = (rows) => `<table style="width:88%;border-collapse:collapse;font-size:13px;margin:0 0 6px;">${rows.map(([k, v]) => `<tr><td style="width:180px;padding:6px 8px;border:1px solid #bdbdbd;background:#ececec;font-weight:700;vertical-align:top;">${k}</td><td style="padding:6px 8px;border:1px solid #bdbdbd;vertical-align:top;">${v}</td></tr>`).join('')}</table>`;
+  const paragraphs = (t) => String(t || '').split(/\n\s*\n/).map(p => `<p style="margin:0 0 12px;white-space:pre-wrap;">${irEsc(p.trim())}</p>`).join('');
   const onOwnPage = (inner) => `<div style="page-break-before:always;break-before:page;page-break-inside:avoid;break-inside:avoid;">${inner}</div>`;
 
   const el = document.createElement('div');
-  el.style.cssText = 'width:800px;background:#fff;color:#111;font-family:Arial,sans-serif;padding:24px;font-size:11px;line-height:1.4;';
+  el.style.cssText = 'width:7in;background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.35;';
   el.innerHTML = `
-    <div style="text-align:center;border-bottom:2px solid #FF671F;padding-bottom:8px;margin-bottom:14px;">
-      <div style="font-weight:700;font-size:13px;">PEOPLE CAPITAL GROUP</div>
-      <div style="font-size:9px;font-style:italic;color:#555;">CONFIDENTIAL — INTERNAL USE ONLY</div>
-      <div style="font-size:15px;font-weight:800;margin-top:6px;">WORKPLACE INCIDENT REPORT</div>
+    <div style="text-align:center;">
+      <div style="font-weight:700;font-size:11px;letter-spacing:0.2px;">PEOPLE CAPITAL GROUP</div>
+      <div style="font-size:9px;font-style:italic;color:#666;">CONFIDENTIAL — INTERNAL USE ONLY</div>
     </div>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Case Information</h3>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
-      ['Report Date', report.reportDate || ''],
-      ['Report Prepared By', report.preparedByName || ''],
-      ...(report.lastEditedBy ? [['Last Edited', `${report.lastEditedBy} · ${report.lastEditedAt ? new Date(report.lastEditedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}${(report.editHistory || []).length > 1 ? ` (${report.editHistory.length} edits)` : ''}`]] : []),
-      ['Incident Date', report.incidentDate || ''],
-      ['Incident Time (Approx.)', report.incidentTime || ''],
-      ['Incident Location', `PC#${report.storePC || ''} ${report.address || ''}`],
-      ['Operating Entity', report.operatingEntity || ''],
-      ['Incident Type', report.incidentType || ''],
-      ['W/C Claim', report.wcClaim || ''],
-      ['Reported Injury', report.reportedInjury || ''],
-      ['Video Evidence', videos.length ? `Yes — see ${videos.map(v => v.name).join(', ')}` : 'No'],
-    ])}</table>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Subject Employee</h3>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;margin-bottom:14px;font-size:11px;">${rowsHtml([
-      ['Employee Name', `${report.employeeName || ''}${report.employeeDob ? ', DOB: ' + report.employeeDob : ''}`],
-      ['Status', report.employeeStatus || ''],
-      ['Address', report.employeeAddress || ''],
-      ['Contact Information', report.employeePhone || ''],
-    ])}</table>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Incident Summary</h3>
-    <p style="white-space:pre-wrap;">${(report.incidentSummary || '').replace(/</g, '&lt;')}</p>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Evidence Preserved</h3>
-    <ul style="margin:0;padding-left:18px;">${(report.evidence || []).filter(e => e.checked).map(e => `<li>${e.label}</li>`).join('')}</ul>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Preparer Certification</h3>
-    <p>I certify that the information contained in this report is accurate to the best of my knowledge.</p>
-    <p>_______________________________<br/><strong>${report.preparedByName || ''}</strong><br/>People Capital Group<br/>Date: ${report.reportDate || ''}</p>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Name / Role of Parties Involved / Witnesses</h3>
-    <ol style="margin:0;padding-left:18px;">${parties.map(p => `<li>${p.name} / ${p.role}</li>`).join('')}</ol>
-    <h3 style="font-size:12px;margin:10px 0 6px;">Contact List</h3>
-    ${contacts.map(c => `<p style="margin:0 0 8px;"><strong>NAME:</strong> ${c.name}<br/><strong>PHONE NUMBER:</strong> ${c.phone}<br/><strong>EMAIL:</strong> ${c.email}</p>`).join('')}
-    ${photoData.map(p => onOwnPage(`<h3 style="font-size:12px;margin:0 0 8px;">Photo Evidence — ${p.name || ''}</h3><img src="${p.dataUrl}" style="max-width:100%;max-height:9in;object-fit:contain;display:block;border:1px solid #ddd;" />`)).join('')}
-    ${videos.length ? onOwnPage(`<h3 style="font-size:12px;margin:0 0 8px;">Video Evidence</h3><p>Video file(s) attached — downloaded separately alongside this PDF: ${videos.map(v => v.name).join(', ')}</p>`) : ''}
+    <div style="border-top:1.5px solid ${IR_GOLD};margin:6px 0 14px;"></div>
+    <div style="text-align:center;font-size:22px;font-weight:700;letter-spacing:0.3px;">WORKPLACE INCIDENT REPORT</div>
+    <div style="border-top:1.5px solid ${IR_GOLD};margin:14px 0 6px;"></div>
+
+    ${h2('CASE INFORMATION')}
+    ${table([
+      ['Report Date', irEsc(irLongDate(report.reportDate))],
+      ['Report Prepared By', irEsc(preparedBy)],
+      ['Incident Date', irEsc(irLongDate(report.incidentDate))],
+      ['Incident Time (Approx.)', irEsc(report.incidentTime)],
+      ['Incident Location', irEsc(`PC#${report.storePC || ''} ${report.address || ''}`.trim())],
+      ['Operating Entity', irEsc(report.operatingEntity)],
+      ['Incident Type', irEsc(report.incidentType)],
+      ['W/C Claim', irEsc(report.wcClaim)],
+      ['Reported Injury', irEsc(report.reportedInjury)],
+      ['Video Evidence', irEsc(videoEvidence)],
+    ])}
+
+    ${h2('SUBJECT EMPLOYEE', 'gold')}
+    ${table([
+      ['Employee Name', `${irEsc(report.employeeName)}${report.employeeDob ? ` , DOB: ${irEsc(irShortDate(report.employeeDob))}` : ''}`],
+      ['Status', irEsc(report.employeeStatus)],
+      ['Address', addrHtml],
+      ['Contact Information', irEsc(report.employeePhone)],
+    ])}
+
+    ${h2('INCIDENT SUMMARY')}
+    ${paragraphs(report.incidentSummary)}
+
+    ${h2('EVIDENCE PRESERVED', 'gold')}
+    <ul style="margin:0 0 6px;padding-left:46px;">${(report.evidence || []).filter(e => e.checked).map(e => `<li style="margin:0 0 4px;">${irEsc(e.label)}</li>`).join('')}</ul>
+
+    <div style="page-break-inside:avoid;break-inside:avoid;">
+      ${h2('PREPARER CERTIFICATION', 'gold')}
+      <p style="margin:0 0 30px;">I certify that the information contained in this report is accurate to the best of my knowledge based on direct review of the security camera footage referenced above, information provided by the manager on duty and other store personnel, and information available at the time of preparation. This report is prepared in the ordinary course of business as part of People Capital Group / Rao Group Inc.'s workplace safety and risk management practices.</p>
+      <div style="width:3.5in;border-top:1px solid #111;margin:0 0 4px;"></div>
+      <div style="font-weight:700;font-size:14px;">${irEsc(report.preparedByName)}</div>
+      ${title ? `<div style="font-weight:700;font-size:14px;">${irEsc(title)}</div>` : ''}
+      <div style="font-size:14px;">People Capital Group</div>
+      <div style="font-size:14px;margin-top:10px;">Date: <span style="display:inline-block;width:2in;border-bottom:1px solid #111;"></span></div>
+      <div style="border-top:1px solid ${IR_GOLD};margin:18px 0 6px;"></div>
+      <div style="font-size:9.5px;font-style:italic;color:#666;text-align:center;line-height:1.3;">CONFIDENTIAL — This report contains protected employee information${minor ? ', including information relating to a minor employee' : ''}. Distribution is limited to authorized personnel of People Capital Group / Rao Group Inc. and its retained advisors (legal, HR, workers' compensation, and insurance). Do not distribute externally without authorization from the Vice President or CFO.</div>
+      ${report.lastEditedBy ? `<div style="font-size:8.5px;color:#888;text-align:center;margin-top:4px;">Last edited by ${irEsc(report.lastEditedBy)}${report.lastEditedAt ? ` on ${irEsc(new Date(report.lastEditedAt).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }))}` : ''}.</div>` : ''}
+    </div>
+
+    <div style="page-break-inside:avoid;break-inside:avoid;">
+      <div style="font-size:15px;font-weight:700;margin:26px 0 12px;">NAME / ROLE OF PARTIES INVOLVED / WITNESSES:</div>
+      <ol style="margin:0 0 10px;padding-left:48px;">${parties.map(p => `<li style="margin:0 0 5px;">${irEsc(p.name)} / ${irEsc(p.role === 'Injured employee' ? 'injured employee' : p.role)}</li>`).join('')}</ol>
+    </div>
+    <div style="text-align:center;font-size:15px;font-weight:700;text-decoration:underline;margin:4px 0 16px;">CONTACT LIST</div>
+    ${contacts.map(c => `<div style="margin:0 0 18px;line-height:1.75;page-break-inside:avoid;break-inside:avoid;"><strong>NAME:</strong> ${irEsc(c.name)}<br/><strong>PHONE NUMBER:</strong> ${irEsc(c.phone)}<br/><strong>EMAIL:</strong> ${irEsc(c.email)}</div>`).join('')}
+
+    ${photoData.map(p => onOwnPage(`<div style="font-size:13px;font-weight:700;margin:0 0 8px;">PHOTO EVIDENCE — ${irEsc(p.name || '')}</div><img src="${p.dataUrl}" style="max-width:100%;max-height:8.6in;object-fit:contain;display:block;border:1px solid #ddd;" />`)).join('')}
+    ${videos.length ? onOwnPage(`<div style="font-size:13px;font-weight:700;margin:0 0 8px;">VIDEO EVIDENCE</div><p>Video file(s) preserved separately alongside this report: ${videos.map(v => irEsc(v.name)).join(', ')}</p>`) : ''}
   `;
 
-  const dateStr = new Date().toISOString().slice(0, 10);
-  await html2pdf().set({
-    margin: 0.4, filename: `PCG-Incident-Report-${report.storeName || report.id}-${dateStr}.pdf`,
-    image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'], avoid: ['img'] },
-  }).from(el).save();
+  const worker = html2pdf().set({
+    margin: [0.8, 0.75, 0.7, 0.75],
+    image: { type: 'jpeg', quality: 0.96 }, html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'legacy'], avoid: ['img', 'tr', 'li'] },
+  }).from(el).toPdf().get('pdf').then(pdf => {
+    const n = pdf.internal.getNumberOfPages();
+    const w = pdf.internal.pageSize.getWidth();
+    const h = pdf.internal.pageSize.getHeight();
+    for (let i = 1; i <= n; i++) {
+      pdf.setPage(i);
+      if (i > 1) {
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.5); pdf.setTextColor(17, 17, 17);
+        pdf.text('PEOPLE CAPITAL GROUP', w / 2, 0.42, { align: 'center' });
+        pdf.setFont('helvetica', 'italic'); pdf.setFontSize(7); pdf.setTextColor(110, 110, 110);
+        pdf.text('CONFIDENTIAL — INTERNAL USE ONLY', w / 2, 0.56, { align: 'center' });
+      }
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7.5); pdf.setTextColor(110, 110, 110);
+      pdf.text(`Workplace Incident Report  |  Page ${i} of ${n}`, w / 2, h - 0.4, { align: 'center' });
+    }
+  });
+  return { worker, videos };
+}
 
+async function exportIncidentReportPdf(report) {
+  const { worker, videos } = await buildIncidentReportPdf(report);
+  const dateStr = new Date().toISOString().slice(0, 10);
+  await worker.save(`PCG-Incident-Report-${report.storeName || report.id}-${dateStr}.pdf`);
   // Videos can't play inside a PDF — download them as separate files alongside it.
   for (const v of videos) {
     const loaded = await cloudLoadFile(v.fileKey);
@@ -20747,6 +20792,8 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
         reportedInjury: form.reportedInjury, incidentSummary: form.incidentSummary,
         people: form.people.filter(p => p.name.trim()),
         evidence, attachments: editing ? [...existingAttachments, ...attachmentRefs] : attachmentRefs,
+        // Shown under the signature line and in "Report Prepared By" on the PDF (stored in meta).
+        ...(editing ? {} : { preparedByTitle: user?.role || '' }),
       };
       if (editing) {
         const res = await fetch('/.netlify/functions/incident-reports', {
@@ -20775,7 +20822,8 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
       // success path below, and any failure here is invisible to the filer
       // (the report is already safely saved; backend logs + notifies
       // exec/IT instead — see incident-report-drive.mjs).
-      backupToDrive(j.id, report, attachmentRefs).catch(() => {});
+      // The server stamps reportDate / preparedBy*; mirror them so the Drive PDF isn't blank there.
+      backupToDrive(j.id, { ...report, reportDate: todayISO(), preparedByName: user?.name || '' }, attachmentRefs).catch(() => {});
       clearIncidentDraft();
       resetForm();
       setShowForm(false);
@@ -30950,7 +30998,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v21.98";
+const APP_VERSION = "v21.99";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
