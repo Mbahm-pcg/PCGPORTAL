@@ -80,7 +80,7 @@ const KNOWN = new Set([
   'storePC', 'storeName', 'address', 'operatingEntity', 'incidentType', 'wcClaim',
   'reportedInjury', 'incidentSummary', 'people', 'evidence', 'attachments', 'createdAt',
   'editHistory', 'lastEditedBy', 'lastEditedAt',
-  'driveBackupStatus', 'driveBackupAt', 'driveBackupError',
+  'driveBackupStatus', 'driveBackupAt', 'driveBackupError', 'driveBackupFormat',
 ]);
 
 function rowToReport(r) {
@@ -116,6 +116,7 @@ function rowToReport(r) {
     driveBackupStatus: r.drive_backup_status ?? undefined,
     driveBackupAt: r.drive_backup_at ? new Date(r.drive_backup_at).toISOString() : undefined,
     driveBackupError: r.drive_backup_error ?? undefined,
+    driveBackupFormat: r.drive_backup_format ?? undefined,
   };
 }
 

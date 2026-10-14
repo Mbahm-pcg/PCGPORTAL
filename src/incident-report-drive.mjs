@@ -53,3 +53,61 @@ export function buildFileUploadParams({ name, mimeType, parentFolderId }) {
     fields: 'id',
   };
 }
+
+// ── v22.3: correct decoding + no duplicate uploads ───────────────────────────
+// Every blob written through storage.mjs is wrapped as { savedAt, data }. The
+// Drive backup used to read a file's chunks as raw text and base64-decode the
+// WRAPPER JSON, which put garbage bytes at the front of every uploaded PDF/photo
+// (Drive showed "error" previews). These unwrap first, then decode.
+export function unwrapStoredValue(v) {
+  if (v && typeof v === 'object' && !Array.isArray(v) && 'data' in v) return v.data;
+  return v;
+}
+
+export function decodeChunkedFile(chunks) {
+  const b64 = (chunks || []).map(c => {
+    const v = unwrapStoredValue(c);
+    return typeof v === 'string' ? v : '';
+  }).join('');
+  return Buffer.from(b64, 'base64');
+}
+
+const escQ = (s) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+// Each uploaded file carries a hidden tag (appProperties.pcgKey) so a second
+// run for the same report finds it and skips instead of uploading a duplicate.
+export function buildTaggedUploadParams({ name, mimeType, parentFolderId, pcgKey }) {
+  return {
+    requestBody: { name, parents: [parentFolderId], appProperties: { pcgKey } },
+    media: { mimeType },
+    supportsAllDrives: true,
+    fields: 'id',
+  };
+}
+
+export function buildTaggedFileQuery(pcgKey, parentFolderId) {
+  return {
+    q: `appProperties has { key='pcgKey' and value='${escQ(pcgKey)}' } and '${parentFolderId}' in parents and trashed = false`,
+    supportsAllDrives: true, includeItemsFromAllDrives: true, corpora: 'allDrives',
+    fields: 'files(id, name)',
+  };
+}
+
+// Same-named files in the folder — the caller trashes the untagged ones (copies
+// uploaded before v22.3, which are the corrupted ones) before uploading a good copy.
+export function buildSameNameUntaggedQuery(name, parentFolderId) {
+  return {
+    q: `name = '${escQ(name)}' and '${parentFolderId}' in parents and trashed = false`,
+    supportsAllDrives: true, includeItemsFromAllDrives: true, corpora: 'allDrives',
+    fields: 'files(id, name, appProperties)',
+  };
+}
+
+// Untagged files whose name starts with a prefix (a report's PDFs from any date).
+export function buildNamePrefixQuery(prefix, parentFolderId) {
+  return {
+    q: `name contains '${escQ(prefix)}' and '${parentFolderId}' in parents and trashed = false`,
+    supportsAllDrives: true, includeItemsFromAllDrives: true, corpora: 'allDrives',
+    fields: 'files(id, name, appProperties)',
+  };
+}

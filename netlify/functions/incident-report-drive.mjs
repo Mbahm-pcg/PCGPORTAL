@@ -19,7 +19,7 @@ import { getStore } from '@netlify/blobs';
 import { neon } from '@neondatabase/serverless';
 import { Readable } from 'node:stream';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { buildFolderFindQuery, buildFolderCreateParams, buildFileUploadParams } from '../../src/incident-report-drive.mjs';
+import { buildFolderFindQuery, buildFolderCreateParams, unwrapStoredValue, decodeChunkedFile, buildTaggedUploadParams, buildTaggedFileQuery, buildSameNameUntaggedQuery, buildNamePrefixQuery } from '../../src/incident-report-drive.mjs';
 import { canViewReport } from '../../src/incident-report.mjs';
 
 // v21.98: the ROOT of the "Incident Reports" Shared Drive (0A… = a shared drive id; the
@@ -58,16 +58,21 @@ function getDriveClient() {
 
 // Reassembles a chunked file (same {key}_meta + {key}_c{i} shape this app
 // already uses for ticket photos/videos and deal docs) into a Buffer.
+// v22.3: every blob is stored wrapped as { savedAt, data } — unwrap BEFORE
+// decoding. Decoding the wrapper JSON is what corrupted every Drive upload
+// (and the unread meta.chunks meant only chunk 0 was ever read).
 async function readChunkedFile(store, key) {
-  const meta = await store.get(`${key}_meta`, { type: 'json' });
+  const meta = unwrapStoredValue(await store.get(`${key}_meta`, { type: 'json' }));
   if (!meta) throw new Error(`blob missing: ${key}_meta`);
-  const parts = [];
+  const chunks = [];
   for (let i = 0; i < (meta.chunks || 1); i++) {
-    const c = await store.get(`${key}_c${i}`);
+    const c = await store.get(`${key}_c${i}`, { type: 'json' });
     if (c == null) throw new Error(`chunk ${i} missing for ${key}`);
-    parts.push(c);
+    chunks.push(c);
   }
-  return { buffer: Buffer.from(parts.join(''), 'base64'), name: meta.name, type: meta.type };
+  const buffer = decodeChunkedFile(chunks);
+  if (!buffer.length) throw new Error(`empty file for ${key}`);
+  return { buffer, name: meta.name, type: meta.type };
 }
 
 async function findOrCreateStoreFolder(drive, storeName) {
@@ -78,12 +83,27 @@ async function findOrCreateStoreFolder(drive, storeName) {
   return createRes.data.id;
 }
 
-async function uploadFile(drive, store, { fileKey, name, mimeType, parentFolderId }) {
+// v22.3: idempotent upload. A file tagged with this pcgKey already in the folder
+// means it's done — skip (no duplicates when a backup runs twice). Same-named
+// UNTAGGED files are pre-v22.3 uploads, which were all corrupted: move them to
+// Drive's trash (recoverable) before uploading the good copy.
+async function uploadFile(drive, store, { fileKey, name, mimeType, parentFolderId, pcgKey, cleanupPrefix }) {
+  const existing = await drive.files.list(buildTaggedFileQuery(pcgKey, parentFolderId));
+  if (existing.data.files && existing.data.files.length) return { id: existing.data.files[0].id, skipped: true };
+  // PDFs are named with the backup date, so an older corrupted copy can have a different
+  // name — match those by the report's file-name prefix instead.
+  const sameQuery = cleanupPrefix ? buildNamePrefixQuery(cleanupPrefix, parentFolderId) : buildSameNameUntaggedQuery(name, parentFolderId);
+  const same = await drive.files.list(sameQuery);
+  for (const old of (same.data.files || [])) {
+    if (old.appProperties && old.appProperties.pcgKey) continue;
+    try { await drive.files.update({ fileId: old.id, requestBody: { trashed: true }, supportsAllDrives: true }); }
+    catch (e) { console.warn('[incident-report-drive] could not trash old copy', old.id, e.message); }
+  }
   const { buffer } = await readChunkedFile(store, fileKey);
-  const params = buildFileUploadParams({ name, mimeType, parentFolderId });
+  const params = buildTaggedUploadParams({ name, mimeType, parentFolderId, pcgKey });
   params.media.body = Readable.from(buffer);
   const res = await drive.files.create(params);
-  return res.data.id;
+  return { id: res.data.id, skipped: false };
 }
 
 async function notifyDriveBackupFailed(store, { reportId, storeName, error }) {
@@ -122,14 +142,19 @@ export default async (request) => {
     await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS drive_backup_status text`;
     await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS drive_backup_at timestamptz`;
     await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS drive_backup_error text`;
+    // v22.3: 2 = uploaded with correct decoding. Older "ok" rows (format null) were corrupted.
+    await sql`ALTER TABLE incident_reports ADD COLUMN IF NOT EXISTS drive_backup_format integer`;
   } catch (e) { console.warn('[incident-report-drive] column ensure failed:', e.message); }
   const idNum = Math.trunc(Number(reportId));
   const own = await sql`SELECT prepared_by_user_id FROM incident_reports WHERE id = ${idNum}`;
   if (!own.length) return json(404, { error: 'Report not found' });
   if (!canViewReport({ preparedByUserId: own[0].prepared_by_user_id }, caller)) return json(403, { error: 'Not allowed' });
+  // v22.3: mark the report as backing up right away, so the list shows
+  // "Backing up…" instead of offering a second (duplicate) run meanwhile.
+  try { await sql`UPDATE incident_reports SET drive_backup_status = 'running', drive_backup_at = now(), drive_backup_error = null WHERE id = ${idNum}`; } catch {}
   const recordResult = async (ok, error) => {
     try {
-      await sql`UPDATE incident_reports SET drive_backup_status = ${ok ? 'ok' : 'failed'}, drive_backup_at = now(), drive_backup_error = ${ok ? null : String(error || '').slice(0, 1000)} WHERE id = ${idNum}`;
+      await sql`UPDATE incident_reports SET drive_backup_status = ${ok ? 'ok' : 'failed'}, drive_backup_at = now(), drive_backup_error = ${ok ? null : String(error || '').slice(0, 1000)}, drive_backup_format = ${ok ? 2 : null} WHERE id = ${idNum}`;
     } catch (e) { console.warn('[incident-report-drive] result write failed:', e.message); }
   };
 
@@ -143,13 +168,15 @@ export default async (request) => {
 
     try {
       const dateStr = new Date().toISOString().slice(0, 10);
-      await uploadFile(drive, blobStore, { fileKey: pdfKey, name: `Incident-Report-${reportId}-${dateStr}${payload.edited ? '-edited' : ''}.pdf`, mimeType: 'application/pdf', parentFolderId: folderId });
+      // One PDF per report version: the original, or a given edit (version = its lastEditedAt).
+      const version = String(payload.version || 'original');
+      await uploadFile(drive, blobStore, { fileKey: pdfKey, name: `Incident-Report-${reportId}-${dateStr}${payload.edited ? '-edited' : ''}.pdf`, mimeType: 'application/pdf', parentFolderId: folderId, pcgKey: `pdf:${reportId}:${version}`, cleanupPrefix: `Incident-Report-${reportId}-` });
       uploaded.push(pdfKey);
     } catch (e) { failed.push({ key: pdfKey, error: e.message }); }
 
     for (const a of (attachments || [])) {
       try {
-        await uploadFile(drive, blobStore, { fileKey: a.fileKey, name: a.name, mimeType: a.mimeType, parentFolderId: folderId });
+        await uploadFile(drive, blobStore, { fileKey: a.fileKey, name: a.name, mimeType: a.mimeType, parentFolderId: folderId, pcgKey: `att:${a.fileKey}` });
         uploaded.push(a.fileKey);
       } catch (e) { failed.push({ key: a.fileKey, error: e.message }); }
     }

@@ -17586,7 +17586,7 @@ ${t2.slice(0, 300)}`);
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json", ...authHeader() },
-      body: JSON.stringify({ action: "backup", reportId, storeName: report.storeName || "Unknown", pdfKey, attachments: attachmentMeta, edited: !!opts.edited })
+      body: JSON.stringify({ action: "backup", reportId, storeName: report.storeName || "Unknown", pdfKey, attachments: attachmentMeta, edited: !!opts.edited, version: opts.edited ? report.lastEditedAt || "edited" : report.lastEditedAt || "original" })
     });
     return res.json().catch(() => ({ ok: false, failed: [{ key: "all", error: `HTTP ${res.status}` }] }));
   }
@@ -18063,7 +18063,7 @@ ${t2.slice(0, 300)}`);
           setSubmitting(false);
           return;
         }
-        backupToDrive(j.id, { ...report, reportDate: todayISO(), preparedByName: user?.name || "" }, attachmentRefs).catch(() => {
+        backupToDrive(j.id, { ...report, reportDate: todayISO(), preparedByName: user?.name || "" }, attachmentRefs).then(() => loadReports()).catch(() => {
         });
         clearIncidentDraft();
         resetForm();
@@ -18126,8 +18126,14 @@ ${t2.slice(0, 300)}`);
       setBackingUp(null);
       loadReports();
     };
-    const missingBackups = isReviewer ? reports.filter((r) => r.driveBackupStatus !== "ok") : [];
-    const backUpAllMissing = async () => {
+    const driveState = (r) => {
+      if (r.driveBackupStatus === "running" && r.driveBackupAt && Date.now() - new Date(r.driveBackupAt).getTime() < 10 * 6e4) return "running";
+      if (r.driveBackupStatus === "ok") return (r.driveBackupFormat || 0) >= 2 ? "ok" : "damaged";
+      if (r.driveBackupStatus === "failed") return "failed";
+      return "none";
+    };
+    const missingBackups = isReviewer ? reports.filter((r) => !["ok", "running"].includes(driveState(r))) : [];
+    const backUpAllMissing = async ({ silent = false } = {}) => {
       const list = missingBackups.slice();
       if (!list.length) return;
       let okCount = 0;
@@ -18143,9 +18149,18 @@ ${t2.slice(0, 300)}`);
       }
       setBackingUp(null);
       setBulkBackup(null);
-      showAlert2 && showAlert2(okCount === list.length ? "success" : "error", `Backed up ${okCount} of ${list.length} report${list.length !== 1 ? "s" : ""} to Google Drive.`);
+      if (!silent || okCount !== list.length) {
+        showAlert2 && showAlert2(okCount === list.length ? "success" : "error", `Backed up ${okCount} of ${list.length} report${list.length !== 1 ? "s" : ""} to Google Drive.`);
+      }
       loadReports();
     };
+    const autoBackupRanRef = React.useRef(false);
+    React.useEffect(() => {
+      if (!isReviewer || autoBackupRanRef.current || loading || bulkBackup || backingUp) return;
+      if (!missingBackups.length) return;
+      autoBackupRanRef.current = true;
+      backUpAllMissing({ silent: true });
+    }, [loading, reports]);
     if (showForm) {
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("datalist", { id: "ir-incident-types" }, ["Worker's Compensation / employee injury", "Customer injury", "Property damage", "Security / theft", "Workplace violence", "Other"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }))), /* @__PURE__ */ React.createElement("datalist", { id: "ir-statuses" }, ["Active", "On leave", "Inactive", "Terminated"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }))), /* @__PURE__ */ React.createElement("datalist", { id: "ir-roles" }, ["Injured employee", "Witness", "Manager on duty", "Customer", "Other"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }))), /* @__PURE__ */ React.createElement("button", { onClick: () => leaveForm(false), style: { background: "none", border: "none", padding: 0, color: O, fontWeight: 700, fontSize: "0.8rem", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.6rem", fontFamily: "'Source Sans 3'" } }, irIcon("back", O, 15), " Back to Incidents"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.9rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 52, height: 52, borderRadius: "0.8rem", background: O + "1c", display: "flex", alignItems: "center", justifyContent: "center" } }, irIcon("doc", O, 26)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.6rem", color: th.text } }, editing ? "Edit Incident Report" : "Incident Report"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted } }, editing ? `Filed by ${editing.preparedByName} on ${editing.reportDate}. Your name and the time are recorded as the last edit.` : `Prepared by ${user?.name || "you"} \xB7 ${todayISO()}`))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.9rem", padding: "0.55rem 1rem", borderRadius: "0.7rem", border: `1px solid ${th.cardBorder}`, background: th.card, fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", fontWeight: 600, color: th.text } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: editing ? "#3b82f6" : "#c9a227" } }), editing ? "Editing" : "Draft"), !editing && /* @__PURE__ */ React.createElement(
         "span",
@@ -18244,7 +18259,7 @@ ${t2.slice(0, 300)}`);
       "button",
       {
         disabled: !!bulkBackup || !!backingUp,
-        onClick: backUpAllMissing,
+        onClick: () => backUpAllMissing(),
         style: { ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), opacity: bulkBackup || backingUp ? 0.6 : 1 }
       },
       bulkBackup ? `Backing up ${bulkBackup.done}/${bulkBackup.total}\u2026` : `Back up ${missingBackups.length} missing to Drive`
@@ -18260,23 +18275,26 @@ ${t2.slice(0, 300)}`);
       r.lastEditedAt ? new Date(r.lastEditedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "",
       (r.editHistory || []).length > 1 ? ` \xB7 ${r.editHistory.length} edits` : "",
       r.editHistory?.[r.editHistory.length - 1]?.fields?.length ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400 } }, " \xB7 changed ", r.editHistory[r.editHistory.length - 1].fields.join(", ")) : null
-    ), isReviewer && /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        title: r.driveBackupStatus === "failed" ? r.driveBackupError || "" : void 0,
-        style: { fontSize: "0.72rem", marginTop: "0.15rem", fontWeight: 600, color: r.driveBackupStatus === "ok" ? "#16a34a" : r.driveBackupStatus === "failed" ? "#dc2626" : th.muted }
-      },
-      backingUp === r.id ? "Backing up to Google Drive\u2026" : r.driveBackupStatus === "ok" ? `Backed up to Google Drive \xB7 ${r.driveBackupAt ? new Date(r.driveBackupAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}` : r.driveBackupStatus === "failed" ? "Google Drive backup failed" : "Not backed up to Google Drive yet",
-      backingUp !== r.id && r.driveBackupStatus !== "ok" && /* @__PURE__ */ React.createElement(
-        "button",
+    ), isReviewer && (() => {
+      const st = backingUp === r.id ? "running" : driveState(r);
+      return /* @__PURE__ */ React.createElement(
+        "div",
         {
-          onClick: () => retryDriveBackup(r),
-          disabled: !!backingUp || !!bulkBackup,
-          style: { background: "none", border: "none", padding: 0, marginLeft: "0.5rem", color: O, fontWeight: 700, fontSize: "0.72rem", cursor: "pointer", fontFamily: "'Source Sans 3'" }
+          title: st === "failed" ? r.driveBackupError || "" : st === "damaged" ? 'Copies uploaded before Oct 14 were damaged (Drive shows "error"). Re-backing up trashes them and uploads good copies.' : void 0,
+          style: { fontSize: "0.72rem", marginTop: "0.15rem", fontWeight: 600, color: st === "ok" ? "#16a34a" : st === "failed" || st === "damaged" ? "#dc2626" : th.muted }
         },
-        r.driveBackupStatus === "failed" ? "Retry" : "Back up now"
-      )
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexShrink: 0 } }, canEditReport(r, { userType: user?.userType, sub: user?.id }) && /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.5rem 1rem", fontSize: "0.8rem", background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), onClick: () => startEdit(r) }, "Edit"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.5rem 1rem", fontSize: "0.8rem" }), onClick: () => exportIncidentReportPdf(r) }, "Download PDF"))))));
+        st === "running" ? "Backing up to Google Drive\u2026" : st === "ok" ? `Backed up to Google Drive \xB7 ${r.driveBackupAt ? new Date(r.driveBackupAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}` : st === "damaged" ? "Drive copy is damaged \u2014 needs re-backup" : st === "failed" ? "Google Drive backup failed" : "Not backed up to Google Drive yet",
+        !["ok", "running"].includes(st) && /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => retryDriveBackup(r),
+            disabled: !!backingUp || !!bulkBackup,
+            style: { background: "none", border: "none", padding: 0, marginLeft: "0.5rem", color: O, fontWeight: 700, fontSize: "0.72rem", cursor: "pointer", fontFamily: "'Source Sans 3'" }
+          },
+          st === "failed" ? "Retry" : st === "damaged" ? "Re-back up" : "Back up now"
+        )
+      );
+    })()), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexShrink: 0 } }, canEditReport(r, { userType: user?.userType, sub: user?.id }) && /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.5rem 1rem", fontSize: "0.8rem", background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), onClick: () => startEdit(r) }, "Edit"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { padding: "0.5rem 1rem", fontSize: "0.8rem" }), onClick: () => exportIncidentReportPdf(r) }, "Download PDF"))))));
   }
   var MINOR_TIMECARD_ISSUES_KEY = "pcg_minor_timecard_issues_v1";
   var mtcDisplayStatus = (issue) => {
@@ -24904,7 +24922,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.2";
+  var APP_VERSION = "v22.4";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

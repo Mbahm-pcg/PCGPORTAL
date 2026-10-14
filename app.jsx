@@ -20717,7 +20717,7 @@ async function backupToDrive(reportId, report, attachmentsBeforeUpload, opts = {
   const res = await fetch('/.netlify/functions/incident-report-drive', {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
-    body: JSON.stringify({ action: 'backup', reportId, storeName: report.storeName || 'Unknown', pdfKey, attachments: attachmentMeta, edited: !!opts.edited }),
+    body: JSON.stringify({ action: 'backup', reportId, storeName: report.storeName || 'Unknown', pdfKey, attachments: attachmentMeta, edited: !!opts.edited, version: opts.edited ? (report.lastEditedAt || 'edited') : (report.lastEditedAt || 'original') }),
   });
   return res.json().catch(() => ({ ok: false, failed: [{ key: 'all', error: `HTTP ${res.status}` }] }));
 }
@@ -21157,7 +21157,7 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
       // (the report is already safely saved; backend logs + notifies
       // exec/IT instead — see incident-report-drive.mjs).
       // The server stamps reportDate / preparedBy*; mirror them so the Drive PDF isn't blank there.
-      backupToDrive(j.id, { ...report, reportDate: todayISO(), preparedByName: user?.name || '' }, attachmentRefs).catch(() => {});
+      backupToDrive(j.id, { ...report, reportDate: todayISO(), preparedByName: user?.name || '' }, attachmentRefs).then(() => loadReports()).catch(() => {});
       clearIncidentDraft();
       resetForm();
       setShowForm(false);
@@ -21254,8 +21254,18 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
     setBackingUp(null);
     loadReports();
   };
-  const missingBackups = isReviewer ? reports.filter(r => r.driveBackupStatus !== 'ok') : [];
-  const backUpAllMissing = async () => {
+  // v22.3 Drive status per report:
+  //   running  — a backup started < 10 min ago is still going (no second run offered)
+  //   damaged  — "ok" from before v22.3: those uploads were corrupted, needs a re-backup
+  //   ok / failed / none
+  const driveState = (r) => {
+    if (r.driveBackupStatus === 'running' && r.driveBackupAt && Date.now() - new Date(r.driveBackupAt).getTime() < 10 * 60000) return 'running';
+    if (r.driveBackupStatus === 'ok') return (r.driveBackupFormat || 0) >= 2 ? 'ok' : 'damaged';
+    if (r.driveBackupStatus === 'failed') return 'failed';
+    return 'none';
+  };
+  const missingBackups = isReviewer ? reports.filter(r => !['ok', 'running'].includes(driveState(r))) : [];
+  const backUpAllMissing = async ({ silent = false } = {}) => {
     const list = missingBackups.slice();
     if (!list.length) return;
     let okCount = 0;
@@ -21267,9 +21277,25 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
     }
     setBackingUp(null);
     setBulkBackup(null);
-    showAlert && showAlert(okCount === list.length ? 'success' : 'error', `Backed up ${okCount} of ${list.length} report${list.length !== 1 ? 's' : ''} to Google Drive.`);
+    // The automatic run stays quiet unless something actually failed.
+    if (!silent || okCount !== list.length) {
+      showAlert && showAlert(okCount === list.length ? 'success' : 'error', `Backed up ${okCount} of ${list.length} report${list.length !== 1 ? 's' : ''} to Google Drive.`);
+    }
     loadReports();
   };
+  // v22.4: automatic catch-up. The backup normally runs right after a report is
+  // filed or edited, but it's built in the filer's browser — closing the tab too
+  // soon, or a Drive hiccup, leaves it missing. So whenever exec/IT opens this
+  // page, anything missing / failed / damaged is backed up in the background
+  // (once per visit; uploads are de-duplicated server-side, so it never doubles).
+  const autoBackupRanRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!isReviewer || autoBackupRanRef.current || loading || bulkBackup || backingUp) return;
+    if (!missingBackups.length) return;
+    autoBackupRanRef.current = true;
+    backUpAllMissing({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, reports]);
 
   if (showForm) {
     return (
@@ -21509,7 +21535,7 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
         <div style={sectionTitle(th)}>{isReviewer ? 'All Incident Reports' : 'My Incident Reports'}</div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {isReviewer && missingBackups.length > 0 && (
-            <button disabled={!!bulkBackup || !!backingUp} onClick={backUpAllMissing}
+            <button disabled={!!bulkBackup || !!backingUp} onClick={() => backUpAllMissing()}
               style={{ ...btn(th, { background: th.card, color: th.text, border: `1px solid ${th.cardBorder}` }), opacity: bulkBackup || backingUp ? 0.6 : 1 }}>
               {bulkBackup ? `Backing up ${bulkBackup.done}/${bulkBackup.total}…` : `Back up ${missingBackups.length} missing to Drive`}
             </button>
@@ -21536,21 +21562,25 @@ function IncidentReportsTab({ user, th, stores, showAlert }) {
                     {r.editHistory?.[r.editHistory.length - 1]?.fields?.length ? <span style={{ color: th.muted, fontWeight: 400 }}> · changed {r.editHistory[r.editHistory.length - 1].fields.join(', ')}</span> : null}
                   </div>
                 )}
-                {isReviewer && (
-                  <div title={r.driveBackupStatus === 'failed' ? r.driveBackupError || '' : undefined}
-                    style={{ fontSize: '0.72rem', marginTop: '0.15rem', fontWeight: 600, color: r.driveBackupStatus === 'ok' ? '#16a34a' : r.driveBackupStatus === 'failed' ? '#dc2626' : th.muted }}>
-                    {backingUp === r.id ? 'Backing up to Google Drive…'
-                      : r.driveBackupStatus === 'ok' ? `Backed up to Google Drive · ${r.driveBackupAt ? new Date(r.driveBackupAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}`
-                      : r.driveBackupStatus === 'failed' ? 'Google Drive backup failed'
-                      : 'Not backed up to Google Drive yet'}
-                    {backingUp !== r.id && r.driveBackupStatus !== 'ok' && (
-                      <button onClick={() => retryDriveBackup(r)} disabled={!!backingUp || !!bulkBackup}
-                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: '0.5rem', color: O, fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>
-                        {r.driveBackupStatus === 'failed' ? 'Retry' : 'Back up now'}
-                      </button>
-                    )}
-                  </div>
-                )}
+                {isReviewer && (() => {
+                  const st = backingUp === r.id ? 'running' : driveState(r);
+                  return (
+                    <div title={st === 'failed' ? r.driveBackupError || '' : st === 'damaged' ? 'Copies uploaded before Oct 14 were damaged (Drive shows "error"). Re-backing up trashes them and uploads good copies.' : undefined}
+                      style={{ fontSize: '0.72rem', marginTop: '0.15rem', fontWeight: 600, color: st === 'ok' ? '#16a34a' : (st === 'failed' || st === 'damaged') ? '#dc2626' : th.muted }}>
+                      {st === 'running' ? 'Backing up to Google Drive…'
+                        : st === 'ok' ? `Backed up to Google Drive · ${r.driveBackupAt ? new Date(r.driveBackupAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}`
+                        : st === 'damaged' ? 'Drive copy is damaged — needs re-backup'
+                        : st === 'failed' ? 'Google Drive backup failed'
+                        : 'Not backed up to Google Drive yet'}
+                      {!['ok', 'running'].includes(st) && (
+                        <button onClick={() => retryDriveBackup(r)} disabled={!!backingUp || !!bulkBackup}
+                          style={{ background: 'none', border: 'none', padding: 0, marginLeft: '0.5rem', color: O, fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>
+                          {st === 'failed' ? 'Retry' : st === 'damaged' ? 'Re-back up' : 'Back up now'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
                 {canEditReport(r, { userType: user?.userType, sub: user?.id }) && (
@@ -31174,7 +31204,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.2";
+const APP_VERSION = "v22.4";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
