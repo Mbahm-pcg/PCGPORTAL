@@ -3347,7 +3347,37 @@ const DISTRICTS_SEED = {
 
 // ─── Admin: User Management ──────────────────────────────────────────────────
 
-function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, managerPendingCount }) {
+function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, managerPendingCount, districts, setDistricts, setStores }) {
+  // v22.5: District Managers are assigned to a district here, same as managers to a store.
+  // The district list comes from Locations → Districts plus any district a store is in.
+  const districtOptions = React.useMemo(() => {
+    const nums = new Set(Object.keys(districts || {}).map(Number).filter(n => Number.isFinite(n) && n > 0));
+    (stores || []).forEach(st => { const d = Number(st.district); if (Number.isFinite(d) && d > 0 && st.status !== PERMANENTLY_CLOSED) nums.add(d); });
+    return [...nums].sort((a, b) => a - b).map(n => ({
+      num: n,
+      dmName: (districts || {})[n]?.name || '',
+      storeCount: (stores || []).filter(st => Number(st.district) === n && st.status !== PERMANENTLY_CLOSED).length,
+    }));
+  }, [districts, stores]);
+  // Keep Locations → Districts' DM name/email (and each store's DM label) in step
+  // with whichever DM account is assigned here, so the two can't disagree.
+  const syncDistrictDm = (prevDistrict, nextDistrict, person) => {
+    const prev = prevDistrict == null || prevDistrict === '' ? null : Number(prevDistrict);
+    const next = nextDistrict == null || nextDistrict === '' ? null : Number(nextDistrict);
+    const sameName = (a) => String(a || '').trim().toLowerCase() === String(person.name || '').trim().toLowerCase();
+    if (setDistricts) setDistricts(d => {
+      const out = { ...(d || {}) };
+      if (prev != null && prev !== next && out[prev] && sameName(out[prev].name)) out[prev] = { ...out[prev], name: '', email: '' };
+      if (next != null) out[next] = { ...(out[next] || { num: next }), num: next, name: person.name, email: person.email || '' };
+      return out;
+    });
+    if (setStores) setStores(ss => ss.map(st => {
+      const d = Number(st.district);
+      if (next != null && d === next) return st.dmName === person.name ? st : { ...st, dmName: person.name };
+      if (prev != null && prev !== next && d === prev && sameName(st.dmName)) return { ...st, dmName: '' };
+      return st;
+    }));
+  };
   const [view, setView] = useState('list'); // 'list' | 'edit'
   const [editId, setEditId] = useState(null);
   const [showPw, setShowPw]   = useState(false);
@@ -3560,6 +3590,11 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
         const json = await res.json().catch(() => ({}));
         if (!res.ok) { showAlert('error', json.error || `Save failed (${res.status})`); return; }
         setUsers(us => us.map(u => u.id === editId ? { ...u, ...json.user } : u));
+        if (form.userType === 'dm' || old.userType === 'dm') {
+          const wasDistrict = old.userType === 'dm' ? old.district : null;
+          const nowDistrict = form.userType === 'dm' ? form.district : null;
+          if (String(wasDistrict ?? '') !== String(nowDistrict ?? '') || old.name !== form.name || (old.email || '') !== (form.email || '')) syncDistrictDm(wasDistrict, nowDistrict, { name: form.name, email: form.email });
+        }
         logClientEvent(currentUser?.id, currentUser?.userType, 'user_edited', { targetName: form.name, targetId: editId, targetRole: form.userType });
         if (form.password) logClientEvent(currentUser?.id, currentUser?.userType, 'user_password_changed', { targetName: form.name, targetId: editId });
         if (form.username !== old.username) logClientEvent(currentUser?.id, currentUser?.userType, 'user_username_changed', { targetName: form.name, targetId: editId, from: old.username, to: form.username });
@@ -3575,6 +3610,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
         const json = await res.json().catch(() => ({}));
         if (!res.ok) { showAlert('error', json.error || `Create failed (${res.status})`); return; }
         setUsers(us => [...us, json.user]);
+        if (form.userType === 'dm' && form.district != null && form.district !== '') syncDistrictDm(null, form.district, { name: form.name, email: form.email });
         // json.user is the server's response — correctly stripped of the
         // plaintext password (only password_hash is ever persisted/returned,
         // per the no-plaintext policy; see users.mjs's `create` action).
@@ -3794,6 +3830,39 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                     </div>
                   </div>
                 </>)}
+                {/* District Assignment — District Managers (v22.5), same link/unlink as a manager's store */}
+                {form.userType === "dm" && (<>
+                  <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
+                    <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
+                    <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>District Assignment</span>
+                  </div>
+                  <div style={{ marginBottom:"1.25rem" }}>
+                    <select
+                      style={{ ...inp(th), width:"100%" }}
+                      value={form.district != null && form.district !== '' ? String(form.district) : ""}
+                      onChange={e => { const v = e.target.value; setForm(f => ({ ...f, district: v === '' ? null : Number(v) })); }}
+                    >
+                      <option value="">— Unassigned —</option>
+                      {districtOptions.map(d => {
+                        const takenBy = (users || []).find(u => u.id !== editId && u.userType === 'dm' && u.active !== false && Number(u.district) === d.num);
+                        return (
+                          <option key={d.num} value={String(d.num)}>
+                            District {d.num} · {d.storeCount} store{d.storeCount !== 1 ? 's' : ''}{takenBy ? ` · currently ${takenBy.name}` : (d.dmName ? ` · ${d.dmName}` : '')}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <div style={{ fontSize:"0.68rem", color: form.district ? "#3b82f6" : th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
+                      {form.district
+                        ? `Assigned — this DM will see District ${form.district}'s stores on login, and Locations → Districts will show them as its DM.`
+                        : "No district selected. This DM will see no stores on login."}
+                    </div>
+                    {(() => {
+                      const takenBy = form.district ? (users || []).find(u => u.id !== editId && u.userType === 'dm' && u.active !== false && Number(u.district) === Number(form.district)) : null;
+                      return takenBy ? <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.3rem", paddingLeft:"0.2rem" }}>{takenBy.name} is also assigned to District {form.district}. Both will see it until one is unassigned.</div> : null;
+                    })()}
+                  </div>
+                </>)}
                 {/* Contact section */}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                   <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
@@ -3984,6 +4053,9 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                     2FA required{u.twoFactorSecret ? " and set up" : " - setup pending"}
                   </div>
                 )}
+                {u.userType === "dm" && (u.district
+                  ? <div style={{ fontSize:"0.68rem", color:"#3b82f6", fontWeight:700, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.pin} size={12} color="#3b82f6" />District {u.district} · {(districtOptions.find(d => d.num === Number(u.district)) || {}).storeCount || 0} stores</div>
+                  : <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.alert} size={12} color="#f59e0b" />No district assigned</div>)}
                 {u.userType === "manager" && (() => {
                   const assigned = u.storePC
                     ? (stores || []).find(s => String(s.pc) === String(u.storePC))
@@ -24646,7 +24718,7 @@ function AdminConsole(props) {
       </div>
 
       {sub === 'tasks' && <AdminTaskManager th={th} user={user} stores={stores} showAlert={showAlert} />}
-      {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} />}
+      {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} districts={districts} setDistricts={props.setDistricts} setStores={props.setStores} />}
       {sub === 'access' && <AccessMatrix th={th} user={user} users={users} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} showAlert={showAlert} />}
       {sub === 'orion' && <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         <OrionLearningPanel th={th} user={user} showAlert={showAlert} setTab={props.setTab} />
@@ -31204,7 +31276,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.4";
+const APP_VERSION = "v22.5";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -56626,7 +56698,7 @@ function PCGPortal() {
           {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={openStores} salesWeeks={salesWeeks} />}
           {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} users={users} onMapModeChange={setLocationsMapMode} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={openStores} setStores={setStores} users={users} th={th} />}
-          {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} managerPendingCount={managerPendingCount} />}
+          {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} managerPendingCount={managerPendingCount} districts={districts} setDistricts={setDistricts} setStores={setStores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={openStores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
           {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={openStores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={openStores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
@@ -56716,7 +56788,7 @@ function PCGPortal() {
           {tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && <ProjectGalleryTab user={user} th={th} projects={projects} setProjects={setProjectsUser} dailyReports={dailyReports} isMobile={isMobile} />}
           {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={openStores} showAlert={showAlert} />}
           {tab === "system-health" && isFullAdmin(user) && <SystemHealth th={th} user={user} />}
-          {tab === "admin"     && isFullAdmin(user) && <AdminConsole globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
+          {tab === "admin"     && isFullAdmin(user) && <AdminConsole setDistricts={setDistricts} setStores={setStores} globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={openStores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} users={users} />}
           {tab === "kb" && <KnowledgeBase th={th} user={user} showAlert={showAlert} stores={openStores} />}

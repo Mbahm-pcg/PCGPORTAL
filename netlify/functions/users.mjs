@@ -337,7 +337,8 @@ export default async (request) => {
           phone               = COALESCE(${patch.phone ?? null}, phone),
           role                = COALESCE(${patch.role ?? null}, role),
           user_type           = COALESCE(${patch.userType ?? null}, user_type),
-          district            = COALESCE(${patch.district ?? null}, district),
+          -- v22.5: an explicit district: null / '' clears it (DM "Unassigned"); omitting the key keeps it.
+          district            = CASE WHEN ${Object.prototype.hasOwnProperty.call(patch, 'district')} THEN ${patch.district != null && patch.district !== '' ? Number(patch.district) : null} ELSE district END,
           -- v22.0: an explicit storePC: null / '' clears the store ("Unassigned"); omitting the key keeps it.
           store_pc            = CASE WHEN ${Object.prototype.hasOwnProperty.call(patch, 'storePC')} THEN ${patch.storePC != null && patch.storePC !== '' ? String(patch.storePC) : null} ELSE store_pc END,
           active              = COALESCE(${patch.active ?? null}, active),
