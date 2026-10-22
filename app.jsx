@@ -6595,8 +6595,8 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
 
   // ── Layout (redesigned v21.93) ────────────────────────────────────────────
   const COLS = ['PC#', 'Paycor Client ID', 'Legal Name', 'Property Name', 'Address', 'Asset Type', 'Manager', 'Store Email', 'Weekly Sales', 'Busiest Hours', 'Nearest Sibling'];
-  const thStyle = { position: 'sticky', top: 0, zIndex: 2, textAlign: 'left', padding: '0.85rem 0.75rem', fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', color: th.muted, background: th.card, borderBottom: `1px solid ${th.cardBorder}` };
-  const tdStyle = { padding: '0.85rem 0.75rem', fontSize: '0.78rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'middle', transition: 'background 0.15s ease' };
+  const thStyle = { position: 'sticky', top: 0, zIndex: 2, textAlign: 'left', padding: '0.8rem 0.5rem', fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'normal', verticalAlign: 'bottom', color: th.muted, background: th.card, borderBottom: `1px solid ${th.cardBorder}` };
+  const tdStyle = { padding: '0.8rem 0.5rem', fontSize: '0.78rem', color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: 'middle', transition: 'background 0.15s ease' };
   const mutedTd = { ...tdStyle, color: th.muted };
   const textLink = { background: 'none', border: 'none', padding: 0, marginLeft: '1rem', fontSize: '0.72rem', fontWeight: 600, color: O, cursor: 'pointer', fontFamily: "'Source Sans 3'" };
   const outlineBtn = (accent) => ({ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.62rem 1.1rem', borderRadius: '0.6rem', border: `1px solid ${accent ? O + '88' : th.cardBorder}`, background: th.card, color: accent ? O : th.text, fontSize: '0.8rem', fontWeight: 600, fontFamily: "'Source Sans 3'", cursor: 'pointer' });
@@ -6705,7 +6705,9 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
 
       {/* Table */}
       <div style={{ ...card(th), borderRadius: '0.9rem', padding: '0 0.5rem 0.5rem', overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
+        {/* Fluid (v22.11): was minWidth 1400, which pushed the right edge (Avg. distance,
+            Nearest Sibling) off-screen at 100% zoom. Now it fits the window and only scrolls on phones. */}
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
           <thead>
             <tr>{COLS.map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
@@ -6721,7 +6723,7 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
                 <React.Fragment key={dNum}>
                   <tr style={rowEnterStyle({})} {...dropHandlers(dNum)}>
                     <td colSpan={COLS.length} style={{ padding: '0.6rem 0.15rem 0.35rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.6rem 0.9rem', borderRadius: '0.6rem', background: districtTint(dc.bg, isTarget ? 0.32 : 0.14), outline: isTarget ? `2px dashed ${dc.bg}` : 'none', transition: 'background 0.15s ease' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem 1rem', padding: '0.6rem 0.9rem', borderRadius: '0.6rem', background: districtTint(dc.bg, isTarget ? 0.32 : 0.14), outline: isTarget ? `2px dashed ${dc.bg}` : 'none', transition: 'background 0.15s ease' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0, flexWrap: 'wrap' }}>
                           <span style={{ width: 10, height: 10, borderRadius: '50%', background: dc.bg, flexShrink: 0 }} />
                           <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.05rem', color: th.text }}>{dNum ? `District ${dNum}` : 'Unassigned'}</span>
@@ -6803,7 +6805,7 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
                         <td style={{ ...mutedTd, maxWidth: 220 }}>{[s.address, s.city, s.state].filter(Boolean).join(', ')}</td>
                         <td style={mutedTd}>{assetCombined(s)}</td>
                         <td style={tdStyle}>{storeMgrName(s, users) || 'Unassigned'}</td>
-                        <td style={mutedTd}>{s.email || '—'}</td>
+                        <td style={{ ...mutedTd, overflowWrap: 'anywhere' }}>{s.email || '—'}</td>
                         <td style={tdStyle}>
                           <div style={{ fontWeight: 700 }}>{fmtMoney(m.weeklySales)}</div>
                           {m.weekStart && <div style={{ fontSize: '0.66rem', color: th.muted, whiteSpace: 'nowrap' }}>{fmtWeekRange(m)}</div>}
@@ -6829,7 +6831,7 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
                             {(m.hourlyAvg || []).map((h, hIdx) => (
                               <div key={h.h}
                                 style={{
-                                  width: 4, height: Math.max(2, (h.avgSales / maxAvg) * 26), background: (m.topHours || []).some(t => t.h === h.h) ? '#c2410c' : O + '99', borderRadius: 1.5,
+                                  width: 3, height: Math.max(2, (h.avgSales / maxAvg) * 26), background: (m.topHours || []).some(t => t.h === h.h) ? '#c2410c' : O + '99', borderRadius: 1.5,
                                   transformOrigin: 'bottom', animation: 'daBarGrow 0.4s ease-out both', animationDelay: `${hIdx * 12}ms`,
                                 }} />
                             ))}
@@ -31583,7 +31585,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.10";
+const APP_VERSION = "v22.11";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
