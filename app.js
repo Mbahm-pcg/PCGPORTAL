@@ -16723,6 +16723,169 @@ ${t2.slice(0, 300)}`);
       state === "sending" ? "Sending\u2026" : state === "sent" ? "Sent \u2713" : "Send now"
     ));
   }
+  var IR_ICONS = {
+    store: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 9.5 5.5 4h13L20 9.5" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0" }), /* @__PURE__ */ React.createElement("path", { d: "M5.5 11.5V20h13v-8.5M10 20v-5h4v5" })),
+    clock: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "8.5" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7.5V12l3 2" })),
+    calendar: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" })),
+    chevronDown: /* @__PURE__ */ React.createElement("path", { d: "m6 9 6 6 6-6" }),
+    chevronRight: /* @__PURE__ */ React.createElement("path", { d: "m9 6 6 6-6 6" })
+  };
+  var irIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS[k] || NOTIFY_ICONS[k], color: c, size: s });
+  function InterviewRemindersPanel({ th, showAlert: showAlert2, users }) {
+    const O2 = "#FF671F";
+    const [data, setData] = useState(null);
+    const [err, setErr] = useState(null);
+    const [running, setRunning] = useState(false);
+    const [ivQ, setIvQ] = useState("");
+    const [ivStatus, setIvStatus] = useState("all");
+    const [ivRange, setIvRange] = useState("today");
+    const [ivShowAll, setIvShowAll] = useState(false);
+    const [peopleOpen, setPeopleOpen] = useState(true);
+    const [activityOpen, setActivityOpen] = useState(false);
+    const [peopleQ, setPeopleQ] = useState("");
+    const [peopleRole, setPeopleRole] = useState("all");
+    const [picked, setPicked] = useState([]);
+    const [savingMuted, setSavingMuted] = useState(false);
+    const load = useCallback(async () => {
+      try {
+        const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        setData(j);
+        setErr(null);
+      } catch (e) {
+        setErr(e.message);
+      }
+    }, []);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const runNow = async () => {
+      setRunning(true);
+      const before = data?.status?.at || null;
+      try {
+        const res = await fetch("/.netlify/functions/interview-reminders-run-background", { method: "POST", credentials: "include", headers: { ...authHeader() } });
+        if (res.status !== 202 && !res.ok) throw new Error(res.status === 403 ? "Only exec/IT can run this." : `HTTP ${res.status}`);
+        showAlert2 && showAlert2("success", "Checking every store mailbox \u2014 results show here in a minute or two.");
+        for (let i = 0; i < 36; i++) {
+          await new Promise((r) => setTimeout(r, 5e3));
+          const r2 = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
+          const j = await r2.json().catch(() => null);
+          if (j && j.status?.at && j.status.at !== before) {
+            setData(j);
+            break;
+          }
+        }
+      } catch (e) {
+        showAlert2 && showAlert2("error", `Run failed: ${e.message}`);
+      }
+      setRunning(false);
+    };
+    const saveMuted = async (next) => {
+      setSavingMuted(true);
+      try {
+        const res = await fetch("/.netlify/functions/interview-reminders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ mutedUsers: next }) });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        setData((d) => ({ ...d || {}, config: j.config }));
+        setPicked([]);
+      } catch (e) {
+        showAlert2 && showAlert2("error", `Couldn't save: ${e.message}`);
+      }
+      setSavingMuted(false);
+    };
+    const storeName = (pc) => [...LIVE_OPEN_STORES || [], ...STORES_SEED].find((s) => String(s.pc) === String(pc))?.name || `PC# ${pc}`;
+    const etDay = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const fmtWhen = (iso) => new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }) + " \xB7 " + new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+    const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }) : "\u2014";
+    const fmtAgo = (iso) => {
+      if (!iso) return "never";
+      const d = new Date(iso);
+      return etDay(d.getTime()) === etDay(Date.now()) ? fmtTime(iso) : d.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    };
+    const st = data?.status;
+    const mode = data?.mode;
+    const boxes = Object.entries(st?.mailboxes || {});
+    const okCount = boxes.filter(([, m]) => m.ok).length;
+    const failed = boxes.filter(([, m]) => !m.ok);
+    const mutedUsers = (data?.config?.mutedUsers || []).map(String);
+    const today = etDay(Date.now());
+    const tomorrow = etDay(Date.now() + 864e5);
+    const ivState = (iv) => iv.status === "cancelled" ? "cancelled" : iv.sent_hour_at ? "hour" : iv.sent_day_at ? "day" : "pending";
+    const upcoming = data?.upcoming || [];
+    const todayCount = upcoming.filter((iv) => iv.status !== "cancelled" && etDay(new Date(iv.start_at).getTime()) === today).length;
+    const shownIv = upcoming.filter((iv) => {
+      const t = new Date(iv.start_at).getTime();
+      if (ivRange === "today" && etDay(t) !== today) return false;
+      if (ivRange === "tomorrow" && etDay(t) !== tomorrow) return false;
+      if (ivRange === "week" && t > Date.now() + 7 * 864e5) return false;
+      if (ivStatus !== "all" && ivState(iv) !== ivStatus) return false;
+      const q = ivQ.trim().toLowerCase();
+      return !q || `${iv.candidate || ""} ${iv.summary || ""} ${storeName(iv.store_pc)}`.toLowerCase().includes(q);
+    });
+    const IV_LIMIT = 8;
+    const ivRows = ivShowAll ? shownIv : shownIv.slice(0, IV_LIMIT);
+    const reminderPeople = (users || []).filter((u) => u.active !== false && (u.userType === "manager" || u.userType === "dm")).map((u) => ({ ...u, where: u.userType === "dm" ? u.district ? `District ${u.district}` : "No district" : u.storePC ? storeName(u.storePC) : "No store" })).sort((a, b) => (a.userType === b.userType ? 0 : a.userType === "dm" ? -1 : 1) || String(a.name || "").localeCompare(String(b.name || "")));
+    const offCount = reminderPeople.filter((u) => mutedUsers.includes(String(u.id))).length;
+    const onCount = reminderPeople.length - offCount;
+    const shownPeople = reminderPeople.filter((u) => (peopleRole === "all" || u.userType === peopleRole) && (!peopleQ.trim() || `${u.name} ${u.where} ${u.email || ""}`.toLowerCase().includes(peopleQ.trim().toLowerCase())));
+    const allShownPicked = shownPeople.length > 0 && shownPeople.every((u) => picked.includes(String(u.id)));
+    const box = { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.85rem", padding: "1rem 1.15rem", marginBottom: "1rem" };
+    const cell = { padding: "0.6rem 0.6rem", borderBottom: `1px solid ${th.cardBorder}`, fontSize: "0.84rem", textAlign: "left", color: th.text };
+    const head = { ...cell, color: th.muted, fontWeight: 600, fontSize: "0.76rem" };
+    const searchWrap = { position: "relative", flex: "1 1 220px", maxWidth: 360 };
+    const searchInput = { ...inp(th), width: "100%", padding: "0.5rem 0.7rem 0.5rem 2rem", fontSize: "0.83rem", boxSizing: "border-box" };
+    const searchIco = /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.65rem", top: "50%", transform: "translateY(-50%)", display: "flex" } }, irIco("search", th.muted, 14));
+    const selectStyle = { ...inp(th), padding: "0.5rem 0.7rem", fontSize: "0.83rem", cursor: "pointer" };
+    const pillBtn = (on) => ({ padding: "0.38rem 0.95rem", borderRadius: "999px", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer", fontFamily: "'Source Sans 3'", border: `1px solid ${on ? O2 + "66" : th.cardBorder}`, background: on ? O2 + "14" : th.card, color: on ? O2 : th.text });
+    const statusPill = (s) => {
+      const m = { pending: ["Pending", th.muted, th.cardBorder + "80"], day: ["1-day sent", "#2563eb", "#2563eb14"], hour: ["1-hour sent", "#16a34a", "#16a34a14"], cancelled: ["Cancelled", "#dc2626", "#dc262612"] }[s];
+      return /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "0.18rem 0.6rem", borderRadius: "999px", fontSize: "0.74rem", fontWeight: 600, color: m[1], background: m[2] } }, m[0]);
+    };
+    const sectionHead = (icon, title, sub, right, open, onToggle) => /* @__PURE__ */ React.createElement("div", { onClick: onToggle, style: { display: "flex", alignItems: "flex-start", gap: "0.7rem", cursor: onToggle ? "pointer" : "default", marginBottom: open ? "0.85rem" : 0 } }, icon && /* @__PURE__ */ React.createElement("span", { style: { marginTop: 2 } }, irIco(icon, th.text, 18)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text, fontFamily: "'Raleway'" } }, title), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: 2 } }, sub)), right, onToggle && /* @__PURE__ */ React.createElement("span", { style: { display: "flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" } }, irIco("chevronDown", th.muted, 16)));
+    const kpi = (icon, value, label, warn) => /* @__PURE__ */ React.createElement("div", { style: { ...box, marginBottom: 0, display: "flex", alignItems: "center", gap: "0.85rem", flex: "1 1 200px" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 38, height: 38, borderRadius: "0.6rem", border: `1px solid ${th.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, irIco(icon, warn ? "#dc2626" : th.text, 19)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.2rem", fontWeight: 800, color: warn ? "#dc2626" : th.text, fontFamily: "'Raleway'", lineHeight: 1.1 } }, value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, label)));
+    const modeInfo = {
+      live: ["LIVE", "#16a34a", /* @__PURE__ */ React.createElement(React.Fragment, null, "Reminders go to each store's manager \u2014 or the district's DM when a store has no manager on file.")],
+      shadow: ["TEST MODE", O2, /* @__PURE__ */ React.createElement(React.Fragment, null, "All reminders go to ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, (st?.shadowTo || "the test account").replace(/ \(no phone on file\)$/, "")), " only. No store recipients are contacted.")],
+      off: ["OFF", th.muted, /* @__PURE__ */ React.createElement(React.Fragment, null, "Interview reminders are switched off \u2014 nothing is checked or sent.")]
+    }[mode] || ["\u2026", th.muted, "Loading\u2026"];
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: "1.35rem", fontWeight: 800, color: th.text, fontFamily: "'Raleway'" } }, "Interview reminders"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: 4 } }, "Automatically text and email store managers about upcoming Paradox interviews \u2014 about 1 day and 1 hour before.")), err && /* @__PURE__ */ React.createElement("div", { style: { color: "#dc2626", fontSize: "0.85rem", marginBottom: "1rem" } }, "Couldn't load: ", err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.85rem", flexWrap: "wrap", marginBottom: "1rem" } }, kpi("mail", st ? `${okCount}/${boxes.length}` : "\u2014", "Mailboxes checked", failed.length > 0), kpi("calendar", data ? todayCount : "\u2014", "Interviews today"), kpi("users", users ? onCount : "\u2014", "Recipients enabled")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.85rem", flexWrap: "wrap", padding: "0.8rem 1rem", borderRadius: "0.85rem", border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { padding: "0.22rem 0.6rem", borderRadius: "0.35rem", background: modeInfo[1], color: "#fff", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.04em" } }, modeInfo[0]), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px", fontSize: "0.84rem", color: th.muted } }, modeInfo[2], " ", /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, "Last checked ", fmtAgo(st?.at), ".")), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: runNow,
+        disabled: running || mode === "off",
+        style: { padding: "0.55rem 1.1rem", borderRadius: "0.55rem", border: "none", background: O2, color: "#fff", fontWeight: 700, fontSize: "0.84rem", fontFamily: "'Source Sans 3'", cursor: running ? "default" : "pointer", opacity: running || mode === "off" ? 0.6 : 1 }
+      },
+      running ? "Checking\u2026" : "Check mailboxes now"
+    )), failed.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1rem", borderRadius: "0.85rem", border: "1px solid #dc262655", background: "#dc262610", marginBottom: "1rem", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#dc2626", marginBottom: "0.35rem" } }, failed.length, " mailbox", failed.length === 1 ? "" : "es", " couldn't be read"), failed.slice(0, 8).map(([pc, m]) => /* @__PURE__ */ React.createElement("div", { key: pc, style: { color: th.muted } }, storeName(pc), " (", pc, "@peoplecapitalgroup.com): ", m.error)), failed.length > 8 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted } }, "\u2026and ", failed.length - 8, " more")), /* @__PURE__ */ React.createElement("div", { style: box }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text, fontFamily: "'Raleway'" } }, "Upcoming interviews"), shownIv.length > IV_LIMIT && /* @__PURE__ */ React.createElement("button", { onClick: () => setIvShowAll((v) => !v), style: { display: "flex", alignItems: "center", gap: 2, background: "none", border: "none", color: O2, fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", padding: 0, fontFamily: "'Source Sans 3'" } }, ivShowAll ? "Show less" : `View all ${shownIv.length}`, irIco("chevronRight", O2, 13)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), /* @__PURE__ */ React.createElement("div", { style: searchWrap }, searchIco, /* @__PURE__ */ React.createElement("input", { value: ivQ, onChange: (e) => setIvQ(e.target.value), placeholder: "Search candidate or store", style: searchInput })), /* @__PURE__ */ React.createElement("select", { value: ivStatus, onChange: (e) => setIvStatus(e.target.value), style: selectStyle }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All reminders"), /* @__PURE__ */ React.createElement("option", { value: "pending" }, "Pending"), /* @__PURE__ */ React.createElement("option", { value: "day" }, "1-day sent"), /* @__PURE__ */ React.createElement("option", { value: "hour" }, "1-hour sent"), /* @__PURE__ */ React.createElement("option", { value: "cancelled" }, "Cancelled")), /* @__PURE__ */ React.createElement("select", { value: ivRange, onChange: (e) => setIvRange(e.target.value), style: selectStyle }, /* @__PURE__ */ React.createElement("option", { value: "today" }, "Today"), /* @__PURE__ */ React.createElement("option", { value: "tomorrow" }, "Tomorrow"), /* @__PURE__ */ React.createElement("option", { value: "week" }, "Next 7 days"), /* @__PURE__ */ React.createElement("option", { value: "all" }, "All upcoming"))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 560 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: head }, "Interview time"), /* @__PURE__ */ React.createElement("th", { style: head }, "Store"), /* @__PURE__ */ React.createElement("th", { style: head }, "Candidate"), /* @__PURE__ */ React.createElement("th", { style: head }, "Reminder status"))), /* @__PURE__ */ React.createElement("tbody", null, ivRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 4, style: { ...cell, color: th.muted, borderBottom: "none" } }, data ? "No interviews match." : "Loading\u2026")), ivRows.map((iv, i) => /* @__PURE__ */ React.createElement("tr", { key: `${iv.uid}|${iv.store_pc}`, style: { opacity: iv.status === "cancelled" ? 0.55 : 1 } }, /* @__PURE__ */ React.createElement("td", { style: { ...cell, borderBottom: i === ivRows.length - 1 ? "none" : cell.borderBottom } }, fmtWhen(iv.start_at)), /* @__PURE__ */ React.createElement("td", { style: { ...cell, borderBottom: i === ivRows.length - 1 ? "none" : cell.borderBottom } }, storeName(iv.store_pc)), /* @__PURE__ */ React.createElement("td", { style: { ...cell, borderBottom: i === ivRows.length - 1 ? "none" : cell.borderBottom } }, iv.candidate || iv.summary || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...cell, borderBottom: i === ivRows.length - 1 ? "none" : cell.borderBottom } }, statusPill(ivState(iv))))))))), /* @__PURE__ */ React.createElement("div", { style: box }, sectionHead(
+      "users",
+      "Reminder recipients",
+      "Managers receive reminders for their own stores. DMs cover stores without a manager. Turning someone off doesn't pass their reminders to anyone else.",
+      /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, whiteSpace: "nowrap", marginTop: 2 } }, onCount, " enabled \xB7 ", offCount, " disabled"),
+      peopleOpen,
+      () => setPeopleOpen((o) => !o)
+    ), peopleOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: searchWrap }, searchIco, /* @__PURE__ */ React.createElement("input", { value: peopleQ, onChange: (e) => setPeopleQ(e.target.value), placeholder: "Search name, store or district\u2026", style: searchInput })), [["all", "All"], ["manager", "Managers"], ["dm", "DMs"]].map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => setPeopleRole(k), style: pillBtn(peopleRole === k) }, l)), picked.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, marginLeft: "auto" } }, picked.length, " selected"), /* @__PURE__ */ React.createElement("button", { disabled: savingMuted, onClick: () => saveMuted([.../* @__PURE__ */ new Set([...mutedUsers, ...picked])]), style: { ...pillBtn(false), color: "#dc2626", borderColor: "#dc262655" } }, "Turn off"), /* @__PURE__ */ React.createElement("button", { disabled: savingMuted, onClick: () => saveMuted(mutedUsers.filter((id) => !picked.includes(id))), style: { ...pillBtn(false), color: "#16a34a", borderColor: "#16a34a55" } }, "Turn on"))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", opacity: savingMuted ? 0.6 : 1, maxHeight: 440, overflowY: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 600 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...head, width: 32, position: "sticky", top: 0, background: th.card } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: allShownPicked, onChange: () => setPicked(allShownPicked ? picked.filter((id) => !shownPeople.some((u) => String(u.id) === id)) : [.../* @__PURE__ */ new Set([...picked, ...shownPeople.map((u) => String(u.id))])]) })), ["Name", "Role", "Store / district", "Delivery", "Enabled"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...head, position: "sticky", top: 0, background: th.card } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, shownPeople.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { ...cell, color: th.muted } }, "Nobody matches.")), shownPeople.map((u) => {
+      const id = String(u.id);
+      const off = mutedUsers.includes(id);
+      return /* @__PURE__ */ React.createElement("tr", { key: id }, /* @__PURE__ */ React.createElement("td", { style: cell }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: picked.includes(id), onChange: () => setPicked((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]) })), /* @__PURE__ */ React.createElement("td", { style: { ...cell, color: off ? th.muted : th.text } }, u.name || u.username), /* @__PURE__ */ React.createElement("td", { style: { ...cell, color: th.muted } }, u.userType === "dm" ? "DM" : "Manager"), /* @__PURE__ */ React.createElement("td", { style: { ...cell, color: th.muted } }, u.where), /* @__PURE__ */ React.createElement("td", { style: { ...cell, color: th.muted } }, u.phone && u.email ? "Text + email" : u.phone ? "Text" : u.email ? "Email" : /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "None on file")), /* @__PURE__ */ React.createElement("td", { style: cell }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: savingMuted,
+          onClick: () => saveMuted(off ? mutedUsers.filter((x) => x !== id) : [...mutedUsers, id]),
+          title: off ? "Turn reminders on" : "Turn reminders off",
+          style: { padding: "0.2rem 0.75rem", borderRadius: "999px", fontSize: "0.76rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'", border: `1px solid ${off ? th.cardBorder : "#16a34a55"}`, background: off ? th.card : "#16a34a14", color: off ? th.muted : "#16a34a" }
+        },
+        off ? "Off" : "On"
+      )));
+    })))))), /* @__PURE__ */ React.createElement("div", { style: { ...box, marginBottom: 0 } }, sectionHead(
+      "clock",
+      "Recent reminder activity",
+      null,
+      /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, whiteSpace: "nowrap", marginTop: 2 } }, (st?.sent || []).length ? `${(st?.sent || []).length} recent` : "None yet"),
+      activityOpen,
+      () => setActivityOpen((o) => !o)
+    ), activityOpen && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column" } }, (st?.sent || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No reminders sent yet."), (st?.sent || []).slice(0, 25).map((s, i, arr) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.5rem 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtAgo(s.at)), " \xB7 ", s.kind === "hour" ? "1-hour reminder" : "1-day reminder", " \xB7 ", s.store, " \xB7 ", s.candidate || "candidate", " \xB7 ", s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`, " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: s.smsSent ? "#16a34a" : "#dc2626" } }, s.smsSent ? "text sent" : "no text"), s.emails ? " \xB7 email sent" : "")))));
+  }
   var NOTIFY_ICONS = {
     project: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" })),
     ticket: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 8a2 2 0 0 0 0 4v0a2 2 0 0 0 0 4v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-1a2 2 0 0 1 0-4 2 2 0 0 1 0-4V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 6v12", strokeDasharray: "2 2" })),
@@ -16731,6 +16894,7 @@ ${t2.slice(0, 300)}`);
     systemHealth: /* @__PURE__ */ React.createElement("path", { d: "M3 12h4l2-6 4 12 2-6h6" }),
     minorTimecard: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "13", r: "7" }), /* @__PURE__ */ React.createElement("path", { d: "M12 10v3l2 1.5M5 5 3 7M19 5l2 2" })),
     weeklyHoursSchedule: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01" })),
+    interviewReminders: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 5h16v11H8l-4 4Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10.5", r: "2.2" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 14.2a4 4 0 0 1 7 0" })),
     mail: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "5", width: "18", height: "14", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "m3 7 9 6 9-6" })),
     phone: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "7", y: "2.5", width: "10", height: "19", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M11 18h2" })),
     search: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "11", r: "7" }), /* @__PURE__ */ React.createElement("path", { d: "m20 20-3.5-3.5" })),
@@ -17209,7 +17373,8 @@ ${t2.slice(0, 300)}`);
         { id: "foodLicense", label: "Food License", count: notifCounts.foodLicense },
         { id: "systemHealth", label: "System Health", count: notifCounts.systemHealth },
         { id: "minorTimecard", label: "Minor Timecard", count: notifCounts.minorTimecard },
-        { id: "weeklyHoursSchedule", label: "Weekly Hours + Schedule", count: notifCounts.weeklyHoursSchedule }
+        { id: "weeklyHoursSchedule", label: "Weekly Hours + Schedule", count: notifCounts.weeklyHoursSchedule },
+        { id: "interviewReminders", label: "Interview Reminders" }
       ] : []
     ].map((t) => {
       const on = notifSubTab === t.id;
@@ -17312,7 +17477,7 @@ ${t2.slice(0, 300)}`);
         onCountChange: setNotifCount("weeklyHoursSchedule"),
         description: "These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun\u2013Sat week \u2014 one Excel file and one PDF per store). There's no other fallback recipient \u2014 this list is the entire send list. Empty until you add someone."
       }
-    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 }))), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 })), notifSubTab === "interviewReminders" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(InterviewRemindersPanel, { th, showAlert: showAlert2, users })), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => {
@@ -18128,7 +18293,7 @@ ${t2.slice(0, 300)}`);
       }
       setSubmitting(false);
     };
-    const IR_ICONS = {
+    const IR_ICONS2 = {
       store: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M9 20v-6h6v6" })),
       building: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "4", y: "3", width: "16", height: "18", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2" })),
       calendar: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" })),
@@ -18151,7 +18316,7 @@ ${t2.slice(0, 300)}`);
       plus: /* @__PURE__ */ React.createElement("path", { d: "M12 5v14M5 12h14" }),
       back: /* @__PURE__ */ React.createElement("path", { d: "M19 12H5M12 19l-7-7 7-7" })
     };
-    const irIcon = (k, c = th.muted, size = 17) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS[k], color: c, size });
+    const irIcon = (k, c = th.muted, size = 17) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS2[k], color: c, size });
     const fieldInp = { ...inp(th), paddingLeft: "2.5rem", width: "100%", boxSizing: "border-box" };
     const labelEl = (text, required) => /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.35rem" } }, text, required && /* @__PURE__ */ React.createElement("span", { style: { color: "#ef4444" } }, " *"));
     const withIcon = (k, control) => /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.8rem", top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none", zIndex: 1 } }, irIcon(k)), control);
@@ -24975,7 +25140,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.5";
+  var APP_VERSION = "v22.10";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

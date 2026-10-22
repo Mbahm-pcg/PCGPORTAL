@@ -19303,6 +19303,310 @@ function WeeklyReportSendNow({ th, showAlert }) {
   );
 }
 
+// ── Interview Reminders (v22.6, redesigned v22.10) ──────────────────────────
+// Paradox ("Ally from Dunkin'") emails interview invites to each store mailbox
+// ({pc}@peoplecapitalgroup.com) but can't text managers. The interview-reminders
+// cron reads those mailboxes every 15 min and texts + emails a reminder ~1 day
+// and ~1 hour before each interview. This panel shows mailbox health, upcoming
+// interviews, who gets reminders (switchable per person or in bulk) and recent
+// sends, and can trigger a run now.
+const IR_ICONS = {
+  store: <><path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0"/><path d="M5.5 11.5V20h13v-8.5M10 20v-5h4v5"/></>,
+  clock: <><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></>,
+  calendar: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></>,
+  chevronDown: <path d="m6 9 6 6 6-6"/>,
+  chevronRight: <path d="m9 6 6 6-6 6"/>,
+};
+const irIco = (k, c, s = 16) => <HubIcon d={IR_ICONS[k] || NOTIFY_ICONS[k]} color={c} size={s} />;
+
+function InterviewRemindersPanel({ th, showAlert, users }) {
+  const O = '#FF671F';
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [ivQ, setIvQ] = useState('');
+  const [ivStatus, setIvStatus] = useState('all');   // all | pending | day | hour | cancelled
+  const [ivRange, setIvRange] = useState('today');   // today | tomorrow | week | all
+  const [ivShowAll, setIvShowAll] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(true);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [peopleQ, setPeopleQ] = useState('');
+  const [peopleRole, setPeopleRole] = useState('all');
+  const [picked, setPicked] = useState([]);
+  const [savingMuted, setSavingMuted] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders', { credentials: 'include', headers: { ...authHeader() } });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setData(j); setErr(null);
+    } catch (e) { setErr(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const runNow = async () => {
+    setRunning(true);
+    const before = data?.status?.at || null;
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders-run-background', { method: 'POST', credentials: 'include', headers: { ...authHeader() } });
+      if (res.status !== 202 && !res.ok) throw new Error(res.status === 403 ? 'Only exec/IT can run this.' : `HTTP ${res.status}`);
+      showAlert && showAlert('success', 'Checking every store mailbox — results show here in a minute or two.');
+      for (let i = 0; i < 36; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const r2 = await fetch('/.netlify/functions/interview-reminders', { credentials: 'include', headers: { ...authHeader() } });
+        const j = await r2.json().catch(() => null);
+        if (j && j.status?.at && j.status.at !== before) { setData(j); break; }
+      }
+    } catch (e) { showAlert && showAlert('error', `Run failed: ${e.message}`); }
+    setRunning(false);
+  };
+
+  const saveMuted = async (next) => {
+    setSavingMuted(true);
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ mutedUsers: next }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setData(d => ({ ...(d || {}), config: j.config }));
+      setPicked([]);
+    } catch (e) { showAlert && showAlert('error', `Couldn't save: ${e.message}`); }
+    setSavingMuted(false);
+  };
+
+  // ── derived ──
+  const storeName = (pc) => ([...(LIVE_OPEN_STORES || []), ...STORES_SEED].find(s => String(s.pc) === String(pc))?.name) || `PC# ${pc}`;
+  const etDay = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const fmtWhen = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '—';
+  const fmtAgo = (iso) => {
+    if (!iso) return 'never';
+    const d = new Date(iso);
+    return etDay(d.getTime()) === etDay(Date.now()) ? fmtTime(iso) : d.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+  const st = data?.status;
+  const mode = data?.mode;
+  const boxes = Object.entries(st?.mailboxes || {});
+  const okCount = boxes.filter(([, m]) => m.ok).length;
+  const failed = boxes.filter(([, m]) => !m.ok);
+  const mutedUsers = (data?.config?.mutedUsers || []).map(String);
+
+  const today = etDay(Date.now());
+  const tomorrow = etDay(Date.now() + 86400000);
+  const ivState = (iv) => iv.status === 'cancelled' ? 'cancelled' : iv.sent_hour_at ? 'hour' : iv.sent_day_at ? 'day' : 'pending';
+  const upcoming = data?.upcoming || [];
+  const todayCount = upcoming.filter(iv => iv.status !== 'cancelled' && etDay(new Date(iv.start_at).getTime()) === today).length;
+  const shownIv = upcoming.filter(iv => {
+    const t = new Date(iv.start_at).getTime();
+    if (ivRange === 'today' && etDay(t) !== today) return false;
+    if (ivRange === 'tomorrow' && etDay(t) !== tomorrow) return false;
+    if (ivRange === 'week' && t > Date.now() + 7 * 86400000) return false;
+    if (ivStatus !== 'all' && ivState(iv) !== ivStatus) return false;
+    const q = ivQ.trim().toLowerCase();
+    return !q || `${iv.candidate || ''} ${iv.summary || ''} ${storeName(iv.store_pc)}`.toLowerCase().includes(q);
+  });
+  const IV_LIMIT = 8;
+  const ivRows = ivShowAll ? shownIv : shownIv.slice(0, IV_LIMIT);
+
+  const reminderPeople = (users || [])
+    .filter(u => u.active !== false && (u.userType === 'manager' || u.userType === 'dm'))
+    .map(u => ({ ...u, where: u.userType === 'dm' ? (u.district ? `District ${u.district}` : 'No district') : (u.storePC ? storeName(u.storePC) : 'No store') }))
+    .sort((a, b) => (a.userType === b.userType ? 0 : a.userType === 'dm' ? -1 : 1) || String(a.name || '').localeCompare(String(b.name || '')));
+  const offCount = reminderPeople.filter(u => mutedUsers.includes(String(u.id))).length;
+  const onCount = reminderPeople.length - offCount;
+  const shownPeople = reminderPeople.filter(u => (peopleRole === 'all' || u.userType === peopleRole)
+    && (!peopleQ.trim() || `${u.name} ${u.where} ${u.email || ''}`.toLowerCase().includes(peopleQ.trim().toLowerCase())));
+  const allShownPicked = shownPeople.length > 0 && shownPeople.every(u => picked.includes(String(u.id)));
+
+  // ── styles ──
+  const box = { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.85rem', padding: '1rem 1.15rem', marginBottom: '1rem' };
+  const cell = { padding: '0.6rem 0.6rem', borderBottom: `1px solid ${th.cardBorder}`, fontSize: '0.84rem', textAlign: 'left', color: th.text };
+  const head = { ...cell, color: th.muted, fontWeight: 600, fontSize: '0.76rem' };
+  const searchWrap = { position: 'relative', flex: '1 1 220px', maxWidth: 360 };
+  const searchInput = { ...inp(th), width: '100%', padding: '0.5rem 0.7rem 0.5rem 2rem', fontSize: '0.83rem', boxSizing: 'border-box' };
+  const searchIco = <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>{irIco('search', th.muted, 14)}</span>;
+  const selectStyle = { ...inp(th), padding: '0.5rem 0.7rem', fontSize: '0.83rem', cursor: 'pointer' };
+  const pillBtn = (on) => ({ padding: '0.38rem 0.95rem', borderRadius: '999px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: "'Source Sans 3'", border: `1px solid ${on ? O + '66' : th.cardBorder}`, background: on ? O + '14' : th.card, color: on ? O : th.text });
+  const statusPill = (s) => {
+    const m = { pending: ['Pending', th.muted, th.cardBorder + '80'], day: ['1-day sent', '#2563eb', '#2563eb14'], hour: ['1-hour sent', '#16a34a', '#16a34a14'], cancelled: ['Cancelled', '#dc2626', '#dc262612'] }[s];
+    return <span style={{ display: 'inline-block', padding: '0.18rem 0.6rem', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 600, color: m[1], background: m[2] }}>{m[0]}</span>;
+  };
+  const sectionHead = (icon, title, sub, right, open, onToggle) => (
+    <div onClick={onToggle} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.7rem', cursor: onToggle ? 'pointer' : 'default', marginBottom: open ? '0.85rem' : 0 }}>
+      {icon && <span style={{ marginTop: 2 }}>{irIco(icon, th.text, 18)}</span>}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: th.text, fontFamily: "'Raleway'" }}>{title}</div>
+        {sub && <div style={{ fontSize: '0.8rem', color: th.muted, marginTop: 2 }}>{sub}</div>}
+      </div>
+      {right}
+      {onToggle && <span style={{ display: 'flex', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>{irIco('chevronDown', th.muted, 16)}</span>}
+    </div>
+  );
+  const kpi = (icon, value, label, warn) => (
+    <div style={{ ...box, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.85rem', flex: '1 1 200px' }}>
+      <span style={{ width: 38, height: 38, borderRadius: '0.6rem', border: `1px solid ${th.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{irIco(icon, warn ? '#dc2626' : th.text, 19)}</span>
+      <div>
+        <div style={{ fontSize: '1.2rem', fontWeight: 800, color: warn ? '#dc2626' : th.text, fontFamily: "'Raleway'", lineHeight: 1.1 }}>{value}</div>
+        <div style={{ fontSize: '0.78rem', color: th.muted }}>{label}</div>
+      </div>
+    </div>
+  );
+  const modeInfo = {
+    live: ['LIVE', '#16a34a', <>Reminders go to each store's manager — or the district's DM when a store has no manager on file.</>],
+    shadow: ['TEST MODE', O, <>All reminders go to <strong style={{ color: th.text }}>{(st?.shadowTo || 'the test account').replace(/ \(no phone on file\)$/, '')}</strong> only. No store recipients are contacted.</>],
+    off: ['OFF', th.muted, <>Interview reminders are switched off — nothing is checked or sent.</>],
+  }[mode] || ['…', th.muted, 'Loading…'];
+
+  return (
+    <div>
+      <div style={{ marginBottom: '1rem' }}>
+        <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: th.text, fontFamily: "'Raleway'" }}>Interview reminders</h2>
+        <div style={{ fontSize: '0.84rem', color: th.muted, marginTop: 4 }}>Automatically text and email store managers about upcoming Paradox interviews — about 1 day and 1 hour before.</div>
+      </div>
+      {err && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: '1rem' }}>Couldn't load: {err}</div>}
+
+      {/* KPIs */}
+      <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        {kpi('mail', st ? `${okCount}/${boxes.length}` : '—', 'Mailboxes checked', failed.length > 0)}
+        {kpi('calendar', data ? todayCount : '—', 'Interviews today')}
+        {kpi('users', users ? onCount : '—', 'Recipients enabled')}
+      </div>
+
+      {/* Mode banner */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap', padding: '0.8rem 1rem', borderRadius: '0.85rem', border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: '1rem' }}>
+        <span style={{ padding: '0.22rem 0.6rem', borderRadius: '0.35rem', background: modeInfo[1], color: '#fff', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.04em' }}>{modeInfo[0]}</span>
+        <div style={{ flex: '1 1 260px', fontSize: '0.84rem', color: th.muted }}>
+          {modeInfo[2]} <span style={{ whiteSpace: 'nowrap' }}>Last checked {fmtAgo(st?.at)}.</span>
+        </div>
+        <button onClick={runNow} disabled={running || mode === 'off'}
+          style={{ padding: '0.55rem 1.1rem', borderRadius: '0.55rem', border: 'none', background: O, color: '#fff', fontWeight: 700, fontSize: '0.84rem', fontFamily: "'Source Sans 3'", cursor: running ? 'default' : 'pointer', opacity: running || mode === 'off' ? 0.6 : 1 }}>
+          {running ? 'Checking…' : 'Check mailboxes now'}
+        </button>
+      </div>
+
+      {failed.length > 0 && (
+        <div style={{ padding: '0.75rem 1rem', borderRadius: '0.85rem', border: '1px solid #dc262655', background: '#dc262610', marginBottom: '1rem', fontSize: '0.82rem' }}>
+          <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: '0.35rem' }}>{failed.length} mailbox{failed.length === 1 ? '' : 'es'} couldn't be read</div>
+          {failed.slice(0, 8).map(([pc, m]) => <div key={pc} style={{ color: th.muted }}>{storeName(pc)} ({pc}@peoplecapitalgroup.com): {m.error}</div>)}
+          {failed.length > 8 && <div style={{ color: th.muted }}>…and {failed.length - 8} more</div>}
+        </div>
+      )}
+
+      {/* Upcoming interviews */}
+      <div style={box}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: th.text, fontFamily: "'Raleway'" }}>Upcoming interviews</div>
+          {shownIv.length > IV_LIMIT && (
+            <button onClick={() => setIvShowAll(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'none', border: 'none', color: O, fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', padding: 0, fontFamily: "'Source Sans 3'" }}>
+              {ivShowAll ? 'Show less' : `View all ${shownIv.length}`}{irIco('chevronRight', O, 13)}
+            </button>
+          )}
+          <div style={{ flex: 1 }} />
+          <div style={searchWrap}>{searchIco}<input value={ivQ} onChange={e => setIvQ(e.target.value)} placeholder="Search candidate or store" style={searchInput} /></div>
+          <select value={ivStatus} onChange={e => setIvStatus(e.target.value)} style={selectStyle}>
+            <option value="all">All reminders</option>
+            <option value="pending">Pending</option>
+            <option value="day">1-day sent</option>
+            <option value="hour">1-hour sent</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <select value={ivRange} onChange={e => setIvRange(e.target.value)} style={selectStyle}>
+            <option value="today">Today</option>
+            <option value="tomorrow">Tomorrow</option>
+            <option value="week">Next 7 days</option>
+            <option value="all">All upcoming</option>
+          </select>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
+            <thead><tr><th style={head}>Interview time</th><th style={head}>Store</th><th style={head}>Candidate</th><th style={head}>Reminder status</th></tr></thead>
+            <tbody>
+              {ivRows.length === 0 && <tr><td colSpan={4} style={{ ...cell, color: th.muted, borderBottom: 'none' }}>{data ? 'No interviews match.' : 'Loading…'}</td></tr>}
+              {ivRows.map((iv, i) => (
+                <tr key={`${iv.uid}|${iv.store_pc}`} style={{ opacity: iv.status === 'cancelled' ? 0.55 : 1 }}>
+                  <td style={{ ...cell, borderBottom: i === ivRows.length - 1 ? 'none' : cell.borderBottom }}>{fmtWhen(iv.start_at)}</td>
+                  <td style={{ ...cell, borderBottom: i === ivRows.length - 1 ? 'none' : cell.borderBottom }}>{storeName(iv.store_pc)}</td>
+                  <td style={{ ...cell, borderBottom: i === ivRows.length - 1 ? 'none' : cell.borderBottom }}>{iv.candidate || iv.summary || '—'}</td>
+                  <td style={{ ...cell, borderBottom: i === ivRows.length - 1 ? 'none' : cell.borderBottom }}>{statusPill(ivState(iv))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Reminder recipients */}
+      <div style={box}>
+        {sectionHead('users', 'Reminder recipients', 'Managers receive reminders for their own stores. DMs cover stores without a manager. Turning someone off doesn\'t pass their reminders to anyone else.',
+          <span style={{ fontSize: '0.8rem', color: th.muted, whiteSpace: 'nowrap', marginTop: 2 }}>{onCount} enabled · {offCount} disabled</span>,
+          peopleOpen, () => setPeopleOpen(o => !o))}
+        {peopleOpen && <>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.6rem' }}>
+            <div style={searchWrap}>{searchIco}<input value={peopleQ} onChange={e => setPeopleQ(e.target.value)} placeholder="Search name, store or district…" style={searchInput} /></div>
+            {[['all', 'All'], ['manager', 'Managers'], ['dm', 'DMs']].map(([k, l]) => (
+              <button key={k} onClick={() => setPeopleRole(k)} style={pillBtn(peopleRole === k)}>{l}</button>
+            ))}
+            {picked.length > 0 && <>
+              <span style={{ fontSize: '0.8rem', color: th.muted, marginLeft: 'auto' }}>{picked.length} selected</span>
+              <button disabled={savingMuted} onClick={() => saveMuted([...new Set([...mutedUsers, ...picked])])} style={{ ...pillBtn(false), color: '#dc2626', borderColor: '#dc262655' }}>Turn off</button>
+              <button disabled={savingMuted} onClick={() => saveMuted(mutedUsers.filter(id => !picked.includes(id)))} style={{ ...pillBtn(false), color: '#16a34a', borderColor: '#16a34a55' }}>Turn on</button>
+            </>}
+          </div>
+          <div style={{ overflowX: 'auto', opacity: savingMuted ? 0.6 : 1, maxHeight: 440, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
+              <thead><tr>
+                <th style={{ ...head, width: 32, position: 'sticky', top: 0, background: th.card }}><input type="checkbox" checked={allShownPicked} onChange={() => setPicked(allShownPicked ? picked.filter(id => !shownPeople.some(u => String(u.id) === id)) : [...new Set([...picked, ...shownPeople.map(u => String(u.id))])])} /></th>
+                {['Name', 'Role', 'Store / district', 'Delivery', 'Enabled'].map(h => <th key={h} style={{ ...head, position: 'sticky', top: 0, background: th.card }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {shownPeople.length === 0 && <tr><td colSpan={6} style={{ ...cell, color: th.muted }}>Nobody matches.</td></tr>}
+                {shownPeople.map(u => {
+                  const id = String(u.id);
+                  const off = mutedUsers.includes(id);
+                  return (
+                    <tr key={id}>
+                      <td style={cell}><input type="checkbox" checked={picked.includes(id)} onChange={() => setPicked(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} /></td>
+                      <td style={{ ...cell, color: off ? th.muted : th.text }}>{u.name || u.username}</td>
+                      <td style={{ ...cell, color: th.muted }}>{u.userType === 'dm' ? 'DM' : 'Manager'}</td>
+                      <td style={{ ...cell, color: th.muted }}>{u.where}</td>
+                      <td style={{ ...cell, color: th.muted }}>{u.phone && u.email ? 'Text + email' : u.phone ? 'Text' : u.email ? 'Email' : <span style={{ color: '#dc2626' }}>None on file</span>}</td>
+                      <td style={cell}>
+                        <button disabled={savingMuted} onClick={() => saveMuted(off ? mutedUsers.filter(x => x !== id) : [...mutedUsers, id])} title={off ? 'Turn reminders on' : 'Turn reminders off'}
+                          style={{ padding: '0.2rem 0.75rem', borderRadius: '999px', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer', fontFamily: "'Source Sans 3'", border: `1px solid ${off ? th.cardBorder : '#16a34a55'}`, background: off ? th.card : '#16a34a14', color: off ? th.muted : '#16a34a' }}>
+                          {off ? 'Off' : 'On'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>}
+      </div>
+
+      {/* Recent activity */}
+      <div style={{ ...box, marginBottom: 0 }}>
+        {sectionHead('clock', 'Recent reminder activity', null,
+          <span style={{ fontSize: '0.8rem', color: th.muted, whiteSpace: 'nowrap', marginTop: 2 }}>{(st?.sent || []).length ? `${(st?.sent || []).length} recent` : 'None yet'}</span>,
+          activityOpen, () => setActivityOpen(o => !o))}
+        {activityOpen && (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {(st?.sent || []).length === 0 && <div style={{ fontSize: '0.82rem', color: th.muted }}>No reminders sent yet.</div>}
+            {(st?.sent || []).slice(0, 25).map((s, i, arr) => (
+              <div key={i} style={{ fontSize: '0.8rem', color: th.muted, padding: '0.5rem 0', borderBottom: i === arr.length - 1 ? 'none' : `1px solid ${th.cardBorder}` }}>
+                <span style={{ color: th.text, fontWeight: 600 }}>{fmtAgo(s.at)}</span> · {s.kind === 'hour' ? '1-hour reminder' : '1-day reminder'} · {s.store} · {s.candidate || 'candidate'}
+                {' · '}{s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`}
+                {' · '}<span style={{ color: s.smsSent ? '#16a34a' : '#dc2626' }}>{s.smsSent ? 'text sent' : 'no text'}</span>{s.emails ? ' · email sent' : ''}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Notification Access Panel building blocks (v22.2) ───────────────────────
 // One look for every recipient list in Admin > Notification Access Panel:
 // initials avatar, address, a small tag naming the list, a bordered trash
@@ -19315,8 +19619,9 @@ const NOTIFY_ICONS = {
   systemHealth: <path d="M3 12h4l2-6 4 12 2-6h6"/>,
   minorTimecard: <><circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 1.5M5 5 3 7M19 5l2 2"/></>,
   weeklyHoursSchedule: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></>,
+  interviewReminders: <><path d="M4 5h16v11H8l-4 4Z"/><circle cx="12" cy="10.5" r="2.2"/><path d="M8.5 14.2a4 4 0 0 1 7 0"/></>,
   mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></>,
-  phone: <><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></>,
+  phone:<><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></>,
   search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></>,
   trash: <><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"/></>,
   plus: <path d="M12 5v14M5 12h14"/>,
@@ -19859,6 +20164,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               { id: 'systemHealth', label: 'System Health', count: notifCounts.systemHealth },
               { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
               { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
+              { id: 'interviewReminders', label: 'Interview Reminders' },
             ] : []),
           ].map(t => {
             const on = notifSubTab === t.id;
@@ -19990,6 +20296,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           <WeeklyReportSendNow th={th} showAlert={showAlert} />
         </>
       )}
+      {notifSubTab === 'interviewReminders' && isFullAdmin(user) && <InterviewRemindersPanel th={th} showAlert={showAlert} users={users} />}
       </div>
 
       {/* Test Notifications */}
@@ -31276,7 +31583,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.5";
+const APP_VERSION = "v22.10";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
