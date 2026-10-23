@@ -15,6 +15,7 @@ import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { STORES } from './tips-report-cron-background.mjs';
 import { ensureTables, OFFICE_LE, legalEntityForStorePc } from './time-off-lib/sync.mjs';
+import { syncDistricts } from './_shared/store-status.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const ADMIN = new Set(['executive', 'it']);
@@ -27,6 +28,7 @@ function summarize(rows) {
 }
 
 export default async (request) => {
+  await syncDistricts(STORES); // v22.12: store districts follow Locations
   if (request.method !== 'POST') return json(405, { error: 'Method Not Allowed' });
   let body = {};
   try { body = await request.json(); } catch { /* empty */ }

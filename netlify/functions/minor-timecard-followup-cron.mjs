@@ -45,6 +45,7 @@
 //      re-creates the current week's issues from scratch, cleanly.
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
+import { loadStoreDistricts } from './_shared/store-status.mjs';
 import { analyzeDayForViolation } from '../../src/minor-timecard-detect.mjs';
 import { shouldEscalateToday, execBackstopDue, resolveNotificationRecipients, applyResolutionCheck } from '../../src/minor-timecard-lifecycle.mjs';
 import { buildEmailSubject, buildDigestEmailHtml } from '../../src/minor-timecard-email.mjs';
@@ -179,7 +180,7 @@ const daysBetween = (a, b) => Math.floor((new Date(b) - new Date(a)) / 86400000)
 // record is covered below, so comparing this signature before and after is
 // enough to know exactly which issues to merge back on save — without having
 // to remember to touch a Set at every mutation site.
-const issueSignature = (i) => `${i.status}|${i.escalatedAt || ''}|${(i.notifications || []).length}|${i.resolvedAt || ''}`;
+const issueSignature = (i) => `${i.status}|${i.district}|${i.escalatedAt || ''}|${(i.notifications || []).length}|${i.resolvedAt || ''}`;
 
 export default async (request) => {
   const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
@@ -204,6 +205,13 @@ export default async (request) => {
   // office_staff user" query on escalation. See resolveNotificationRecipients.
   const notifyEmails = Array.isArray(notifyListRaw?.emails) ? notifyListRaw.emails : [];
   const signatureAtLoad = new Map(issues.map(i => [i.id, issueSignature(i)]));
+  // v22.12: a store moved to another DM in Locations takes its still-open issues
+  // with it (escalation + DM visibility key off issue.district, set at detection).
+  const liveDistricts = await loadStoreDistricts();
+  if (liveDistricts) for (const i of issues) {
+    const live = liveDistricts.get(String(i.pc));
+    if (i.status === 'open' && live && Number(i.district) !== live.district) i.district = live.district;
+  }
 
   // Group open issues (not first-flagged today — see the file's own schedule
   // comment) by store, so each store gets exactly one digest email covering

@@ -28,6 +28,7 @@ import { isOverdue } from './audit-lib/caps.js';
 // instead of adding a 4th copy of the 45-store list (see CLAUDE.md "Common Gotchas" #9:
 // store config is already duplicated across labor-cron.js, schedule-alerts.js, audits.mjs).
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
+import { syncDistricts } from './_shared/store-status.mjs';
 
 export const config = { schedule: '0 11 * * *' };
 
@@ -108,6 +109,7 @@ function digestHtml(title, intro, rows) {
 }
 
 export default async (request) => {
+  await syncDistricts(Object.values(STORE_BY_PC)); // v22.12: store districts follow Locations
   const now = Date.now();
   try {
     const db = sql();

@@ -78,10 +78,21 @@ async function ensureNotifyColumns(db) {
     await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notify boolean NOT NULL DEFAULT true`;
     await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_notify boolean NOT NULL DEFAULT false`;
     await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS push_notify boolean NOT NULL DEFAULT false`;
+    // v22.16: other names a DM goes by in Locations ("Jayshilkumar Patel" for Jay Patel),
+    // comma-separated. District Alignment's Apply to live matches on these.
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS aliases text`;
     _notifyColumnsEnsured = true;
   } catch (err) {
     console.warn('ensureNotifyColumns failed (continuing):', err?.message || err);
   }
+}
+
+// "Jayshilkumar Patel, Jay" → trimmed, de-duplicated, comma-separated; empty → null.
+function cleanAliases(v) {
+  const list = String(v ?? '').split(/[,\n]/).map(x => x.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  const seen = new Set();
+  const out = list.filter(x => { const k = x.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+  return out.length ? out.join(', ').slice(0, 300) : null;
 }
 
 // Map a DB row (snake_case) to a client-safe object (camelCase). Never includes
@@ -119,6 +130,7 @@ function toClient(row) {
     emailNotify:        row.email_notify ?? true,
     smsNotify:          row.sms_notify ?? false,
     pushNotify:         row.push_notify ?? false,
+    aliases:            row.aliases ?? '',
   };
 }
 
@@ -169,7 +181,7 @@ export default async (request) => {
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
                audits_access, paycor_employee_id, paycor_department_id,
-               email_notify, sms_notify, push_notify
+               email_notify, sms_notify, push_notify, aliases
         FROM users ORDER BY id
       `;
       return reply(200, rows.map(toClient));
@@ -209,7 +221,7 @@ export default async (request) => {
           username, name, email, phone, role, user_type, district, store_pc,
           active, dark_mode, initials, is_admin, must_setup, region,
           password_hash, must_change, two_factor_required, audits_access,
-          paycor_employee_id, created_at, updated_at
+          paycor_employee_id, aliases, created_at, updated_at
         ) VALUES (
           ${username}, ${u.name}, ${lc(u.email) || null}, ${u.phone || null},
           ${u.role || null}, ${u.userType}, ${u.district ?? null},
@@ -218,7 +230,7 @@ export default async (request) => {
           ${u.initials || null}, ${u.isAdmin || false}, ${forceSetup},
           ${u.region || 'PA'}, ${passwordHash}, ${forceSetup},
           ${u.twoFactorRequired || false}, ${u.auditsAccess ?? null},
-          ${u.paycorEmployeeId || null}, now(), now()
+          ${u.paycorEmployeeId || null}, ${cleanAliases(u.aliases)}, now(), now()
         )
         ON CONFLICT (username) DO NOTHING
         RETURNING id
@@ -231,7 +243,7 @@ export default async (request) => {
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
                audits_access, paycor_employee_id, paycor_department_id,
-               email_notify, sms_notify, push_notify
+               email_notify, sms_notify, push_notify, aliases
         FROM users WHERE id = ${row.id}
       `;
       return reply(201, { user: toClient(created) });
@@ -351,6 +363,7 @@ export default async (request) => {
           email_notify        = COALESCE(${patch.emailNotify ?? null}, email_notify),
           sms_notify          = COALESCE(${patch.smsNotify ?? null}, sms_notify),
           push_notify         = COALESCE(${patch.pushNotify ?? null}, push_notify),
+          aliases             = CASE WHEN ${Object.prototype.hasOwnProperty.call(patch, 'aliases')} THEN ${cleanAliases(patch.aliases)} ELSE aliases END,
           updated_at          = now()
         WHERE id = ${id}
       `;
@@ -361,7 +374,7 @@ export default async (request) => {
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
                audits_access, paycor_employee_id, paycor_department_id,
-               email_notify, sms_notify, push_notify
+               email_notify, sms_notify, push_notify, aliases
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });

@@ -33,7 +33,7 @@ import { sql } from './_shared/db.mjs';
 import { resolveCaller, isExec } from './_shared/auth.mjs';
 import { sessionGate } from './auth-lib/require-user.js';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
-import { closedPcSet } from './_shared/store-status.mjs';
+import { closedPcSet, syncDistricts } from './_shared/store-status.mjs';
 import { CATALOG, SHIFT_WINDOWS, ITEMS_CATALOG } from './tasks-lib/catalog.js';
 import { STORE_COORDS } from './analyst-lib/store-coords.mjs';
 
@@ -318,6 +318,7 @@ function enforceScope(caller, requested) {
 }
 
 export default async (request, context) => {
+  await syncDistricts(Object.values(STORE_BY_PC)); // v22.12: store districts follow Locations
   const cors = corsFor(request);
   const reply = (code, obj) => new Response(JSON.stringify(obj), { status: code, headers: cors });
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });

@@ -12,6 +12,7 @@
 import { cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { STORES } from './pulse-hourly-snapshot.mjs';
+import { syncDistricts } from './_shared/store-status.mjs';
 
 function tomorrowET() {
   const now = new Date();
@@ -40,6 +41,7 @@ async function recommendFor(store, date, forecast, safety) {
 }
 
 export default async (request) => {
+  await syncDistricts(STORES); // v22.12: store districts follow Locations
   let body = {};
   try { body = await request.json(); } catch {}
   const date = body.date || tomorrowET();

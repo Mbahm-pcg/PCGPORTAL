@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyReassignStore, applyAddDm, applyRemoveDm } from './reducers.mjs';
+import { applyReassignStore, applyAddDm, applyRemoveDm, applyReplaceDm } from './reducers.mjs';
 
 const BASE_DRAFT = {
   stores: { '100001': { district: 1 }, '100002': { district: 2 } },
@@ -53,4 +53,21 @@ test('applyRemoveDm: stores that belonged to that DM keep their district number 
 test('applyRemoveDm: unknown id is a no-op returning an equivalent draft', () => {
   const next = applyRemoveDm(BASE_DRAFT, 'dm_nonexistent');
   assert.equal(next.dms.length, 2);
+});
+
+test('applyReplaceDm: swaps a district DM in one step, leaves other districts and the input alone', () => {
+  const before = JSON.stringify(BASE_DRAFT);
+  const next = applyReplaceDm(BASE_DRAFT, { name: 'Farhana Khalique', email: 'farhana@peoplecapitalgroup.com', district: 2 });
+  assert.deepEqual(next.dms.filter(d => d.district === 2).map(d => d.name), ['Farhana Khalique']);
+  assert.equal(next.dms.find(d => d.district === 1).name, 'Taylor Cormier');
+  assert.equal(JSON.stringify(BASE_DRAFT), before);
+});
+
+test('applyReplaceDm: also works for a district with no DM yet', () => {
+  const next = applyReplaceDm(BASE_DRAFT, { name: 'New DM', email: '', district: 9 });
+  assert.equal(next.dms.find(d => d.district === 9).name, 'New DM');
+});
+
+test('applyAddDm: the duplicate error names the current DM and points to Change', () => {
+  assert.throws(() => applyAddDm(BASE_DRAFT, { name: 'Dup', email: '', district: 2 }), /Jay Patel.*Change district manager/);
 });

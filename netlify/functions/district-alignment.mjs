@@ -7,7 +7,7 @@ import { neon } from '@neondatabase/serverless';
 import { getStore } from '@netlify/blobs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { buildSeedFromLive } from './district-alignment-lib/seed.mjs';
-import { applyReassignStore, applyAddDm, applyRemoveDm } from './district-alignment-lib/reducers.mjs';
+import { applyReassignStore, applyAddDm, applyRemoveDm, applyReplaceDm } from './district-alignment-lib/reducers.mjs';
 import { cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { computeStoreMetrics } from './district-alignment-lib/metrics.mjs';
 
@@ -120,6 +120,17 @@ export default async (request) => {
       } catch (e) {
         return json(409, { error: e.message });
       }
+      await saveDraft(next);
+      return json(200, { ok: true, draft: next });
+    }
+
+    if (action === 'replaceDm') {
+      if (!isFullAdminClaims(claims)) return json(403, { error: 'Exec/IT only' });
+      const { name, email, district } = payload;
+      if (!name || !Number.isFinite(Number(district)) || Number(district) <= 0) return json(400, { error: 'Missing name or district' });
+      const draft = await loadDraft();
+      if (!draft) return json(404, { error: 'No draft exists yet — call action:get first' });
+      const next = applyReplaceDm(draft, { name, email: email || '', district: Number(district) });
       await saveDraft(next);
       return json(200, { ok: true, draft: next });
     }

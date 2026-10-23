@@ -9,6 +9,7 @@ import { sql } from '../_shared/db.mjs';
 import { sendSms, sendEmail, sendPush } from '../_shared/channels.mjs';
 import { STORES, callPaycor, fetchSchedulingShifts } from '../labor-cron.mjs';
 import { normalizeShift, candidateShifts, planAlerts, buildMessages, pruneState } from '../../../src/no-clockin.mjs';
+import { syncDistricts } from '../_shared/store-status.mjs';
 
 const STATE_KEY = 'pcg_noclockin_v1';
 const DEADLINE_MS = 20000; // stay under the function timeout; the next run picks up the rest
@@ -118,6 +119,7 @@ export async function sendTestAlert(userId) {
  * writing state; 'shadow' and 'live' send (see the mode notes below) and record state.
  */
 export async function runNoClockin({ mode = 'off' }) {
+  await syncDistricts(STORES); // v22.12: store districts follow Locations
   const started = Date.now();
   const bs = blobStore();
   const nowMs = Date.now();

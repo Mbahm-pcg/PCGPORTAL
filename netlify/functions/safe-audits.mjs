@@ -25,6 +25,7 @@ import webpush from 'web-push';
 // createRequire(import.meta.url) does not — see the long note in audits.mjs).
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { computeCashTotals, computeVariance, shouldAlert, SHORTAGE_ALERT_THRESHOLD, REASONS } from './audit-lib/safe-cash.js';
+import { syncDistricts } from './_shared/store-status.mjs';
 
 const cors = {
   'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -265,6 +266,7 @@ function rowToAudit(r) {
 }
 
 export default async (req) => {
+  await syncDistricts(AUDIT_STORES); // v22.12: store districts follow Locations
   // 204 must have a null body (empty string still counts as a body for null-body statuses).
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (req.method !== 'POST') return json(405, { ok: false, error: 'POST only' });

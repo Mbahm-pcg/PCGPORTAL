@@ -8,6 +8,7 @@ import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, po
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
 import { isClosedOn, PERMANENTLY_CLOSED } from './src/store-status.mjs';
+import { planDistrictApply, applyPlanToStores, applyPlanToDistricts } from './src/district-apply.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
@@ -3862,6 +3863,16 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                       return takenBy ? <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.3rem", paddingLeft:"0.2rem" }}>{takenBy.name} is also assigned to District {form.district}. Both will see it until one is unassigned.</div> : null;
                     })()}
                   </div>
+                  {/* v22.16: other names this DM appears under (e.g. in Locations), so District
+                      Alignment's Apply to live recognises them instead of unlinking them. */}
+                  <div style={{ marginBottom:"1.25rem" }}>
+                    <label style={{ fontSize:"0.7rem", fontWeight:700, color:th.muted, display:"block", marginBottom:"0.3rem" }}>Also known as</label>
+                    <input style={{ ...inp(th), width:"100%" }} placeholder="e.g. Jayshilkumar Patel, Jay"
+                      value={form.aliases || ''} onChange={e => setForm(f => ({ ...f, aliases: e.target.value }))} />
+                    <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
+                      Other names this DM goes by, separated by commas. District Alignment treats any of them as this person.
+                    </div>
+                  </div>
                 </>)}
                 {/* Contact section */}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
@@ -6372,7 +6383,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
   );
 }
 
-function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
+function DistrictAlignmentTool({ user, th, stores, users, onBack, setStores, districts, setDistricts, setUsers }) {
   const [draft, setDraft] = React.useState(null);
   const [metrics, setMetrics] = React.useState({});
   const [loading, setLoading] = React.useState(true);
@@ -6458,7 +6469,19 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
       setShowAddDm(null); setShowNewDistrict(false); setNewDistrictNum(''); setNewDmName(''); setNewDmEmail('');
     });
   };
+  // Swap a district's DM in one step (v22.14) instead of Remove + Add.
+  const replaceDm = (district) => {
+    if (!newDmName.trim() || !Number.isFinite(district) || district <= 0) return;
+    callAction({ action: 'replaceDm', name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
+      setShowAddDm(null); setNewDmName(''); setNewDmEmail('');
+    });
+  };
+  const dmAccounts = (users || []).filter(u => u.userType === 'dm' && u.active !== false).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   const [confirmAction, setConfirmAction] = React.useState(null); // { title, message, confirmLabel, run } or null
+  // Apply to live (v22.12): plan shown for confirmation, then written to Locations + Users.
+  const [applyPlan, setApplyPlan] = React.useState(null);
+  const [applying, setApplying] = React.useState(false);
+  const [applyResult, setApplyResult] = React.useState(null); // { ok, text }
   const removeDm = (dmId) => setConfirmAction({
     title: 'Remove this DM?',
     message: 'Their stores will show as Unassigned until reassigned.',
@@ -6471,6 +6494,48 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
     confirmLabel: 'Reset',
     run: () => callAction({ action: 'reset', liveStores: activeStores }),
   });
+
+  // Everything the draft would change, shown in full before anything is written.
+  const openApply = () => {
+    setApplyResult(null);
+    const plan = planDistrictApply({ draft, liveStores: activeStores, users });
+    const nameChanges = Object.entries(plan.districtDms).filter(([n, dm]) => (districts?.[n]?.name || '') !== dm.name);
+    if (!plan.hasChanges && nameChanges.length === 0) { setActionError('Nothing to apply — the draft already matches live Locations.'); return; }
+    setApplyPlan({ ...plan, nameChanges });
+  };
+  // DM account links first (they can be refused, e.g. a lost session); Locations is
+  // only written once they've all gone through, so a failure never leaves stores moved
+  // with the DMs still pointing at their old districts.
+  const runApply = async () => {
+    const plan = applyPlan;
+    setApplying(true);
+    const userChanges = [...plan.dmLinks.map(l => ({ id: l.userId, name: l.name, district: l.to })), ...plan.dmUnlinks.map(u => ({ id: u.userId, name: u.name, district: null }))];
+    const done = [];
+    for (const ch of userChanges) {
+      try {
+        const res = await fetch('/.netlify/functions/users', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ action: 'update', id: ch.id, patch: { district: ch.district } }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        done.push(ch);
+        if (setUsers && j.user) setUsers(us => us.map(u => u.id === ch.id ? { ...u, ...j.user } : u));
+      } catch (e) {
+        setApplying(false); setApplyPlan(null);
+        setApplyResult({ ok: false, text: `Stopped — couldn't update ${ch.name}'s account (${e.message}). ${done.length ? `Already updated: ${done.map(d => d.name).join(', ')}. ` : ''}No stores were moved. Fix the issue and press Apply to live again.` });
+        return;
+      }
+    }
+    if (setStores) setStores(ss => applyPlanToStores(ss, plan));
+    if (setDistricts) setDistricts(d => applyPlanToDistricts(d, plan));
+    logClientEvent(user?.id, user?.userType, 'district_alignment_applied', {
+      moves: plan.storeMoves.map(m => `${m.pc}:${m.from}->${m.to}`), links: plan.dmLinks.map(l => `${l.name}->${l.to}`), unlinks: plan.dmUnlinks.map(u => u.name),
+    });
+    setApplying(false); setApplyPlan(null);
+    setApplyResult({ ok: true, text: `Applied: ${plan.storeMoves.length} store${plan.storeMoves.length === 1 ? '' : 's'} moved, ${plan.dmLinks.length} DM${plan.dmLinks.length === 1 ? '' : 's'} linked, ${plan.dmUnlinks.length} unlinked. Alerts and reports follow the new districts from their next run.` });
+  };
 
   React.useEffect(() => { loadDraft(); }, [loadDraft]);
 
@@ -6667,6 +6732,11 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
               </button>
             )
           )}
+          {isAdmin && setStores && (
+            <button className="da-btn" onClick={openApply} disabled={saving || applying} style={{ ...solidBtn, opacity: saving || applying ? 0.6 : 1 }}>
+              <Ico d={<path d="m5 12.5 4.5 4.5L19 7.5"/>} c="#fff" />Apply to live
+            </button>
+          )}
           {isAdmin && (
             <button className="da-btn" onClick={resetToLive} disabled={saving} style={{ ...outlineBtn(true), opacity: saving ? 0.6 : 1 }}>
               <Ico d={<><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></>} c={O} />Reset to live data
@@ -6695,6 +6765,12 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
         <div style={{ padding: '0.5rem 0.75rem', marginBottom: '0.6rem', borderRadius: 8, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', animation: 'daPopIn 0.2s ease-out both' }}>
           <span>{actionError}</span>
           <button onClick={() => setActionError('')} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }} aria-label="Dismiss">×</button>
+        </div>
+      )}
+      {applyResult && (
+        <div style={{ padding: '0.6rem 0.85rem', marginBottom: '0.6rem', borderRadius: 8, background: applyResult.ok ? 'rgba(22,163,74,0.10)' : 'rgba(239,68,68,0.12)', border: `1px solid ${applyResult.ok ? 'rgba(22,163,74,0.35)' : 'rgba(239,68,68,0.35)'}`, color: applyResult.ok ? '#16a34a' : '#ef4444', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', animation: 'daPopIn 0.2s ease-out both' }}>
+          <span>{applyResult.text}</span>
+          <button onClick={() => setApplyResult(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }} aria-label="Dismiss">×</button>
         </div>
       )}
       {isAdmin && (
@@ -6729,20 +6805,28 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
                           <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.05rem', color: th.text }}>{dNum ? `District ${dNum}` : 'Unassigned'}</span>
                           <span style={{ fontSize: '0.8rem', color: th.muted }}>{dm ? dm.name : (dNum ? 'No district manager' : '')}</span>
                           {isTarget && <span style={{ fontSize: '0.75rem', fontWeight: 700, color: th.text }}>· Drop to move {storeByPc[dragPc]?.name || dragPc} here</span>}
-                          {isAdmin && dm && !isTarget && (
-                            <button className="da-btn" onClick={() => removeDm(dm.id)} disabled={saving} style={textLink}>Remove district manager</button>
+                          {/* Add or change (v22.14) the district's DM. Picking a DM account fills
+                              name + email exactly as in Admin → Users, which is what Apply to live
+                              matches on to link the right account. */}
+                          {isAdmin && dNum > 0 && !isTarget && showAddDm === dNum && (
+                            <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', flexWrap: 'wrap', animation: 'daPopIn 0.18s ease-out both' }}>
+                              <select value="" onChange={e => { const u = dmAccounts.find(x => String(x.id) === e.target.value); if (u) { setNewDmName(u.name || ''); setNewDmEmail(u.email || ''); } }}
+                                style={{ ...inp(th, { fontSize: '0.72rem', padding: '0.25rem 0.5rem', width: 170 }), cursor: 'pointer' }}>
+                                <option value="">Pick a DM account…</option>
+                                {dmAccounts.map(u => <option key={u.id} value={u.id}>{u.name}{u.district ? ` (now District ${u.district})` : ' (no district)'}</option>)}
+                              </select>
+                              <input placeholder="Name" value={newDmName} onChange={e => setNewDmName(e.target.value)} style={{ ...inp(th, { fontSize: '0.72rem', padding: '0.25rem 0.5rem', width: 130 }) }} />
+                              <input placeholder="Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)} style={{ ...inp(th, { fontSize: '0.72rem', padding: '0.25rem 0.5rem', width: 160 }) }} />
+                              <button className="da-btn" onClick={() => (dm ? replaceDm(dNum) : addDm(dNum))} disabled={saving || !newDmName.trim()} style={{ ...solidBtn, padding: '0.25rem 0.7rem', fontSize: '0.72rem' }}>Save</button>
+                              <button className="da-btn" onClick={() => { setShowAddDm(null); setNewDmName(''); setNewDmEmail(''); }} style={{ ...outlineBtn(false), padding: '0.25rem 0.7rem', fontSize: '0.72rem' }}>Cancel</button>
+                            </span>
                           )}
-                          {isAdmin && !dm && dNum > 0 && !isTarget && (
-                            showAddDm === dNum ? (
-                              <span style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', animation: 'daPopIn 0.18s ease-out both' }}>
-                                <input placeholder="Name" value={newDmName} onChange={e => setNewDmName(e.target.value)} style={{ ...inp(th, { fontSize: '0.72rem', padding: '0.25rem 0.5rem', width: 130 }) }} />
-                                <input placeholder="Email" value={newDmEmail} onChange={e => setNewDmEmail(e.target.value)} style={{ ...inp(th, { fontSize: '0.72rem', padding: '0.25rem 0.5rem', width: 160 }) }} />
-                                <button className="da-btn" onClick={() => addDm(dNum)} disabled={saving} style={{ ...solidBtn, padding: '0.25rem 0.7rem', fontSize: '0.72rem' }}>Save</button>
-                                <button className="da-btn" onClick={() => setShowAddDm(null)} style={{ ...outlineBtn(false), padding: '0.25rem 0.7rem', fontSize: '0.72rem' }}>Cancel</button>
-                              </span>
-                            ) : (
-                              <button className="da-btn" onClick={() => setShowAddDm(dNum)} style={textLink}>+ Add district manager</button>
-                            )
+                          {isAdmin && dm && !isTarget && showAddDm !== dNum && (<>
+                            <button className="da-btn" onClick={() => { setNewDmName(''); setNewDmEmail(''); setShowAddDm(dNum); }} disabled={saving} style={textLink}>Change district manager</button>
+                            <button className="da-btn" onClick={() => removeDm(dm.id)} disabled={saving} style={textLink}>Remove district manager</button>
+                          </>)}
+                          {isAdmin && !dm && dNum > 0 && !isTarget && showAddDm !== dNum && (
+                            <button className="da-btn" onClick={() => { setNewDmName(''); setNewDmEmail(''); setShowAddDm(dNum); }} style={textLink}>+ Add district manager</button>
                           )}
                         </div>
                         {spread.avg != null && (
@@ -6858,6 +6942,47 @@ function DistrictAlignmentTool({ user, th, stores, users , onBack }) {
           .da-btn, .da-btn:active:not(:disabled) { transition: none !important; transform: none !important; }
         }
       `}</style>
+      {applyPlan && (() => {
+        const dLabel = (n) => n ? `District ${n}` : 'Unassigned';
+        const dmOf = (n) => applyPlan.districtDms[n]?.name;
+        const noDm = Object.entries(applyPlan.districtDms).filter(([n, dm]) => !dm.name && !applyPlan.keptLinks.some(k => k.district === Number(n)) && Object.values(draft.stores).some(r => Number(r?.district) === Number(n))).map(([n]) => Number(n));
+        const section = (title, rows, color) => rows.length > 0 && (
+          <div style={{ marginBottom: '0.9rem' }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: color || th.muted, marginBottom: '0.35rem' }}>{title}</div>
+            {rows.map((r, i) => <div key={i} style={{ fontSize: '0.83rem', color: th.text, padding: '0.28rem 0', borderBottom: i === rows.length - 1 ? 'none' : `1px solid ${th.cardBorder}` }}>{r}</div>)}
+          </div>
+        );
+        return (
+          <div onClick={() => !applying && setApplyPlan(null)} style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '1rem', width: 'min(560px, 94vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '1.2rem 1.4rem 0.6rem' }}>
+                <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: '1.05rem' }}>Apply this plan to live?</div>
+                <div style={{ fontSize: '0.82rem', color: th.muted, marginTop: '0.3rem', lineHeight: 1.5 }}>These changes go to the real Locations data and DM accounts. Alerts, reports and DM views follow the new districts from their next run.</div>
+              </div>
+              <div style={{ padding: '0.4rem 1.4rem', overflowY: 'auto' }}>
+                {section(`Stores moving (${applyPlan.storeMoves.length})`, applyPlan.storeMoves.map(m => <><strong>{m.name}</strong> <span style={{ color: th.muted }}>({m.pc})</span> · {dLabel(m.from)} → <strong>{dLabel(m.to)}</strong>{dmOf(m.to) ? <span style={{ color: th.muted }}> ({dmOf(m.to)})</span> : null}{m.editedSinceDraft ? <span style={{ color: '#d97706', fontWeight: 600 }}> · edited in Locations after this draft</span> : null}</>))}
+                {section('DM accounts', [
+                  ...applyPlan.dmLinks.map(l => <>Link <strong>{l.name}</strong> to <strong>{dLabel(l.to)}</strong>{l.from ? <span style={{ color: th.muted }}> (was {dLabel(l.from)})</span> : null}</>),
+                  ...applyPlan.dmUnlinks.map(u => <>Unlink <strong>{u.name}</strong> from {dLabel(u.from)} <span style={{ color: th.muted }}>— the account stays active; deactivate it in Admin → Users if they've left</span></>),
+                  ...applyPlan.keptLinks.map(k => <span style={{ color: th.muted }}><strong style={{ color: th.text }}>{k.name}</strong> stays linked to {dLabel(k.district)} — the plan has no DM there, so nothing changes for them</span>),
+                ])}
+                {section('District DM names in Locations', applyPlan.nameChanges.map(([n, dm]) => <>{dLabel(Number(n))}: {districts?.[n]?.name || <em style={{ color: th.muted }}>none</em>} → <strong>{dm.name || 'none'}</strong></>))}
+                {section('Needs attention', [
+                  ...(applyPlan.storeMoves.some(m => m.editedSinceDraft) ? [<>Some stores were changed in Locations <strong>after this draft was started</strong> (marked above). Applying puts them where the draft has them — if that's not what you want, Cancel and press <strong>Reset to live data</strong> to start from today's Locations.</>] : []),
+                  ...applyPlan.noAccount.map(a => a.keeps
+                    ? <><strong>{a.name}</strong> doesn't match any DM account, so <strong>{a.keeps}</strong> stays linked to {dLabel(a.district)}. If {a.name} is a new DM, create their account in Admin → Users first, then pick them with "Change district manager".</>
+                    : <><strong>{a.name}</strong> ({dLabel(a.district)}) has no DM account — create one in Admin → Users and link it to {dLabel(a.district)}, or DM alerts for those stores reach nobody.</>),
+                  ...noDm.map(n => <>{dLabel(n)} has no DM — DM alerts for its stores reach nobody until one is assigned.</>),
+                ], '#d97706')}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', padding: '0.9rem 1.4rem 1.2rem', borderTop: `1px solid ${th.cardBorder}` }}>
+                <button onClick={() => setApplyPlan(null)} disabled={applying} style={{ ...outlineBtn(false) }}>Cancel</button>
+                <button onClick={runApply} disabled={applying} style={{ ...solidBtn, opacity: applying ? 0.6 : 1 }}>{applying ? 'Applying…' : 'Apply to live'}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {confirmAction && (
         <PortalConfirmModal th={th}
           title={confirmAction.title}
@@ -31585,7 +31710,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.11";
+const APP_VERSION = "v22.16";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -57085,7 +57210,7 @@ function PCGPortal() {
               </div>
             );
           })()}
-          {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={openStores} users={users} onBack={() => setTab('tools-hub')} />}
+          {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={openStores} users={users} onBack={() => setTab('tools-hub')} setStores={setStores} districts={districts} setDistricts={setDistricts} setUsers={setUsers} />}
           {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={openStores} user={user} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={openStores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}

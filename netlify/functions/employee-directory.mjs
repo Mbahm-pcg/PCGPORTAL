@@ -6,6 +6,7 @@
 import { neon } from '@neondatabase/serverless';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { STORES, callPaycorProxy } from './tips-report-cron-background.mjs';
+import { syncDistricts } from './_shared/store-status.mjs';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -41,6 +42,7 @@ async function ensureTable(sql) {
 }
 
 export default async (request) => {
+  await syncDistricts(STORES); // v22.12: store districts follow Locations
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (request.method !== 'POST') return json(405, { error: 'Method Not Allowed' });
 

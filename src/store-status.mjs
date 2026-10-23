@@ -33,6 +33,43 @@ export function statusMapFromStores(stores) {
   return m;
 }
 
+// ── Districts (v22.12) ──────────────────────────────────────────────────────
+// Locations is also the source of truth for which district a store is in.
+// Every job carries its own hard-coded store list (with a district per store),
+// so moving a store to another DM in Locations used to change the screens but
+// not who the background alerts went to. These let a job overwrite its list's
+// districts from Locations on every run.
+
+// pc (string) -> { district (int >= 1), dmName } — stores with no usable district
+// (blank / 0 = Unassigned) are left out, so a job keeps its own value for them.
+export function districtMapFromStores(stores) {
+  const m = new Map();
+  for (const s of (Array.isArray(stores) ? stores : [])) {
+    if (!s || s.pc == null || s.pc === '') continue;
+    const d = Number(s.district);
+    if (!Number.isInteger(d) || d < 1) continue;
+    m.set(String(s.pc), { district: d, dmName: s.dmName || '' });
+  }
+  return m;
+}
+
+// Rewrites `district` IN PLACE on each store in `list` from the Locations map, so
+// every module holding the same store objects sees it. A store that already has
+// a `dmName` field gets the Locations DM name too. Returns how many moved.
+// districtMap null (Locations unavailable) = change nothing.
+export function applyDistricts(list, districtMap) {
+  if (!districtMap || !Array.isArray(list)) return 0;
+  let moved = 0;
+  for (const s of list) {
+    if (!s) continue;
+    const live = districtMap.get(String(s.pc));
+    if (!live) continue;
+    if (Number(s.district) !== live.district) { s.district = live.district; moved++; }
+    if ('dmName' in s && live.dmName) s.dmName = live.dmName;
+  }
+  return moved;
+}
+
 // `list` = any store-shaped array with a pc. statusMap null/undefined (statuses
 // unavailable) = fail OPEN: keep every store rather than silently dropping all.
 export function activeSubset(list, statusMap, onIso, graceDays = 0) {

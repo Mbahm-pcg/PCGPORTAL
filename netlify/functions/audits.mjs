@@ -29,6 +29,7 @@ import { TEMPLATE_V1, validateTemplate } from './audit-lib/template.js';
 import { computeScore, bandFor } from './audit-lib/scoring.js';
 import { canTransition, defaultDeadline, isOverdue } from './audit-lib/caps.js';
 import { effectiveAudits } from './audit-lib/access.js';
+import { syncDistricts } from './_shared/store-status.mjs';
 
 const cors = {
   'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -304,6 +305,7 @@ function resultsForScoring(results) {
 }
 
 export default async (req) => {
+  await syncDistricts(AUDIT_STORES); // v22.12: store districts follow Locations
   // 204 must have a null body (not '') — an empty string still counts as "a body" to
   // Node's Response validation and throws for null-body statuses (204/205/304).
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });

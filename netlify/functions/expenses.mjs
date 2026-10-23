@@ -18,6 +18,7 @@ import { getStore } from '@netlify/blobs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
 import { isValidCategory, resolveStoreFields, canDeleteExpense, buildListScope } from './expenses-lib/scope.mjs';
+import { syncDistricts } from './_shared/store-status.mjs';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -85,6 +86,7 @@ function genId() {
 }
 
 export default async (request) => {
+  await syncDistricts(Object.values(STORE_BY_PC)); // v22.12: store districts follow Locations
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (request.method !== 'POST') return json(405, { error: 'Method Not Allowed' });
 

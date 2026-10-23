@@ -8,7 +8,7 @@ import webpush from 'web-push';
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { STORE_BY_PC } from './ndcp-lib/store-map.js';
-import { closedPcSet } from './_shared/store-status.mjs';
+import { closedPcSet, syncDistricts } from './_shared/store-status.mjs';
 
 function etDate() {
   const f = new Intl.DateTimeFormat('en-CA', {
@@ -45,6 +45,7 @@ async function blobSave(key, data) {
 }
 
 export default async (_req, _ctx) => {
+  await syncDistricts(Object.values(STORE_BY_PC)); // v22.12: store districts follow Locations
   const db = sql();
   const date = etDate();
   const yesterday = etYesterday();

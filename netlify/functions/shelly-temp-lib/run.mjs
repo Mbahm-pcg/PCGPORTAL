@@ -10,6 +10,7 @@ import { STORES } from '../labor-cron.mjs';
 import { fetchAllShellyDevices } from '../shelly.mjs';
 import { advanceTempState } from '../../../src/shelly-temp.mjs';
 import { SHELLY_DEVICE_MAP_BLOB_KEY, TEST_RECIPIENT_FALLBACK } from './device-map.mjs';
+import { syncDistricts } from '../_shared/store-status.mjs';
 
 const STATE_KEY = 'pcg_shelly_temp_state_v1';
 
@@ -122,6 +123,7 @@ async function writeBellNotification(bs, { type, message, storePC, district }) {
 }
 
 export async function runShellyTempCheck({ dryRun = false } = {}) {
+  await syncDistricts(STORES); // v22.12: store districts follow Locations
   const bs = blobStore();
   const nowMs = Date.now();
 
