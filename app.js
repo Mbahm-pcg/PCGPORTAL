@@ -1120,6 +1120,43 @@
     return out;
   }
 
+  // src/office-clock-weeks.mjs
+  function addDays2(iso, n) {
+    const d = /* @__PURE__ */ new Date(`${iso}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+  function periodWeeks(periodEnd) {
+    return [
+      { weekStart: addDays2(periodEnd, -13), weekEnd: addDays2(periodEnd, -7) },
+      { weekStart: addDays2(periodEnd, -6), weekEnd: periodEnd }
+    ];
+  }
+  function weekTotals(dailyRows, periodEnd, { today = null, todayMinutes = null } = {}) {
+    return periodWeeks(periodEnd).map(({ weekStart, weekEnd }) => {
+      let minutes = 0, incompleteDays = 0, inProgress = false;
+      const days = [];
+      for (const row of dailyRows || []) {
+        if (row.day < weekStart || row.day > weekEnd) continue;
+        let m = row.totalMinutes;
+        let live = false;
+        if (m == null && row.day === today && todayMinutes != null) {
+          m = todayMinutes;
+          live = true;
+          inProgress = true;
+        }
+        if (m == null) incompleteDays++;
+        else minutes += m;
+        days.push({ day: row.day, minutes: m, inProgress: live });
+      }
+      days.sort((a, b) => a.day < b.day ? 1 : -1);
+      return { weekStart, weekEnd, minutes, incompleteDays, inProgress, days };
+    });
+  }
+  function weekContaining(weeks, day) {
+    return (weeks || []).find((w) => day >= w.weekStart && day <= w.weekEnd) || null;
+  }
+
   // src/deal-dates.mjs
   var DATE_TYPES = [
     { id: "loi_expiration", label: "LOI Response / Expiration", defaultTiers: [14, 7, 3, 1] },
@@ -9727,7 +9764,7 @@ ${pendingEmail.emails.join("\n")}`,
     const [menuData, setMenuData] = React.useState(null);
     const [orderData, setOrderData] = React.useState(null);
     const [hourlyData, setHourlyData] = React.useState(null);
-    const [weekTotals, setWeekTotals] = React.useState(null);
+    const [weekTotals2, setWeekTotals] = React.useState(null);
     const [selfCmpCache, setSelfCmpCache] = React.useState(null);
     const [selfHourly, setSelfHourly] = React.useState(null);
     const [hoveredTender, setHoveredTender] = React.useState(null);
@@ -10102,8 +10139,8 @@ ${pendingEmail.emails.join("\n")}`,
       }
     )), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "1.5rem" } }, loading ? "Loading data for " + localDate + "..." : "No data available for this store on " + localDate + "."));
     const voidPct = d.netSales > 0 ? d.voids / d.netSales * 100 : 0;
-    const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
-    const weeklyForecast = weekTotals?.weekForecast || 0;
+    const wtdTotalSales = (weekTotals2?.wtdSales || 0) + d.netSales;
+    const weeklyForecast = weekTotals2?.weekForecast || 0;
     const cmpCache = dayStoreCache || selfCmpCache;
     const cmpHourly = dayStoreCache ? hourlyHistories : selfHourly ? [selfHourly] : null;
     const comparisonRows = scopedComparisonRows({
@@ -10334,8 +10371,8 @@ ${pendingEmail.emails.join("\n")}`,
       { label: "Void Rate", value: voidPct.toFixed(2) + "%", color: voidPct > 1 ? "#ff6b6b" : "#69db7c" },
       { label: "Tax", value: fmtUSD(d.tax), color: "#20c997" },
       { label: "Err Cor", value: fmtUSD(d.errCor), color: "#868e96" },
-      { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + "d" : weekTotals.daysLoaded + 1 + "d" : null },
-      { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY+2%" : null },
+      { label: viewMode === "week" ? "Wk Total" : "WTD", value: weekTotals2 ? fmtUSD(viewMode === "week" ? weekTotals2.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals2 ? viewMode === "week" ? weekTotals2.daysLoaded + "d" : weekTotals2.daysLoaded + 1 + "d" : null },
+      { label: "Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals2 ? "\u2014" : "\u2026", color: "#cc5de8", sub: weekTotals2?.lyWeekSales > 0 ? "LY+2%" : null },
       ...upsellEntry ? [{ label: "Upsell Rate", value: upsellEntry.upsellRate.toFixed(1) + "%", color: "#22d3ee", sub: upsellEntry.date }] : []
     ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: k.color + "12", border: `1px solid ${k.color}30`, borderRadius: "999px", padding: "0.28rem 0.75rem", minWidth: 64 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.8rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.5rem", color: k.color + "77", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label, k.sub ? " \xB7 " + k.sub : "")))))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: isNarrow ? "column" : "row", gap: isNarrow ? "0.6rem" : "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flexShrink: 0, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { ref: tabRailRef, onScroll: isNarrow ? checkTabRailOverflow : void 0, style: isNarrow ? { display: "flex", flexDirection: "row", gap: "0.4rem", overflowX: "auto", flexShrink: 0, paddingBottom: "0.25rem", WebkitOverflowScrolling: "touch" } : { display: "flex", flexDirection: "column", gap: "0.4rem", width: 168, flexShrink: 0, overflowY: "auto" } }, [{ id: "sales", label: "\u{1F4CA} Sales" }, { id: "forecast", label: "\u{1F52E} Forecast" }, { id: "daypart", label: "\u{1F550} Daypart" }, { id: "foodcost", label: "\u{1F369} Food Cost" }, { id: "transactions", label: "\u{1F9FE} Transactions" }, ...s?.baseAsset === "DT" ? [{ id: "driveThru", label: "\u{1F697} Drive-Thru" }] : [], { id: "reviews", label: "\u2B50 Reviews" }, { id: "complaints", label: "\u{1F4E3} Complaints" }].map((t) => /* @__PURE__ */ React.createElement(
       "button",
@@ -10364,9 +10401,9 @@ ${pendingEmail.emails.join("\n")}`,
         style: { display: "flex", alignItems: "center", textAlign: "left", padding: "0.6rem 0.75rem", border: `1px solid ${storeTab === t.id ? O : th.cardBorder}`, borderRadius: "0.6rem", background: storeTab === t.id ? O : th.card, color: storeTab === t.id ? "#fff" : th.muted, fontWeight: 600, fontSize: "0.78rem", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer", transition: "background .15s, color .15s, border-color .15s", boxSizing: "border-box", fontFamily: "'Raleway',sans-serif", flexShrink: 0 }
       },
       t.label
-    ))), isNarrow && tabRailHasMore && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, bottom: "0.25rem", right: 0, width: "1.75rem", pointerEvents: "none", background: `linear-gradient(to right, transparent, ${th.bg})` } })), /* @__PURE__ */ React.createElement("div", { ref: contentRef, style: { flex: 1, minWidth: 0, overflowY: isNarrow ? "visible" : "auto", paddingRight: isNarrow ? 0 : 4 } }, storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals?.weekForecast : weekTotals?.dayForecast) > 0 && (() => {
+    ))), isNarrow && tabRailHasMore && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, bottom: "0.25rem", right: 0, width: "1.75rem", pointerEvents: "none", background: `linear-gradient(to right, transparent, ${th.bg})` } })), /* @__PURE__ */ React.createElement("div", { ref: contentRef, style: { flex: 1, minWidth: 0, overflowY: isNarrow ? "visible" : "auto", paddingRight: isNarrow ? 0 : 4 } }, storeTab === "forecast" && /* @__PURE__ */ React.createElement(React.Fragment, null, (viewMode === "week" ? weekTotals2?.weekForecast : weekTotals2?.dayForecast) > 0 && (() => {
       const isWeek = viewMode === "week";
-      const forecast = isWeek ? weekTotals.weekForecast : weekTotals.dayForecast;
+      const forecast = isWeek ? weekTotals2.weekForecast : weekTotals2.dayForecast;
       const atPct = d.netSales / forecast * 100;
       return /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1rem 1.25rem", marginBottom: "1.25rem", border: "1px solid " + th.cardBorder } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.8rem", color: th.text } }, isWeek ? "Week" : "Day", " Forecast Attainment ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted, fontWeight: 400 } }, "\xB7 ", isWeek ? weekLabel : (/* @__PURE__ */ new Date(localDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " \xB7 vs LY same ", isWeek ? "week" : "day", " + 2%")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 800, color: atPct >= 100 ? "#69db7c" : atPct >= 90 ? "#ffd43b" : "#ff6b6b" } }, atPct.toFixed(1), "%")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card3, borderRadius: 6, height: 12, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: {
         height: "100%",
@@ -11158,7 +11195,7 @@ ${pendingEmail.emails.join("\n")}`,
     const [menuData, setMenuData] = React.useState(null);
     const [orderData, setOrderData] = React.useState(null);
     const [hourlyData, setHourlyData] = React.useState(null);
-    const [weekTotals, setWeekTotals] = React.useState(null);
+    const [weekTotals2, setWeekTotals] = React.useState(null);
     const [hoveredTender, setHoveredTender] = React.useState(null);
     const [hoveredHour, setHoveredHour] = React.useState(null);
     const noHoverDevice = useNoHoverDevice();
@@ -11500,8 +11537,8 @@ ${pendingEmail.emails.join("\n")}`,
       }
     )), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: "1.5rem" } }, loading ? "Loading data for " + localDate + "..." : "No data available for this district on " + localDate + "."));
     const voidPct = d.netSales > 0 ? d.voids / d.netSales * 100 : 0;
-    const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
-    const weeklyForecast = weekTotals?.weekForecast || 0;
+    const wtdTotalSales = (weekTotals2?.wtdSales || 0) + d.netSales;
+    const weeklyForecast = weekTotals2?.weekForecast || 0;
     const districtPCs = stores.filter((s) => Number(s.district) === Number(distNum2) && s.status === "Open").map((s) => s.pc);
     const comparisonRows = scopedComparisonRows({ dayStoreCache, pcs: districtPCs, busDt, viewMode: cmpViewMode, todayStr, hourlyHistories });
     const CHART_COLORS = ["#69db7c", "#74c0fc", "#ffd43b", "#f06595", "#b197fc", "#ff922b", "#20c997", "#868e96", "#e599f7", "#63e6be", "#ffa8a8", "#91a7ff"];
@@ -11624,8 +11661,8 @@ ${pendingEmail.emails.join("\n")}`,
       { label: "Void Rate", value: voidPct.toFixed(2) + "%", color: voidPct > 1 ? "#ff6b6b" : "#69db7c" },
       { label: "Tax Collected", value: fmtUSD(d.tax), color: "#20c997" },
       { label: "Error Corrections", value: fmtUSD(d.errCor), color: "#868e96" },
-      { label: viewMode === "week" ? "Week Total" : "Week to Date", value: weekTotals ? fmtUSD(viewMode === "week" ? weekTotals.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals ? viewMode === "week" ? weekTotals.daysLoaded + " days" : weekTotals.daysLoaded + 1 + " days" : "Loading\u2026" },
-      { label: "Weekly Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals ? "\u2014" : "Loading\u2026", color: "#cc5de8", sub: weekTotals?.lyWeekSales > 0 ? "LY + 2%" : weekTotals ? "No LY data" : null }
+      { label: viewMode === "week" ? "Week Total" : "Week to Date", value: weekTotals2 ? fmtUSD(viewMode === "week" ? weekTotals2.wtdSales : wtdTotalSales) : "\u2014", color: "#4dabf7", sub: weekTotals2 ? viewMode === "week" ? weekTotals2.daysLoaded + " days" : weekTotals2.daysLoaded + 1 + " days" : "Loading\u2026" },
+      { label: "Weekly Forecast", value: weeklyForecast > 0 ? fmtUSD(weeklyForecast) : weekTotals2 ? "\u2014" : "Loading\u2026", color: "#cc5de8", sub: weekTotals2?.lyWeekSales > 0 ? "LY + 2%" : weekTotals2 ? "No LY data" : null }
     ].map((k) => /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -11669,15 +11706,15 @@ ${pendingEmail.emails.join("\n")}`,
       } }, k.value),
       /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 800, marginTop: "0.35rem" } }, k.label),
       k.sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, opacity: 0.7, marginTop: "0.2rem", fontWeight: 600 } }, k.sub)
-    ))), weekTotals?.dayForecast > 0 && (() => {
-      const atPct = d.netSales / weekTotals.dayForecast * 100;
+    ))), weekTotals2?.dayForecast > 0 && (() => {
+      const atPct = d.netSales / weekTotals2.dayForecast * 100;
       return /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1rem 1.25rem", marginBottom: "1.25rem", border: "1px solid " + th.cardBorder } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.8rem", color: th.text } }, "Day Forecast Attainment ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted, fontWeight: 400 } }, "(vs LY same day + 2%)")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 800, color: atPct >= 100 ? "#69db7c" : atPct >= 90 ? "#ffd43b" : "#ff6b6b" } }, atPct.toFixed(1), "%")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card3, borderRadius: 6, height: 12, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: {
         height: "100%",
         borderRadius: 6,
         transition: "width .5s ease",
         width: Math.min(atPct, 120) + "%",
         background: atPct >= 100 ? "linear-gradient(90deg, #69db7c, #20c997)" : atPct >= 90 ? "linear-gradient(90deg, #ffd43b, #ff922b)" : "linear-gradient(90deg, #ff6b6b, #f06595)"
-      } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, bottom: 0, left: "83.33%", width: 2, background: th.text + "44" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.25rem", fontSize: "0.6rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Actual: " + fmtUSD(d.netSales)), /* @__PURE__ */ React.createElement("span", null, "Forecast: " + fmtUSD(weekTotals.dayForecast))));
+      } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, bottom: 0, left: "83.33%", width: 2, background: th.text + "44" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.25rem", fontSize: "0.6rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Actual: " + fmtUSD(d.netSales)), /* @__PURE__ */ React.createElement("span", null, "Forecast: " + fmtUSD(weekTotals2.dayForecast))));
     })(), (() => {
       const rows = distStores.map((s) => ({ s, ld: laborForDate(s.pc) })).filter((r) => r.ld);
       if (rows.length === 0) return null;
@@ -11693,12 +11730,12 @@ ${pendingEmail.emails.join("\n")}`,
         { v: onClock, l: "Employees On Clock", c: "#22c55e", sub: (partialCoverage ? rows.length + " of " + distStores.length : "Across " + rows.length) + " stores, right now" },
         { v: overtime, l: "Employees In Overtime", c: overtime > 0 ? "#ef4444" : th.muted, sub: overtime > 0 ? "Flag before end of shift" : "None right now" }
       ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.l, style: { position: "relative", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.9rem", padding: "1rem 1.1rem", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: k.c } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.4rem", fontWeight: 800, color: k.c } }, k.v), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 600, marginTop: "0.3rem" } }, k.l), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, opacity: 0.75, marginTop: "0.15rem" } }, k.sub)))), /* @__PURE__ */ React.createElement("div", { style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.9rem", padding: "0.5rem 1rem 0.2rem", marginBottom: "1.25rem", overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Labor %", "Labor $", "Net Sales", "On Clock", "OT"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: "left", fontSize: "0.6rem", textTransform: "uppercase", letterSpacing: 0.5, color: th.muted, fontWeight: 800, padding: "0.5rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}` } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, rows.map(({ s, ld }) => /* @__PURE__ */ React.createElement("tr", { key: s.pc }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}55`, fontWeight: 700, color: th.text } }, s.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}55` } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", fontWeight: 800, padding: "0.15rem 0.5rem", borderRadius: 6, background: laborColor2(ld.laborPct) + "22", color: laborColor2(ld.laborPct) } }, ld.laborPct != null ? ld.laborPct.toFixed(1) + "%" : "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}55`, color: th.text } }, fmtUSD(ld.laborDollars || 0)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}55`, color: th.text } }, fmtUSD(ld.sales || 0)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}55`, color: th.text } }, ld.employeesOnClock ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.5rem", borderBottom: `1px solid ${th.cardBorder}55`, color: ld.overtimeCount > 0 ? "#ef4444" : th.muted, fontWeight: ld.overtimeCount > 0 ? 800 : 400 } }, ld.overtimeCount ?? 0)))))));
-    })(), /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: `linear-gradient(90deg, ${G}44, transparent)`, margin: "1.25rem 0 1rem" } }), weekTotals?.weeklyByDay && weekTotals?.prevByDay && (weekTotals.weeklyByDay.some((v) => v > 0) || weekTotals.prevByDay.some((v) => v > 0)) && (() => {
+    })(), /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: `linear-gradient(90deg, ${G}44, transparent)`, margin: "1.25rem 0 1rem" } }), weekTotals2?.weeklyByDay && weekTotals2?.prevByDay && (weekTotals2.weeklyByDay.some((v) => v > 0) || weekTotals2.prevByDay.some((v) => v > 0)) && (() => {
       const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      const thisWeek = [...weekTotals.weeklyByDay];
+      const thisWeek = [...weekTotals2.weeklyByDay];
       const todayDOW = (/* @__PURE__ */ new Date(localDate + "T12:00:00")).getDay();
       if (viewMode === "day" && d.netSales > 0) thisWeek[todayDOW] = d.netSales;
-      const lastWeek = weekTotals.prevByDay;
+      const lastWeek = weekTotals2.prevByDay;
       const maxVal = Math.max(...thisWeek, ...lastWeek, 1);
       const chartMax = Math.ceil(maxVal / 1e3) * 1e3;
       const H = 180;
@@ -18997,6 +19034,7 @@ ${t2.slice(0, 300)}`);
       }).then((res) => res.json().catch(() => ({}))).then((j) => {
         setLinked(!!j.linked);
         setPeriodPunches(Array.isArray(j.punches) ? j.punches : []);
+        setPeriodInfo({ currentPeriodEnd: j.currentPeriodEnd || j.periodEnd || null, firstPeriodEnd: j.firstPeriodEnd || null });
       }).catch(() => {
         setLinked(false);
         setPeriodPunches([]);
@@ -19005,6 +19043,30 @@ ${t2.slice(0, 300)}`);
     React.useEffect(() => {
       loadHistory();
     }, [loadHistory]);
+    const [periodInfo, setPeriodInfo] = React.useState(null);
+    const [viewEnd, setViewEnd] = React.useState(null);
+    const [viewPunches, setViewPunches] = React.useState(null);
+    React.useEffect(() => {
+      if (!viewEnd || viewEnd === periodInfo?.currentPeriodEnd) {
+        setViewPunches(null);
+        return;
+      }
+      let cancelled = false;
+      setViewPunches(null);
+      fetch("/.netlify/functions/office-clock-punch", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "history", periodEnd: viewEnd })
+      }).then((res) => res.json().catch(() => ({}))).then((j) => {
+        if (!cancelled) setViewPunches(Array.isArray(j.punches) ? j.punches : []);
+      }).catch(() => {
+        if (!cancelled) setViewPunches([]);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [viewEnd, periodInfo?.currentPeriodEnd]);
     const todayStr = React.useMemo(() => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), []);
     const todaysPunches = React.useMemo(
       () => (periodPunches || []).filter((p) => new Date(p.capturedAt).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) === todayStr),
@@ -19043,28 +19105,29 @@ ${t2.slice(0, 300)}`);
     }[status];
     const primaryType = status === "out" ? "clock_in" : status === "break" ? "meal_end" : "clock_out";
     const primaryDef = OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === primaryType);
-    const canStartMeal = status === "in" && allowed.has("meal_start");
     const dailyHours = React.useMemo(() => officeClockDailyHours(periodPunches || []), [periodPunches]);
     const todayRow = dailyHours.find((d) => d.day === todayStr);
     const todayMinutes = todayRow?.totalMinutes ?? (status !== "out" ? officeClockInProgressMinutes(todaysPunches) : null);
     const todayIsInProgress = status !== "out" && todayRow?.totalMinutes == null;
-    const todayBreakMinutes = React.useMemo(() => {
-      const sorted = [...todaysPunches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
-      let total = 0, mealStart = null;
-      for (const p of sorted) {
-        if (p.punchType === "meal_start") mealStart = p;
-        if (p.punchType === "meal_end" && mealStart) {
-          total += Math.round((new Date(p.capturedAt).getTime() - new Date(mealStart.capturedAt).getTime()) / 6e4);
-          mealStart = null;
-        }
-      }
-      return total;
-    }, [todaysPunches]);
+    const currentEnd = periodInfo?.currentPeriodEnd || null;
+    const currentWeeks = React.useMemo(
+      () => currentEnd ? weekTotals(dailyHours, currentEnd, { today: todayStr, todayMinutes: todayIsInProgress ? todayMinutes : null }) : [],
+      [dailyHours, currentEnd, todayStr, todayMinutes, todayIsInProgress]
+    );
+    const thisWeek = weekContaining(currentWeeks, todayStr);
+    const isCurrentView = !viewEnd || viewEnd === currentEnd;
+    const shownEnd = isCurrentView ? currentEnd : viewEnd;
+    const shownWeeks = React.useMemo(
+      () => isCurrentView ? currentWeeks : viewPunches ? weekTotals(officeClockDailyHours(viewPunches), shownEnd) : [],
+      [isCurrentView, currentWeeks, viewPunches, shownEnd]
+    );
+    const shortDay = (iso) => officeClockParseDate(iso).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
+    const canGoBack = !!shownEnd && (!periodInfo?.firstPeriodEnd || addDays2(shownEnd, -14) >= periodInfo.firstPeriodEnd);
     const dayLabel = (iso) => {
       const d = officeClockParseDate(iso);
       return d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.officeClock(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Time Clock"))), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Clock in/out and track your hours \u2014 today's punches only."), linked === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), linked === false && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.88rem" } }, "You're not set up for time clock yet \u2014 contact IT."), linked === true && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th, statusMeta.color), padding: "1rem", marginBottom: "0.9rem", display: "flex", alignItems: "center", gap: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 44, height: 44, borderRadius: "50%", background: `${statusMeta.color}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, statusMeta.icon(statusMeta.color)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.1rem" } }, "Current Status"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.15rem", color: th.text } }, statusMeta.label), lastPunch && status !== "out" && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.76rem" } }, "Since ", officeClockTime(lastPunch.capturedAt))), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.officeClock(th.text), /* @__PURE__ */ React.createElement("h1", { style: pageTitle(th, { fontSize: "1.3rem", margin: 0 }) }, "Time Clock"))), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Clock in/out and track your hours \u2014 today, this week, and past pay periods."), linked === null && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), linked === false && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.88rem" } }, "You're not set up for time clock yet \u2014 contact IT."), linked === true && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...accentCard(th, statusMeta.color), padding: "1rem", marginBottom: "0.9rem", display: "flex", alignItems: "center", gap: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 44, height: 44, borderRadius: "50%", background: `${statusMeta.color}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, statusMeta.icon(statusMeta.color)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.1rem" } }, "Current Status"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.15rem", color: th.text } }, statusMeta.label), lastPunch && status !== "out" && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.76rem" } }, "Since ", officeClockTime(lastPunch.capturedAt))), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -19081,46 +19144,43 @@ ${t2.slice(0, 300)}`);
         })
       },
       busyType === primaryType ? "Saving\u2026" : primaryDef.label
-    )), canStartMeal && /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.6rem", marginBottom: "1.2rem" } }, [
+      { label: "Today", value: todayMinutes != null ? officeClockFmtHours(todayMinutes) + (todayIsInProgress ? "*" : "") : "\u2014", icon: (c) => ICONS.officeClock(c) },
+      { label: "This Week", value: thisWeek ? officeClockFmtHours(thisWeek.minutes) + (thisWeek.inProgress ? "*" : "") : "\u2014", icon: (c) => /* @__PURE__ */ React.createElement(OfficeClockArrowInIcon, { color: c }) },
+      { label: "Pay Period", value: currentWeeks.length ? officeClockFmtHours(currentWeeks.reduce((s, w) => s + w.minutes, 0)) + (currentWeeks.some((w) => w.inProgress) ? "*" : "") : "\u2014", icon: (c) => ICONS.calendar(c) }
+    ].map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.75rem 0.6rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", marginBottom: "0.3rem" } }, s.icon(th.muted)), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, s.value), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), fontSize: "0.62rem" } }, s.label)))), todayIsInProgress && todayMinutes != null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "-0.9rem", marginBottom: "1rem" } }, "* includes today so far \u2014 still clocked in"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.4rem" } }, ICONS.officeClock(th.muted), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Today's Punches")), periodPunches === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Loading\u2026"), periodPunches !== null && todaysPunches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.82rem", textAlign: "center" } }, "No punches yet today."), periodPunches !== null && todaysPunches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.3rem" } }, todaysPunches.map((p) => {
+      const def = OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === p.punchType);
+      return /* @__PURE__ */ React.createElement("div", { key: p.id, style: { ...card(th), padding: "0.65rem 0.9rem", display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 34, height: 34, borderRadius: "50%", background: `${def?.color || th.muted}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, def?.icon ? def.icon(def.color) : null), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, def?.label || p.punchType), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, def?.sub)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem", flexShrink: 0 } }, officeClockTime(p.capturedAt)));
+    })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Hours by Week"), shownEnd && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
-        disabled: busyType !== null,
-        onClick: () => doPunch("meal_start"),
-        style: {
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "0.5rem",
-          width: "100%",
-          background: "transparent",
-          border: `1px solid ${OFFICE_CLOCK_AMBER}55`,
-          color: OFFICE_CLOCK_AMBER,
-          borderRadius: RADIUS.control,
-          padding: "0.6rem",
-          fontSize: "0.85rem",
-          fontWeight: 700,
-          marginBottom: "1.1rem",
-          cursor: busyType !== null ? "default" : "pointer",
-          opacity: busyType !== null ? 0.6 : 1
-        }
+        disabled: !canGoBack,
+        onClick: () => setViewEnd(addDays2(shownEnd, -14)),
+        "aria-label": "Previous pay period",
+        style: { background: "transparent", border: `1px solid ${th.cardBorder}`, borderRadius: RADIUS.control, color: th.text, padding: "0.2rem 0.55rem", fontSize: "0.85rem", cursor: canGoBack ? "pointer" : "default", opacity: canGoBack ? 1 : 0.35 }
       },
-      ICONS.coffee(OFFICE_CLOCK_AMBER),
-      " ",
-      busyType === "meal_start" ? "Saving\u2026" : "Start Meal"
-    ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.6rem", marginBottom: "1.2rem" } }, [
-      { label: "Total Hours", value: todayMinutes != null ? officeClockFmtHours(todayMinutes) + (todayIsInProgress ? "*" : "") : "\u2014", icon: (c) => ICONS.officeClock(c) },
-      { label: "Total Breaks", value: todayBreakMinutes > 0 ? officeClockFmtHours(todayBreakMinutes) : "0h", icon: (c) => ICONS.coffee(c) },
-      { label: "Work Days", value: String(dailyHours.length), icon: (c) => /* @__PURE__ */ React.createElement(OfficeClockArrowInIcon, { color: c }) }
-    ].map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "0.75rem 0.6rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", marginBottom: "0.3rem" } }, s.icon(th.muted)), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, s.value), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), fontSize: "0.62rem" } }, s.label)))), todayIsInProgress && todayMinutes != null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.68rem", marginTop: "-0.9rem", marginBottom: "1rem" } }, "* so far today \u2014 still clocked in"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.4rem" } }, ICONS.officeClock(th.muted), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th) } }, "Today's Punches")), periodPunches === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Loading\u2026"), periodPunches !== null && todaysPunches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.82rem", textAlign: "center" } }, "No punches yet today."), periodPunches !== null && todaysPunches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.3rem" } }, todaysPunches.map((p) => {
-      const def = OFFICE_CLOCK_PUNCH_TYPES.find((b) => b.key === p.punchType);
-      return /* @__PURE__ */ React.createElement("div", { key: p.id, style: { ...card(th), padding: "0.65rem 0.9rem", display: "flex", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 34, height: 34, borderRadius: "50%", background: `${def?.color || th.muted}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, def?.icon ? def.icon(def.color) : null), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, fontSize: "0.85rem" } }, def?.label || p.punchType), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.72rem" } }, def?.sub)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem", flexShrink: 0 } }, officeClockTime(p.capturedAt)));
-    })), /* @__PURE__ */ React.createElement("div", { style: { ...microLabel(th), marginBottom: "0.4rem" } }, "Days Worked This Period"), periodPunches !== null && dailyHours.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", color: th.muted, fontSize: "0.82rem", textAlign: "center" } }, "No punches yet this period."), dailyHours.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem" } }, [...dailyHours].reverse().map((d) => {
-      const isToday = d.day === todayStr;
-      const minutes = isToday ? todayMinutes : d.totalMinutes;
-      const label = minutes != null ? officeClockFmtHours(minutes) + (isToday && todayIsInProgress ? "*" : "") : "Incomplete";
-      return /* @__PURE__ */ React.createElement("div", { key: d.day, style: { ...card(th), padding: "0.55rem 0.9rem", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontSize: "0.82rem", fontWeight: isToday ? 700 : 400 } }, dayLabel(d.day), isToday ? " (Today)" : ""), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.85rem", color: minutes != null ? th.text : "#e03131" } }, label));
-    }))));
+      "\u2039"
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 600, whiteSpace: "nowrap" } }, shortDay(addDays2(shownEnd, -13)), " \u2013 ", shortDay(shownEnd)), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        disabled: isCurrentView,
+        onClick: () => {
+          const next = addDays2(shownEnd, 14);
+          setViewEnd(next >= currentEnd ? null : next);
+        },
+        "aria-label": "Next pay period",
+        style: { background: "transparent", border: `1px solid ${th.cardBorder}`, borderRadius: RADIUS.control, color: th.text, padding: "0.2rem 0.55rem", fontSize: "0.85rem", cursor: isCurrentView ? "default" : "pointer", opacity: isCurrentView ? 0.35 : 1 }
+      },
+      "\u203A"
+    ))), !isCurrentView && viewPunches === null && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem" } }, "Loading\u2026"), (isCurrentView ? periodPunches !== null : viewPunches !== null) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, [...shownWeeks].reverse().filter((w) => !isCurrentView || w.weekStart <= todayStr).map((w) => {
+      const isThisWeek = isCurrentView && todayStr >= w.weekStart && todayStr <= w.weekEnd;
+      return /* @__PURE__ */ React.createElement("div", { key: w.weekStart, style: { ...card(th), padding: "0.7rem 0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "0.5rem", marginBottom: w.days.length ? "0.45rem" : 0 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontSize: "0.85rem", fontWeight: 700 } }, isThisWeek ? "This week" : "Week", " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 500 } }, "\xB7 ", shortDay(w.weekStart), " \u2013 ", shortDay(w.weekEnd))), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, officeClockFmtHours(w.minutes), w.inProgress ? "*" : "")), w.days.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.78rem" } }, "No punches this week."), w.days.map((d) => {
+        const isToday = d.day === todayStr;
+        return /* @__PURE__ */ React.createElement("div", { key: d.day, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontSize: "0.8rem", fontWeight: isToday ? 700 : 400 } }, dayLabel(d.day), isToday ? " (Today)" : ""), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.82rem", color: d.minutes != null ? th.text : "#e03131" } }, d.minutes != null ? officeClockFmtHours(d.minutes) + (d.inProgress ? "*" : "") : "Incomplete"));
+      }), w.incompleteDays > 0 && /* @__PURE__ */ React.createElement("div", { style: { color: "#e03131", fontSize: "0.7rem", marginTop: "0.35rem" } }, w.incompleteDays, " incomplete day", w.incompleteDays === 1 ? "" : "s", " (missing a clock-out or meal punch) not counted \u2014 ask IT to fix it."));
+    }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.2rem 0.9rem", color: th.muted, fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("span", null, "Pay period total"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: th.text } }, officeClockFmtHours(shownWeeks.reduce((s, w) => s + w.minutes, 0)), shownWeeks.some((w) => w.inProgress) ? "*" : "")))));
   }
   function OfficeClockAdmin({ user, th, showAlert: showAlert2, users, setUsers }) {
     const [busyId, setBusyId] = React.useState(null);
@@ -25355,7 +25415,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.16";
+  var APP_VERSION = "v22.17";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

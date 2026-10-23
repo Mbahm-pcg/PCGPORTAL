@@ -9,6 +9,7 @@ import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeop
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
 import { isClosedOn, PERMANENTLY_CLOSED } from './src/store-status.mjs';
 import { planDistrictApply, applyPlanToStores, applyPlanToDistricts } from './src/district-apply.mjs';
+import { addDays as ocAddDays, weekTotals as ocWeekTotals, weekContaining as ocWeekContaining } from './src/office-clock-weeks.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
 import { haversineMiles, beforeAfter, pickControls, weeklyFromScorecard, mergeWeekly, beforeWindowWeeks, weekDates, dailyToWeekly } from './src/impact.mjs';
 import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, delta, comparableTotals, dayCompletionFraction, MIN_CURVE_SAMPLES, isArchivalDate } from './src/pulse-comparison.mjs';
@@ -22547,11 +22548,34 @@ function OfficeClockTab({ user, th, showAlert }) {
       body: JSON.stringify({ action: 'history' }),
     })
       .then(res => res.json().catch(() => ({})))
-      .then(j => { setLinked(!!j.linked); setPeriodPunches(Array.isArray(j.punches) ? j.punches : []); })
+      .then(j => {
+        setLinked(!!j.linked); setPeriodPunches(Array.isArray(j.punches) ? j.punches : []);
+        setPeriodInfo({ currentPeriodEnd: j.currentPeriodEnd || j.periodEnd || null, firstPeriodEnd: j.firstPeriodEnd || null });
+      })
       .catch(() => { setLinked(false); setPeriodPunches([]); });
   }, []);
 
   React.useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  // v22.17: browse earlier pay periods (employees asked to see previous weeks).
+  // viewEnd null = the current period; its punches are periodPunches above.
+  const [periodInfo, setPeriodInfo] = React.useState(null); // { currentPeriodEnd, firstPeriodEnd }
+  const [viewEnd, setViewEnd] = React.useState(null);
+  const [viewPunches, setViewPunches] = React.useState(null);
+  React.useEffect(() => {
+    if (!viewEnd || viewEnd === periodInfo?.currentPeriodEnd) { setViewPunches(null); return; }
+    let cancelled = false;
+    setViewPunches(null);
+    fetch('/.netlify/functions/office-clock-punch', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ action: 'history', periodEnd: viewEnd }),
+    })
+      .then(res => res.json().catch(() => ({})))
+      .then(j => { if (!cancelled) setViewPunches(Array.isArray(j.punches) ? j.punches : []); })
+      .catch(() => { if (!cancelled) setViewPunches([]); });
+    return () => { cancelled = true; };
+  }, [viewEnd, periodInfo?.currentPeriodEnd]);
 
   const todayStr = React.useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), []);
   const todaysPunches = React.useMemo(
@@ -22596,13 +22620,10 @@ function OfficeClockTab({ user, th, showAlert }) {
     break: { label: 'On Break',    color: OFFICE_CLOCK_AMBER, icon: (c) => ICONS.coffee(c) },
   }[status];
   // The single primary action for the current status — matches this app's
-  // one-CTA-per-screen convention. "Start Meal" is deliberately a smaller
-  // secondary action below it (only offered while actually clocked in),
-  // never promoted to primary — Clock Out is always the more likely next
-  // real action once someone's already working.
+  // one-CTA-per-screen convention. (v22.17: the secondary "Start Meal" action
+  // was removed; 'break' can still occur from an older meal punch.)
   const primaryType = status === 'out' ? 'clock_in' : status === 'break' ? 'meal_end' : 'clock_out';
   const primaryDef = OFFICE_CLOCK_PUNCH_TYPES.find(b => b.key === primaryType);
-  const canStartMeal = status === 'in' && allowed.has('meal_start');
 
   // Reuses the EXACT same exact-to-the-minute, no-guessing math the admin
   // Pay Period Review screen uses (officeClockDailyHours) — one shared
@@ -22612,18 +22633,24 @@ function OfficeClockTab({ user, th, showAlert }) {
   const todayMinutes = todayRow?.totalMinutes ?? (status !== 'out' ? officeClockInProgressMinutes(todaysPunches) : null);
   const todayIsInProgress = status !== 'out' && (todayRow?.totalMinutes == null);
 
-  const todayBreakMinutes = React.useMemo(() => {
-    const sorted = [...todaysPunches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
-    let total = 0, mealStart = null;
-    for (const p of sorted) {
-      if (p.punchType === 'meal_start') mealStart = p;
-      if (p.punchType === 'meal_end' && mealStart) {
-        total += Math.round((new Date(p.capturedAt).getTime() - new Date(mealStart.capturedAt).getTime()) / 60000);
-        mealStart = null;
-      }
-    }
-    return total;
-  }, [todaysPunches]);
+  // Weekly totals (v22.17): Sunday–Saturday weeks, same split payroll uses. "This
+  // week" always comes from the current period; the history below shows whichever
+  // period is being viewed.
+  const currentEnd = periodInfo?.currentPeriodEnd || null;
+  const currentWeeks = React.useMemo(
+    () => (currentEnd ? ocWeekTotals(dailyHours, currentEnd, { today: todayStr, todayMinutes: todayIsInProgress ? todayMinutes : null }) : []),
+    [dailyHours, currentEnd, todayStr, todayMinutes, todayIsInProgress]
+  );
+  const thisWeek = ocWeekContaining(currentWeeks, todayStr);
+  const isCurrentView = !viewEnd || viewEnd === currentEnd;
+  const shownEnd = isCurrentView ? currentEnd : viewEnd;
+  const shownWeeks = React.useMemo(
+    () => (isCurrentView ? currentWeeks : (viewPunches ? ocWeekTotals(officeClockDailyHours(viewPunches), shownEnd) : [])),
+    [isCurrentView, currentWeeks, viewPunches, shownEnd]
+  );
+  const shortDay = (iso) => officeClockParseDate(iso).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+  const canGoBack = !!shownEnd && (!periodInfo?.firstPeriodEnd || ocAddDays(shownEnd, -14) >= periodInfo.firstPeriodEnd);
+
 
   const dayLabel = (iso) => {
     const d = officeClockParseDate(iso);
@@ -22639,7 +22666,7 @@ function OfficeClockTab({ user, th, showAlert }) {
         </div>
       </div>
       <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
-        Clock in/out and track your hours — today's punches only.
+        Clock in/out and track your hours — today, this week, and past pay periods.
       </p>
 
       {linked === null && (
@@ -22676,25 +22703,16 @@ function OfficeClockTab({ user, th, showAlert }) {
             </button>
           </div>
 
-          {/* Secondary action — only offered while actually clocked in (not on a break, not out) */}
-          {canStartMeal && (
-            <button type="button" disabled={busyType !== null} onClick={() => doPunch('meal_start')}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: '100%',
-                background: 'transparent', border: `1px solid ${OFFICE_CLOCK_AMBER}55`, color: OFFICE_CLOCK_AMBER,
-                borderRadius: RADIUS.control, padding: '0.6rem', fontSize: '0.85rem', fontWeight: 700,
-                marginBottom: '1.1rem', cursor: busyType !== null ? 'default' : 'pointer', opacity: busyType !== null ? 0.6 : 1,
-              }}>
-              {ICONS.coffee(OFFICE_CLOCK_AMBER)} {busyType === 'meal_start' ? 'Saving…' : 'Start Meal'}
-            </button>
-          )}
+          {/* v22.17: no "Start Meal" button — office staff don't take punched breaks.
+              Someone already on a break (older punch) still gets "End Meal" as the
+              primary action above, and meal punches still count in payroll math. */}
 
           {/* Stat summary row */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.6rem', marginBottom: '1.2rem' }}>
             {[
-              { label: 'Total Hours', value: todayMinutes != null ? officeClockFmtHours(todayMinutes) + (todayIsInProgress ? '*' : '') : '—', icon: (c) => ICONS.officeClock(c) },
-              { label: 'Total Breaks', value: todayBreakMinutes > 0 ? officeClockFmtHours(todayBreakMinutes) : '0h', icon: (c) => ICONS.coffee(c) },
-              { label: 'Work Days', value: String(dailyHours.length), icon: (c) => <OfficeClockArrowInIcon color={c} /> },
+              { label: 'Today', value: todayMinutes != null ? officeClockFmtHours(todayMinutes) + (todayIsInProgress ? '*' : '') : '—', icon: (c) => ICONS.officeClock(c) },
+              { label: 'This Week', value: thisWeek ? officeClockFmtHours(thisWeek.minutes) + (thisWeek.inProgress ? '*' : '') : '—', icon: (c) => <OfficeClockArrowInIcon color={c} /> },
+              { label: 'Pay Period', value: currentWeeks.length ? officeClockFmtHours(currentWeeks.reduce((s, w) => s + w.minutes, 0)) + (currentWeeks.some(w => w.inProgress) ? '*' : '') : '—', icon: (c) => ICONS.calendar(c) },
             ].map((s, i) => (
               <div key={i} style={{ ...card(th), padding: '0.75rem 0.6rem', textAlign: 'center' }}>
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.3rem' }}>{s.icon(th.muted)}</div>
@@ -22704,7 +22722,7 @@ function OfficeClockTab({ user, th, showAlert }) {
             ))}
           </div>
           {todayIsInProgress && todayMinutes != null && (
-            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '-0.9rem', marginBottom: '1rem' }}>* so far today — still clocked in</div>
+            <div style={{ color: th.muted, fontSize: '0.68rem', marginTop: '-0.9rem', marginBottom: '1rem' }}>* includes today so far — still clocked in</div>
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
@@ -22735,24 +22753,55 @@ function OfficeClockTab({ user, th, showAlert }) {
             </div>
           )}
 
-          {/* Worked-days history — this pay period, most recent first */}
-          <div style={{ ...microLabel(th), marginBottom: '0.4rem' }}>Days Worked This Period</div>
-          {periodPunches !== null && dailyHours.length === 0 && (
-            <div style={{ ...card(th), padding: '1rem', color: th.muted, fontSize: '0.82rem', textAlign: 'center' }}>No punches yet this period.</div>
-          )}
-          {dailyHours.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              {[...dailyHours].reverse().map(d => {
-                const isToday = d.day === todayStr;
-                const minutes = isToday ? todayMinutes : d.totalMinutes;
-                const label = minutes != null ? officeClockFmtHours(minutes) + (isToday && todayIsInProgress ? '*' : '') : 'Incomplete';
+          {/* Hours by week (v22.17) — the viewed pay period's two Sun–Sat weeks, each with
+              its total and its days; Previous/Next walk through earlier periods. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <div style={{ ...microLabel(th) }}>Hours by Week</div>
+            {shownEnd && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <button type="button" disabled={!canGoBack} onClick={() => setViewEnd(ocAddDays(shownEnd, -14))} aria-label="Previous pay period"
+                  style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, borderRadius: RADIUS.control, color: th.text, padding: '0.2rem 0.55rem', fontSize: '0.85rem', cursor: canGoBack ? 'pointer' : 'default', opacity: canGoBack ? 1 : 0.35 }}>‹</button>
+                <span style={{ fontSize: '0.75rem', color: th.text, fontWeight: 600, whiteSpace: 'nowrap' }}>{shortDay(ocAddDays(shownEnd, -13))} – {shortDay(shownEnd)}</span>
+                <button type="button" disabled={isCurrentView} onClick={() => { const next = ocAddDays(shownEnd, 14); setViewEnd(next >= currentEnd ? null : next); }} aria-label="Next pay period"
+                  style={{ background: 'transparent', border: `1px solid ${th.cardBorder}`, borderRadius: RADIUS.control, color: th.text, padding: '0.2rem 0.55rem', fontSize: '0.85rem', cursor: isCurrentView ? 'default' : 'pointer', opacity: isCurrentView ? 0.35 : 1 }}>›</button>
+              </div>
+            )}
+          </div>
+          {!isCurrentView && viewPunches === null && <div style={{ color: th.muted, fontSize: '0.82rem' }}>Loading…</div>}
+          {(isCurrentView ? periodPunches !== null : viewPunches !== null) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {[...shownWeeks].reverse().filter(w => !isCurrentView || w.weekStart <= todayStr).map(w => {
+                const isThisWeek = isCurrentView && todayStr >= w.weekStart && todayStr <= w.weekEnd;
                 return (
-                  <div key={d.day} style={{ ...card(th), padding: '0.55rem 0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: th.text, fontSize: '0.82rem', fontWeight: isToday ? 700 : 400 }}>{dayLabel(d.day)}{isToday ? ' (Today)' : ''}</span>
-                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: minutes != null ? th.text : '#e03131' }}>{label}</span>
+                  <div key={w.weekStart} style={{ ...card(th), padding: '0.7rem 0.9rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', marginBottom: w.days.length ? '0.45rem' : 0 }}>
+                      <span style={{ color: th.text, fontSize: '0.85rem', fontWeight: 700 }}>
+                        {isThisWeek ? 'This week' : 'Week'} <span style={{ color: th.muted, fontWeight: 500 }}>· {shortDay(w.weekStart)} – {shortDay(w.weekEnd)}</span>
+                      </span>
+                      <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1rem', color: th.text }}>{officeClockFmtHours(w.minutes)}{w.inProgress ? '*' : ''}</span>
+                    </div>
+                    {w.days.length === 0 && <div style={{ color: th.muted, fontSize: '0.78rem' }}>No punches this week.</div>}
+                    {w.days.map(d => {
+                      const isToday = d.day === todayStr;
+                      return (
+                        <div key={d.day} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.3rem 0', borderTop: `1px solid ${th.cardBorder}` }}>
+                          <span style={{ color: th.text, fontSize: '0.8rem', fontWeight: isToday ? 700 : 400 }}>{dayLabel(d.day)}{isToday ? ' (Today)' : ''}</span>
+                          <span style={{ fontWeight: 700, fontSize: '0.82rem', color: d.minutes != null ? th.text : '#e03131' }}>{d.minutes != null ? officeClockFmtHours(d.minutes) + (d.inProgress ? '*' : '') : 'Incomplete'}</span>
+                        </div>
+                      );
+                    })}
+                    {w.incompleteDays > 0 && (
+                      <div style={{ color: '#e03131', fontSize: '0.7rem', marginTop: '0.35rem' }}>
+                        {w.incompleteDays} incomplete day{w.incompleteDays === 1 ? '' : 's'} (missing a clock-out or meal punch) not counted — ask IT to fix it.
+                      </div>
+                    )}
                   </div>
                 );
               })}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.2rem 0.9rem', color: th.muted, fontSize: '0.8rem' }}>
+                <span>Pay period total</span>
+                <span style={{ fontWeight: 800, color: th.text }}>{officeClockFmtHours(shownWeeks.reduce((s, w) => s + w.minutes, 0))}{shownWeeks.some(w => w.inProgress) ? '*' : ''}</span>
+              </div>
             </div>
           )}
         </>
@@ -31710,7 +31759,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.16";
+const APP_VERSION = "v22.17";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
