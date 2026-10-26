@@ -141,8 +141,53 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
-export async function buildSnapshot({ readSavedAt, activePcs = [], activePcsByKey = {}, nowMs, beats = {}, concurrency = 10 }) {
+// ── Database (v22.20) ───────────────────────────────────────────────────────
+// Live check that the Neon database answers (sign-in, accounts and most screens
+// need it). Added after an October 2026 outage where nobody could sign in and
+// nothing alerted. One retry so a single blip / cold start doesn't page anyone.
+export const DATABASE_FEED = { key: 'database', label: 'Database (sign-in & accounts)', category: 'Platform', critical: true };
+
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+// query: async () => any (e.g. () => db`SELECT 1`). Resolves { ok, error, ms }; never throws.
+export async function probeDatabase(query, { timeoutMs = 8000, retryDelayMs = 2000, sleep = wait } = {}) {
+  const once = async () => {
+    const t0 = Date.now();
+    let timer;
+    try {
+      await Promise.race([
+        Promise.resolve().then(query),
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`no answer in ${Math.round(timeoutMs / 1000)}s`)), timeoutMs); }),
+      ]);
+      return { ok: true, error: null, ms: Date.now() - t0 };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e).slice(0, 200), ms: Date.now() - t0 };
+    } finally { clearTimeout(timer); }
+  };
+  const first = await once();
+  if (first.ok) return first;
+  await sleep(retryDelayMs);
+  return once();
+}
+
+export function databaseEntry(probe, nowMs) {
+  return {
+    ...DATABASE_FEED, perStore: false,
+    status: probe && probe.ok ? 'OK' : 'DOWN',
+    savedAt: probe && probe.ok ? nowMs : null,
+    error: probe && !probe.ok ? (probe.error || 'database unreachable') : null,
+    latencyMs: probe ? probe.ms : null,
+  };
+}
+
+// dbProbe (optional): async () => { ok, error, ms } — adds the Database feed.
+export async function buildSnapshot({ readSavedAt, activePcs = [], activePcsByKey = {}, nowMs, beats = {}, concurrency = 10, dbProbe = null }) {
   const feeds = [];
+  if (dbProbe) {
+    let probe;
+    try { probe = await dbProbe(); } catch (e) { probe = { ok: false, error: String(e?.message || e), ms: null }; }
+    feeds.push(databaseEntry(probe, nowMs));
+  }
   for (const spec of FEEDS) {
     let entry;
     try {

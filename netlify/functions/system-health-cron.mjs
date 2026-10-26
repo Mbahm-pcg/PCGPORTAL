@@ -5,8 +5,9 @@ import https from 'node:https';
 import { getStore } from '@netlify/blobs';
 import webpush from 'web-push';
 import { sql } from './_shared/db.mjs';
-import { buildSnapshot, diffForAlerts, FEEDS } from '../../src/system-health.mjs';
+import { buildSnapshot, diffForAlerts, FEEDS, probeDatabase } from '../../src/system-health.mjs';
 import { recipients } from './system-health-lib/recipients.mjs';
+import { sendSms } from './_shared/channels.mjs';
 
 export const config = { schedule: '*/30 * * * *' };
 
@@ -14,6 +15,7 @@ const SNAPSHOT_KEY = 'pcg_system_health_v1';
 const ALERTS_KEY = 'pcg_system_health_alerts_v1';
 const BEATS_KEY = 'pcg_system_health_beats_v1';
 const REALERT_MS = 6 * 60 * 60 * 1000;
+const RECIPIENTS_CACHE_KEY = 'pcg_system_health_recipients_cache_v1'; // last good { pushIds, emails, phones }
 
 function healthStore() {
   return getStore({ name: 'pcg-portal', consistency: 'strong', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
@@ -107,7 +109,8 @@ export default async (request) => {
   let prev = null;
   try { const raw = await store.get(SNAPSHOT_KEY, { type: 'json' }); prev = (raw && raw.data) ? raw.data : null; } catch {}
 
-  const snapshot = await buildSnapshot({ readSavedAt, activePcs, activePcsByKey, nowMs, beats });
+  // v22.20: also check the database itself answers (an outage stopped every sign-in).
+  const snapshot = await buildSnapshot({ readSavedAt, activePcs, activePcsByKey, nowMs, beats, dbProbe: () => probeDatabase(() => sql()`SELECT 1`) });
 
   // Alert log { lastAlerted:{key:ms}, events:[...] }.
   let log = { lastAlerted: {}, events: [] };
@@ -124,26 +127,48 @@ export default async (request) => {
     }
   }
 
+  // Recipients are looked up EVERY run (not only when alerting) so the saved copy
+  // below is always fresh for the first database outage (v22.20).
+  const dbUp = snapshot.feeds.find(f => f.key === 'database')?.status === 'OK';
   let alerted = 0;
-  if (alertKeys.size) {
-    let pushIds = [], emails = [], recipientsOk = false;
+  {
+    let pushIds = [], emails = [], phones = [], recipientsOk = false;
     try {
+      if (!dbUp) throw new Error('database down'); // straight to the saved list, no slow retries
       const db = sql();
       ({ pushIds, emails } = await recipients(db));
+      const ids = pushIds.map(Number).filter(Number.isInteger);
+      if (ids.length) phones = (await db`SELECT phone FROM users WHERE id = ANY(${ids}) AND phone IS NOT NULL`).map(r => r.phone);
       recipientsOk = true;
+      // Keep the last good list so a DATABASE outage — the one alert that can't look
+      // recipients up — still reaches people (v22.20).
+      try { await store.setJSON(RECIPIENTS_CACHE_KEY, { savedAt: new Date().toISOString(), data: { pushIds, emails, phones } }); } catch {}
     } catch (e) {
-      // DB unavailable: skip notifications AND leave the re-alert guard unarmed
+      // DB unavailable: fall back to the last saved recipient list (v22.20). Only if
+      // there's none do we skip notifications and leave the re-alert guard unarmed
       // (below) so the next run re-attempts once the DB recovers.
+      try {
+        const raw = await store.get(RECIPIENTS_CACHE_KEY, { type: 'json' });
+        const c = raw && raw.data;
+        if (c && (c.emails?.length || c.phones?.length || c.pushIds?.length)) {
+          ({ pushIds = [], emails = [], phones = [] } = c);
+          recipientsOk = true;
+        }
+      } catch {}
     }
-    for (const t of alertKeys.values()) {
+    for (const t of alertKeys.values()) { // empty when there's nothing to alert
       const feed = snapshot.feeds.find(f => f.key === t.key) || {};
       const recovered = t.to === 'OK';
       const title = recovered ? `✅ System Health: ${feed.label} recovered` : `⚠️ System Health: ${feed.label} ${t.to}`;
       const detail = feed.error ? ` — ${feed.error}` : '';
-      const body = recovered ? `${feed.label} is OK again.` : `${feed.label} is ${t.to}${detail}.`;
+      const body = t.key === 'database'
+        ? (recovered ? 'The database is answering again — sign-in works.' : `The database isn't answering${detail}. New sign-ins will fail until it's back. Check the Neon dashboard (status, billing, usage).`)
+        : (recovered ? `${feed.label} is OK again.` : `${feed.label} is ${t.to}${detail}.`);
       if (recipientsOk) {
         try { await sendPush(pushIds, title, body, 'system_health'); } catch {}
         try { await sendEmail(emails, title, `<p>${body}</p><p>As of ${new Date(nowMs).toISOString()}.</p>`); } catch {}
+        // Database alerts also go by text: nobody can sign in to see them in the portal.
+        if (t.key === 'database' && phones.length) { try { await sendSms(phones, `PCG Portal: ${title.replace(/^\S+\s/, '')}. ${body}`); } catch {} }
         log.lastAlerted[t.key] = recovered ? 0 : nowMs; // arm guard only when recipients were reachable
         log.events.unshift({ key: t.key, from: t.from, to: t.to, at: new Date(nowMs).toISOString(), delivered: true });
         alerted++;

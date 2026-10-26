@@ -2,7 +2,7 @@
 // On-demand System Health recompute for the dashboard's "Refresh now".
 // Exec/IT only (server-enforced). Same buildSnapshot as the cron, minus alerting.
 import { getStore } from '@netlify/blobs';
-import { buildSnapshot, FEEDS } from '../../src/system-health.mjs';
+import { buildSnapshot, FEEDS, probeDatabase } from '../../src/system-health.mjs';
 import { resolveCaller } from './_shared/auth.mjs';
 import { sql } from './_shared/db.mjs';
 import { sessionGate, requireUser } from './auth-lib/require-user.js';
@@ -79,6 +79,6 @@ export default async (request) => {
   let beats = {};
   try { const raw = await store.get(BEATS_KEY, { type: 'json' }); beats = (raw && raw.data) ? raw.data : {}; } catch {}
 
-  const snapshot = await buildSnapshot({ readSavedAt, activePcs, activePcsByKey, nowMs, beats });
+  const snapshot = await buildSnapshot({ readSavedAt, activePcs, activePcsByKey, nowMs, beats, dbProbe: () => probeDatabase(() => sql()`SELECT 1`) }); // v22.20
   return json(200, { ok: true, snapshot });
 };

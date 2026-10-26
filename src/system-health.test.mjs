@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { classifyFeed, rollup, classifyPerStore, diffForAlerts, FEEDS, buildSnapshot } from './system-health.mjs';
+import { classifyFeed, rollup, classifyPerStore, diffForAlerts, FEEDS, buildSnapshot, probeDatabase, databaseEntry } from './system-health.mjs';
 
 const MIN = 60000;
 const NOW = 1_000_000_000_000;
@@ -170,5 +170,54 @@ describe('buildSnapshot', () => {
     assert.strictEqual(feed.storesOk, subset.length);
     assert.deepStrictEqual(feed.staleStores, []);
     assert.strictEqual(snap.overall, 'GREEN');
+  });
+});
+
+describe('database check (v22.20)', () => {
+  const noSleep = async () => {};
+
+  test('probeDatabase: answers → ok', async () => {
+    const r = await probeDatabase(async () => [{ '?column?': 1 }], { sleep: noSleep });
+    assert.strictEqual(r.ok, true);
+  });
+
+  test('probeDatabase: one blip then fine → ok (no alert for a single cold start)', async () => {
+    let n = 0;
+    const r = await probeDatabase(async () => { if (n++ === 0) throw new Error('fetch failed'); return []; }, { sleep: noSleep });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(n, 2);
+  });
+
+  test('probeDatabase: fails twice → not ok, with the error', async () => {
+    const r = await probeDatabase(async () => { throw new Error('Your project has exceeded the compute time quota'); }, { sleep: noSleep });
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /compute time quota/);
+  });
+
+  test('probeDatabase: a hung connection times out instead of hanging the job', async () => {
+    const r = await probeDatabase(() => new Promise(() => {}), { timeoutMs: 20, sleep: noSleep });
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /no answer/);
+  });
+
+  test('buildSnapshot: database down → critical DOWN feed, overall RED', async () => {
+    const snap = await buildSnapshot({ readSavedAt: async () => Date.now(), nowMs: Date.now(), dbProbe: async () => ({ ok: false, error: 'connection refused', ms: 5 }) });
+    const db = snap.feeds.find(f => f.key === 'database');
+    assert.strictEqual(db.status, 'DOWN');
+    assert.strictEqual(db.critical, true);
+    assert.strictEqual(db.error, 'connection refused');
+    assert.strictEqual(snap.overall, 'RED');
+  });
+
+  test('buildSnapshot: no dbProbe → no database feed (old callers unchanged)', async () => {
+    const snap = await buildSnapshot({ readSavedAt: async () => Date.now(), nowMs: Date.now() });
+    assert.strictEqual(snap.feeds.some(f => f.key === 'database'), false);
+  });
+
+  test('diffForAlerts: database going down and coming back are both alerted', () => {
+    const up = { feeds: [databaseEntry({ ok: true, ms: 5 }, 0)] };
+    const down = { feeds: [databaseEntry({ ok: false, error: 'x' }, 0)] };
+    assert.deepStrictEqual(diffForAlerts(up, down).map(t => [t.key, t.to, t.critical]), [['database', 'DOWN', true]]);
+    assert.deepStrictEqual(diffForAlerts(down, up).map(t => [t.key, t.to]), [['database', 'OK']]);
   });
 });
