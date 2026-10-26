@@ -220,7 +220,18 @@ async function detectAnomalies({ district, now = null } = {}) {
   return anomalies;
 }
 
+// Which anomaly types a detection run at this ET hour is actually able to judge. The
+// auto-closer must only touch cases of these types: at 7 AM nothing labor- or sales-
+// related is evaluated yet, so "not present at the latest check" would be true for every
+// open case (v22.18's first scheduled run closed 100 cases that way).
+function evaluableAnomalyTypes(hour = etHourNow()) {
+  const types = new Set(['overtime_spike']);
+  if (hour >= ZERO_SALES_HOUR_ET) types.add('zero_sales');
+  if (hour >= EARLIEST_ALERT_HOUR_ET) for (const t of ['labor_high', 'labor_watch', 'sales_drop', 'network_labor_high']) types.add(t);
+  return types;
+}
+
 export {
-  detectAnomalies, LABOR_RED, LABOR_YELLOW, SALES_DROP_PCT, OT_THRESHOLD,
-  SALES_FLOOR_FOR_LABOR, EARLIEST_ALERT_HOUR_ET, MIN_BASELINE_SALES, BASELINE_WEEKS, cumThroughHour,
+  detectAnomalies, evaluableAnomalyTypes, LABOR_RED, LABOR_YELLOW, SALES_DROP_PCT, OT_THRESHOLD,
+  SALES_FLOOR_FOR_LABOR, EARLIEST_ALERT_HOUR_ET, ZERO_SALES_HOUR_ET, MIN_BASELINE_SALES, BASELINE_WEEKS, cumThroughHour,
 };

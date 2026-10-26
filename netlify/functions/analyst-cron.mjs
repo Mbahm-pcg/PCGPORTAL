@@ -12,7 +12,7 @@
 // A plain POST here still runs in manual mode (26 s HTTP cap: fine for a smoke test,
 // not for a full run — use the background entry for that).
 
-import { detectAnomalies } from './analyst-lib/analyst-anomaly.mjs';
+import { detectAnomalies, evaluableAnomalyTypes } from './analyst-lib/analyst-anomaly.mjs';
 import { createCaseFromAnomaly, findOpenDuplicate, loadCasesIndex, autoCloseClearedCases } from './analyst-lib/analyst-cases.mjs';
 import { recordHealth } from './health-lib/record-health.mjs';
 import { measurePendingOutcomes } from './analyst-lib/case-outcomes.mjs';
@@ -440,10 +440,13 @@ export default async (request, context) => {
     console.log(`[analyst-cron] Found ${anomalies.length} anomalies`);
 
     // ── Step 1b: Close untouched cases whose condition has cleared ─────────
+    // Only for the anomaly types this hour's run could actually evaluate (the 7 AM run
+    // judges zero-sales and overtime only; labor and sales drops start at 9 AM ET).
     let casesAutoClosed = 0;
-    try { casesAutoClosed = await autoCloseClearedCases(anomalies); }
+    const evaluable = evaluableAnomalyTypes();
+    try { casesAutoClosed = await autoCloseClearedCases(anomalies, { types: evaluable }); }
     catch (err) { console.warn('[analyst-cron] auto-close failed:', err.message); }
-    if (casesAutoClosed) console.log(`[analyst-cron] Auto-closed ${casesAutoClosed} cleared case(s)`);
+    console.log(`[analyst-cron] Auto-closed ${casesAutoClosed} cleared case(s) (evaluated types: ${[...evaluable].join(', ')})`);
 
     // ── Step 2: Create Business Cases from high/medium severity anomalies ──
     let casesCreated = 0;

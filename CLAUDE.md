@@ -5,7 +5,7 @@
 
 **Live URL:** https://pcg-ops.netlify.app
 **Hosting:** Netlify (Pro plan) — bundled static SPA + serverless functions + Netlify Blobs + Neon Postgres
-**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v22.18**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
+**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v22.19**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
 
 ---
 
@@ -260,7 +260,7 @@ npx netlify status           # Check auth + site link
 | `pulse-cron` | `0 2 * * *` | 9pm ET daily sales notify |
 | `pulse-hourly-snapshot-background` | `30 2 * * *` | sales + weather snapshot (v22.18: scheduled on the `-background` wrapper — the sync run was cut off at 15 s and retried 3x nightly) |
 | `pulse-compare-cron-background` | `*/30 * * * *` | "today so far" Pulse cache (`pcg_pulse_today_v1`); renamed to `-background` in v22.18 (p99 was at the 15 s wall) |
-| `analyst-cron-background` | `0 11,14 * * *` | DM briefs + anomaly/exec reports + DM scorecard (daily since v22.18). The schedule lives on the `-background` wrapper; `analyst-cron.mjs` has none (manual POST = smoke test only). Run lock `analyst/cron-lock`, heartbeat `recordHealth('analyst')` |
+| `analyst-cron-background` | `0 11,14 * * *` | DM briefs + anomaly/exec reports + DM scorecard (daily since v22.18). The schedule lives on the `-background` wrapper; `analyst-cron.mjs` has none (manual POST = smoke test only). Run lock `analyst/cron-lock`, heartbeat `recordHealth('analyst')`. Auto-close of cleared "New" cases is limited to the anomaly types that hour's run could evaluate (`evaluableAnomalyTypes`, v22.19) — the 7 AM run judges zero-sales/overtime only, labor and sales drops start at 9 AM ET |
 | `schedule-alerts` | `0 10 * * 1,4` | Mon/Thu 6am ET labor risk alerts |
 | `weekly-hours-schedule-report-cron` | `0 11 * * 1` | Mon 7am ET; emails Ahmed a network-wide (all 45 stores) workbook — Timecard sheet (raw Paycor punches, not the employeePunches-reconciled version the Tools-hub Hours Report uses) + Schedule sheet (posted shifts), both for the previous Sun–Sat week |
 | `no-clockin-cron` | `*/15 * * * *` | log-only until `NO_CLOCKIN_LIVE=true`; scheduled shifts with no punch |

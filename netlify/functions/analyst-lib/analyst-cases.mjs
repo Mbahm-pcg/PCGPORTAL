@@ -247,13 +247,18 @@ async function updateCaseStatus(id, newStatus, userId, reason) {
  * present in the latest detection run. `anomalies` is the full list from
  * detectAnomalies(). Returns the number of cases closed. Cases someone has moved to
  * In Review / Accepted / In Progress are left alone.
+ *
+ * `types` (a Set) limits the sweep to anomaly types the run was able to evaluate —
+ * pass evaluableAnomalyTypes() from analyst-anomaly.mjs. Without it, a 7 AM run (when
+ * labor/sales checks are not yet performed) would read every open case as "cleared".
  */
-async function autoCloseClearedCases(anomalies, { by = 'Orion', nowMs = Date.now() } = {}) {
+async function autoCloseClearedCases(anomalies, { by = 'Orion', nowMs = Date.now(), types = null } = {}) {
   const active = new Set((anomalies || []).map(anomalyStoreKey));
   const index = await loadCasesIndex();
   const toClose = index.filter((c) =>
     c.status === 'New' &&
     TRANSIENT_TYPES.has(c.anomalyType) &&
+    (!types || types.has(c.anomalyType)) &&
     !active.has(caseStoreKey(c)));
   let closed = 0;
   for (const entry of toClose) {
