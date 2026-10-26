@@ -5,7 +5,7 @@
 
 **Live URL:** https://pcg-ops.netlify.app
 **Hosting:** Netlify (Pro plan) — bundled static SPA + serverless functions + Netlify Blobs + Neon Postgres
-**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v15.32**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
+**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v22.18**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
 
 ---
 
@@ -225,9 +225,20 @@ netlify/functions/
 ```
 
 ### MCP Endpoint
-`mcp.js` exposes Pulse, Labor, and Orion Analyst data as MCP tools over HTTP at
-`https://pcg-ops.netlify.app/.netlify/functions/mcp` (auth: `Bearer $PCG_MCP_SECRET`).
-Compatible with Claude Desktop / Claude Code / any MCP client.
+`mcp.mjs` exposes Pulse, Labor, and Orion Analyst data as MCP tools over HTTP at
+`https://uop.peoplecapitalgroup.com/.netlify/functions/mcp` (auth: `Bearer $PCG_MCP_SECRET`).
+Compatible with Claude Desktop / Claude Code / any MCP client. v22.18 added the read-only
+executive tools `get_exec_today`, `get_exec_week`, `get_exec_districts`, `get_exec_development`,
+`get_exec_health`, `get_exec_attention` — the same builders (`netlify/functions/exec-lib/exec-data.mjs`)
+that feed the portal's Executive page (`src/executive-view.jsx`, `analyst.mjs` action `exec`), so an
+agent and the page always read the same numbers. Blob/Neon reads only; no live POS or Paycor calls.
+
+### Executive view (v22.18)
+Admin > Executive (exec/IT; pinnable; default-pinned). Five tabs — Today, Week, Districts & DMs,
+Development & supply, Data health — one `exec` read per tab. House rule for every sales figure:
+current, then vs last week, then vs last year, compared like for like (same hours / same days).
+Day-level vs-last-year is not held in any blob (history is 30/90 days), so it appears only on the
+Week tab (uploaded weekly report).
 
 ---
 
@@ -247,8 +258,9 @@ npx netlify status           # Check auth + site link
 | `labor-cron` | `0 11,16,21 * * *` | 7am/12pm/5pm ET labor aggregation |
 | `labor-cron-warmup` | `45 3 * * 0` | Sat 11:45pm ET warmup |
 | `pulse-cron` | `0 2 * * *` | 9pm ET daily sales notify |
-| `pulse-hourly-snapshot` | `30 2 * * *` | sales + weather snapshot |
-| `analyst-cron` | `0 11,14 * * *` | DM briefs + anomaly/exec reports |
+| `pulse-hourly-snapshot-background` | `30 2 * * *` | sales + weather snapshot (v22.18: scheduled on the `-background` wrapper — the sync run was cut off at 15 s and retried 3x nightly) |
+| `pulse-compare-cron-background` | `*/30 * * * *` | "today so far" Pulse cache (`pcg_pulse_today_v1`); renamed to `-background` in v22.18 (p99 was at the 15 s wall) |
+| `analyst-cron-background` | `0 11,14 * * *` | DM briefs + anomaly/exec reports + DM scorecard (daily since v22.18). The schedule lives on the `-background` wrapper; `analyst-cron.mjs` has none (manual POST = smoke test only). Run lock `analyst/cron-lock`, heartbeat `recordHealth('analyst')` |
 | `schedule-alerts` | `0 10 * * 1,4` | Mon/Thu 6am ET labor risk alerts |
 | `weekly-hours-schedule-report-cron` | `0 11 * * 1` | Mon 7am ET; emails Ahmed a network-wide (all 45 stores) workbook — Timecard sheet (raw Paycor punches, not the employeePunches-reconciled version the Tools-hub Hours Report uses) + Schedule sheet (posted shifts), both for the previous Sun–Sat week |
 | `no-clockin-cron` | `*/15 * * * *` | log-only until `NO_CLOCKIN_LIVE=true`; scheduled shifts with no punch |

@@ -14,6 +14,11 @@ const lc = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 // Deal Pipeline is limited to IT/Exec/Office Staff regardless of who else might be
 // in deal_access — a deal_access row alone is not enough for other user types.
 const ALLOWED_ROLES = new Set(['it', 'executive', 'office_staff']);
+// v22.18: executives and IT hold the pipeline by default (admin) — a deal_access row can
+// only RAISE nothing for them, it is kept for office_staff, who still need an explicit
+// row. Before this only the two seeded rows (mike, ahmed) could get in; every other
+// exec/IT login was refused "no deal access" and the Deals tab silently vanished.
+const IMPLICIT_ROLE = { executive: 'admin', it: 'admin' };
 
 export default async (request, context) => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -67,18 +72,22 @@ export default async (request, context) => {
   }
 
   if (!ALLOWED_ROLES.has(userType)) {
+    console.log(`[deal-auth] refused: role ${userType} (user ${userId})`);
     return new Response(JSON.stringify({ error: 'Deal Pipeline access is limited to IT/Exec/Office Staff.' }), { status: 403, headers: cors });
   }
 
-  let role = null;
+  let role = IMPLICIT_ROLE[userType] || null;
   try {
     const rows = await db`SELECT user_key, role FROM deal_access WHERE user_key = ANY(${identityKeys})`;
     const rank = { view: 1, edit: 2, admin: 3 };
-    role = rows.reduce((best, r) => (rank[r.role] > (rank[best] || 0) ? r.role : best), null);
+    role = rows.reduce((best, r) => (rank[r.role] > (rank[best] || 0) ? r.role : best), role);
   } catch (e) {
     return new Response(JSON.stringify({ error: 'access lookup failed' }), { status: 500, headers: cors });
   }
-  if (!role) return new Response(JSON.stringify({ error: 'no deal access' }), { status: 403, headers: cors });
+  if (!role) {
+    console.log(`[deal-auth] refused: no deal_access row for ${identityKeys.join('/')} (${userType})`);
+    return new Response(JSON.stringify({ error: 'no deal access' }), { status: 403, headers: cors });
+  }
 
   const secret = process.env.DEAL_SESSION_SECRET;
   if (!secret) return new Response(JSON.stringify({ error: 'server not configured' }), { status: 500, headers: cors });

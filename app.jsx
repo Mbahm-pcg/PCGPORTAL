@@ -4,6 +4,7 @@ import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCa
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
+import { ExecutiveView } from './src/executive-view.jsx';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
@@ -10332,7 +10333,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
     </div>
   );
 
-  const voidPct = d.netSales > 0 ? (d.voids / d.netSales * 100) : 0;
+  const voidPct = d.netSales > 0 ? (Math.abs(d.voids) / d.netSales * 100) : 0; // vdTtl is negative in Pulse; a void RATE is never negative
 
   // Compute WTD = past days + current day
   const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
@@ -12353,7 +12354,7 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
     </div>
   );
 
-  const voidPct = d.netSales > 0 ? (d.voids / d.netSales * 100) : 0;
+  const voidPct = d.netSales > 0 ? (Math.abs(d.voids) / d.netSales * 100) : 0; // vdTtl is negative in Pulse; a void RATE is never negative
 
   const wtdTotalSales = (weekTotals?.wtdSales || 0) + d.netSales;
   // Weekly forecast = LY same week × 1.02
@@ -30285,6 +30286,8 @@ const computeRoleTabs = (user) => {
   // Executive & IT → full admin suite
   if (ut === "executive" || ut === "it") return [
     ...BASE_TABS,
+    // v22.18: the Executive view — its own page (Admin > Executive), pinnable.
+    { id: "executive", label: "Executive",    icon: (c) => ICONS.analytics(c) },
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
@@ -31759,7 +31762,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.17";
+const APP_VERSION = "v22.18";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -37965,9 +37968,19 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
   // ─── Missing deposits logic ───
   // For each store, check whether there's a deposit covering EACH business day in the range
   // A business day is "covered" if there's any deposit whose businessDates includes it.
+  //
+  // v22.18: a missing deposit is only a finding when a deposit file that could contain it
+  // has been uploaded. With no upload since before this week began, every store x every
+  // elapsed day reads "missing" (45 x 3 = the 135 red alerts of 10/21 when the last file
+  // was from 8/25) — that is a stale FEED, not 135 missing deposits. In that state the
+  // page shows one banner and counts zero; the per-day list comes back with the next upload.
+  const newestUploadAt = (cashUploads || []).reduce((m, u) => (u?.uploadedAt > m ? u.uploadedAt : m), '')
+    || effectiveDeposits.reduce((m, d) => (d?.uploadedAt > m ? d.uploadedAt : m), '');
+  const uploadCoversRange = !!newestUploadAt && String(newestUploadAt).slice(0, 10) >= weekRange.dates[0];
+  const uploadStale = !uploadCoversRange;
   const missing = [];
   const now = new Date(today + 'T12:00:00');
-  for (const store of visibleStores) {
+  for (const store of (uploadCoversRange ? visibleStores : [])) {
     const storeDeposits = effectiveDeposits.filter(d => d.pc === store.pc);
     // For each date in range that's NOT today and NOT a future date (we expect it by now)
     // and NOT a Sunday (no cash earned? actually cash IS earned Sunday, but deposited Monday)
@@ -38037,6 +38050,11 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
               Deposit tracking and missing-deposit alerts
               {lastUpload && <span style={{ marginLeft: '0.5rem' }}>· Last upload: {new Date(lastUpload.uploadedAt).toLocaleString()}</span>}
             </div>
+            {uploadStale && (
+              <div style={{ marginTop:'0.6rem', padding:'0.5rem 0.75rem', borderRadius:'0.375rem', background:'rgba(245,158,11,0.14)', color:'#d97706', fontSize:'0.78rem', fontWeight:600 }}>
+                No deposit file has been uploaded since {newestUploadAt ? new Date(newestUploadAt).toLocaleDateString() : 'the last period'} — missing deposits for this week can't be judged until this week's file is uploaded.
+              </div>
+            )}
           </div>
           {canUpload && (
             <div>
@@ -46017,7 +46035,7 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
                 <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: '3px solid #3b82f6' }}>
                   <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: th.text }}>{overview ? fmtDollars(overview.revenue) : '—'}</div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Revenue (MTD)</div>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 600, color: th.muted, marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>Revenue (today{pnlOv?.busDt ? ` · ${pnlOv.busDt}` : ''})</div>
                 </div>
                 <div style={{ ...card(th), padding: '1rem 1.125rem', borderTop: `3px solid ${overview && overview.marginPct >= 30 ? '#22c55e' : '#ef4444'}` }}>
                   <div style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.4rem', color: overview && overview.marginPct >= 30 ? '#22c55e' : th.text }}>{overview ? fmtPct(overview.marginPct) : '—'}</div>
@@ -50360,7 +50378,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
             forecast:  a.forecast  + (d?.forecast   || 0),
           }), { netSales:0, guests:0, discounts:0, voids:0, tax:0, errCor:0, forecast:0 });
           const avgCheck = agg.guests > 0 ? agg.netSales / agg.guests : 0;
-          const voidRate = agg.netSales > 0 ? (agg.voids / agg.netSales * 100) : 0;
+          const voidRate = agg.netSales > 0 ? (Math.abs(agg.voids) / agg.netSales * 100) : 0; // vdTtl is negative in Pulse
           const wtdFromLabor = storeRows.reduce((s,r) => s + r.wtdSales, 0);
           const fmtUSD = n => n === 0 ? '—' : (Math.abs(n) >= 1000 ? `$${(n/1000).toFixed(1)}k` : `$${Math.round(n)}`);
           const fmtNum = n => n > 0 ? n.toLocaleString() : '—';
@@ -54348,8 +54366,8 @@ function PCGPortal() {
   // ── Sidebar pinning + base-tab grouping ──────────────────────────────
   // Default favorites per role (frequently-used tabs surfaced at top).
   const PINNED_DEFAULTS = {
-    executive: ['pulse', 'finance', 'projects'],
-    it:        ['pulse', 'finance', 'projects'],
+    executive: ['executive', 'pulse', 'finance', 'projects'],
+    it:        ['executive', 'pulse', 'finance', 'projects'],
     office_staff: ['pulse', 'reports', 'projects'],
     dm:        ['pulse', 'reports'],
     manager:   ['pulse', 'reports'],
@@ -54657,6 +54675,11 @@ function PCGPortal() {
   const cashMissingCount = React.useMemo(() => {
     if (!user) return 0;
     const isUserDM = user?.userType === "dm";
+    // Same stale-feed rule as CashManagement: nothing counts as missing until a deposit
+    // file dated this week (or later) has been uploaded.
+    const newestUploadAt = (cashUploads || []).reduce((m, u) => (u?.uploadedAt > m ? u.uploadedAt : m), '')
+      || (cashDeposits || []).reduce((m, d) => (d?.uploadedAt > m ? d.uploadedAt : m), '');
+    if (!newestUploadAt) return 0;
     const dmDist = isUserDM ? user?.district : null;
     const visible = stores.filter(s => {
       if (isUserDM && s.district !== dmDist) return false;
@@ -54672,6 +54695,7 @@ function PCGPortal() {
       weekDates.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'));
     }
     const now = new Date(todayStr + 'T12:00:00');
+    if (String(newestUploadAt).slice(0, 10) < weekDates[0]) return 0;
     let missing = 0;
     for (const store of visible) {
       const storeDeps = cashDeposits.filter(d => d.pc === store.pc);
@@ -54689,7 +54713,7 @@ function PCGPortal() {
       }
     }
     return missing;
-  }, [cashDeposits, stores, user]);
+  }, [cashDeposits, cashUploads, stores, user]);
 
 
   // Load users from Neon on mount — fires before login so Google OAuth has users ready.
@@ -56208,6 +56232,7 @@ function PCGPortal() {
   // tile grid (see the "ops-hub"/"team-hub"/"system-hub" routes) — this config only
   // needs the ONE id that actually appears in the sidebar now.
   const ADMIN_GROUPS = [
+    { key: 'exec',   id: 'executive',  icon: (c) => <Icon color={c} d={<><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 6-8"/><circle cx="20" cy="5" r="1.5"/></>} />, label: 'Executive', color: '#B8860B' },
     { key: 'ops',    id: 'ops-hub',    icon: (c) => <Icon color={c} d={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>} />,                                                                                                                                                                                                                                                                    label: 'Operations',   color: '#2F6FA8' },
     { key: 'fin',    id: 'finance',    icon: (c) => <Icon color={c} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />,                                                                                                                                                                                                                                                   label: 'Finance',      color: '#1B8F5C' },
     { key: 'team',   id: 'team-hub',   icon: (c) => <Icon color={c} d={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />,                                                                                                                                                                                                                                   label: 'Team & Sites', color: '#7C5CD9' },
@@ -56772,6 +56797,7 @@ function PCGPortal() {
                 {tab === "tools-hub" && "Handy tools, available to everyone."}
                 {tab === "district-alignment" && "A sandbox for planning district groupings — separate from the real Locations data."}
                 {tab === "system-health" && "Pipeline health, feed freshness, and outage alerts."}
+                {tab === "executive" && "Today, the week, districts and DMs, development and supply, and data health - one read each, no live POS calls."}
                 {tab === "reports" && "Dashboards, slide decks, and scheduled reports from Orion."}
                 {tab === "audits" && "Field operations audits — conduct on-site, scored automatically, critical failures cap the result."}
                 {tab === "projects" && "Track construction, remodels, and new store builds."}
@@ -57271,6 +57297,7 @@ function PCGPortal() {
           {tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && <ProjectGalleryTab user={user} th={th} projects={projects} setProjects={setProjectsUser} dailyReports={dailyReports} isMobile={isMobile} />}
           {tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && <NetworkComplaintsTab th={th} user={user} stores={openStores} showAlert={showAlert} />}
           {tab === "system-health" && isFullAdmin(user) && <SystemHealth th={th} user={user} />}
+          {tab === "executive" && isFullAdmin(user) && <ExecutiveView th={th} user={user} stores={openStores} isMobile={isMobile} go={setTab} />}
           {tab === "admin"     && isFullAdmin(user) && <AdminConsole setDistricts={setDistricts} setStores={setStores} globalNotifyEmails={globalNotifyEmails} setGlobalNotifyEmails={setGlobalNotifyEmails} ticketNotifyEmails={ticketNotifyEmails} setTicketNotifyEmails={setTicketNotifyEmails} ticketNotifyPhones={ticketNotifyPhones} setTicketNotifyPhones={setTicketNotifyPhones} ticketNotifyEmailOwners={ticketNotifyEmailOwners} setTicketNotifyEmailOwners={setTicketNotifyEmailOwners} ticketNotifyPhoneOwners={ticketNotifyPhoneOwners} setTicketNotifyPhoneOwners={setTicketNotifyPhoneOwners} th={th} showAlert={showAlert} user={user} users={users} setUsers={setUsers} stores={stores} districts={districts} version={APP_VERSION} accessOverrides={accessOverrides} setAccessOverrides={setAccessOverrides} announcements={announcements} setAnnouncements={setAnnouncements} professionals={professionals} setProfessionals={setProfessionals} />}
           {tab === "chat" && <ChatSection user={user} users={users} projects={projects} channels={chatChannels} setChannels={setChatChannels} messages={chatMessages} setMessages={setChatMessages} readState={chatReadState} setReadState={setChatReadState} th={th} showAlert={showAlert} pendingOrionQuestion={pendingOrionQuestion} clearPendingOrion={() => setPendingOrionQuestion(null)} stores={openStores} onDrillIn={handleDrillIn} initialChannelId={orionIntent ? `analyst_${user.id}` : undefined} />}
           {tab === "announcements" && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} user={user} th={th} showAlert={showAlert} users={users} />}

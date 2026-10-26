@@ -9,6 +9,7 @@ import { buildBriefPrompt, buildStoreBriefPrompt, buildPrePlanPrompt, buildAskPr
 import { computeStorePar } from './analyst-lib/par-optimizer.mjs';
 import { saveReport } from './analyst-lib/analyst-reports-gen.mjs';
 import { getCases, loadCase, updateCaseStatus, loadDecisionLog } from './analyst-lib/analyst-cases.mjs';
+import { execToday, execWeek, execDistricts, execDevelopment, execHealth, execAttention } from './exec-lib/exec-data.mjs';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { logFeedback, logAccessEvent, loadAccessEntries, logQA, updateQAFeedback, loadQA, resolveQA, qaTrend, recordResolvedThemes, loadResolvedThemes, countQAGaps } from './analyst-lib/analyst-audit.mjs';
 import { forecastStoreFull, forecastStoreWeek, learnHolidayFactor, tomorrowISO, addDaysISO } from './analyst-lib/forecast.mjs';
@@ -88,6 +89,7 @@ export default async (request, context) => {
   // their own district, and managers to their own store — claimed values are ignored for them.
   const effDistrict = isExecRole ? (district ?? null) : (caller ? (caller.district ?? null) : (district ?? null));
   const EXEC_ONLY_ACTIONS = new Set([
+    'exec',
     'snapshot', 'report-settings', 'send-report', 'create-report',
     'case-list', 'case-detail', 'case-update', 'decision-log', 'audit-log',
     'qa-log', 'qa-gaps', 'qa-resolve', 'qa-trend', 'qa-draft-kb', 'qa-feature-req', 'qa-feature-list', 'qa-gap-count',
@@ -96,6 +98,21 @@ export default async (request, context) => {
   try {
     if (EXEC_ONLY_ACTIONS.has(action) && !isExecRole) {
       return respond(403, { error: 'This information is limited to Exec/IT.' });
+    }
+
+    // ── Executive view (v22.18) — one blob-backed read per tab, shared with mcp.mjs ──
+    if (action === 'exec') {
+      const view = String(payload.view || 'today');
+      const t1 = Date.now();
+      let data;
+      if (view === 'today') data = await execToday();
+      else if (view === 'week') data = await execWeek({ weekIndex: payload.weekIndex || 0 });
+      else if (view === 'districts') data = await execDistricts();
+      else if (view === 'development') data = await execDevelopment();
+      else if (view === 'health') data = await execHealth();
+      else if (view === 'attention') data = await execAttention();
+      else return respond(400, { error: `Unknown exec view: ${view}` });
+      return respond(200, { view, data, builtAt: new Date().toISOString(), buildMs: Date.now() - t1 });
     }
 
     // ── Ask Analyst (omnibar / chat) ─────────────────────────────────────

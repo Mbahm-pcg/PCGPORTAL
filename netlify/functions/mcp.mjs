@@ -8,7 +8,7 @@
 //   "mcpServers": {
 //     "pcg-portal": {
 //       "type": "http",
-//       "url": "https://pcg-ops.netlify.app/.netlify/functions/mcp",
+//       "url": "https://uop.peoplecapitalgroup.com/.netlify/functions/mcp",
 //       "headers": { "Authorization": "Bearer YOUR_PCG_MCP_SECRET" }
 //     }
 //   }
@@ -16,7 +16,7 @@
 //
 // ── Setup (Claude Code) ──────────────────────────────────────────────────────
 // claude mcp add pcg-portal --transport http \
-//   --url https://pcg-ops.netlify.app/.netlify/functions/mcp \
+//   --url https://uop.peoplecapitalgroup.com/.netlify/functions/mcp \
 //   --header "Authorization: Bearer YOUR_PCG_MCP_SECRET"
 //
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -29,9 +29,21 @@ import { buildAskPrompt, PERSONA } from './analyst-lib/analyst-prompts.mjs';
 import { askAnalyst } from './analyst-lib/analyst-claude.mjs';
 import { refreshStoreList } from './_shared/store-status.mjs';
 import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
+import { execToday, execWeek, execDistricts, execDevelopment, execHealth, execAttention } from './exec-lib/exec-data.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
-const SERVER_INFO = { name: 'PCG Portal', version: '7.7' };
+const SERVER_INFO = { name: 'PCG Portal', version: '22.18' };
+
+// Executive tools (v22.18): the same blob-backed builders behind the portal's Executive
+// view, so an agent and the page read identical numbers. Read-only; no live POS/Paycor calls.
+const EXEC_TOOLS = [
+  { name: 'get_exec_today', description: "Executive 'Today' numbers for the whole network: net sales, labor $ and %, guests, average check, discounts, scheduled-now and overtime counts; 'same time last week' (through the last complete hour) and Sunday-start week-to-date vs the same days last week; a per-district roll-up; every store's today row; and the list of stores at or over the labor threshold. Sales are shown current, then vs last week. Last year is not available at day level (see get_exec_week).", inputSchema: { type: 'object', properties: {}, required: [] } },
+  { name: 'get_exec_week', description: "The uploaded weekly report (Sun-Sat): network net sales vs prior week and vs last year, guests, labor %, food cost %, bakery %, total cost %, next-week forecast; the same by district; every store's row; and the stores flagged for review (total cost >= 58% or labor >= 30%). week_index 0 = latest week, 1 = the week before, and so on.", inputSchema: { type: 'object', properties: { week_index: { type: 'number', description: '0 for the latest uploaded week (default), 1 for the week before, etc.' } }, required: [] } },
+  { name: 'get_exec_districts', description: 'The DM scorecard (composite score, rank, labor %, like-for-like sales growth, DCP %, response time, ticket health, with the comparison basis) and the open Orion cases.', inputSchema: { type: 'object', properties: {}, required: [] } },
+  { name: 'get_exec_development', description: 'Construction and remodel projects (counts by status, overdue list, every project row), NDCP supply spend by week for the last 13 weeks with totals, and portfolio counts (locations, open, remodel, Next-Gen, Bridge, districts).', inputSchema: { type: 'object', properties: {}, required: [] } },
+  { name: 'get_exec_health', description: 'Feed status from System Health plus automated reconciliation checks (Pulse vs P&L totals, today-cache freshness, deposit file age, DM scorecard freshness and growth sanity, analyst run lock, labor-feed coverage), each pass/fail with the numbers behind it.', inputSchema: { type: 'object', properties: {}, required: [] } },
+  { name: 'get_exec_attention', description: "What needs a VP's attention right now: stores over labor thresholds (grouped by severity), construction projects past due, and open high-severity Orion cases.", inputSchema: { type: 'object', properties: {}, required: [] } },
+];
 
 const TOOLS = [
   {
@@ -99,11 +111,19 @@ const TOOLS = [
       required: [],
     },
   },
+  ...EXEC_TOOLS,
 ];
 
 // ── Tool handlers ─────────────────────────────────────────────────────────────
 
 async function handleTool(name, args) {
+  if (name === 'get_exec_today') return text(JSON.stringify(await execToday(), null, 2));
+  if (name === 'get_exec_week') return text(JSON.stringify(await execWeek({ weekIndex: args?.week_index || 0 }), null, 2));
+  if (name === 'get_exec_districts') return text(JSON.stringify(await execDistricts(), null, 2));
+  if (name === 'get_exec_development') return text(JSON.stringify(await execDevelopment(), null, 2));
+  if (name === 'get_exec_health') return text(JSON.stringify(await execHealth(), null, 2));
+  if (name === 'get_exec_attention') return text(JSON.stringify(await execAttention(), null, 2));
+
   if (name === 'get_network_summary') {
     const data = await cacheLoad('pcg_labor_v1');
     if (!data) {

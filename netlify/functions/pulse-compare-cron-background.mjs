@@ -1,4 +1,7 @@
-// pulse-compare-cron.mjs — pre-caches every store's "today so far" Pulse data
+// pulse-compare-cron-background.mjs — pre-caches every store's "today so far" Pulse data
+// (renamed from pulse-compare-cron.mjs in v22.18: 45 stores x 2 Pulse calls ran 7-14 s,
+// right against the synchronous scheduled-function wall; the -background name gives it
+// the 15-minute budget so a slow Pulse response can't drop a refresh)
 // (sales, guest checks, hourly buckets, voids, refunds, gross/discounts/net) into the
 // pcg_pulse_today_v1 blob every ~30 min during business hours. The Orion analyst's DM
 // comparison engine (buildPulseComparisonContext) reads this blob so the chat path makes
@@ -37,7 +40,7 @@ export default async () => {
   const busDt = todayET();
   const pairs = await mapLimit(STORES, 8, async (s) => {
     try { return [s.pc, await getStoreToday(s.pc, busDt)]; }
-    catch (e) { console.warn(`[pulse-compare-cron] ${s.pc} failed: ${e.message}`); return [s.pc, null]; }
+    catch (e) { console.warn(`[pulse-compare-cron-background] ${s.pc} failed: ${e.message}`); return [s.pc, null]; }
   });
 
   const stores = {};
@@ -45,5 +48,5 @@ export default async () => {
   for (const [pc, data] of pairs) { if (data) { stores[pc] = data; ok++; } }
 
   await cacheSave('pcg_pulse_today_v1', { busDt, asOf: new Date().toISOString(), stores });
-  return new Response(`pulse-compare-cron: cached ${ok}/${STORES.length} stores for ${busDt}`);
+  return new Response(`pulse-compare-cron-background: cached ${ok}/${STORES.length} stores for ${busDt}`);
 };

@@ -9,7 +9,9 @@ import { classifyItem } from './food-cost.mjs';
 import { loadNewProductRegistry, matchNewProducts } from './analyst-lib/new-products.mjs';
 import { refreshStoreList } from './_shared/store-status.mjs';
 
-export const config = { schedule: '30 2 * * *' };
+// No schedule here (v22.18): pulse-hourly-snapshot-background.mjs carries it with the
+// 15-minute background budget. This module keeps the logic and the shared exports.
+
 
 export const ALL_STORES = [
   { pc:"339616", name:"Wadsworth",       district:1 },

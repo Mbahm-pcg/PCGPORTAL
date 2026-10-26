@@ -117,7 +117,7 @@ export const FEEDS = [
   { key: 'reviews', label: 'Google Reviews', blobKey: 'pcg_reviews_network',
     expectedMaxAgeMin: 11520, perStore: false, critical: false, category: 'Comms' }, // weekly, 8d tol
   { key: 'analyst', label: 'Orion Analyst (DM scorecard)', blobKey: 'pcg_dm_scorecard',
-    expectedMaxAgeMin: 1560, perStore: false, critical: false, category: 'AI' }, // twice daily
+    expectedMaxAgeMin: 1560, perStore: false, critical: false, category: 'AI' }, // written every morning run since v22.18 (was Sundays only, so this read DOWN Mon-Sat); 26h tol
   { key: 'weather', label: 'Weather Forecast', blobKey: 'pcg_weather_forecast',
     expectedMaxAgeMin: 1560, perStore: false, critical: false, category: 'Platform' }, // daily 8am ET
 ];
@@ -127,7 +127,21 @@ export const FEEDS = [
  * async reader (kept injectable so this stays pure and unit-testable).
  * @param {{ readSavedAt:(key:string)=>Promise<number|null>, activePcs?:string[], activePcsByKey?:object, nowMs:number, beats?:object }} args
  */
-export async function buildSnapshot({ readSavedAt, activePcs = [], activePcsByKey = {}, nowMs, beats = {} }) {
+// Bounded-concurrency map: the per-store feeds are ~45 blob reads each (3 feeds = ~135
+// reads). Read one at a time, the monitor itself took 13-15 s and was cut off at the
+// 15 s scheduled-function wall every 30 minutes (confirmed in the 10/19-10/25 function
+// logs: status 499, no log lines). Ten at a time brings a run to ~1-2 s.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+export async function buildSnapshot({ readSavedAt, activePcs = [], activePcsByKey = {}, nowMs, beats = {}, concurrency = 10 }) {
   const feeds = [];
   for (const spec of FEEDS) {
     let entry;
@@ -135,7 +149,8 @@ export async function buildSnapshot({ readSavedAt, activePcs = [], activePcsByKe
       if (spec.perStore) {
         const pcs = activePcsByKey[spec.key] || activePcs;
         const perStoreSavedAt = {};
-        for (const pc of pcs) perStoreSavedAt[pc] = await readSavedAt(spec.blobKey + pc);
+        const saved = await mapLimit(pcs, concurrency, (pc) => readSavedAt(spec.blobKey + pc));
+        pcs.forEach((pc, i) => { perStoreSavedAt[pc] = saved[i]; });
         const r = classifyPerStore(perStoreSavedAt, nowMs, spec, pcs);
         entry = { key: spec.key, label: spec.label, category: spec.category, critical: spec.critical, perStore: true, ...r };
       } else {

@@ -12,8 +12,15 @@ const FN = '/.netlify/functions';
  * server-side to IT/Exec users who are also listed in deal_access.
  * @returns {Promise<{token:string|null, role:'view'|'edit'|'admin'|null, status?:number}>}
  */
+// Mirrors deal-auth.mjs's ALLOWED_ROLES. Every login used to probe deal-auth to decide
+// whether to show the Deals tab, so every DM / manager / vendor sign-in produced a 403
+// (564 of 598 deal-auth requests in the week of 10/19 were 403s). A role that can never
+// pass is answered here without a request.
+export const DEAL_ROLES = new Set(['it', 'executive', 'office_staff']);
+
 export async function dealLogin(user) {
   if (!user) return { token: null, role: null };
+  if (!DEAL_ROLES.has(user.userType)) return { token: null, role: null, status: 403 };
   const portalToken = getSessionToken();
   // Google-logged-in users carry no portal session token; the login screen attaches the
   // live Google access token onto the user object instead (see app.jsx Google callback).

@@ -29,11 +29,14 @@
 [functions.trusted-devices-reset]
   schedule = "59 3 * * 0"
 
-# Scheduled Analyst — 7am, 10am, 12:15pm, 5:15pm ET (11, 14, 16:15, 21:15 UTC)
-# 11 UTC (7am ET) = DM briefs + anomalies daily
+# Scheduled Analyst — 7am + 10am ET (11, 14 UTC)
+# 11 UTC (7am ET) = DM briefs + anomalies + DM scorecard daily
 # 14 UTC (10am ET) = exec reports on Sun/Tue, anomalies other days
-# 16:15, 21:15 UTC = post-labor-cron anomaly scans
-[functions.analyst-cron]
+# Scheduled as the -background variant (15-min timeout, v22.18). The synchronous
+# analyst-cron was cut off at ~15 s on every run and retried 3x per slot, which filed
+# duplicate cases and never wrote its completion record (Orion Analyst "DOWN").
+# analyst-cron.mjs itself has no schedule any more; POST it directly for a manual run.
+[functions.analyst-cron-background]
   schedule = "0 11,14 * * *"
 
 # Competitor intelligence (10.5) — weekly Monday 5 AM ET (09:00 UTC): competitor
@@ -47,14 +50,17 @@
 [functions.competitor-cron-background]
   schedule = "0 9 * * 1"
 
-# Hourly sales + weather snapshot — 2:30 AM UTC (10:30 PM ET) — runs after pulse-cron
-[functions.pulse-hourly-snapshot]
+# Hourly sales + weather snapshot — 2:30 AM UTC (10:30 PM ET) — runs after pulse-cron.
+# Scheduled as the -background variant (v22.18): the 45-store run takes ~30 s and was
+# being cut off at 15 s and retried 3x every night.
+[functions.pulse-hourly-snapshot-background]
   schedule = "30 2 * * *"
 
-# Pulse "today so far" cache for Orion DM comparison engine — every 30 min (in-function
-# ET business-hours guard skips overnight). Writes pcg_pulse_today_v1 so the analyst chat
-# path reads cached data instead of making live Pulse calls per question.
-[functions.pulse-compare-cron]
+# Pulse "today so far" cache for Orion DM comparison engine + anomaly detection — every
+# 30 min (in-function ET business-hours guard skips overnight). Writes pcg_pulse_today_v1
+# so the analyst chat path reads cached data instead of making live Pulse calls per
+# question. -background since v22.18 (p99 was 14.2 s against a 15 s wall).
+[functions.pulse-compare-cron-background]
   schedule = "*/30 * * * *"
 
 [functions.system-health-cron]

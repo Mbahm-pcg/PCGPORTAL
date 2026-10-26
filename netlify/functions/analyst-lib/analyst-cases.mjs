@@ -43,6 +43,33 @@ async function loadDecisionLog({ days = 30 } = {}) {
 
 const CASES_INDEX_KEY = 'analyst/cases-index';
 
+// Statuses that mean "nobody is looking at this any more" (mirrors the home page's
+// CLOSED_CASE set in app.jsx). Anything else counts as open for dedupe purposes.
+const CLOSED_STATUSES = new Set(['Done', 'Dismissed', 'Rejected', 'Closed']);
+// Anomaly types that describe a condition at a moment in time. A case of one of these
+// types is auto-closed by the cron once the condition is no longer present, so the
+// home page never shows a 10 AM alert at 7 PM. Overtime is left to people.
+const TRANSIENT_TYPES = new Set(['labor_high', 'labor_watch', 'sales_drop', 'zero_sales', 'network_labor_high']);
+const DEDUPE_WINDOW_DAYS = 7;
+
+function caseStoreKey(entry) { return `${entry.anomalyType}|${entry.storePC || entry.storeName}`; }
+function anomalyStoreKey(anomaly) { return `${anomaly.type}|${anomaly.storePC || anomaly.pc || anomaly.storeName}`; }
+
+/**
+ * Is there already an OPEN case for this anomaly's type + store from the last
+ * DEDUPE_WINDOW_DAYS days? Checked BEFORE the LLM call (the old check ran after it,
+ * so a retried cron run paid for the case, saved the blob, and only then dropped it
+ * from the index — and three parallel retries each passed the check).
+ */
+function findOpenDuplicate(index, anomaly, nowMs = Date.now()) {
+  const key = anomalyStoreKey(anomaly);
+  const cutoff = nowMs - DEDUPE_WINDOW_DAYS * 86400000;
+  return index.find((c) =>
+    caseStoreKey(c) === key &&
+    !CLOSED_STATUSES.has(c.status) &&
+    new Date(c.createdAt || 0).getTime() >= cutoff) || null;
+}
+
 /** Generate a unique case ID */
 function caseId() {
   return `case_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -74,6 +101,21 @@ async function saveCase(id, caseData) {
  * Returns the saved case object.
  */
 async function createCaseFromAnomaly(anomaly, dataContext) {
+  // Dedupe first — before any LLM spend or blob write.
+  const preIndex = await loadCasesIndex();
+  const dupe = findOpenDuplicate(preIndex, anomaly);
+  if (dupe) {
+    // Keep the open case current instead of filing a twin: bump lastSeenAt and the
+    // latest measured value so "3 days in a row" is visible on the existing case.
+    try {
+      dupe.lastSeenAt = new Date().toISOString();
+      dupe.lastValue = typeof anomaly.value === 'number' ? anomaly.value : dupe.lastValue ?? null;
+      dupe.seenCount = (dupe.seenCount || 1) + 1;
+      await saveCasesIndex(preIndex);
+    } catch { /* best effort */ }
+    return null;
+  }
+
   const id = caseId();
 
   // Load recent decisions to inject as RL context into the prompt
@@ -129,6 +171,8 @@ async function createCaseFromAnomaly(anomaly, dataContext) {
     // case-outcomes.mjs uses to check "did this recommendation actually work?".
     storeName: anomaly.storeName || null,
     storePC: anomaly.storePC || anomaly.pc || null,
+    anomalyKey: anomaly.key || null,
+    busDt: anomaly.busDt || null,
     baselineMetric: anomaly.metric || null,
     baselineValue: typeof anomaly.value === 'number' ? anomaly.value : null,
     baselineThreshold: anomaly.threshold ?? null,
@@ -141,17 +185,9 @@ async function createCaseFromAnomaly(anomaly, dataContext) {
   // Save the full case
   await saveCase(id, fullCase);
 
-  // Update the index
+  // Update the index (re-read: another writer may have added to it during the LLM call)
   const index = await loadCasesIndex();
-  // Check for duplicate anomaly (same type + store + same day)
-  const today = new Date().toISOString().slice(0, 10);
-  const isDupe = index.some(c =>
-    c.anomalyType === anomaly.type &&
-    c.storeName === anomaly.storeName &&
-    c.createdAt?.slice(0, 10) === today &&
-    c.status !== 'Done'
-  );
-  if (isDupe) return null; // Skip duplicate
+  if (findOpenDuplicate(index, anomaly)) return null; // lost a race — the other case stands
 
   index.unshift({
     id,
@@ -165,6 +201,9 @@ async function createCaseFromAnomaly(anomaly, dataContext) {
     storePC: anomaly.storePC || anomaly.pc || null,
     district: fullCase.district,
     createdAt: fullCase.createdAt,
+    busDt: anomaly.busDt || null,
+    lastSeenAt: fullCase.createdAt,
+    seenCount: 1,
   });
 
   // Keep index to last 100 cases
@@ -204,6 +243,44 @@ async function updateCaseStatus(id, newStatus, userId, reason) {
 }
 
 /**
+ * Auto-close untouched ("New") cases of transient types whose condition is no longer
+ * present in the latest detection run. `anomalies` is the full list from
+ * detectAnomalies(). Returns the number of cases closed. Cases someone has moved to
+ * In Review / Accepted / In Progress are left alone.
+ */
+async function autoCloseClearedCases(anomalies, { by = 'Orion', nowMs = Date.now() } = {}) {
+  const active = new Set((anomalies || []).map(anomalyStoreKey));
+  const index = await loadCasesIndex();
+  const toClose = index.filter((c) =>
+    c.status === 'New' &&
+    TRANSIENT_TYPES.has(c.anomalyType) &&
+    !active.has(caseStoreKey(c)));
+  let closed = 0;
+  for (const entry of toClose) {
+    try {
+      const c = await loadCase(entry.id);
+      const at = new Date(nowMs).toISOString();
+      const reason = 'Auto-closed by Orion: the condition that opened this case was not present at the latest check.';
+      if (c) {
+        c.status = 'Closed';
+        c.updatedAt = at;
+        c.autoClosedAt = at;
+        c.statusHistory = Array.isArray(c.statusHistory) ? c.statusHistory : [];
+        c.statusHistory.push({ status: 'Closed', at, by, reason });
+        await saveCase(entry.id, c);
+      }
+      entry.status = 'Closed';
+      entry.autoClosedAt = at;
+      closed++;
+    } catch (e) {
+      console.warn('[analyst-cases] auto-close failed for', entry.id, e.message);
+    }
+  }
+  if (closed) await saveCasesIndex(index);
+  return closed;
+}
+
+/**
  * Get cases filtered by status, district, or severity.
  */
 async function getCases({ status, district, severity, limit } = {}) {
@@ -237,4 +314,4 @@ async function recordCaseOutcome(id, outcome) {
   return c;
 }
 
-export { createCaseFromAnomaly, updateCaseStatus, getCases, loadCase, loadCasesIndex, loadDecisionLog, recordCaseOutcome };
+export { createCaseFromAnomaly, updateCaseStatus, getCases, loadCase, loadCasesIndex, loadDecisionLog, recordCaseOutcome, autoCloseClearedCases, findOpenDuplicate, CLOSED_STATUSES, TRANSIENT_TYPES };

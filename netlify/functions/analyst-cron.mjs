@@ -1,11 +1,20 @@
-// analyst-cron.mjs — Scheduled function: anomalies, briefs, cases, AND email reports
-// Schedule: runs at multiple times (see config below)
+// analyst-cron.mjs — anomalies, briefs, cases, AND email reports
 // DM briefs: 7 AM ET daily (11:00 UTC)
 // Exec report: Sunday 10 AM ET (14:00 UTC) + Tuesday 10 AM ET (14:00 UTC)
 // Anomaly detection: every run
+//
+// NO schedule here (v22.18, 2026-10-25). The schedule lives on analyst-cron-background.mjs,
+// which forwards the scheduler's request to this handler with a 15-minute budget. As a
+// synchronous scheduled function this run was cut off at ~15 s on EVERY invocation
+// 10/19-10/25 (HTTP 499 at 14.98 s, see Netlify function logs), then retried up to 3x per
+// slot: three copies ran in parallel, each filing its own cases, and none ever reached
+// the completion write — so System Health showed the Orion Analyst feed DOWN.
+// A plain POST here still runs in manual mode (26 s HTTP cap: fine for a smoke test,
+// not for a full run — use the background entry for that).
 
 import { detectAnomalies } from './analyst-lib/analyst-anomaly.mjs';
-import { createCaseFromAnomaly, getCases } from './analyst-lib/analyst-cases.mjs';
+import { createCaseFromAnomaly, findOpenDuplicate, loadCasesIndex, autoCloseClearedCases } from './analyst-lib/analyst-cases.mjs';
+import { recordHealth } from './health-lib/record-health.mjs';
 import { measurePendingOutcomes } from './analyst-lib/case-outcomes.mjs';
 import { buildDataContext, buildKPISnapshot, buildWeatherContext, buildSentimentContext, buildEmailContext, loadAllTickets } from './analyst-lib/analyst-data.mjs';
 import { generateStructured } from './analyst-lib/analyst-claude.mjs';
@@ -19,7 +28,27 @@ import { dcpPct } from './ndcp-lib/store-map.js';
 import { refreshStoreList } from './_shared/store-status.mjs';
 import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
 
-export const config = { schedule: "0 11,14 * * *" };
+// ── Run lock ─────────────────────────────────────────────────────────────────
+// One run at a time. The scheduler's retries (and a manual trigger landing on top of a
+// scheduled run) used to produce 2-3 parallel copies of this job writing the same cases
+// and the same blobs. The lock is a blob with the start time; it expires after LOCK_TTL_MS
+// so a crashed run can never wedge the schedule.
+const LOCK_KEY = 'analyst/cron-lock';
+const LOCK_TTL_MS = 20 * 60 * 1000;
+
+async function acquireRunLock(startedAt) {
+  const lock = await cacheLoad(LOCK_KEY).catch(() => null);
+  if (lock?.startedAt && !lock.releasedAt) {
+    const ageMs = Date.now() - new Date(lock.startedAt).getTime();
+    if (Number.isFinite(ageMs) && ageMs < LOCK_TTL_MS) return { ok: false, heldSince: lock.startedAt };
+  }
+  await cacheSave(LOCK_KEY, { startedAt, releasedAt: null });
+  return { ok: true };
+}
+
+async function releaseRunLock(startedAt, summary) {
+  await cacheSave(LOCK_KEY, { startedAt, releasedAt: new Date().toISOString(), summary: summary || null }).catch(() => {});
+}
 
 async function generateLeaderboardShoutout(today) {
   const laborData = await cacheLoad('pcg_labor_v1');
@@ -100,6 +129,43 @@ function mondayOf(dateStr) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+function addDaysYmd(ymd, n) { const d = new Date(ymd + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+// Like-for-like sales growth for one store from its labor blob (daily = last 30 days,
+// weekly = last 13 Monday-start weeks). Returns { pct, basis } or null.
+export function storeSalesGrowth(blob, today, thisMonday) {
+  const daily = Array.isArray(blob?.daily) ? blob.daily : [];
+  const byDate = new Map(daily.filter(d => d?.date).map(d => [d.date, d]));
+  const thisWeekDays = [...byDate.keys()].filter(dt => dt >= thisMonday && dt < today).sort();
+  if (thisWeekDays.length) {
+    let curr = 0, prev = 0, matched = 0;
+    for (const dt of thisWeekDays) {
+      const p = byDate.get(addDaysYmd(dt, -7));
+      if (!p) continue;
+      curr += Number(byDate.get(dt).sales) || 0;
+      prev += Number(p.sales) || 0;
+      matched++;
+    }
+    if (matched && prev > 0) {
+      const first = thisWeekDays[0], last = thisWeekDays[thisWeekDays.length - 1];
+      const dow = (d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+      return { pct: (curr - prev) / prev * 100, basis: `${dow(first)}${first !== last ? '-' + dow(last) : ''} this week vs the same days last week` };
+    }
+  }
+  const weekly = (Array.isArray(blob?.weekly) ? blob.weekly : []).filter(w => typeof w?.weekOf === 'string' && w.weekOf < thisMonday)
+    .sort((a, b) => b.weekOf.localeCompare(a.weekOf));
+  const [last, before] = weekly;
+  if (last?.sales > 0 && before?.sales > 0) return { pct: (last.sales - before.sales) / before.sales * 100, basis: 'last complete week vs the week before' };
+  return null;
+}
+
+// Sum of the store's sales over the N complete weeks before thisMonday.
+export function trailingWeeksSales(blob, thisMonday, weeks) {
+  const weekly = (Array.isArray(blob?.weekly) ? blob.weekly : []).filter(w => typeof w?.weekOf === 'string' && w.weekOf < thisMonday)
+    .sort((a, b) => b.weekOf.localeCompare(a.weekOf)).slice(0, weeks);
+  return weekly.reduce((a, w) => a + (Number(w.sales) || 0), 0);
+}
+
 async function computeAndSaveDMScores(today) {
   try {
     const laborData  = await cacheLoad('pcg_labor_v1');
@@ -120,10 +186,14 @@ async function computeAndSaveDMScores(today) {
     const weekCutoff = new Date(Date.now() - 7 * 86400000).toISOString();
     const nowMs = Date.now();
     const scores = {};
+    const thisMonday = mondayOf(today);
 
-    // Per-store NDCP spend for the current scorecard week (account == pc).
-    const wkStart = new Date(mondayOf(today) + 'T00:00:00');
-    const wkEndIso = new Date(wkStart.getTime() + 7*86400000).toISOString();
+    // Per-store NDCP spend over the last 4 COMPLETE weeks (account == pc). A single
+    // week's orders-by-email-date is too lumpy to grade a DM on (one Friday order covers
+    // next week's product), which is why the old one-week number swung from 9% to 36%.
+    const DCP_WEEKS = 4;
+    const dcpStart = new Date(thisMonday + 'T00:00:00'); dcpStart.setDate(dcpStart.getDate() - 7 * DCP_WEEKS);
+    const dcpEndIso = new Date(thisMonday + 'T00:00:00').toISOString();
     const ndcpByPc = {};
     try {
       const db = sql();
@@ -131,14 +201,21 @@ async function computeAndSaveDMScores(today) {
         SELECT DISTINCT ON (order_number) account, total_order
         FROM ndcp_orders
         WHERE order_number IS NOT NULL
-          AND email_date >= ${wkStart.toISOString()}::timestamptz
-          AND email_date <  ${wkEndIso}::timestamptz
+          AND email_date >= ${dcpStart.toISOString()}::timestamptz
+          AND email_date <  ${dcpEndIso}::timestamptz
         ORDER BY order_number, email_date DESC NULLS LAST`;
       for (const r of rows) {
         const pc = String(r.account || '').trim();
         ndcpByPc[pc] = (ndcpByPc[pc] || 0) + (Number(r.total_order) || 0);
       }
-    } catch (e) { console.warn('[analyst-cron] NDCP weekly spend load failed:', e.message); }
+    } catch (e) { console.warn('[analyst-cron] NDCP spend load failed:', e.message); }
+
+    // Per-store blobs are read once and shared by the growth + DCP calculations.
+    const storeBlobs = {};
+    await Promise.all(Object.values(byDistrict).flat().map(async (s) => {
+      try { storeBlobs[s.pc] = await cacheLoad(`pcg_labor_store_${s.pc}`); } catch { storeBlobs[s.pc] = null; }
+    }));
+    const growthBasis = { label: null };
 
     for (const [district, stores] of Object.entries(byDistrict)) {
       // 1. Labor score (lower is better; target ≤23%, red ≥35%)
@@ -146,20 +223,15 @@ async function computeAndSaveDMScores(today) {
       const avgLabor = laborPcts.length ? laborPcts.reduce((a,b)=>a+b,0)/laborPcts.length : null;
       const laborScore = avgLabor != null ? Math.max(0, Math.min(100, (35 - avgLabor) / (35 - 18) * 100)) : null;
 
-      // 2. Sales growth score (WTD vs prior week)
-      const growths = (await Promise.all(
-        stores.slice(0, 8).map(async s => {
-          try {
-            const blob = await cacheLoad(`pcg_labor_store_${s.pc}`);
-            const weekly = blob?.weekly;
-            if (!Array.isArray(weekly) || weekly.length < 2) return null;
-            const sorted = [...weekly].sort((a,b) => (b.weekOf||'').localeCompare(a.weekOf||''));
-            const [curr, prev] = sorted;
-            if (!curr?.sales || !prev?.sales || prev.sales === 0) return null;
-            return (curr.sales - prev.sales) / prev.sales * 100;
-          } catch { return null; }
-        })
-      )).filter(x => x != null);
+      // 2. Sales growth score — like for like. The old version compared a PARTIAL current
+      // week against the FULL prior week, so every district read -8% to -15% every Sunday.
+      // Now: the complete days of this week (Mon..yesterday) vs the same weekdays last
+      // week; on Monday (no complete days yet) the last complete week vs the one before.
+      const growths = stores.map((s) => {
+        const g = storeSalesGrowth(storeBlobs[s.pc], today, thisMonday);
+        if (g && !growthBasis.label) growthBasis.label = g.basis;
+        return g ? g.pct : null;
+      }).filter(x => x != null && Number.isFinite(x));
       const avgGrowth = growths.length ? growths.reduce((a,b)=>a+b,0)/growths.length : null;
       const salesScore = avgGrowth != null ? Math.max(0, Math.min(100, (avgGrowth + 10) / 20 * 100)) : null;
 
@@ -178,11 +250,12 @@ async function computeAndSaveDMScores(today) {
         : 0;
       const ticketScore = Math.max(0, Math.min(100, (7 - avgAge) / 6 * 100));
 
-      // 5. DCP cost score (lower is better; Good ≤20%, Yellow 20–22%, Red >22%)
+      // 5. DCP cost score (lower is better; Good ≤20%, Yellow 20–22%, Red >22%) over the
+      // same 4 complete weeks the NDCP spend covers.
       let distNdcp = 0, distSales = 0;
       for (const s of stores) {
         distNdcp  += ndcpByPc[String(s.pc)] || 0;
-        distSales += Number(s.wtd?.sales) || 0;
+        distSales += trailingWeeksSales(storeBlobs[s.pc], thisMonday, DCP_WEEKS);
       }
       const avgDcpPct = dcpPct(distNdcp, distSales); // null if no sales
       const dcpScore = avgDcpPct == null ? null
@@ -222,11 +295,13 @@ async function computeAndSaveDMScores(today) {
       .sort(([,a],[,b]) => b.composite - a.composite)
       .forEach(([d,], i) => { scores[d].rank = i + 1; });
 
-    // Save rolling 13-week history
-    const weekOf   = mondayOf(today);
+    // Save rolling 13-week history (recomputed every morning; the entry for the current
+    // week is replaced in place, so the feed is never more than a day old)
+    const weekOf   = thisMonday;
     const existing = await cacheLoad('pcg_dm_scorecard') || [];
     const history  = Array.isArray(existing) ? existing : [];
-    const trimmed  = [{ weekOf, computedAt: new Date().toISOString(), scores },
+    const trimmed  = [{ weekOf, computedAt: new Date().toISOString(), scores,
+                        basis: { sales: growthBasis.label || 'last complete week vs the week before', dcp: `last ${DCP_WEEKS} complete weeks` } },
                       ...history.filter(e => e.weekOf !== weekOf)].slice(0, 13);
     await cacheSave('pcg_dm_scorecard', trimmed);
     console.log('[analyst-cron] DM scorecard saved — week of', weekOf, '| districts:', Object.keys(scores).length);
@@ -346,8 +421,17 @@ export default async (request, context) => {
   const scheduled = request.headers.get('x-pcg-invocation') === 'scheduled' || !!body?.next_run;
   const isManual = request.method === 'POST' && !scheduled;
   const startedAt = new Date().toISOString();
+  const startMs = Date.now();
   const today = startedAt.slice(0, 10);
   console.log('[analyst-cron] triggered at', startedAt, isManual ? '(manual)' : '(scheduled)');
+
+  const lock = await acquireRunLock(startedAt);
+  if (!lock.ok) {
+    console.log('[analyst-cron] another run has held the lock since', lock.heldSince, '— skipping');
+    return isManual
+      ? new Response(JSON.stringify({ skipped: true, reason: 'run in progress', heldSince: lock.heldSince }), { status: 409, headers })
+      : undefined;
+  }
 
   try {
     // ── Step 1: Detect anomalies across all stores ──────────────────────
@@ -355,19 +439,22 @@ export default async (request, context) => {
     const anomalies = await detectAnomalies();
     console.log(`[analyst-cron] Found ${anomalies.length} anomalies`);
 
+    // ── Step 1b: Close untouched cases whose condition has cleared ─────────
+    let casesAutoClosed = 0;
+    try { casesAutoClosed = await autoCloseClearedCases(anomalies); }
+    catch (err) { console.warn('[analyst-cron] auto-close failed:', err.message); }
+    if (casesAutoClosed) console.log(`[analyst-cron] Auto-closed ${casesAutoClosed} cleared case(s)`);
+
     // ── Step 2: Create Business Cases from high/medium severity anomalies ──
     let casesCreated = 0;
     const CAP = 16; // raised from 10 to guarantee coverage across all 8 districts
-    const existingCases = await getCases({ limit: 50 });
-    const existingKeys = new Set(existingCases.map(c => `${c.anomalyType}_${c.storeName}_${c.createdAt?.slice(0, 10)}`));
+    const openIndex = await loadCasesIndex();
 
-    // Filter to actionable candidates not already covered today
+    // Filter to actionable candidates that don't already have an open case (7-day window,
+    // any status short of closed — see findOpenDuplicate)
     const severityRank = { high: 0, medium: 1, low: 2 };
     const candidates = anomalies
-      .filter(a => {
-        const key = `${a.type}_${a.storeName}_${today}`;
-        return !existingKeys.has(key) && (a.severity === 'high' || a.severity === 'medium');
-      })
+      .filter(a => (a.severity === 'high' || a.severity === 'medium') && !findOpenDuplicate(openIndex, a))
       .sort((a, b) => (severityRank[a.severity] ?? 2) - (severityRank[b.severity] ?? 2));
 
     // Pass 1: guarantee one case per district using each district's highest-severity anomaly
@@ -577,9 +664,6 @@ export default async (request, context) => {
         console.warn('[analyst-cron] Leaderboard shout-out failed:', err.message);
       }
 
-      // ── DM Scorecard snapshot (7.5) — runs alongside leaderboard every Sunday ──
-      await computeAndSaveDMScores(today);
-
       // ── Orion Learning weekly digest (Sunday morning) ──
       await postOrionLearningDigest(today);
 
@@ -590,6 +674,12 @@ export default async (request, context) => {
       catch (err) { console.warn('[analyst-cron] case outcome measurement failed:', err.message); }
     }
 
+    // ── DM Scorecard snapshot (7.5) — every morning run, not just Sundays. It is pure
+    // data (no LLM), the current week's entry is replaced in place, and System Health
+    // expects the pcg_dm_scorecard blob to be < 26 h old (a weekly write read as DOWN
+    // from Monday to Saturday).
+    if (isMorningRun || isManual) await computeAndSaveDMScores(today);
+
     // ── Step 5b: Re-grade recent Orion answers (independent miss-detection) ──
     // Runs LAST and only on the schedule — never on a manual trigger (26s HTTP cap),
     // and after briefs so its sequential LLM calls can never delay/starve them.
@@ -599,9 +689,11 @@ export default async (request, context) => {
     const summary = {
       ok: true,
       completedAt: new Date().toISOString(),
+      durationMs: Date.now() - startMs,
       anomaliesDetected: anomalies.length,
       qaRegradedFlipped: regraded,
       casesCreated,
+      casesAutoClosed,
       briefsGenerated,
       dmBriefsSent,
       execReportSent,
@@ -616,6 +708,8 @@ export default async (request, context) => {
     });
 
     console.log('[analyst-cron] complete:', JSON.stringify(summary));
+    await recordHealth('analyst', { ok: true, durationMs: summary.durationMs });
+    await releaseRunLock(startedAt, summary);
 
     return isManual
       ? new Response(JSON.stringify(summary), { status: 200, headers })
@@ -624,6 +718,8 @@ export default async (request, context) => {
   } catch (err) {
     console.error('[analyst-cron] fatal error:', err);
     await logAudit({ type: 'cron_error', error: err.message }).catch(() => {});
+    await recordHealth('analyst', { ok: false, error: err, durationMs: Date.now() - startMs });
+    await releaseRunLock(startedAt, { ok: false, error: err.message });
     return isManual
       ? new Response(JSON.stringify({ error: err.message }), { status: 500, headers })
       : undefined;
