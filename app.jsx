@@ -9,6 +9,7 @@ import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, po
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
 import { isClosedOn, PERMANENTLY_CLOSED, districtNumbers } from './src/store-status.mjs';
+import { CHART_PALETTE, seriesColor, withAlpha, chartTokens, cleanChartOptions, lineSeries, crosshairPlugin, smoothPath, roundedTopBar } from './src/chart-style.js';
 import { planDistrictApply, applyPlanToStores, applyPlanToDistricts } from './src/district-apply.mjs';
 import { addDays as ocAddDays, weekTotals as ocWeekTotals, weekContaining as ocWeekContaining } from './src/office-clock-weeks.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
@@ -9081,13 +9082,19 @@ function TrendChart({ data, G, th, onBarClick, containerStyle }) {
       <div style={{ overflowX: 'auto', overflow: 'visible' }}>
         <svg viewBox={`-38 -30 ${totalW + 58} ${H + LABEL_H + 30}`}
           style={{ width:'100%', minWidth: data.length * (W_BAR + GAP) + 40, height: H + LABEL_H + 30, overflow:'visible', display:'block' }}>
+          <defs>
+            <linearGradient id="trendBarFade" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={G} stopOpacity="0.5" />
+              <stop offset="100%" stopColor={G} stopOpacity="0.22" />
+            </linearGradient>
+          </defs>
           {/* Gridlines + Y-axis labels */}
           {gridLines.map(v => {
             const y = H - (v / chartMax) * H;
             return (
               <g key={v}>
-                <line x1={0} y1={y} x2={totalW} y2={y} stroke={`${G}18`} strokeWidth={1} strokeDasharray="3 3" />
-                <text x={-6} y={y + 4} textAnchor="end" fontSize="10" fill={`${th.muted}99`}>{fmtK(v)}</text>
+                <line x1={0} y1={y} x2={totalW} y2={y} stroke={chartTokens(th).grid} strokeWidth={1} strokeDasharray="3 4" />
+                <text x={-8} y={y + 4} textAnchor="end" fontSize="10.5" fill={th.muted}>{fmtK(v)}</text>
               </g>
             );
           })}
@@ -9097,25 +9104,24 @@ function TrendChart({ data, G, th, onBarClick, containerStyle }) {
             const x = i * (W_BAR + GAP);
             return (
               <g key={d.date}>
-                {/* Bar */}
-                <rect x={x} y={H - barH} width={W_BAR} height={barH}
-                  fill={d.isSelected ? G : `${G}55`} rx={3}
-                  style={{ filter: d.isSelected ? `drop-shadow(0 0 6px ${G})` : 'none' }} />
+                {/* Bar — v22.22 clean style: rounded top, soft fade, selected day solid (no glow) */}
+                {barH > 0 && <path d={roundedTopBar(x, H - barH, W_BAR, barH, 7)}
+                  fill={d.isSelected ? G : 'url(#trendBarFade)'} style={{ transition: 'fill .2s ease' }} />}
                 {/* Value label above bar */}
                 {d.hasData && (
-                  <text x={x + W_BAR/2} y={H - barH - 6} textAnchor="middle"
-                    fontSize="11" fill={d.isSelected ? G : `${G}bb`} fontWeight={d.isSelected ? '800':'500'}>
+                  <text x={x + W_BAR/2} y={H - barH - 7} textAnchor="middle"
+                    fontSize="11" fill={d.isSelected ? th.text : th.muted} fontWeight={d.isSelected ? '700':'500'}>
                     {fmtK(d.netSales)}
                   </text>
                 )}
                 {/* Day name */}
                 <text x={x + W_BAR/2} y={H + 18} textAnchor="middle"
-                  fontSize="12" fill={d.isSelected ? G : th.muted} fontWeight={d.isSelected ? '800':'500'}>
+                  fontSize="12" fill={d.isSelected ? th.text : th.muted} fontWeight={d.isSelected ? '700':'500'}>
                   {d.dayLabel}
                 </text>
                 {/* Date */}
                 <text x={x + W_BAR/2} y={H + 34} textAnchor="middle"
-                  fontSize="11" fill={d.isSelected ? `${G}cc` : `${th.muted}aa`} fontWeight={d.isSelected ? '700' : '400'}>
+                  fontSize="11" fill={th.muted} fontWeight={d.isSelected ? '600' : '400'} opacity={d.isSelected ? 1 : 0.75}>
                   {d.date}
                 </text>
                 {/* Clickable overlay */}
@@ -9126,7 +9132,7 @@ function TrendChart({ data, G, th, onBarClick, containerStyle }) {
             );
           })}
           {/* Baseline */}
-          <line x1={0} y1={H} x2={totalW} y2={H} stroke={`${G}44`} strokeWidth={1.5} />
+          <line x1={0} y1={H} x2={totalW} y2={H} stroke={chartTokens(th).grid} strokeWidth={1} />
         </svg>
       </div>
     </div>
@@ -10368,7 +10374,8 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const CHART_COLORS = ['#69db7c','#74c0fc','#ffd43b','#f06595','#b197fc','#ff922b','#20c997','#868e96','#e599f7','#63e6be','#ffa8a8','#91a7ff'];
 
   // Donut chart SVG helper
-  const DonutChart = ({ data, size = 200, thickness = 32, hoveredIdx, onHover }) => {
+  // v22.22: clean chart style — thinner ring, small gaps between slices, faint track, no glow.
+  const DonutChart = ({ data, size = 200, thickness = 26, hoveredIdx, onHover }) => {
     const total = data.reduce((a,d) => a + d.value, 0);
     const r = (size - thickness) / 2;
     const cx = size / 2, cy = size / 2;
@@ -10380,10 +10387,11 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
     const pad = 18;
     return (
       <svg width={size + pad*2} height={size + pad*2} viewBox={`${-pad} ${-pad} ${size + pad*2} ${size + pad*2}`} style={{ overflow:'visible' }}>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={th.card3} strokeWidth={thickness} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={chartTokens(th).grid} strokeWidth={thickness} />
         {data.map((d, i) => {
           const pct = total > 0 ? d.value / total : 0;
-          const dash = circumference * pct;
+          const segGap = data.length > 1 && pct < 1 ? Math.min(3, circumference * pct * 0.3) : 0;
+          const dash = Math.max(0, circumference * pct - segGap);
           const gap = circumference - dash;
           const rot = offset * 360 - 90;
           offset += pct;
@@ -10391,24 +10399,24 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           const isDimmed = hoveredIdx != null && hoveredIdx !== i;
           return (
             <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={d.color}
-              strokeWidth={isHovered ? thickness + 6 : thickness}
+              strokeWidth={isHovered ? thickness + 4 : thickness}
               strokeDasharray={dash + ' ' + gap} transform={'rotate(' + rot + ' ' + cx + ' ' + cy + ')'}
-              opacity={isDimmed ? 0.35 : 1}
-              style={{ transition: 'stroke-width .15s ease, opacity .15s ease, stroke-dasharray 0.5s ease', cursor: 'pointer', filter: isHovered ? `drop-shadow(0 0 6px ${d.color})` : 'none' }}
+              opacity={isDimmed ? 0.4 : 1}
+              style={{ transition: 'stroke-width .2s ease, opacity .2s ease, stroke-dasharray 0.6s cubic-bezier(.22,1,.36,1)', cursor: 'pointer' }}
               onMouseEnter={() => onHover && onHover(i)}
               onMouseLeave={() => onHover && onHover(null)} />
           );
         })}
         {hovered ? (
           <>
-            <text x={cx} y={cy - 20} textAnchor="middle" fill={th.muted} fontSize={hovered.name.length > 12 ? '8' : '9'} fontWeight="600">{hovered.name.toUpperCase()}</text>
-            <text x={cx} y={cy + 4} textAnchor="middle" fill={hovered.color} fontSize="20" fontWeight="900" fontFamily="'Raleway'">{fmtUSD(hovered.value)}</text>
+            <text x={cx} y={cy - 20} textAnchor="middle" fill={th.muted} fontSize={hovered.name.length > 14 ? '9.5' : '11'} fontWeight="500">{hovered.name}</text>
+            <text x={cx} y={cy + 4} textAnchor="middle" fill={th.text} fontSize="20" fontWeight="800" fontFamily="'Raleway'">{fmtUSD(hovered.value)}</text>
             <text x={cx} y={cy + 21} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
           </>
         ) : (
           <>
             <text x={cx} y={cy - 8} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">Total</text>
-            <text x={cx} y={cy + 14} textAnchor="middle" fill={th.text} fontSize="20" fontWeight="900" fontFamily="'Raleway'">{fmtUSD(total)}</text>
+            <text x={cx} y={cy + 14} textAnchor="middle" fill={th.text} fontSize="20" fontWeight="800" fontFamily="'Raleway'">{fmtUSD(total)}</text>
           </>
         )}
       </svg>
@@ -10743,60 +10751,77 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                 {/* Chart */}
                 <div style={{ overflowX:'auto', marginBottom:'1.25rem' }}>
                   <svg viewBox={`-50 -24 ${totalW + 64} ${H + 52}`} style={{ width:'100%', minWidth: visible.length * (barW + gap) + 64, height: H + 52, display:'block', overflow:'visible' }}>
+                    {/* v22.22: clean chart style — soft fade, rounded tops, faint dashed grid,
+                        values only on the peak / hovered hour (tooltip card), no glow. */}
                     <defs>
                       <linearGradient id={`shg${pc}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={G} stopOpacity="1" />
-                        <stop offset="100%" stopColor={G} stopOpacity="0.3" />
-                      </linearGradient>
-                      <linearGradient id={`shgHot${pc}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#fff" stopOpacity="1" />
-                        <stop offset="100%" stopColor={G} stopOpacity="0.6" />
+                        <stop offset="0%" stopColor={G} stopOpacity="0.95" />
+                        <stop offset="100%" stopColor={G} stopOpacity="0.55" />
                       </linearGradient>
                     </defs>
                     {gridLines.map(v => {
                       const y = H - (v / chartMax) * H;
                       return (
                         <g key={v}>
-                          <line x1={0} y1={y} x2={totalW} y2={y} stroke={`${G}18`} strokeWidth={1} strokeDasharray="3 3" />
-                          <text x={-8} y={y + 4} textAnchor="end" fontSize="10" fill={th.muted}>{fmtK(v)}</text>
+                          <line x1={0} y1={y} x2={totalW} y2={y} stroke={chartTokens(th).grid} strokeWidth={1} strokeDasharray="3 4" />
+                          <text x={-10} y={y + 4} textAnchor="end" fontSize="10.5" fill={th.muted}>{fmtK(v)}</text>
                         </g>
                       );
                     })}
-                    {visible.map((h, i) => {
-                      const barH = h.sales > 0 ? Math.max(1, (h.sales / chartMax) * H) : 0;
-                      const x = i * (barW + gap);
-                      const isHovered = hoveredHour === h.hour;
-                      const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
-                      return (
-                        <g key={h.hour}
-                          onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(h.hour); }}
-                          onMouseLeave={() => setHoveredHour(null)}
-                          style={{ cursor:'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
-                          {/* Invisible hit area for easy hovering */}
-                          <rect x={x - 2} y={0} width={barW + 4} height={H + 40} fill="transparent" />
-                          {barH > 0 && (
-                            <rect x={x} y={H - barH} width={barW} height={barH}
-                              fill={isHovered ? `url(#shgHot${pc})` : `url(#shg${pc})`}
-                              rx={4}
-                              opacity={isDimmed ? 0.35 : 1}
-                              style={{ transition: 'opacity .15s, fill .15s', filter: isHovered ? `drop-shadow(0 0 10px ${G}88)` : 'none' }} />
-                          )}
-                          {barH > 0 && h.sales > chartMax * 0.08 && (
-                            <text x={x + barW/2} y={H - barH - 5} textAnchor="middle" fontSize="9" fill={G} fontWeight="800"
-                              opacity={isDimmed ? 0.4 : 1}>
-                              {h.sales >= 1000 ? (h.sales/1000).toFixed(1) + 'k' : Math.round(h.sales)}
+                    {(() => {
+                      const peakHour = visible.reduce((a, h) => h.sales > a.sales ? h : a, visible[0]).hour;
+                      return visible.map((h, i) => {
+                        const barH = h.sales > 0 ? Math.max(1, (h.sales / chartMax) * H) : 0;
+                        const x = i * (barW + gap);
+                        const isHovered = hoveredHour === h.hour;
+                        const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
+                        const showValue = barH > 0 && (hoveredHour == null ? h.hour === peakHour : false);
+                        return (
+                          <g key={h.hour}
+                            onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(h.hour); }}
+                            onMouseLeave={() => setHoveredHour(null)}
+                            style={{ cursor:'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
+                            {/* Invisible hit area for easy hovering */}
+                            <rect x={x - 2} y={0} width={barW + 4} height={H + 40} fill="transparent" />
+                            {barH > 0 && (
+                              <path d={roundedTopBar(x, H - barH, barW, barH, 6)}
+                                fill={isHovered ? G : `url(#shg${pc})`}
+                                opacity={isDimmed ? 0.4 : 1}
+                                style={{ transition: 'opacity .2s ease' }} />
+                            )}
+                            {showValue && (
+                              <text x={x + barW/2} y={H - barH - 7} textAnchor="middle" fontSize="10" fill={th.text} fontWeight="700">
+                                {fmtK(h.sales)}
+                              </text>
+                            )}
+                            <text x={x + barW/2} y={H + 16} textAnchor="middle" fontSize="9.5"
+                              fill={isHovered ? th.text : th.muted}
+                              fontWeight={isHovered ? 700 : 500}
+                              opacity={isDimmed ? 0.5 : 1}>
+                              {h.hour === 0 ? '12a' : h.hour < 12 ? h.hour + 'a' : h.hour === 12 ? '12p' : (h.hour - 12) + 'p'}
                             </text>
-                          )}
-                          <text x={x + barW/2} y={H + 15} textAnchor="middle" fontSize="9"
-                            fill={isHovered ? G : th.muted}
-                            fontWeight={isHovered ? 800 : 500}
-                            opacity={isDimmed ? 0.4 : 1}>
-                            {h.hour === 0 ? '12a' : h.hour < 12 ? h.hour + 'a' : h.hour === 12 ? '12p' : (h.hour - 12) + 'p'}
-                          </text>
+                          </g>
+                        );
+                      });
+                    })()}
+                    <line x1={0} y1={H} x2={totalW} y2={H} stroke={chartTokens(th).grid} strokeWidth={1} />
+                    {/* Tooltip card for the hovered hour */}
+                    {(() => {
+                      const i = visible.findIndex(h => h.hour === hoveredHour);
+                      if (i < 0 || !(visible[i].sales > 0)) return null;
+                      const h = visible[i];
+                      const barH = Math.max(1, (h.sales / chartMax) * H);
+                      const cardW = 108, cardH = 44;
+                      const cx = Math.min(Math.max(i * (barW + gap) + barW / 2 - cardW / 2, -40), totalW - cardW + 10);
+                      const cy = Math.max(H - barH - cardH - 10, -20);
+                      return (
+                        <g pointerEvents="none">
+                          <rect x={cx} y={cy} width={cardW} height={cardH} rx={9} fill={th.card} stroke={th.cardBorder} strokeWidth={1} />
+                          <text x={cx + 10} y={cy + 17} fontSize="10" fill={th.muted}>{fmtHrLong(h.hour)}</text>
+                          <text x={cx + 10} y={cy + 34} fontSize="12.5" fontWeight="700" fill={th.text}>{fmtK(h.sales)}<tspan fontSize="10" fontWeight="500" fill={th.muted}>{`  ·  ${fmtNum(h.count)} checks`}</tspan></text>
                         </g>
                       );
-                    })}
-                    <line x1={0} y1={H} x2={totalW} y2={H} stroke={`${G}66`} strokeWidth={1.5} />
+                    })()}
                   </svg>
                 </div>
 
@@ -10966,8 +10991,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
             const points = visible.map((h, i) => ({ x: i * segW + segW/2, y: h.avg > 0 ? H - (h.avg / chartMax) * H : null, hour: h.hour, avg: h.avg, count: h.count, sales: h.sales }));
             const dataPts = points.filter(p => p.y !== null);
             // Build a smooth path between dataPts
-            const pathD = dataPts.length > 0 ? 'M ' + dataPts.map(p => `${p.x},${p.y}`).join(' L ') : '';
-            const areaD = dataPts.length > 0 ? `M ${dataPts[0].x},${H} L ` + dataPts.map(p => `${p.x},${p.y}`).join(' L ') + ` L ${dataPts[dataPts.length-1].x},${H} Z` : '';
+            // v22.22: smooth monotone curve (no overshoot) instead of straight segments.
+            const pathD = smoothPath(dataPts);
+            const areaD = dataPts.length > 0 ? `${pathD} L ${dataPts[dataPts.length-1].x},${H} L ${dataPts[0].x},${H} Z` : '';
             const gridLines = [chartMax/4, chartMax/2, chartMax*3/4, chartMax];
             const overallAvg = (() => {
               const s = visible.reduce((a,h) => a + h.sales, 0);
@@ -10979,12 +11005,12 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                 <svg viewBox={`-50 -24 ${totalW + 64} ${H + CH + 54}`} style={{ width:'100%', minWidth: totalW + 64, height: H + CH + 54, display:'block', overflow:'visible' }}>
                   <defs>
                     <linearGradient id={`avgArea${pc}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#74c0fc" stopOpacity="0.5" />
-                      <stop offset="100%" stopColor="#74c0fc" stopOpacity="0.02" />
+                      <stop offset="0%" stopColor="#74c0fc" stopOpacity="0.28" />
+                      <stop offset="100%" stopColor="#74c0fc" stopOpacity="0" />
                     </linearGradient>
                     <linearGradient id={`cntBar${pc}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#b197fc" stopOpacity="0.9" />
-                      <stop offset="100%" stopColor="#b197fc" stopOpacity="0.3" />
+                      <stop offset="0%" stopColor="#b197fc" stopOpacity="0.85" />
+                      <stop offset="100%" stopColor="#b197fc" stopOpacity="0.45" />
                     </linearGradient>
                   </defs>
                   {/* Gridlines */}
@@ -10992,8 +11018,8 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                     const y = H - (v / chartMax) * H;
                     return (
                       <g key={v}>
-                        <line x1={0} y1={y} x2={totalW} y2={y} stroke="#74c0fc18" strokeWidth={1} strokeDasharray="3 3" />
-                        <text x={-8} y={y + 4} textAnchor="end" fontSize="10" fill={th.muted}>${v.toFixed(0)}</text>
+                        <line x1={0} y1={y} x2={totalW} y2={y} stroke={chartTokens(th).grid} strokeWidth={1} strokeDasharray="3 4" />
+                        <text x={-10} y={y + 4} textAnchor="end" fontSize="10.5" fill={th.muted}>${v.toFixed(0)}</text>
                       </g>
                     );
                   })}
@@ -11002,14 +11028,14 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                     const y = H - (overallAvg / chartMax) * H;
                     return (
                       <g>
-                        <line x1={0} y1={y} x2={totalW} y2={y} stroke="#69db7c" strokeWidth={1.5} strokeDasharray="6 4" opacity={0.7} />
-                        <text x={totalW + 6} y={y + 4} fontSize="10" fill="#69db7c" fontWeight="700">avg {fmtAvg(overallAvg)}</text>
+                        <line x1={0} y1={y} x2={totalW} y2={y} stroke={th.muted} strokeWidth={1} strokeDasharray="5 5" opacity={0.6} />
+                        <text x={totalW + 6} y={y + 4} fontSize="10" fill={th.muted} fontWeight="600">avg {fmtAvg(overallAvg)}</text>
                       </g>
                     );
                   })()}
                   {/* Area + line */}
                   <path d={areaD} fill={`url(#avgArea${pc})`} />
-                  <path d={pathD} fill="none" stroke="#74c0fc" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ filter: `drop-shadow(0 2px 6px #74c0fc44)` }} />
+                  <path d={pathD} fill="none" stroke="#74c0fc" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                   {/* Data points + hover */}
                   {points.map((p, i) => {
                     if (p.y === null) return null;
@@ -11020,21 +11046,32 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                         onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(p.hour); }}
                         onMouseLeave={() => setHoveredHour(null)}
                         style={{ cursor:'pointer' }}
-                        opacity={isDimmed ? 0.35 : 1}>
+                        opacity={1}>
                         <rect x={p.x - segW/2} y={0} width={segW} height={H + CH + 30} fill="transparent" />
-                        <circle cx={p.x} cy={p.y} r={isHovered ? 6 : 3.5} fill="#74c0fc"
-                          style={{ transition:'r .15s', filter: isHovered ? 'drop-shadow(0 0 8px #74c0fc)' : 'none' }} />
+                        {/* Dots only on hover, with a dashed guide line and a tooltip card */}
                         {isHovered && (
-                          <g>
-                            <rect x={p.x - 34} y={p.y - 36} width={68} height={24} rx={4} fill={th.card3} stroke="#74c0fc" strokeWidth={1} />
-                            <text x={p.x} y={p.y - 20} textAnchor="middle" fontSize="11" fill="#74c0fc" fontWeight="800">{fmtAvg(p.avg)}</text>
+                          <g pointerEvents="none">
+                            <line x1={p.x} y1={0} x2={p.x} y2={H} stroke={chartTokens(th).crosshair} strokeWidth={1} strokeDasharray="3 4" />
+                            <circle cx={p.x} cy={p.y} r={4.5} fill="#74c0fc" stroke={th.card} strokeWidth={2} />
+                            {(() => {
+                              const cardW = 112, cardH = 44;
+                              const cx = Math.min(Math.max(p.x - cardW / 2, -40), totalW - cardW + 10);
+                              const cy = Math.max(p.y - cardH - 12, -20);
+                              return (
+                                <g>
+                                  <rect x={cx} y={cy} width={cardW} height={cardH} rx={9} fill={th.card} stroke={th.cardBorder} strokeWidth={1} />
+                                  <text x={cx + 10} y={cy + 17} fontSize="10" fill={th.muted}>{fmtHrLong(p.hour)}</text>
+                                  <text x={cx + 10} y={cy + 34} fontSize="12.5" fontWeight="700" fill={th.text}>{fmtAvg(p.avg)}<tspan fontSize="10" fontWeight="500" fill={th.muted}>{`  ·  ${p.count} checks`}</tspan></text>
+                                </g>
+                              );
+                            })()}
                           </g>
                         )}
                       </g>
                     );
                   })}
                   {/* Baseline */}
-                  <line x1={0} y1={H} x2={totalW} y2={H} stroke="#74c0fc66" strokeWidth={1.5} />
+                  <line x1={0} y1={H} x2={totalW} y2={H} stroke={chartTokens(th).grid} strokeWidth={1} />
                   {/* Check count mini bars */}
                   <text x={-8} y={H + 18} textAnchor="end" fontSize="9" fill={th.muted}>checks</text>
                   {points.map((p, i) => {
@@ -11049,12 +11086,11 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                         onMouseLeave={() => setHoveredHour(null)}
                         opacity={isDimmed ? 0.35 : 1}
                         style={{ cursor:'pointer' }}>
-                        {barH > 0 && <rect x={x} y={H + CH - barH} width={w} height={barH} fill={`url(#cntBar${pc})`} rx={2}
-                          style={{ filter: isHovered ? 'drop-shadow(0 0 4px #b197fc)' : 'none' }} />}
+                        {barH > 0 && <path d={roundedTopBar(x, H + CH - barH, w, barH, 3)} fill={isHovered ? '#b197fc' : `url(#cntBar${pc})`} />}
                       </g>
                     );
                   })}
-                  <line x1={0} y1={H + CH} x2={totalW} y2={H + CH} stroke="#b197fc44" strokeWidth={1} />
+                  <line x1={0} y1={H + CH} x2={totalW} y2={H + CH} stroke={chartTokens(th).grid} strokeWidth={1} />
                   {/* Hour labels */}
                   {points.map((p, i) => {
                     const isHovered = hoveredHour === p.hour;
@@ -11062,9 +11098,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                     return (
                       <text key={`lbl${i}`} x={p.x} y={H + CH + 16} textAnchor="middle"
                         fontSize="9"
-                        fill={isHovered ? '#74c0fc' : th.muted}
-                        fontWeight={isHovered ? 800 : 500}
-                        opacity={isDimmed ? 0.4 : 1}>
+                        fill={isHovered ? th.text : th.muted}
+                        fontWeight={isHovered ? 700 : 500}
+                        opacity={isDimmed ? 0.5 : 1}>
                         {fmtHr(p.hour)}
                       </text>
                     );
@@ -12371,7 +12407,8 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
 
   const CHART_COLORS = ['#69db7c','#74c0fc','#ffd43b','#f06595','#b197fc','#ff922b','#20c997','#868e96','#e599f7','#63e6be','#ffa8a8','#91a7ff'];
 
-  const DonutChart = ({ data, size = 200, thickness = 32, hoveredIdx, onHover }) => {
+  // v22.22: clean chart style — thinner ring, small gaps between slices, faint track, no glow.
+  const DonutChart = ({ data, size = 200, thickness = 26, hoveredIdx, onHover }) => {
     const total = data.reduce((a,d) => a + d.value, 0);
     const r = (size - thickness) / 2;
     const cx = size / 2, cy = size / 2;
@@ -12382,10 +12419,11 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
     const pad = 18;
     return (
       <svg width={size + pad*2} height={size + pad*2} viewBox={`${-pad} ${-pad} ${size + pad*2} ${size + pad*2}`} style={{ overflow:'visible' }}>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={th.card3} strokeWidth={thickness} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={chartTokens(th).grid} strokeWidth={thickness} />
         {data.map((d, i) => {
           const pct = total > 0 ? d.value / total : 0;
-          const dash = circumference * pct;
+          const segGap = data.length > 1 && pct < 1 ? Math.min(3, circumference * pct * 0.3) : 0;
+          const dash = Math.max(0, circumference * pct - segGap);
           const gap = circumference - dash;
           const rot = offset * 360 - 90;
           offset += pct;
@@ -12393,24 +12431,24 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
           const isDimmed = hoveredIdx != null && hoveredIdx !== i;
           return (
             <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={d.color}
-              strokeWidth={isHovered ? thickness + 6 : thickness}
+              strokeWidth={isHovered ? thickness + 4 : thickness}
               strokeDasharray={dash + ' ' + gap} transform={'rotate(' + rot + ' ' + cx + ' ' + cy + ')'}
-              opacity={isDimmed ? 0.35 : 1}
-              style={{ transition: 'stroke-width .15s ease, opacity .15s ease, stroke-dasharray 0.5s ease', cursor: 'pointer', filter: isHovered ? `drop-shadow(0 0 6px ${d.color})` : 'none' }}
+              opacity={isDimmed ? 0.4 : 1}
+              style={{ transition: 'stroke-width .2s ease, opacity .2s ease, stroke-dasharray 0.6s cubic-bezier(.22,1,.36,1)', cursor: 'pointer' }}
               onMouseEnter={() => onHover && onHover(i)}
               onMouseLeave={() => onHover && onHover(null)} />
           );
         })}
         {hovered ? (
           <>
-            <text x={cx} y={cy - 20} textAnchor="middle" fill={th.muted} fontSize={hovered.name.length > 12 ? '8' : '9'} fontWeight="600">{hovered.name.toUpperCase()}</text>
-            <text x={cx} y={cy + 4} textAnchor="middle" fill={hovered.color} fontSize="20" fontWeight="900" fontFamily="'Raleway'">{fmtUSD(hovered.value)}</text>
+            <text x={cx} y={cy - 20} textAnchor="middle" fill={th.muted} fontSize={hovered.name.length > 14 ? '9.5' : '11'} fontWeight="500">{hovered.name}</text>
+            <text x={cx} y={cy + 4} textAnchor="middle" fill={th.text} fontSize="20" fontWeight="800" fontFamily="'Raleway'">{fmtUSD(hovered.value)}</text>
             <text x={cx} y={cy + 21} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">{hoveredPct.toFixed(1) + '%'}</text>
           </>
         ) : (
           <>
             <text x={cx} y={cy - 8} textAnchor="middle" fill={th.muted} fontSize="11" fontWeight="600">Total</text>
-            <text x={cx} y={cy + 14} textAnchor="middle" fill={th.text} fontSize="20" fontWeight="900" fontFamily="'Raleway'">{fmtUSD(total)}</text>
+            <text x={cx} y={cy + 14} textAnchor="middle" fill={th.text} fontSize="20" fontWeight="800" fontFamily="'Raleway'">{fmtUSD(total)}</text>
           </>
         )}
       </svg>
@@ -12662,21 +12700,22 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
             <div style={{ overflowX:'auto' }}>
               <svg viewBox={`-50 -24 ${totalW + 64} ${H + 60}`} style={{ width:'100%', minWidth: totalW + 64, height: H + 60, display:'block', overflow:'visible' }}>
                 <defs>
+                  {/* v22.22: clean chart style — this week solid-ish, last week a quiet grey */}
                   <linearGradient id={`sbd${distNum}a`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={G} stopOpacity="1" />
-                    <stop offset="100%" stopColor={G} stopOpacity="0.35" />
+                    <stop offset="0%" stopColor={G} stopOpacity="0.95" />
+                    <stop offset="100%" stopColor={G} stopOpacity="0.55" />
                   </linearGradient>
                   <linearGradient id={`sbd${distNum}b`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#868e96" stopOpacity="0.9" />
-                    <stop offset="100%" stopColor="#868e96" stopOpacity="0.25" />
+                    <stop offset="0%" stopColor={th.muted} stopOpacity="0.4" />
+                    <stop offset="100%" stopColor={th.muted} stopOpacity="0.18" />
                   </linearGradient>
                 </defs>
                 {gridLines.map(v => {
                   const y = H - (v / chartMax) * H;
                   return (
                     <g key={v}>
-                      <line x1={0} y1={y} x2={totalW} y2={y} stroke={th.cardBorder} strokeDasharray="2,4" strokeWidth={1} />
-                      <text x={-8} y={y + 4} textAnchor="end" fontSize="10" fill={th.muted}>{fmtK(v)}</text>
+                      <line x1={0} y1={y} x2={totalW} y2={y} stroke={chartTokens(th).grid} strokeDasharray="3 4" strokeWidth={1} />
+                      <text x={-10} y={y + 4} textAnchor="end" fontSize="10.5" fill={th.muted}>{fmtK(v)}</text>
                     </g>
                   );
                 })}
@@ -12688,14 +12727,14 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                   const dCol = delta >= 0 ? '#69db7c' : '#ff6b6b';
                   return (
                     <g key={i}>
-                      <rect x={gx} y={H - lH} width={barW} height={lH} fill={`url(#sbd${distNum}b)`} rx={2}>
+                      <path d={roundedTopBar(gx, H - lH, barW, lH, 6)} fill={`url(#sbd${distNum}b)`}>
                         <title>{lbl} Last Week: {fmtUSD(lVal)}</title>
-                      </rect>
-                      <rect x={gx + barW + 6} y={H - tH} width={barW} height={tH} fill={`url(#sbd${distNum}a)`} rx={2}>
+                      </path>
+                      <path d={roundedTopBar(gx + barW + 6, H - tH, barW, tH, 6)} fill={`url(#sbd${distNum}a)`}>
                         <title>{lbl} This Week: {fmtUSD(tVal)}</title>
-                      </rect>
-                      {tVal > 0 && <text x={gx + barW + 6 + barW/2} y={H - tH - 6} textAnchor="middle" fontSize="9" fontWeight="700" fill={G}>{fmtK(tVal)}</text>}
-                      <text x={gx + groupW/2} y={H + 18} textAnchor="middle" fontSize="12" fontWeight="700" fill={th.text}>{lbl}</text>
+                      </path>
+                      {tVal > 0 && <text x={gx + barW + 6 + barW/2} y={H - tH - 7} textAnchor="middle" fontSize="10" fontWeight="600" fill={th.text}>{fmtK(tVal)}</text>}
+                      <text x={gx + groupW/2} y={H + 18} textAnchor="middle" fontSize="12" fontWeight="600" fill={th.text}>{lbl}</text>
                       {lVal > 0 && (
                         <text x={gx + groupW/2} y={H + 34} textAnchor="middle" fontSize="10" fontWeight="700" fill={dCol}>{delta >= 0 ? '+' : ''}{delta.toFixed(0)}%</text>
                       )}
@@ -12706,11 +12745,11 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
             </div>
             <div style={{ display:'flex', gap:'1.5rem', justifyContent:'center', marginTop:'0.75rem', fontSize:'0.7rem', color:th.muted }}>
               <div style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                <div style={{ width:12, height:12, background:'#868e96', borderRadius:2 }} />
+                <div style={{ width:7, height:7, background:th.muted, opacity:0.5, borderRadius:'50%' }} />
                 <span>Last Week</span>
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                <div style={{ width:12, height:12, background:G, borderRadius:2 }} />
+                <div style={{ width:7, height:7, background:G, borderRadius:'50%' }} />
                 <span>This Week</span>
               </div>
             </div>
@@ -12807,59 +12846,77 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
               <div>
                 <div style={{ overflowX:'auto', marginBottom:'1.25rem' }}>
                   <svg viewBox={`-50 -24 ${totalW + 64} ${H + 52}`} style={{ width:'100%', minWidth: visible.length * (barW + gap) + 64, height: H + 52, display:'block', overflow:'visible' }}>
+                    {/* v22.22: clean chart style — soft fade, rounded tops, faint dashed grid,
+                        values only on the peak / hovered hour (tooltip card), no glow. */}
                     <defs>
                       <linearGradient id={`shg${distNum}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={G} stopOpacity="1" />
-                        <stop offset="100%" stopColor={G} stopOpacity="0.3" />
-                      </linearGradient>
-                      <linearGradient id={`shgHot${distNum}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#fff" stopOpacity="1" />
-                        <stop offset="100%" stopColor={G} stopOpacity="0.6" />
+                        <stop offset="0%" stopColor={G} stopOpacity="0.95" />
+                        <stop offset="100%" stopColor={G} stopOpacity="0.55" />
                       </linearGradient>
                     </defs>
                     {gridLines.map(v => {
                       const y = H - (v / chartMax) * H;
                       return (
                         <g key={v}>
-                          <line x1={0} y1={y} x2={totalW} y2={y} stroke={`${G}18`} strokeWidth={1} strokeDasharray="3 3" />
-                          <text x={-8} y={y + 4} textAnchor="end" fontSize="10" fill={th.muted}>{fmtK(v)}</text>
+                          <line x1={0} y1={y} x2={totalW} y2={y} stroke={chartTokens(th).grid} strokeWidth={1} strokeDasharray="3 4" />
+                          <text x={-10} y={y + 4} textAnchor="end" fontSize="10.5" fill={th.muted}>{fmtK(v)}</text>
                         </g>
                       );
                     })}
-                    {visible.map((h, i) => {
-                      const barH = h.sales > 0 ? Math.max(1, (h.sales / chartMax) * H) : 0;
-                      const x = i * (barW + gap);
-                      const isHovered = hoveredHour === h.hour;
-                      const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
-                      return (
-                        <g key={h.hour}
-                          onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(h.hour); }}
-                          onMouseLeave={() => setHoveredHour(null)}
-                          style={{ cursor:'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
-                          <rect x={x - 2} y={0} width={barW + 4} height={H + 40} fill="transparent" />
-                          {barH > 0 && (
-                            <rect x={x} y={H - barH} width={barW} height={barH}
-                              fill={isHovered ? `url(#shgHot${distNum})` : `url(#shg${distNum})`}
-                              rx={4}
-                              opacity={isDimmed ? 0.35 : 1}
-                              style={{ transition: 'opacity .15s, fill .15s', filter: isHovered ? `drop-shadow(0 0 10px ${G}88)` : 'none' }} />
-                          )}
-                          {barH > 0 && h.sales > chartMax * 0.08 && (
-                            <text x={x + barW/2} y={H - barH - 5} textAnchor="middle" fontSize="9" fill={G} fontWeight="800"
-                              opacity={isDimmed ? 0.4 : 1}>
-                              {h.sales >= 1000 ? (h.sales/1000).toFixed(1) + 'k' : Math.round(h.sales)}
+                    {(() => {
+                      const peakHour = visible.reduce((a, h) => h.sales > a.sales ? h : a, visible[0]).hour;
+                      return visible.map((h, i) => {
+                        const barH = h.sales > 0 ? Math.max(1, (h.sales / chartMax) * H) : 0;
+                        const x = i * (barW + gap);
+                        const isHovered = hoveredHour === h.hour;
+                        const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
+                        const showValue = barH > 0 && (hoveredHour == null ? h.hour === peakHour : false);
+                        return (
+                          <g key={h.hour}
+                            onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(h.hour); }}
+                            onMouseLeave={() => setHoveredHour(null)}
+                            style={{ cursor:'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
+                            {/* Invisible hit area for easy hovering */}
+                            <rect x={x - 2} y={0} width={barW + 4} height={H + 40} fill="transparent" />
+                            {barH > 0 && (
+                              <path d={roundedTopBar(x, H - barH, barW, barH, 6)}
+                                fill={isHovered ? G : `url(#shg${distNum})`}
+                                opacity={isDimmed ? 0.4 : 1}
+                                style={{ transition: 'opacity .2s ease' }} />
+                            )}
+                            {showValue && (
+                              <text x={x + barW/2} y={H - barH - 7} textAnchor="middle" fontSize="10" fill={th.text} fontWeight="700">
+                                {fmtK(h.sales)}
+                              </text>
+                            )}
+                            <text x={x + barW/2} y={H + 16} textAnchor="middle" fontSize="9.5"
+                              fill={isHovered ? th.text : th.muted}
+                              fontWeight={isHovered ? 700 : 500}
+                              opacity={isDimmed ? 0.5 : 1}>
+                              {h.hour === 0 ? '12a' : h.hour < 12 ? h.hour + 'a' : h.hour === 12 ? '12p' : (h.hour - 12) + 'p'}
                             </text>
-                          )}
-                          <text x={x + barW/2} y={H + 15} textAnchor="middle" fontSize="9"
-                            fill={isHovered ? G : th.muted}
-                            fontWeight={isHovered ? 800 : 500}
-                            opacity={isDimmed ? 0.4 : 1}>
-                            {h.hour === 0 ? '12a' : h.hour < 12 ? h.hour + 'a' : h.hour === 12 ? '12p' : (h.hour - 12) + 'p'}
-                          </text>
+                          </g>
+                        );
+                      });
+                    })()}
+                    <line x1={0} y1={H} x2={totalW} y2={H} stroke={chartTokens(th).grid} strokeWidth={1} />
+                    {/* Tooltip card for the hovered hour */}
+                    {(() => {
+                      const i = visible.findIndex(h => h.hour === hoveredHour);
+                      if (i < 0 || !(visible[i].sales > 0)) return null;
+                      const h = visible[i];
+                      const barH = Math.max(1, (h.sales / chartMax) * H);
+                      const cardW = 108, cardH = 44;
+                      const cx = Math.min(Math.max(i * (barW + gap) + barW / 2 - cardW / 2, -40), totalW - cardW + 10);
+                      const cy = Math.max(H - barH - cardH - 10, -20);
+                      return (
+                        <g pointerEvents="none">
+                          <rect x={cx} y={cy} width={cardW} height={cardH} rx={9} fill={th.card} stroke={th.cardBorder} strokeWidth={1} />
+                          <text x={cx + 10} y={cy + 17} fontSize="10" fill={th.muted}>{fmtHrLong(h.hour)}</text>
+                          <text x={cx + 10} y={cy + 34} fontSize="12.5" fontWeight="700" fill={th.text}>{fmtK(h.sales)}<tspan fontSize="10" fontWeight="500" fill={th.muted}>{`  ·  ${fmtNum(h.count)} checks`}</tspan></text>
                         </g>
                       );
-                    })}
-                    <line x1={0} y1={H} x2={totalW} y2={H} stroke={`${G}66`} strokeWidth={1.5} />
+                    })()}
                   </svg>
                 </div>
 
@@ -13022,8 +13079,9 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
             const fmtHr = h => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
             const points = visible.map((h, i) => ({ x: i * segW + segW/2, y: h.avg > 0 ? H - (h.avg / chartMax) * H : null, hour: h.hour, avg: h.avg, count: h.count, sales: h.sales }));
             const dataPts = points.filter(p => p.y !== null);
-            const pathD = dataPts.length > 0 ? 'M ' + dataPts.map(p => `${p.x},${p.y}`).join(' L ') : '';
-            const areaD = dataPts.length > 0 ? `M ${dataPts[0].x},${H} L ` + dataPts.map(p => `${p.x},${p.y}`).join(' L ') + ` L ${dataPts[dataPts.length-1].x},${H} Z` : '';
+            // v22.22: smooth monotone curve (no overshoot) instead of straight segments.
+            const pathD = smoothPath(dataPts);
+            const areaD = dataPts.length > 0 ? `${pathD} L ${dataPts[dataPts.length-1].x},${H} L ${dataPts[0].x},${H} Z` : '';
             const gridLines = [chartMax/4, chartMax/2, chartMax*3/4, chartMax];
             const overallAvg = (() => {
               const s = visible.reduce((a,h) => a + h.sales, 0);
@@ -13035,20 +13093,20 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                 <svg viewBox={`-50 -24 ${totalW + 64} ${H + CH + 54}`} style={{ width:'100%', minWidth: totalW + 64, height: H + CH + 54, display:'block', overflow:'visible' }}>
                   <defs>
                     <linearGradient id={`avgArea${distNum}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#74c0fc" stopOpacity="0.5" />
-                      <stop offset="100%" stopColor="#74c0fc" stopOpacity="0.02" />
+                      <stop offset="0%" stopColor="#74c0fc" stopOpacity="0.28" />
+                      <stop offset="100%" stopColor="#74c0fc" stopOpacity="0" />
                     </linearGradient>
                     <linearGradient id={`cntBar${distNum}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#b197fc" stopOpacity="0.9" />
-                      <stop offset="100%" stopColor="#b197fc" stopOpacity="0.3" />
+                      <stop offset="0%" stopColor="#b197fc" stopOpacity="0.85" />
+                      <stop offset="100%" stopColor="#b197fc" stopOpacity="0.45" />
                     </linearGradient>
                   </defs>
                   {gridLines.map(v => {
                     const y = H - (v / chartMax) * H;
                     return (
                       <g key={v}>
-                        <line x1={0} y1={y} x2={totalW} y2={y} stroke="#74c0fc18" strokeWidth={1} strokeDasharray="3 3" />
-                        <text x={-8} y={y + 4} textAnchor="end" fontSize="10" fill={th.muted}>${v.toFixed(0)}</text>
+                        <line x1={0} y1={y} x2={totalW} y2={y} stroke={chartTokens(th).grid} strokeWidth={1} strokeDasharray="3 4" />
+                        <text x={-10} y={y + 4} textAnchor="end" fontSize="10.5" fill={th.muted}>${v.toFixed(0)}</text>
                       </g>
                     );
                   })}
@@ -13056,13 +13114,13 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                     const y = H - (overallAvg / chartMax) * H;
                     return (
                       <g>
-                        <line x1={0} y1={y} x2={totalW} y2={y} stroke="#69db7c" strokeWidth={1.5} strokeDasharray="6 4" opacity={0.7} />
-                        <text x={totalW + 6} y={y + 4} fontSize="10" fill="#69db7c" fontWeight="700">avg {fmtAvg(overallAvg)}</text>
+                        <line x1={0} y1={y} x2={totalW} y2={y} stroke={th.muted} strokeWidth={1} strokeDasharray="5 5" opacity={0.6} />
+                        <text x={totalW + 6} y={y + 4} fontSize="10" fill={th.muted} fontWeight="600">avg {fmtAvg(overallAvg)}</text>
                       </g>
                     );
                   })()}
                   <path d={areaD} fill={`url(#avgArea${distNum})`} />
-                  <path d={pathD} fill="none" stroke="#74c0fc" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ filter: `drop-shadow(0 2px 6px #74c0fc44)` }} />
+                  <path d={pathD} fill="none" stroke="#74c0fc" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                   {points.map((p, i) => {
                     if (p.y === null) return null;
                     const isHovered = hoveredHour === p.hour;
@@ -13072,20 +13130,31 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                         onMouseEnter={() => { if (!noHoverDevice) setHoveredHour(p.hour); }}
                         onMouseLeave={() => setHoveredHour(null)}
                         style={{ cursor:'pointer' }}
-                        opacity={isDimmed ? 0.35 : 1}>
+                        opacity={1}>
                         <rect x={p.x - segW/2} y={0} width={segW} height={H + CH + 30} fill="transparent" />
-                        <circle cx={p.x} cy={p.y} r={isHovered ? 6 : 3.5} fill="#74c0fc"
-                          style={{ transition:'r .15s', filter: isHovered ? 'drop-shadow(0 0 8px #74c0fc)' : 'none' }} />
+                        {/* Dots only on hover, with a dashed guide line and a tooltip card */}
                         {isHovered && (
-                          <g>
-                            <rect x={p.x - 34} y={p.y - 36} width={68} height={24} rx={4} fill={th.card3} stroke="#74c0fc" strokeWidth={1} />
-                            <text x={p.x} y={p.y - 20} textAnchor="middle" fontSize="11" fill="#74c0fc" fontWeight="800">{fmtAvg(p.avg)}</text>
+                          <g pointerEvents="none">
+                            <line x1={p.x} y1={0} x2={p.x} y2={H} stroke={chartTokens(th).crosshair} strokeWidth={1} strokeDasharray="3 4" />
+                            <circle cx={p.x} cy={p.y} r={4.5} fill="#74c0fc" stroke={th.card} strokeWidth={2} />
+                            {(() => {
+                              const cardW = 112, cardH = 44;
+                              const cx = Math.min(Math.max(p.x - cardW / 2, -40), totalW - cardW + 10);
+                              const cy = Math.max(p.y - cardH - 12, -20);
+                              return (
+                                <g>
+                                  <rect x={cx} y={cy} width={cardW} height={cardH} rx={9} fill={th.card} stroke={th.cardBorder} strokeWidth={1} />
+                                  <text x={cx + 10} y={cy + 17} fontSize="10" fill={th.muted}>{fmtHrLong(p.hour)}</text>
+                                  <text x={cx + 10} y={cy + 34} fontSize="12.5" fontWeight="700" fill={th.text}>{fmtAvg(p.avg)}<tspan fontSize="10" fontWeight="500" fill={th.muted}>{`  ·  ${p.count} checks`}</tspan></text>
+                                </g>
+                              );
+                            })()}
                           </g>
                         )}
                       </g>
                     );
                   })}
-                  <line x1={0} y1={H} x2={totalW} y2={H} stroke="#74c0fc66" strokeWidth={1.5} />
+                  <line x1={0} y1={H} x2={totalW} y2={H} stroke={chartTokens(th).grid} strokeWidth={1} />
                   <text x={-8} y={H + 18} textAnchor="end" fontSize="9" fill={th.muted}>checks</text>
                   {points.map((p, i) => {
                     const barH = p.count > 0 ? Math.max(2, (p.count / maxCount) * (CH - 10)) : 0;
@@ -13099,21 +13168,20 @@ function DistrictDetail({ distNum, stores, storeData, busDt, districts, th, G, s
                         onMouseLeave={() => setHoveredHour(null)}
                         opacity={isDimmed ? 0.35 : 1}
                         style={{ cursor:'pointer' }}>
-                        {barH > 0 && <rect x={x} y={H + CH - barH} width={w} height={barH} fill={`url(#cntBar${distNum})`} rx={2}
-                          style={{ filter: isHovered ? 'drop-shadow(0 0 4px #b197fc)' : 'none' }} />}
+                        {barH > 0 && <path d={roundedTopBar(x, H + CH - barH, w, barH, 3)} fill={isHovered ? '#b197fc' : `url(#cntBar${distNum})`} />}
                       </g>
                     );
                   })}
-                  <line x1={0} y1={H + CH} x2={totalW} y2={H + CH} stroke="#b197fc44" strokeWidth={1} />
+                  <line x1={0} y1={H + CH} x2={totalW} y2={H + CH} stroke={chartTokens(th).grid} strokeWidth={1} />
                   {points.map((p, i) => {
                     const isHovered = hoveredHour === p.hour;
                     const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
                     return (
                       <text key={`lbl${i}`} x={p.x} y={H + CH + 16} textAnchor="middle"
                         fontSize="9"
-                        fill={isHovered ? '#74c0fc' : th.muted}
-                        fontWeight={isHovered ? 800 : 500}
-                        opacity={isDimmed ? 0.4 : 1}>
+                        fill={isHovered ? th.text : th.muted}
+                        fontWeight={isHovered ? 700 : 500}
+                        opacity={isDimmed ? 0.5 : 1}>
                         {fmtHr(p.hour)}
                       </text>
                     );
@@ -29968,33 +30036,31 @@ function DashboardTrend({ th, isFull, isDm, trend, portfolioTrend, user }) {
     if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
     if (!canvasRef.current || typeof Chart === "undefined" || !trend.length) return;
     const labels = trend.map(m => m.month);
-    const datasets = [{
+    // v22.22: shared clean chart style (src/chart-style.js).
+    const datasets = [lineSeries(th, {
       label: isDm ? districtLabel(user?.district) : "Portfolio avg",
-      data: trend.map(m => m.avgScore), borderColor: O, borderWidth: 3, tension: 0.3, fill: false, pointRadius: 2,
-    }];
+      data: trend.map(m => m.avgScore), color: O, width: 2.5, fill: true,
+    })];
     if (isFull) {
       districts.forEach((d, i) => {
-        datasets.push({
+        datasets.push(lineSeries(th, {
           label: districtLabel(d), data: trend.map(m => (m.byDistrict && m.byDistrict[d] != null) ? m.byDistrict[d] : null),
-          borderColor: DISTRICT_TREND_COLORS[i % DISTRICT_TREND_COLORS.length], borderWidth: 1.5, tension: 0.3, fill: false, pointRadius: 0, borderDash: [4, 3],
-        });
+          color: DISTRICT_TREND_COLORS[i % DISTRICT_TREND_COLORS.length], width: 1.5,
+        }));
       });
     }
     if (isDm && portfolioTrend?.length) {
       const byMonth = new Map(portfolioTrend.map(m => [m.month, m.avgScore]));
-      datasets.push({
+      datasets.push(lineSeries(th, {
         label: "Portfolio avg", data: labels.map(mo => byMonth.has(mo) ? byMonth.get(mo) : null),
-        borderColor: th.muted, borderWidth: 2, tension: 0.3, fill: false, pointRadius: 0, borderDash: [6, 4],
-      });
+        color: th.muted, width: 1.5, dashed: true,
+      }));
     }
     chartRef.current = new Chart(canvasRef.current, {
       type: "line",
       data: { labels, datasets },
-      options: {
-        responsive: true, maintainAspectRatio: true,
-        plugins: { legend: { display: true, position: "bottom", labels: { color: th.muted, boxWidth: 12, font: { size: 10 } } } },
-        scales: { x: { ticks: { color: th.muted } }, y: { min: 0, max: 100, ticks: { color: th.muted } } },
-      },
+      options: cleanChartOptions(th, { maintainAspectRatio: true, scales: { y: { min: 0, max: 100 } }, plugins: { legend: { display: datasets.length > 1 } } }),
+      plugins: [crosshairPlugin(th)],
     });
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
   }, [trend, portfolioTrend, isFull, isDm, districts, th, user]);
@@ -30985,6 +31051,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return ymd(d); })();
   const lastYearStr  = (() => { const d = new Date(); d.setDate(d.getDate() - 364); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
   const [sales, setSales] = useState(null);
+  const [tappedHour, setTappedHour] = useState(null); // v22.22: tap a bar in Sales by Hour to read it
   const [salesYesterday, setSalesYesterday] = useState(null);
   const [salesLastYear, setSalesLastYear] = useState(null);
   const [labor, setLabor] = useState(null);
@@ -31562,10 +31629,17 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
                 {visibleHours.map(h => {
                   const isPeak = peakHour && h.hour === peakHour.hour;
                   const heightPct = Math.max(4, Math.round(h.sales / maxSales * 100));
+                  // v22.22: tap to read an hour (phones can't hover); others dim.
+                  const isTapped = tappedHour === h.hour;
+                  const lit = tappedHour == null ? isPeak : isTapped;
                   return (
-                    <div key={h.hour} title={`${hourLabel(h.hour)}: ${fmt(h.sales)}`} style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end" }}>
-                      <div style={{ width: "100%", height: heightPct + "%", minHeight: 4, background: isPeak ? O : mBarMut, borderRadius: "6px 6px 3px 3px", transition: "height 0.4s ease" }} />
-                      <span style={{ fontFamily: mMono, fontSize: "8px", fontWeight: 600, letterSpacing: "0.01em", color: isPeak ? O : mMut, marginTop: "0.3rem", whiteSpace: "nowrap", overflow: "hidden" }}>{hourLabel(h.hour)}</span>
+                    <div key={h.hour} onClick={() => setTappedHour(isTapped ? null : h.hour)} title={`${hourLabel(h.hour)}: ${fmt(h.sales)}`}
+                      style={{ position: "relative", flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", cursor: "pointer", opacity: tappedHour != null && !isTapped ? 0.45 : 1, transition: "opacity 0.2s ease" }}>
+                      {isTapped && (
+                        <span style={{ position: "absolute", bottom: `calc(${Math.min(heightPct, 82)}% + 1.35rem)`, fontFamily: mMono, fontSize: "10px", fontWeight: 700, color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "2px 6px", whiteSpace: "nowrap", zIndex: 2, pointerEvents: "none" }}>{fmt(h.sales)}</span>
+                      )}
+                      <div style={{ width: "100%", height: heightPct + "%", minHeight: 4, background: lit ? O : mBarMut, borderRadius: "6px 6px 0 0", transition: "height 0.5s cubic-bezier(.22,1,.36,1), background 0.2s ease" }} />
+                      <span style={{ fontFamily: mMono, fontSize: "8px", fontWeight: 600, letterSpacing: "0.01em", color: lit ? O : mMut, marginTop: "0.3rem", whiteSpace: "nowrap", overflow: "hidden" }}>{hourLabel(h.hour)}</span>
                     </div>
                   );
                 })}
@@ -31768,7 +31842,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.21";
+const APP_VERSION = "v22.23";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36882,7 +36956,7 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                     const y = H - ((v - min) / range) * (H - 4) - 2;
                     return `${x.toFixed(1)},${y.toFixed(1)}`;
                   });
-                  const pathD = `M ${pts.join(" L ")}`;
+                  const pathD = smoothPath(pts.map(p => { const [x, y] = p.split(",").map(Number); return { x, y }; })); // v22.22
                   const areaD = `${pathD} L ${W},${H} L 0,${H} Z`;
                   return (
                     <div style={{ marginBottom: "1rem", background: th.card2, borderRadius: "0.625rem", padding: "0.75rem 1rem", border: `1px solid ${th.cardBorder}` }}>
@@ -36893,12 +36967,12 @@ function Dashboard({ user, th, links, todos, stores, projects, announcements, se
                       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: 40, display: "block" }}>
                         <defs>
                           <linearGradient id="sparkGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#69db7c" stopOpacity="0.4" />
+                            <stop offset="0%" stopColor="#69db7c" stopOpacity="0.25" />
                             <stop offset="100%" stopColor="#69db7c" stopOpacity="0" />
                           </linearGradient>
                         </defs>
                         <path d={areaD} fill="url(#sparkGradient)" />
-                        <path d={pathD} fill="none" stroke="#69db7c" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                        <path d={pathD} fill="none" stroke="#69db7c" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                         <circle cx={((salesHistory.length - 1) / (salesHistory.length - 1) * W).toFixed(1)} cy={pts[pts.length - 1].split(",")[1]} r="1.8" fill="#69db7c" vectorEffect="non-scaling-stroke" />
                       </svg>
                     </div>
@@ -40094,6 +40168,7 @@ function ScheduleBuilder({ store, th, mode }) {
 // ── LaborDrillDown ───────────────────────────────────────────────────────────
 function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
   const [activeTab, setActiveTab] = useState('hourly');
+  const [laborHoverHr, setLaborHoverHr] = useState(null); // v22.22: hovered hour in the Hourly chart
   const [punches, setPunches] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [storeHistory, setStoreHistory] = useState(null);
@@ -40551,19 +40626,34 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
   // ── Hourly tab chart ──────────────────────────────────────────────────────
   const maxBarVal = Math.max(...hourlyLabor.map(h => Math.max(h.labor, h.sales)), 1);
 
+  // v22.22: shared clean chart style — rounded tops, soft sales fade, faint grid,
+  // hover dims the other hours and shows a tooltip card (was title= only).
   function HourlyBar({ h }) {
     const laborH   = (h.labor / maxBarVal) * 100;
     const salesH   = (h.sales / maxBarVal) * 100;
     const pct      = h.sales > 0 ? (h.labor / h.sales) * 100 : 0;
     const clr      = laborColor(pct);
     const hrLabel  = h.hr === 12 ? '12p' : h.hr > 12 ? (h.hr - 12) + 'p' : h.hr + 'a';
+    const hrLong   = h.hr === 12 ? '12 PM' : h.hr > 12 ? (h.hr - 12) + ' PM' : h.hr + ' AM';
+    const isHover  = laborHoverHr === h.hr;
+    const dim      = laborHoverHr != null && !isHover;
+    const hasData  = h.labor > 0 || h.sales > 0;
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 110, width: '100%', justifyContent: 'center' }}>
-          <div style={{ width: '40%', height: laborH + '%', background: clr, borderRadius: '2px 2px 0 0', minHeight: h.labor > 0 ? 2 : 0, transition: 'height .3s' }} title={`Labor: ${fmtDollars(h.labor)}`} />
-          <div style={{ width: '40%', height: salesH + '%', background: '#FF671F55', borderRadius: '2px 2px 0 0', minHeight: h.sales > 0 ? 2 : 0, transition: 'height .3s' }} title={`Sales: ${fmtDollars(h.sales)}`} />
+      <div onMouseEnter={() => hasData && setLaborHoverHr(h.hr)} onMouseLeave={() => setLaborHoverHr(null)}
+        style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0, cursor: hasData ? 'pointer' : 'default' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 140, width: '100%', justifyContent: 'center', opacity: dim ? 0.4 : 1, transition: 'opacity .2s ease' }}>
+          <div style={{ width: '36%', height: laborH + '%', background: clr, borderRadius: '4px 4px 0 0', minHeight: h.labor > 0 ? 2 : 0, transition: 'height .5s cubic-bezier(.22,1,.36,1)' }} />
+          <div style={{ width: '36%', height: salesH + '%', background: isHover ? withAlpha(O, 0.75) : `linear-gradient(180deg, ${withAlpha(O, 0.5)}, ${withAlpha(O, 0.2)})`, borderRadius: '4px 4px 0 0', minHeight: h.sales > 0 ? 2 : 0, transition: 'height .5s cubic-bezier(.22,1,.36,1)' }} />
         </div>
-        <div style={{ fontSize: '0.6rem', color: th.muted, marginTop: 2 }}>{hrLabel}</div>
+        <div style={{ fontSize: '0.62rem', color: isHover ? th.text : th.muted, fontWeight: isHover ? 700 : 500, marginTop: 4 }}>{hrLabel}</div>
+        {isHover && (
+          <div style={{ position: 'absolute', top: 0, ...(h.hr <= 7 ? { left: 0 } : h.hr >= 20 ? { right: 0 } : { left: '50%', transform: 'translateX(-50%)' }), zIndex: 5, pointerEvents: 'none', whiteSpace: 'nowrap',
+            background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: '0.45rem 0.65rem', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '0.72rem', color: th.text }}>
+            <div style={{ color: th.muted, marginBottom: 3 }}>{hrLong}</div>
+            <div><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: O, marginRight: 6 }} />Sales <strong>{fmtDollars(h.sales)}</strong></div>
+            <div><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: clr, marginRight: 6 }} />Labor <strong>{fmtDollars(h.labor)}</strong>{h.sales > 0 && <span style={{ color: th.muted }}> · {pct.toFixed(1)}%</span>}</div>
+          </div>
+        )}
       </div>
     );
   }
@@ -40641,14 +40731,19 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
         <div style={{ ...card(th), padding: '1rem', marginBottom: '1rem' }}>
           <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.875rem', color: th.text, marginBottom: '0.75rem' }}>
             Labor vs Sales by Hour
-            <span style={{ marginLeft: '0.75rem', fontSize: '0.7rem', color: th.muted }}>
-              <span style={{ display: 'inline-block', width: 10, height: 10, background: '#4caf50', marginRight: 3, borderRadius: 2 }} />Labor
-              <span style={{ display: 'inline-block', width: 10, height: 10, background: '#FF671F55', marginLeft: 8, marginRight: 3, borderRadius: 2 }} />Sales
+            <span style={{ marginLeft: '0.75rem', fontSize: '0.7rem', color: th.muted, fontWeight: 500 }}>
+              <span style={{ display: 'inline-block', width: 7, height: 7, background: '#4caf50', marginRight: 5, borderRadius: '50%' }} />Labor
+              <span style={{ display: 'inline-block', width: 7, height: 7, background: O, marginLeft: 12, marginRight: 5, borderRadius: '50%' }} />Sales
             </span>
           </div>
-          {/* Bar chart */}
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, paddingBottom: '0.25rem', overflowX: 'auto' }}>
-            {hourlyLabor.map(h => <HourlyBar key={h.hr} h={h} />)}
+          {/* Bar chart — faint dashed gridlines behind the 140px plot (quarters) */}
+          <div style={{ position: 'relative', paddingTop: '0.5rem' }}>
+            <div aria-hidden="true" style={{ position: 'absolute', left: 0, right: 0, top: '0.5rem', height: 140, pointerEvents: 'none',
+              backgroundImage: `repeating-linear-gradient(to bottom, ${chartTokens(th).grid} 0 1px, transparent 1px 35px)` }} />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 2, paddingBottom: '0.25rem', overflowX: 'auto', overflowY: 'visible' }}>
+              {/* Called as a function, not <HourlyBar/>: it is defined inside this component, so as a component every hover would remount all bars */}
+              {hourlyLabor.map(h => <React.Fragment key={h.hr}>{HourlyBar({ h })}</React.Fragment>)}
+            </div>
           </div>
           {/* Table */}
           <div style={{ overflowX: 'auto', marginTop: '0.75rem' }}>
@@ -41531,7 +41626,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
               </div>
               {/* Labor % progress bar */}
               <div style={{ height: 4, background: th.cardBorder, borderRadius: 999, marginBottom: '0.45rem', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.min((pct / 35) * 100, 100)}%`, background: clr, borderRadius: 999, boxShadow: `0 0 8px ${clr}88`, transition: 'width .5s ease' }} />
+                <div style={{ height: '100%', width: `${Math.min((pct / 35) * 100, 100)}%`, background: clr, borderRadius: 999, transition: 'width .6s cubic-bezier(.22,1,.36,1)' }} />
               </div>
               <div style={{ fontSize: '1.2rem', fontWeight: 700, color: th.text, marginBottom: '0.2rem' }}>{fmtDollars(t.laborDollars)}</div>
               <div style={{ fontSize: '0.72rem', color: th.muted, marginBottom: '0.35rem' }}>of {fmtDollars(t.sales)} sales</div>
@@ -41606,13 +41701,14 @@ function PnLStoreDetail({ store, th, onClose }) {
       type: 'line',
       data: {
         labels: history.map(h => h.date),
-        datasets: [{ label: 'Margin %', data: history.map(h => h.marginPct), borderColor: '#FF671F', borderWidth: 2, tension: 0.3, fill: false, pointRadius: 0 }],
+        datasets: [lineSeries(th, { label: 'Margin %', data: history.map(h => h.marginPct), color: '#FF671F', fill: true })],
       },
-      options: {
-        responsive: true, maintainAspectRatio: true,
-        plugins: { legend: { display: false } },
-        scales: { x: { ticks: { color: th.muted, maxTicksLimit: 8 } }, y: { ticks: { color: th.muted } } },
-      },
+      options: cleanChartOptions(th, {
+        maintainAspectRatio: true,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` Margin ${c.parsed.y != null ? c.parsed.y.toFixed(1) : '—'}%` } } },
+        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { ticks: { callback: (v) => `${v}%` } } },
+      }),
+      plugins: [crosshairPlugin(th)],
     });
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
   }, [history, th]);
@@ -43485,32 +43581,25 @@ function ImpactRadar({ th, user, dark, salesWeeks }) {
 
     const all = [results.impacted, ...results.controls];
     const labels = [...new Set(all.flatMap((r) => r.series.map((s) => s.weekOf)))].sort();
-    const palette = ['#FF671F', '#2563eb', '#16a34a', '#9333ea', '#0891b2'];
+    // v22.22: shared clean chart style — impacted store bold + soft fill, controls thin.
     const datasets = all.map((r, i) => {
       const byWeek = Object.fromEntries(r.series.map((s) => [s.weekOf, s.sales]));
-      return {
+      return lineSeries(th, {
         label: r.name + (i === 0 ? ' (impacted)' : ''),
         data: labels.map((w) => byWeek[w] ?? null),
-        borderColor: palette[i % palette.length],
-        borderWidth: i === 0 ? 3 : 1.5,
-        spanGaps: true, tension: 0.25, pointRadius: 2,
-      };
+        color: seriesColor(i), width: i === 0 ? 2.5 : 1.5, fill: i === 0, spanGaps: true,
+      });
     });
 
     chartRef.current = new window.Chart(chartCanvas.current.getContext('2d'), {
       type: 'line',
       data: { labels, datasets },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { labels: { color: th.text } },
-          tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } },
-        },
-        scales: {
-          x: { ticks: { color: th.muted, maxRotation: 60, minRotation: 60 }, grid: { color: th.sidebarBorder } },
-          y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) }, grid: { color: th.sidebarBorder } },
-        },
-      },
+      options: cleanChartOptions(th, {
+        maintainAspectRatio: false,
+        plugins: { tooltip: { callbacks: { label: (c) => ` ${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } } },
+        scales: { y: { ticks: { callback: (v) => fmtDollars(v) } } },
+      }),
+      plugins: [crosshairPlugin(th)],
     });
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
   }, [results, dark]);
@@ -44062,16 +44151,14 @@ function NdcpAnalysis({ th, summary, orders, labor, dcpPct, storeName, num, O, c
       type: 'line',
       data: {
         labels: weeks.map(([wk]) => wk),
-        datasets: [{ label: 'Spend', data: weeks.map(([, w]) => w.spend), borderColor: O, backgroundColor: `${O}22`, borderWidth: 2, tension: 0.3, fill: true, pointRadius: 2 }],
+        datasets: [lineSeries(th, { label: 'Spend', data: weeks.map(([, w]) => w.spend), color: O, fill: true })],
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: th.muted, maxTicksLimit: 10 } },
-          y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) } },
-        },
-      },
+      options: cleanChartOptions(th, {
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` Spend ${fmtDollars(c.parsed.y)}` } } },
+        scales: { x: { ticks: { maxTicksLimit: 10 } }, y: { ticks: { callback: (v) => fmtDollars(v) } } },
+      }),
+      plugins: [crosshairPlugin(th)],
     });
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
   }, [weeks, th]);
@@ -49029,66 +49116,50 @@ function ReportComponent({ component, theme: th, width }) {
         chartRef.current.destroy();
         chartRef.current = null;
       }
-      const textColor = isDark ? '#e5e7eb' : '#374151';
-      const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-      const defaultColors = ['#FF671F','#3b82f6','#22c55e','#a855f7','#f59e0b','#ef4444','#06b6d4'];
-
-      const datasets = (data.datasets || []).map((ds, idx) => ({
-        ...ds,
-        backgroundColor: ds.backgroundColor || (
-          data.chartType === 'doughnut'
-            ? defaultColors
-            : defaultColors[idx % defaultColors.length] + 'cc'
-        ),
-        borderColor: ds.borderColor || (
-          data.chartType === 'line'
-            ? defaultColors[idx % defaultColors.length]
-            : undefined
-        ),
-        borderWidth: ds.borderWidth !== undefined ? ds.borderWidth : (data.chartType === 'line' ? 2 : 1),
-        tension: data.chartType === 'line' ? (ds.tension !== undefined ? ds.tension : 0.3) : undefined,
-        fill: data.chartType === 'line' ? (ds.fill !== undefined ? ds.fill : false) : undefined,
-      }));
-
+      // v22.22: shared clean chart style (src/chart-style.js) — same look as every
+      // other portal chart; the report's own colours/options still win.
+      const cth = getTheme(isDark);
+      const t = chartTokens(cth);
       const isStacked = data.chartType === 'stacked';
       const chartType = isStacked ? 'bar' : (data.chartType || 'bar');
+      const rawSets = data.datasets || [];
 
-      const options = {
-        responsive: true,
+      const datasets = rawSets.map((ds, idx) => {
+        const color = seriesColor(idx);
+        if (chartType === 'doughnut' || chartType === 'pie') {
+          return { backgroundColor: CHART_PALETTE, borderColor: t.tooltipBg, borderWidth: 2, hoverOffset: 6, ...ds };
+        }
+        if (chartType === 'line') {
+          return { ...lineSeries(cth, { color: ds.borderColor || color, fill: rawSets.length === 1 }), ...ds, ...(ds.borderColor ? {} : { borderColor: color }) };
+        }
+        return { backgroundColor: color, hoverBackgroundColor: withAlpha(color, 0.85), borderRadius: isStacked ? 4 : 6, maxBarThickness: 40, ...ds };
+      });
+
+      const userOpts = data.options || {};
+      const options = cleanChartOptions(cth, {
         maintainAspectRatio: true,
         plugins: {
-          legend: {
-            labels: { color: textColor, font: { family: 'Source Sans 3, sans-serif', size: 12 } },
-          },
-          title: data.title ? {
-            display: true,
-            text: data.title,
-            color: textColor,
-            font: { family: 'Raleway, sans-serif', size: 14, weight: '700' },
-          } : { display: false },
-          ...(data.options && data.options.plugins ? data.options.plugins : {}),
+          title: data.title ? { display: true, text: data.title, color: t.text, align: 'start', padding: { bottom: 12 }, font: { family: t.titleFont, size: 14, weight: '700' } } : { display: false },
+          ...(userOpts.plugins || {}),
         },
-        scales: chartType === 'doughnut' ? {} : {
-          x: {
-            stacked: isStacked,
-            ticks: { color: textColor, font: { family: 'Source Sans 3, sans-serif', size: 11 } },
-            grid: { color: gridColor },
-            ...(data.options && data.options.scales && data.options.scales.x ? data.options.scales.x : {}),
-          },
-          y: {
-            stacked: isStacked,
-            ticks: { color: textColor, font: { family: 'Source Sans 3, sans-serif', size: 11 } },
-            grid: { color: gridColor },
-            ...(data.options && data.options.scales && data.options.scales.y ? data.options.scales.y : {}),
-          },
+        scales: {
+          x: { stacked: isStacked, ...((userOpts.scales && userOpts.scales.x) || {}) },
+          y: { stacked: isStacked, ...((userOpts.scales && userOpts.scales.y) || {}) },
         },
-        ...(data.options ? { ...data.options, plugins: undefined, scales: undefined } : {}),
-      };
+        ...userOpts, plugins: undefined, scales: undefined,
+      });
+      if (chartType === 'doughnut' || chartType === 'pie') {
+        options.scales = {};
+        options.cutout = chartType === 'doughnut' ? '68%' : 0;
+        options.interaction = { mode: 'nearest', intersect: true };
+        options.plugins.legend.position = 'right';
+      }
 
       chartRef.current = new Chart(canvasRef.current, {
         type: chartType,
         data: { labels: data.labels || [], datasets },
         options,
+        plugins: chartType === 'line' ? [crosshairPlugin(cth)] : [],
       });
 
       return () => {

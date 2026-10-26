@@ -1353,6 +1353,158 @@
     return [...set].sort((a, b) => a - b);
   }
 
+  // src/chart-style.js
+  var CHART_PALETTE = ["#FF671F", "#6366f1", "#14b8a6", "#f59e0b", "#d946ef", "#64748b", "#0ea5e9", "#84cc16"];
+  var seriesColor = (i) => CHART_PALETTE[(i % CHART_PALETTE.length + CHART_PALETTE.length) % CHART_PALETTE.length];
+  function withAlpha(color, alpha) {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color || "").trim());
+    if (!m) return color;
+    let h = m[1];
+    if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+    const n = parseInt(h, 16);
+    return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${alpha})`;
+  }
+  function chartTokens(th) {
+    const dark = !!(th && th.dark);
+    return {
+      text: th?.text || (dark ? "#e8e8e8" : "#1a1710"),
+      muted: th?.muted || (dark ? "#a0a0a0" : "#6b6560"),
+      grid: dark ? "rgba(255,255,255,0.07)" : "rgba(26,23,16,0.07)",
+      crosshair: dark ? "rgba(255,255,255,0.28)" : "rgba(26,23,16,0.22)",
+      tooltipBg: th?.card || (dark ? "#1c1c1c" : "#ffffff"),
+      tooltipBorder: th?.cardBorder || (dark ? "#2a2a2a" : "#e0ddd8"),
+      font: "'Source Sans 3', sans-serif",
+      titleFont: "'Raleway', sans-serif"
+    };
+  }
+  var isObj = (v) => v && typeof v === "object" && !Array.isArray(v) && typeof v !== "function";
+  function mergeDeep(base, over) {
+    if (!isObj(over)) return over === void 0 ? base : over;
+    const out = { ...isObj(base) ? base : {} };
+    for (const [k, v] of Object.entries(over)) out[k] = isObj(v) && isObj(out[k]) ? mergeDeep(out[k], v) : v === void 0 ? out[k] : v;
+    return out;
+  }
+  function cleanChartOptions(th, overrides = {}) {
+    const t = chartTokens(th);
+    const tick = { color: t.muted, font: { family: t.font, size: 11 }, padding: 6 };
+    const base = {
+      responsive: true,
+      animation: { duration: 900, easing: "easeOutQuart" },
+      interaction: { mode: "index", intersect: false },
+      layout: { padding: { top: 6, right: 6 } },
+      plugins: {
+        legend: {
+          position: "bottom",
+          align: "start",
+          labels: { color: t.muted, usePointStyle: true, pointStyle: "circle", boxWidth: 7, boxHeight: 7, padding: 14, font: { family: t.font, size: 11.5 } }
+        },
+        tooltip: {
+          backgroundColor: t.tooltipBg,
+          borderColor: t.tooltipBorder,
+          borderWidth: 1,
+          titleColor: t.text,
+          bodyColor: t.text,
+          footerColor: t.muted,
+          titleFont: { family: t.font, size: 12, weight: "600" },
+          bodyFont: { family: t.font, size: 12 },
+          padding: { x: 12, y: 10 },
+          cornerRadius: 10,
+          caretSize: 0,
+          caretPadding: 10,
+          usePointStyle: true,
+          boxWidth: 7,
+          boxHeight: 7,
+          boxPadding: 5
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: { ...tick, maxRotation: 0, autoSkip: true, autoSkipPadding: 14 } },
+        y: { grid: { color: t.grid, drawTicks: false }, border: { display: false, dash: [3, 4] }, ticks: { ...tick, padding: 10, maxTicksLimit: 5 } }
+      },
+      elements: {
+        line: { tension: 0.35, cubicInterpolationMode: "monotone", borderWidth: 2, borderCapStyle: "round", borderJoinStyle: "round" },
+        point: { radius: 0, hoverRadius: 4.5, hoverBorderWidth: 2, hitRadius: 14 },
+        bar: { borderRadius: 6, borderSkipped: false },
+        arc: { borderWidth: 2, borderColor: t.tooltipBg }
+      }
+    };
+    return mergeDeep(base, overrides);
+  }
+  function areaFill(color, strength = 0.22) {
+    return (ctx) => {
+      const chart = ctx && ctx.chart;
+      const area = chart && chart.chartArea;
+      if (!area || !chart.ctx || !chart.ctx.createLinearGradient) return withAlpha(color, strength / 2);
+      const g = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+      g.addColorStop(0, withAlpha(color, strength));
+      g.addColorStop(1, withAlpha(color, 0));
+      return g;
+    };
+  }
+  function lineSeries(th, { color, fill = false, dashed = false, width = 2, ...rest } = {}) {
+    const t = chartTokens(th);
+    return {
+      borderColor: color,
+      backgroundColor: fill ? areaFill(color) : color,
+      fill: !!fill,
+      borderWidth: width,
+      pointHoverBackgroundColor: color,
+      pointHoverBorderColor: t.tooltipBg,
+      ...dashed ? { borderDash: [5, 4] } : {},
+      ...rest
+    };
+  }
+  function crosshairPlugin(th) {
+    const color = chartTokens(th).crosshair;
+    return {
+      id: "pcgCrosshair",
+      afterDatasetsDraw(chart) {
+        const active = chart.tooltip && chart.tooltip.getActiveElements && chart.tooltip.getActiveElements();
+        if (!active || !active.length || !chart.chartArea) return;
+        const x = active[0].element.x;
+        const { top, bottom } = chart.chartArea;
+        const c = chart.ctx;
+        c.save();
+        c.beginPath();
+        c.setLineDash([3, 4]);
+        c.lineWidth = 1;
+        c.strokeStyle = color;
+        c.moveTo(x, top);
+        c.lineTo(x, bottom);
+        c.stroke();
+        c.restore();
+      }
+    };
+  }
+  function smoothPath(points) {
+    const p = (points || []).filter((q) => Number.isFinite(q.x) && Number.isFinite(q.y));
+    if (p.length === 0) return "";
+    if (p.length === 1) return `M${p[0].x},${p[0].y}`;
+    const n = p.length;
+    const dx = [], dy = [], m = [];
+    for (let i = 0; i < n - 1; i++) {
+      dx[i] = p[i + 1].x - p[i].x;
+      dy[i] = p[i + 1].y - p[i].y;
+      m[i] = dx[i] ? dy[i] / dx[i] : 0;
+    }
+    const t = [m[0]];
+    for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : 3 * (dx[i - 1] + dx[i]) / ((2 * dx[i] + dx[i - 1]) / m[i - 1] + (dx[i] + 2 * dx[i - 1]) / m[i]);
+    t[n - 1] = m[n - 2];
+    const r = (v) => Math.round(v * 100) / 100;
+    let d = `M${r(p[0].x)},${r(p[0].y)}`;
+    for (let i = 0; i < n - 1; i++) {
+      const h = dx[i] / 3;
+      d += ` C${r(p[i].x + h)},${r(p[i].y + h * t[i])} ${r(p[i + 1].x - h)},${r(p[i + 1].y - h * t[i + 1])} ${r(p[i + 1].x)},${r(p[i + 1].y)}`;
+    }
+    return d;
+  }
+  function roundedTopBar(x, y, w, h, r = 5) {
+    if (!(w > 0) || !(h > 0)) return "";
+    const rr = Math.max(0, Math.min(r, w / 2, h));
+    const n = (v) => Math.round(v * 100) / 100;
+    return `M${n(x)},${n(y + h)} V${n(y + rr)} Q${n(x)},${n(y)} ${n(x + rr)},${n(y)} H${n(x + w - rr)} Q${n(x + w)},${n(y)} ${n(x + w)},${n(y + rr)} V${n(y + h)} Z`;
+  }
+
   // src/district-apply.mjs
   var norm = (v) => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
   var firstName = (v) => norm(v).split(" ")[0] || "";
@@ -9503,33 +9655,30 @@
         viewBox: `-38 -30 ${totalW + 58} ${H + LABEL_H + 30}`,
         style: { width: "100%", minWidth: data.length * (W_BAR + GAP) + 40, height: H + LABEL_H + 30, overflow: "visible", display: "block" }
       },
+      /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: "trendBarFade", x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: G, stopOpacity: "0.5" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.22" }))),
       gridLines.map((v) => {
         const y = H - v / chartMax * H;
-        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: `${G}18`, strokeWidth: 1, strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("text", { x: -6, y: y + 4, textAnchor: "end", fontSize: "10", fill: `${th.muted}99` }, fmtK(v)));
+        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: chartTokens(th).grid, strokeWidth: 1, strokeDasharray: "3 4" }), /* @__PURE__ */ React.createElement("text", { x: -8, y: y + 4, textAnchor: "end", fontSize: "10.5", fill: th.muted }, fmtK(v)));
       }),
       data.map((d, i) => {
         const barH = d.hasData ? Math.max(4, d.netSales / chartMax * H) : 0;
         const x = i * (W_BAR + GAP);
-        return /* @__PURE__ */ React.createElement("g", { key: d.date }, /* @__PURE__ */ React.createElement(
-          "rect",
+        return /* @__PURE__ */ React.createElement("g", { key: d.date }, barH > 0 && /* @__PURE__ */ React.createElement(
+          "path",
           {
-            x,
-            y: H - barH,
-            width: W_BAR,
-            height: barH,
-            fill: d.isSelected ? G : `${G}55`,
-            rx: 3,
-            style: { filter: d.isSelected ? `drop-shadow(0 0 6px ${G})` : "none" }
+            d: roundedTopBar(x, H - barH, W_BAR, barH, 7),
+            fill: d.isSelected ? G : "url(#trendBarFade)",
+            style: { transition: "fill .2s ease" }
           }
         ), d.hasData && /* @__PURE__ */ React.createElement(
           "text",
           {
             x: x + W_BAR / 2,
-            y: H - barH - 6,
+            y: H - barH - 7,
             textAnchor: "middle",
             fontSize: "11",
-            fill: d.isSelected ? G : `${G}bb`,
-            fontWeight: d.isSelected ? "800" : "500"
+            fill: d.isSelected ? th.text : th.muted,
+            fontWeight: d.isSelected ? "700" : "500"
           },
           fmtK(d.netSales)
         ), /* @__PURE__ */ React.createElement(
@@ -9539,8 +9688,8 @@
             y: H + 18,
             textAnchor: "middle",
             fontSize: "12",
-            fill: d.isSelected ? G : th.muted,
-            fontWeight: d.isSelected ? "800" : "500"
+            fill: d.isSelected ? th.text : th.muted,
+            fontWeight: d.isSelected ? "700" : "500"
           },
           d.dayLabel
         ), /* @__PURE__ */ React.createElement(
@@ -9550,8 +9699,9 @@
             y: H + 34,
             textAnchor: "middle",
             fontSize: "11",
-            fill: d.isSelected ? `${G}cc` : `${th.muted}aa`,
-            fontWeight: d.isSelected ? "700" : "400"
+            fill: th.muted,
+            fontWeight: d.isSelected ? "600" : "400",
+            opacity: d.isSelected ? 1 : 0.75
           },
           d.date
         ), /* @__PURE__ */ React.createElement(
@@ -9567,7 +9717,7 @@
           }
         ));
       }),
-      /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: `${G}44`, strokeWidth: 1.5 })
+      /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: chartTokens(th).grid, strokeWidth: 1 })
     )));
   }
   function ComplaintsLeaderboardCard({ stores, users, th, setPulseView, containerStyle, filterPcs, title }) {
@@ -10500,7 +10650,7 @@ ${pendingEmail.emails.join("\n")}`,
     const activeRCs = rcs.filter((rc) => (rc.netSlsTtl || 0) > 0).sort((a, b) => (b.netSlsTtl || 0) - (a.netSlsTtl || 0));
     const rcTotal = activeRCs.reduce((a, rc) => a + (rc.netSlsTtl || 0), 0);
     const CHART_COLORS = ["#69db7c", "#74c0fc", "#ffd43b", "#f06595", "#b197fc", "#ff922b", "#20c997", "#868e96", "#e599f7", "#63e6be", "#ffa8a8", "#91a7ff"];
-    const DonutChart = ({ data, size = 200, thickness = 32, hoveredIdx, onHover }) => {
+    const DonutChart = ({ data, size = 200, thickness = 26, hoveredIdx, onHover }) => {
       const total = data.reduce((a, d2) => a + d2.value, 0);
       const r = (size - thickness) / 2;
       const cx = size / 2, cy = size / 2;
@@ -10509,9 +10659,10 @@ ${pendingEmail.emails.join("\n")}`,
       const hovered = hoveredIdx != null ? data[hoveredIdx] : null;
       const hoveredPct = hovered && total > 0 ? hovered.value / total * 100 : 0;
       const pad = 18;
-      return /* @__PURE__ */ React.createElement("svg", { width: size + pad * 2, height: size + pad * 2, viewBox: `${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`, style: { overflow: "visible" } }, /* @__PURE__ */ React.createElement("circle", { cx, cy, r, fill: "none", stroke: th.card3, strokeWidth: thickness }), data.map((d2, i) => {
+      return /* @__PURE__ */ React.createElement("svg", { width: size + pad * 2, height: size + pad * 2, viewBox: `${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`, style: { overflow: "visible" } }, /* @__PURE__ */ React.createElement("circle", { cx, cy, r, fill: "none", stroke: chartTokens(th).grid, strokeWidth: thickness }), data.map((d2, i) => {
         const pct = total > 0 ? d2.value / total : 0;
-        const dash = circumference * pct;
+        const segGap = data.length > 1 && pct < 1 ? Math.min(3, circumference * pct * 0.3) : 0;
+        const dash = Math.max(0, circumference * pct - segGap);
         const gap = circumference - dash;
         const rot = offset * 360 - 90;
         offset += pct;
@@ -10526,16 +10677,16 @@ ${pendingEmail.emails.join("\n")}`,
             r,
             fill: "none",
             stroke: d2.color,
-            strokeWidth: isHovered ? thickness + 6 : thickness,
+            strokeWidth: isHovered ? thickness + 4 : thickness,
             strokeDasharray: dash + " " + gap,
             transform: "rotate(" + rot + " " + cx + " " + cy + ")",
-            opacity: isDimmed ? 0.35 : 1,
-            style: { transition: "stroke-width .15s ease, opacity .15s ease, stroke-dasharray 0.5s ease", cursor: "pointer", filter: isHovered ? `drop-shadow(0 0 6px ${d2.color})` : "none" },
+            opacity: isDimmed ? 0.4 : 1,
+            style: { transition: "stroke-width .2s ease, opacity .2s ease, stroke-dasharray 0.6s cubic-bezier(.22,1,.36,1)", cursor: "pointer" },
             onMouseEnter: () => onHover && onHover(i),
             onMouseLeave: () => onHover && onHover(null)
           }
         );
-      }), hovered ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 20, textAnchor: "middle", fill: th.muted, fontSize: hovered.name.length > 12 ? "8" : "9", fontWeight: "600" }, hovered.name.toUpperCase()), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 4, textAnchor: "middle", fill: hovered.color, fontSize: "20", fontWeight: "900", fontFamily: "'Raleway'" }, fmtUSD(hovered.value)), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 21, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, hoveredPct.toFixed(1) + "%")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 8, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, "Total"), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 14, textAnchor: "middle", fill: th.text, fontSize: "20", fontWeight: "900", fontFamily: "'Raleway'" }, fmtUSD(total))));
+      }), hovered ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 20, textAnchor: "middle", fill: th.muted, fontSize: hovered.name.length > 14 ? "9.5" : "11", fontWeight: "500" }, hovered.name), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 4, textAnchor: "middle", fill: th.text, fontSize: "20", fontWeight: "800", fontFamily: "'Raleway'" }, fmtUSD(hovered.value)), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 21, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, hoveredPct.toFixed(1) + "%")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 8, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, "Total"), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 14, textAnchor: "middle", fill: th.text, fontSize: "20", fontWeight: "800", fontFamily: "'Raleway'" }, fmtUSD(total))));
     };
     const pulseApi = pc === "345986" ? "p227" : "p228";
     async function loadTxnList(dateOverride) {
@@ -10774,69 +10925,66 @@ ${pendingEmail.emails.join("\n")}`,
       const barW = 28, gap = 6;
       const totalW = visible.length * (barW + gap) - gap;
       const fmtK = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
-      const fmtHrLong = (h) => h === 0 ? "12 AM" : h < 12 ? h + " AM" : h === 12 ? "12 PM" : h - 12 + " PM";
+      const fmtHrLong2 = (h) => h === 0 ? "12 AM" : h < 12 ? h + " AM" : h === 12 ? "12 PM" : h - 12 + " PM";
       const gridStep = chartMax / 4;
       const gridLines = [gridStep, gridStep * 2, gridStep * 3, chartMax];
-      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + 52}`, style: { width: "100%", minWidth: visible.length * (barW + gap) + 64, height: H + 52, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `shg${pc}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: G, stopOpacity: "1" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.3" })), /* @__PURE__ */ React.createElement("linearGradient", { id: `shgHot${pc}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#fff", stopOpacity: "1" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.6" }))), gridLines.map((v) => {
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + 52}`, style: { width: "100%", minWidth: visible.length * (barW + gap) + 64, height: H + 52, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `shg${pc}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: G, stopOpacity: "0.95" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.55" }))), gridLines.map((v) => {
         const y = H - v / chartMax * H;
-        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: `${G}18`, strokeWidth: 1, strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("text", { x: -8, y: y + 4, textAnchor: "end", fontSize: "10", fill: th.muted }, fmtK(v)));
-      }), visible.map((h, i) => {
-        const barH = h.sales > 0 ? Math.max(1, h.sales / chartMax * H) : 0;
-        const x = i * (barW + gap);
-        const isHovered = hoveredHour === h.hour;
-        const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
-        return /* @__PURE__ */ React.createElement(
-          "g",
-          {
-            key: h.hour,
-            onMouseEnter: () => {
-              if (!noHoverDevice) setHoveredHour(h.hour);
-            },
-            onMouseLeave: () => setHoveredHour(null),
-            style: { cursor: "pointer", userSelect: "none", WebkitUserSelect: "none" }
-          },
-          /* @__PURE__ */ React.createElement("rect", { x: x - 2, y: 0, width: barW + 4, height: H + 40, fill: "transparent" }),
-          barH > 0 && /* @__PURE__ */ React.createElement(
-            "rect",
+        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: chartTokens(th).grid, strokeWidth: 1, strokeDasharray: "3 4" }), /* @__PURE__ */ React.createElement("text", { x: -10, y: y + 4, textAnchor: "end", fontSize: "10.5", fill: th.muted }, fmtK(v)));
+      }), (() => {
+        const peakHour = visible.reduce((a, h) => h.sales > a.sales ? h : a, visible[0]).hour;
+        return visible.map((h, i) => {
+          const barH = h.sales > 0 ? Math.max(1, h.sales / chartMax * H) : 0;
+          const x = i * (barW + gap);
+          const isHovered = hoveredHour === h.hour;
+          const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
+          const showValue = barH > 0 && (hoveredHour == null ? h.hour === peakHour : false);
+          return /* @__PURE__ */ React.createElement(
+            "g",
             {
-              x,
-              y: H - barH,
-              width: barW,
-              height: barH,
-              fill: isHovered ? `url(#shgHot${pc})` : `url(#shg${pc})`,
-              rx: 4,
-              opacity: isDimmed ? 0.35 : 1,
-              style: { transition: "opacity .15s, fill .15s", filter: isHovered ? `drop-shadow(0 0 10px ${G}88)` : "none" }
-            }
-          ),
-          barH > 0 && h.sales > chartMax * 0.08 && /* @__PURE__ */ React.createElement(
-            "text",
-            {
-              x: x + barW / 2,
-              y: H - barH - 5,
-              textAnchor: "middle",
-              fontSize: "9",
-              fill: G,
-              fontWeight: "800",
-              opacity: isDimmed ? 0.4 : 1
+              key: h.hour,
+              onMouseEnter: () => {
+                if (!noHoverDevice) setHoveredHour(h.hour);
+              },
+              onMouseLeave: () => setHoveredHour(null),
+              style: { cursor: "pointer", userSelect: "none", WebkitUserSelect: "none" }
             },
-            h.sales >= 1e3 ? (h.sales / 1e3).toFixed(1) + "k" : Math.round(h.sales)
-          ),
-          /* @__PURE__ */ React.createElement(
-            "text",
-            {
-              x: x + barW / 2,
-              y: H + 15,
-              textAnchor: "middle",
-              fontSize: "9",
-              fill: isHovered ? G : th.muted,
-              fontWeight: isHovered ? 800 : 500,
-              opacity: isDimmed ? 0.4 : 1
-            },
-            h.hour === 0 ? "12a" : h.hour < 12 ? h.hour + "a" : h.hour === 12 ? "12p" : h.hour - 12 + "p"
-          )
-        );
-      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: `${G}66`, strokeWidth: 1.5 }))), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.5rem" } }, "Hourly Breakdown"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))", gap: "0.25rem" } }, visible.filter((h) => h.sales > 0).map((h) => {
+            /* @__PURE__ */ React.createElement("rect", { x: x - 2, y: 0, width: barW + 4, height: H + 40, fill: "transparent" }),
+            barH > 0 && /* @__PURE__ */ React.createElement(
+              "path",
+              {
+                d: roundedTopBar(x, H - barH, barW, barH, 6),
+                fill: isHovered ? G : `url(#shg${pc})`,
+                opacity: isDimmed ? 0.4 : 1,
+                style: { transition: "opacity .2s ease" }
+              }
+            ),
+            showValue && /* @__PURE__ */ React.createElement("text", { x: x + barW / 2, y: H - barH - 7, textAnchor: "middle", fontSize: "10", fill: th.text, fontWeight: "700" }, fmtK(h.sales)),
+            /* @__PURE__ */ React.createElement(
+              "text",
+              {
+                x: x + barW / 2,
+                y: H + 16,
+                textAnchor: "middle",
+                fontSize: "9.5",
+                fill: isHovered ? th.text : th.muted,
+                fontWeight: isHovered ? 700 : 500,
+                opacity: isDimmed ? 0.5 : 1
+              },
+              h.hour === 0 ? "12a" : h.hour < 12 ? h.hour + "a" : h.hour === 12 ? "12p" : h.hour - 12 + "p"
+            )
+          );
+        });
+      })(), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: chartTokens(th).grid, strokeWidth: 1 }), (() => {
+        const i = visible.findIndex((h2) => h2.hour === hoveredHour);
+        if (i < 0 || !(visible[i].sales > 0)) return null;
+        const h = visible[i];
+        const barH = Math.max(1, h.sales / chartMax * H);
+        const cardW = 108, cardH = 44;
+        const cx = Math.min(Math.max(i * (barW + gap) + barW / 2 - cardW / 2, -40), totalW - cardW + 10);
+        const cy = Math.max(H - barH - cardH - 10, -20);
+        return /* @__PURE__ */ React.createElement("g", { pointerEvents: "none" }, /* @__PURE__ */ React.createElement("rect", { x: cx, y: cy, width: cardW, height: cardH, rx: 9, fill: th.card, stroke: th.cardBorder, strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: cx + 10, y: cy + 17, fontSize: "10", fill: th.muted }, fmtHrLong2(h.hour)), /* @__PURE__ */ React.createElement("text", { x: cx + 10, y: cy + 34, fontSize: "12.5", fontWeight: "700", fill: th.text }, fmtK(h.sales), /* @__PURE__ */ React.createElement("tspan", { fontSize: "10", fontWeight: "500", fill: th.muted }, `  \xB7  ${fmtNum(h.count)} checks`)));
+      })())), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.5rem" } }, "Hourly Breakdown"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))", gap: "0.25rem" } }, visible.filter((h) => h.sales > 0).map((h) => {
         const isHovered = hoveredHour === h.hour;
         const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
         const pct = h.sales / hourlyData.reduce((a, x) => a + x.sales, 0) * 100;
@@ -10866,7 +11014,7 @@ ${pendingEmail.emails.join("\n")}`,
               WebkitTapHighlightColor: "transparent"
             }
           },
-          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: isHovered ? G : th.muted, minWidth: 44 } }, fmtHrLong(h.hour)),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: isHovered ? G : th.muted, minWidth: 44 } }, fmtHrLong2(h.hour)),
           /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text } }, fmtUSD(h.sales)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, h.count, " chks \xB7 ", fmtAvg(avg))),
           /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: G, minWidth: 32, textAlign: "right" } }, pct.toFixed(1), "%")
         );
@@ -10941,24 +11089,24 @@ ${pendingEmail.emails.join("\n")}`,
       const segW = 36;
       const totalW = visible.length * segW;
       const fmtHr = (h) => h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : h - 12 + "p";
-      const fmtHrLong = (h) => h === 0 ? "12 AM" : h < 12 ? h + " AM" : h === 12 ? "12 PM" : h - 12 + " PM";
+      const fmtHrLong2 = (h) => h === 0 ? "12 AM" : h < 12 ? h + " AM" : h === 12 ? "12 PM" : h - 12 + " PM";
       const points = visible.map((h, i) => ({ x: i * segW + segW / 2, y: h.avg > 0 ? H - h.avg / chartMax * H : null, hour: h.hour, avg: h.avg, count: h.count, sales: h.sales }));
       const dataPts = points.filter((p) => p.y !== null);
-      const pathD = dataPts.length > 0 ? "M " + dataPts.map((p) => `${p.x},${p.y}`).join(" L ") : "";
-      const areaD = dataPts.length > 0 ? `M ${dataPts[0].x},${H} L ` + dataPts.map((p) => `${p.x},${p.y}`).join(" L ") + ` L ${dataPts[dataPts.length - 1].x},${H} Z` : "";
+      const pathD = smoothPath(dataPts);
+      const areaD = dataPts.length > 0 ? `${pathD} L ${dataPts[dataPts.length - 1].x},${H} L ${dataPts[0].x},${H} Z` : "";
       const gridLines = [chartMax / 4, chartMax / 2, chartMax * 3 / 4, chartMax];
       const overallAvg = (() => {
         const s2 = visible.reduce((a, h) => a + h.sales, 0);
         const c = visible.reduce((a, h) => a + h.count, 0);
         return c > 0 ? s2 / c : 0;
       })();
-      return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + CH + 54}`, style: { width: "100%", minWidth: totalW + 64, height: H + CH + 54, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `avgArea${pc}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#74c0fc", stopOpacity: "0.5" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#74c0fc", stopOpacity: "0.02" })), /* @__PURE__ */ React.createElement("linearGradient", { id: `cntBar${pc}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#b197fc", stopOpacity: "0.9" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#b197fc", stopOpacity: "0.3" }))), gridLines.map((v) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + CH + 54}`, style: { width: "100%", minWidth: totalW + 64, height: H + CH + 54, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `avgArea${pc}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#74c0fc", stopOpacity: "0.28" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#74c0fc", stopOpacity: "0" })), /* @__PURE__ */ React.createElement("linearGradient", { id: `cntBar${pc}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#b197fc", stopOpacity: "0.85" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#b197fc", stopOpacity: "0.45" }))), gridLines.map((v) => {
         const y = H - v / chartMax * H;
-        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: "#74c0fc18", strokeWidth: 1, strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("text", { x: -8, y: y + 4, textAnchor: "end", fontSize: "10", fill: th.muted }, "$", v.toFixed(0)));
+        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: chartTokens(th).grid, strokeWidth: 1, strokeDasharray: "3 4" }), /* @__PURE__ */ React.createElement("text", { x: -10, y: y + 4, textAnchor: "end", fontSize: "10.5", fill: th.muted }, "$", v.toFixed(0)));
       }), overallAvg > 0 && (() => {
         const y = H - overallAvg / chartMax * H;
-        return /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: "#69db7c", strokeWidth: 1.5, strokeDasharray: "6 4", opacity: 0.7 }), /* @__PURE__ */ React.createElement("text", { x: totalW + 6, y: y + 4, fontSize: "10", fill: "#69db7c", fontWeight: "700" }, "avg ", fmtAvg(overallAvg)));
-      })(), /* @__PURE__ */ React.createElement("path", { d: areaD, fill: `url(#avgArea${pc})` }), /* @__PURE__ */ React.createElement("path", { d: pathD, fill: "none", stroke: "#74c0fc", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round", style: { filter: `drop-shadow(0 2px 6px #74c0fc44)` } }), points.map((p, i) => {
+        return /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: th.muted, strokeWidth: 1, strokeDasharray: "5 5", opacity: 0.6 }), /* @__PURE__ */ React.createElement("text", { x: totalW + 6, y: y + 4, fontSize: "10", fill: th.muted, fontWeight: "600" }, "avg ", fmtAvg(overallAvg)));
+      })(), /* @__PURE__ */ React.createElement("path", { d: areaD, fill: `url(#avgArea${pc})` }), /* @__PURE__ */ React.createElement("path", { d: pathD, fill: "none", stroke: "#74c0fc", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }), points.map((p, i) => {
         if (p.y === null) return null;
         const isHovered = hoveredHour === p.hour;
         const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
@@ -10971,22 +11119,17 @@ ${pendingEmail.emails.join("\n")}`,
             },
             onMouseLeave: () => setHoveredHour(null),
             style: { cursor: "pointer" },
-            opacity: isDimmed ? 0.35 : 1
+            opacity: 1
           },
           /* @__PURE__ */ React.createElement("rect", { x: p.x - segW / 2, y: 0, width: segW, height: H + CH + 30, fill: "transparent" }),
-          /* @__PURE__ */ React.createElement(
-            "circle",
-            {
-              cx: p.x,
-              cy: p.y,
-              r: isHovered ? 6 : 3.5,
-              fill: "#74c0fc",
-              style: { transition: "r .15s", filter: isHovered ? "drop-shadow(0 0 8px #74c0fc)" : "none" }
-            }
-          ),
-          isHovered && /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("rect", { x: p.x - 34, y: p.y - 36, width: 68, height: 24, rx: 4, fill: th.card3, stroke: "#74c0fc", strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: p.x, y: p.y - 20, textAnchor: "middle", fontSize: "11", fill: "#74c0fc", fontWeight: "800" }, fmtAvg(p.avg)))
+          isHovered && /* @__PURE__ */ React.createElement("g", { pointerEvents: "none" }, /* @__PURE__ */ React.createElement("line", { x1: p.x, y1: 0, x2: p.x, y2: H, stroke: chartTokens(th).crosshair, strokeWidth: 1, strokeDasharray: "3 4" }), /* @__PURE__ */ React.createElement("circle", { cx: p.x, cy: p.y, r: 4.5, fill: "#74c0fc", stroke: th.card, strokeWidth: 2 }), (() => {
+            const cardW = 112, cardH = 44;
+            const cx = Math.min(Math.max(p.x - cardW / 2, -40), totalW - cardW + 10);
+            const cy = Math.max(p.y - cardH - 12, -20);
+            return /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("rect", { x: cx, y: cy, width: cardW, height: cardH, rx: 9, fill: th.card, stroke: th.cardBorder, strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: cx + 10, y: cy + 17, fontSize: "10", fill: th.muted }, fmtHrLong2(p.hour)), /* @__PURE__ */ React.createElement("text", { x: cx + 10, y: cy + 34, fontSize: "12.5", fontWeight: "700", fill: th.text }, fmtAvg(p.avg), /* @__PURE__ */ React.createElement("tspan", { fontSize: "10", fontWeight: "500", fill: th.muted }, `  \xB7  ${p.count} checks`)));
+          })())
         );
-      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: "#74c0fc66", strokeWidth: 1.5 }), /* @__PURE__ */ React.createElement("text", { x: -8, y: H + 18, textAnchor: "end", fontSize: "9", fill: th.muted }, "checks"), points.map((p, i) => {
+      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: chartTokens(th).grid, strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: -8, y: H + 18, textAnchor: "end", fontSize: "9", fill: th.muted }, "checks"), points.map((p, i) => {
         const barH = p.count > 0 ? Math.max(2, p.count / maxCount * (CH - 10)) : 0;
         const x = p.x - segW / 2 + 4;
         const w = segW - 8;
@@ -11003,20 +11146,9 @@ ${pendingEmail.emails.join("\n")}`,
             opacity: isDimmed ? 0.35 : 1,
             style: { cursor: "pointer" }
           },
-          barH > 0 && /* @__PURE__ */ React.createElement(
-            "rect",
-            {
-              x,
-              y: H + CH - barH,
-              width: w,
-              height: barH,
-              fill: `url(#cntBar${pc})`,
-              rx: 2,
-              style: { filter: isHovered ? "drop-shadow(0 0 4px #b197fc)" : "none" }
-            }
-          )
+          barH > 0 && /* @__PURE__ */ React.createElement("path", { d: roundedTopBar(x, H + CH - barH, w, barH, 3), fill: isHovered ? "#b197fc" : `url(#cntBar${pc})` })
         );
-      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H + CH, x2: totalW, y2: H + CH, stroke: "#b197fc44", strokeWidth: 1 }), points.map((p, i) => {
+      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H + CH, x2: totalW, y2: H + CH, stroke: chartTokens(th).grid, strokeWidth: 1 }), points.map((p, i) => {
         const isHovered = hoveredHour === p.hour;
         const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
         return /* @__PURE__ */ React.createElement(
@@ -11027,9 +11159,9 @@ ${pendingEmail.emails.join("\n")}`,
             y: H + CH + 16,
             textAnchor: "middle",
             fontSize: "9",
-            fill: isHovered ? "#74c0fc" : th.muted,
-            fontWeight: isHovered ? 800 : 500,
-            opacity: isDimmed ? 0.4 : 1
+            fill: isHovered ? th.text : th.muted,
+            fontWeight: isHovered ? 700 : 500,
+            opacity: isDimmed ? 0.5 : 1
           },
           fmtHr(p.hour)
         );
@@ -11888,7 +12020,7 @@ ${pendingEmail.emails.join("\n")}`,
     const districtPCs = stores.filter((s) => Number(s.district) === Number(distNum2) && s.status === "Open").map((s) => s.pc);
     const comparisonRows = scopedComparisonRows({ dayStoreCache, pcs: districtPCs, busDt, viewMode: cmpViewMode, todayStr, hourlyHistories });
     const CHART_COLORS = ["#69db7c", "#74c0fc", "#ffd43b", "#f06595", "#b197fc", "#ff922b", "#20c997", "#868e96", "#e599f7", "#63e6be", "#ffa8a8", "#91a7ff"];
-    const DonutChart = ({ data, size = 200, thickness = 32, hoveredIdx, onHover }) => {
+    const DonutChart = ({ data, size = 200, thickness = 26, hoveredIdx, onHover }) => {
       const total = data.reduce((a, d2) => a + d2.value, 0);
       const r = (size - thickness) / 2;
       const cx = size / 2, cy = size / 2;
@@ -11897,9 +12029,10 @@ ${pendingEmail.emails.join("\n")}`,
       const hovered = hoveredIdx != null ? data[hoveredIdx] : null;
       const hoveredPct = hovered && total > 0 ? hovered.value / total * 100 : 0;
       const pad = 18;
-      return /* @__PURE__ */ React.createElement("svg", { width: size + pad * 2, height: size + pad * 2, viewBox: `${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`, style: { overflow: "visible" } }, /* @__PURE__ */ React.createElement("circle", { cx, cy, r, fill: "none", stroke: th.card3, strokeWidth: thickness }), data.map((d2, i) => {
+      return /* @__PURE__ */ React.createElement("svg", { width: size + pad * 2, height: size + pad * 2, viewBox: `${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`, style: { overflow: "visible" } }, /* @__PURE__ */ React.createElement("circle", { cx, cy, r, fill: "none", stroke: chartTokens(th).grid, strokeWidth: thickness }), data.map((d2, i) => {
         const pct = total > 0 ? d2.value / total : 0;
-        const dash = circumference * pct;
+        const segGap = data.length > 1 && pct < 1 ? Math.min(3, circumference * pct * 0.3) : 0;
+        const dash = Math.max(0, circumference * pct - segGap);
         const gap = circumference - dash;
         const rot = offset * 360 - 90;
         offset += pct;
@@ -11914,16 +12047,16 @@ ${pendingEmail.emails.join("\n")}`,
             r,
             fill: "none",
             stroke: d2.color,
-            strokeWidth: isHovered ? thickness + 6 : thickness,
+            strokeWidth: isHovered ? thickness + 4 : thickness,
             strokeDasharray: dash + " " + gap,
             transform: "rotate(" + rot + " " + cx + " " + cy + ")",
-            opacity: isDimmed ? 0.35 : 1,
-            style: { transition: "stroke-width .15s ease, opacity .15s ease, stroke-dasharray 0.5s ease", cursor: "pointer", filter: isHovered ? `drop-shadow(0 0 6px ${d2.color})` : "none" },
+            opacity: isDimmed ? 0.4 : 1,
+            style: { transition: "stroke-width .2s ease, opacity .2s ease, stroke-dasharray 0.6s cubic-bezier(.22,1,.36,1)", cursor: "pointer" },
             onMouseEnter: () => onHover && onHover(i),
             onMouseLeave: () => onHover && onHover(null)
           }
         );
-      }), hovered ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 20, textAnchor: "middle", fill: th.muted, fontSize: hovered.name.length > 12 ? "8" : "9", fontWeight: "600" }, hovered.name.toUpperCase()), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 4, textAnchor: "middle", fill: hovered.color, fontSize: "20", fontWeight: "900", fontFamily: "'Raleway'" }, fmtUSD(hovered.value)), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 21, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, hoveredPct.toFixed(1) + "%")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 8, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, "Total"), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 14, textAnchor: "middle", fill: th.text, fontSize: "20", fontWeight: "900", fontFamily: "'Raleway'" }, fmtUSD(total))));
+      }), hovered ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 20, textAnchor: "middle", fill: th.muted, fontSize: hovered.name.length > 14 ? "9.5" : "11", fontWeight: "500" }, hovered.name), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 4, textAnchor: "middle", fill: th.text, fontSize: "20", fontWeight: "800", fontFamily: "'Raleway'" }, fmtUSD(hovered.value)), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 21, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, hoveredPct.toFixed(1) + "%")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("text", { x: cx, y: cy - 8, textAnchor: "middle", fill: th.muted, fontSize: "11", fontWeight: "600" }, "Total"), /* @__PURE__ */ React.createElement("text", { x: cx, y: cy + 14, textAnchor: "middle", fill: th.text, fontSize: "20", fontWeight: "800", fontFamily: "'Raleway'" }, fmtUSD(total))));
     };
     return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: {
       position: "relative",
@@ -12093,17 +12226,17 @@ ${pendingEmail.emails.join("\n")}`,
       const lastWeekTotal = lastWeek.reduce((a, b) => a + b, 0);
       const weekDelta = lastWeekTotal > 0 ? (thisWeekTotal - lastWeekTotal) / lastWeekTotal * 100 : 0;
       const deltaColor = weekDelta >= 0 ? "#69db7c" : "#ff6b6b";
-      return /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1.5rem", marginBottom: "1.25rem", border: "1px solid " + th.cardBorder } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.15rem", color: th.text } }, "Sales by Day \u2014 This Week vs Last Week"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", fontSize: "0.75rem", color: th.muted, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", null, "This Week: ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, fmtUSD(thisWeekTotal))), /* @__PURE__ */ React.createElement("span", null, "Last Week: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.muted } }, fmtUSD(lastWeekTotal))), lastWeekTotal > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: deltaColor, fontWeight: 700 } }, weekDelta >= 0 ? "+" : "", weekDelta.toFixed(1), "%"))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + 60}`, style: { width: "100%", minWidth: totalW + 64, height: H + 60, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `sbd${distNum2}a`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: G, stopOpacity: "1" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.35" })), /* @__PURE__ */ React.createElement("linearGradient", { id: `sbd${distNum2}b`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#868e96", stopOpacity: "0.9" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#868e96", stopOpacity: "0.25" }))), gridLines.map((v) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1.5rem", marginBottom: "1.25rem", border: "1px solid " + th.cardBorder } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.15rem", color: th.text } }, "Sales by Day \u2014 This Week vs Last Week"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.25rem", fontSize: "0.75rem", color: th.muted, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", null, "This Week: ", /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, fmtUSD(thisWeekTotal))), /* @__PURE__ */ React.createElement("span", null, "Last Week: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.muted } }, fmtUSD(lastWeekTotal))), lastWeekTotal > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: deltaColor, fontWeight: 700 } }, weekDelta >= 0 ? "+" : "", weekDelta.toFixed(1), "%"))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + 60}`, style: { width: "100%", minWidth: totalW + 64, height: H + 60, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `sbd${distNum2}a`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: G, stopOpacity: "0.95" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.55" })), /* @__PURE__ */ React.createElement("linearGradient", { id: `sbd${distNum2}b`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: th.muted, stopOpacity: "0.4" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: th.muted, stopOpacity: "0.18" }))), gridLines.map((v) => {
         const y = H - v / chartMax * H;
-        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: th.cardBorder, strokeDasharray: "2,4", strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: -8, y: y + 4, textAnchor: "end", fontSize: "10", fill: th.muted }, fmtK(v)));
+        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: chartTokens(th).grid, strokeDasharray: "3 4", strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: -10, y: y + 4, textAnchor: "end", fontSize: "10.5", fill: th.muted }, fmtK(v)));
       }), dayLabels.map((lbl, i) => {
         const gx = i * (groupW + gap);
         const tVal = thisWeek[i], lVal = lastWeek[i];
         const tH = tVal / chartMax * H, lH = lVal / chartMax * H;
         const delta2 = lVal > 0 ? (tVal - lVal) / lVal * 100 : tVal > 0 ? 100 : 0;
         const dCol = delta2 >= 0 ? "#69db7c" : "#ff6b6b";
-        return /* @__PURE__ */ React.createElement("g", { key: i }, /* @__PURE__ */ React.createElement("rect", { x: gx, y: H - lH, width: barW, height: lH, fill: `url(#sbd${distNum2}b)`, rx: 2 }, /* @__PURE__ */ React.createElement("title", null, lbl, " Last Week: ", fmtUSD(lVal))), /* @__PURE__ */ React.createElement("rect", { x: gx + barW + 6, y: H - tH, width: barW, height: tH, fill: `url(#sbd${distNum2}a)`, rx: 2 }, /* @__PURE__ */ React.createElement("title", null, lbl, " This Week: ", fmtUSD(tVal))), tVal > 0 && /* @__PURE__ */ React.createElement("text", { x: gx + barW + 6 + barW / 2, y: H - tH - 6, textAnchor: "middle", fontSize: "9", fontWeight: "700", fill: G }, fmtK(tVal)), /* @__PURE__ */ React.createElement("text", { x: gx + groupW / 2, y: H + 18, textAnchor: "middle", fontSize: "12", fontWeight: "700", fill: th.text }, lbl), lVal > 0 && /* @__PURE__ */ React.createElement("text", { x: gx + groupW / 2, y: H + 34, textAnchor: "middle", fontSize: "10", fontWeight: "700", fill: dCol }, delta2 >= 0 ? "+" : "", delta2.toFixed(0), "%"));
-      }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.5rem", justifyContent: "center", marginTop: "0.75rem", fontSize: "0.7rem", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 12, height: 12, background: "#868e96", borderRadius: 2 } }), /* @__PURE__ */ React.createElement("span", null, "Last Week")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 12, height: 12, background: G, borderRadius: 2 } }), /* @__PURE__ */ React.createElement("span", null, "This Week"))));
+        return /* @__PURE__ */ React.createElement("g", { key: i }, /* @__PURE__ */ React.createElement("path", { d: roundedTopBar(gx, H - lH, barW, lH, 6), fill: `url(#sbd${distNum2}b)` }, /* @__PURE__ */ React.createElement("title", null, lbl, " Last Week: ", fmtUSD(lVal))), /* @__PURE__ */ React.createElement("path", { d: roundedTopBar(gx + barW + 6, H - tH, barW, tH, 6), fill: `url(#sbd${distNum2}a)` }, /* @__PURE__ */ React.createElement("title", null, lbl, " This Week: ", fmtUSD(tVal))), tVal > 0 && /* @__PURE__ */ React.createElement("text", { x: gx + barW + 6 + barW / 2, y: H - tH - 7, textAnchor: "middle", fontSize: "10", fontWeight: "600", fill: th.text }, fmtK(tVal)), /* @__PURE__ */ React.createElement("text", { x: gx + groupW / 2, y: H + 18, textAnchor: "middle", fontSize: "12", fontWeight: "600", fill: th.text }, lbl), lVal > 0 && /* @__PURE__ */ React.createElement("text", { x: gx + groupW / 2, y: H + 34, textAnchor: "middle", fontSize: "10", fontWeight: "700", fill: dCol }, delta2 >= 0 ? "+" : "", delta2.toFixed(0), "%"));
+      }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.5rem", justifyContent: "center", marginTop: "0.75rem", fontSize: "0.7rem", color: th.muted } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 7, height: 7, background: th.muted, opacity: 0.5, borderRadius: "50%" } }), /* @__PURE__ */ React.createElement("span", null, "Last Week")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 7, height: 7, background: G, borderRadius: "50%" } }), /* @__PURE__ */ React.createElement("span", null, "This Week"))));
     })(), weatherForecast?.[distNum2] && /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1rem 1.25rem", marginBottom: "1.25rem", border: "1px solid " + th.cardBorder } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 700, color: th.text, marginBottom: "0.5rem" } }, "7-Day Weather Forecast \u2014 ", districtLabel(distNum2)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", overflowX: "auto" } }, (weatherForecast[distNum2]?.days || []).map((day) => {
       const ICONS2 = { clear: "\u2600\uFE0F", cloudy: "\u26C5", fog: "\u{1F32B}\uFE0F", rain: "\u{1F327}\uFE0F", snow: "\u2744\uFE0F", storm: "\u26C8\uFE0F" };
       const dow = (/* @__PURE__ */ new Date(day.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" });
@@ -12139,69 +12272,66 @@ ${pendingEmail.emails.join("\n")}`,
       const barW = 28, gap = 6;
       const totalW = visible.length * (barW + gap) - gap;
       const fmtK = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
-      const fmtHrLong = (h) => h === 0 ? "12 AM" : h < 12 ? h + " AM" : h === 12 ? "12 PM" : h - 12 + " PM";
+      const fmtHrLong2 = (h) => h === 0 ? "12 AM" : h < 12 ? h + " AM" : h === 12 ? "12 PM" : h - 12 + " PM";
       const gridStep = chartMax / 4;
       const gridLines = [gridStep, gridStep * 2, gridStep * 3, chartMax];
-      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + 52}`, style: { width: "100%", minWidth: visible.length * (barW + gap) + 64, height: H + 52, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `shg${distNum2}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: G, stopOpacity: "1" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.3" })), /* @__PURE__ */ React.createElement("linearGradient", { id: `shgHot${distNum2}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#fff", stopOpacity: "1" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.6" }))), gridLines.map((v) => {
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + 52}`, style: { width: "100%", minWidth: visible.length * (barW + gap) + 64, height: H + 52, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `shg${distNum2}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: G, stopOpacity: "0.95" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: G, stopOpacity: "0.55" }))), gridLines.map((v) => {
         const y = H - v / chartMax * H;
-        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: `${G}18`, strokeWidth: 1, strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("text", { x: -8, y: y + 4, textAnchor: "end", fontSize: "10", fill: th.muted }, fmtK(v)));
-      }), visible.map((h, i) => {
-        const barH = h.sales > 0 ? Math.max(1, h.sales / chartMax * H) : 0;
-        const x = i * (barW + gap);
-        const isHovered = hoveredHour === h.hour;
-        const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
-        return /* @__PURE__ */ React.createElement(
-          "g",
-          {
-            key: h.hour,
-            onMouseEnter: () => {
-              if (!noHoverDevice) setHoveredHour(h.hour);
-            },
-            onMouseLeave: () => setHoveredHour(null),
-            style: { cursor: "pointer", userSelect: "none", WebkitUserSelect: "none" }
-          },
-          /* @__PURE__ */ React.createElement("rect", { x: x - 2, y: 0, width: barW + 4, height: H + 40, fill: "transparent" }),
-          barH > 0 && /* @__PURE__ */ React.createElement(
-            "rect",
+        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: chartTokens(th).grid, strokeWidth: 1, strokeDasharray: "3 4" }), /* @__PURE__ */ React.createElement("text", { x: -10, y: y + 4, textAnchor: "end", fontSize: "10.5", fill: th.muted }, fmtK(v)));
+      }), (() => {
+        const peakHour = visible.reduce((a, h) => h.sales > a.sales ? h : a, visible[0]).hour;
+        return visible.map((h, i) => {
+          const barH = h.sales > 0 ? Math.max(1, h.sales / chartMax * H) : 0;
+          const x = i * (barW + gap);
+          const isHovered = hoveredHour === h.hour;
+          const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
+          const showValue = barH > 0 && (hoveredHour == null ? h.hour === peakHour : false);
+          return /* @__PURE__ */ React.createElement(
+            "g",
             {
-              x,
-              y: H - barH,
-              width: barW,
-              height: barH,
-              fill: isHovered ? `url(#shgHot${distNum2})` : `url(#shg${distNum2})`,
-              rx: 4,
-              opacity: isDimmed ? 0.35 : 1,
-              style: { transition: "opacity .15s, fill .15s", filter: isHovered ? `drop-shadow(0 0 10px ${G}88)` : "none" }
-            }
-          ),
-          barH > 0 && h.sales > chartMax * 0.08 && /* @__PURE__ */ React.createElement(
-            "text",
-            {
-              x: x + barW / 2,
-              y: H - barH - 5,
-              textAnchor: "middle",
-              fontSize: "9",
-              fill: G,
-              fontWeight: "800",
-              opacity: isDimmed ? 0.4 : 1
+              key: h.hour,
+              onMouseEnter: () => {
+                if (!noHoverDevice) setHoveredHour(h.hour);
+              },
+              onMouseLeave: () => setHoveredHour(null),
+              style: { cursor: "pointer", userSelect: "none", WebkitUserSelect: "none" }
             },
-            h.sales >= 1e3 ? (h.sales / 1e3).toFixed(1) + "k" : Math.round(h.sales)
-          ),
-          /* @__PURE__ */ React.createElement(
-            "text",
-            {
-              x: x + barW / 2,
-              y: H + 15,
-              textAnchor: "middle",
-              fontSize: "9",
-              fill: isHovered ? G : th.muted,
-              fontWeight: isHovered ? 800 : 500,
-              opacity: isDimmed ? 0.4 : 1
-            },
-            h.hour === 0 ? "12a" : h.hour < 12 ? h.hour + "a" : h.hour === 12 ? "12p" : h.hour - 12 + "p"
-          )
-        );
-      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: `${G}66`, strokeWidth: 1.5 }))), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.5rem" } }, "Hourly Breakdown"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))", gap: "0.25rem" } }, visible.filter((h) => h.sales > 0).map((h) => {
+            /* @__PURE__ */ React.createElement("rect", { x: x - 2, y: 0, width: barW + 4, height: H + 40, fill: "transparent" }),
+            barH > 0 && /* @__PURE__ */ React.createElement(
+              "path",
+              {
+                d: roundedTopBar(x, H - barH, barW, barH, 6),
+                fill: isHovered ? G : `url(#shg${distNum2})`,
+                opacity: isDimmed ? 0.4 : 1,
+                style: { transition: "opacity .2s ease" }
+              }
+            ),
+            showValue && /* @__PURE__ */ React.createElement("text", { x: x + barW / 2, y: H - barH - 7, textAnchor: "middle", fontSize: "10", fill: th.text, fontWeight: "700" }, fmtK(h.sales)),
+            /* @__PURE__ */ React.createElement(
+              "text",
+              {
+                x: x + barW / 2,
+                y: H + 16,
+                textAnchor: "middle",
+                fontSize: "9.5",
+                fill: isHovered ? th.text : th.muted,
+                fontWeight: isHovered ? 700 : 500,
+                opacity: isDimmed ? 0.5 : 1
+              },
+              h.hour === 0 ? "12a" : h.hour < 12 ? h.hour + "a" : h.hour === 12 ? "12p" : h.hour - 12 + "p"
+            )
+          );
+        });
+      })(), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: chartTokens(th).grid, strokeWidth: 1 }), (() => {
+        const i = visible.findIndex((h2) => h2.hour === hoveredHour);
+        if (i < 0 || !(visible[i].sales > 0)) return null;
+        const h = visible[i];
+        const barH = Math.max(1, h.sales / chartMax * H);
+        const cardW = 108, cardH = 44;
+        const cx = Math.min(Math.max(i * (barW + gap) + barW / 2 - cardW / 2, -40), totalW - cardW + 10);
+        const cy = Math.max(H - barH - cardH - 10, -20);
+        return /* @__PURE__ */ React.createElement("g", { pointerEvents: "none" }, /* @__PURE__ */ React.createElement("rect", { x: cx, y: cy, width: cardW, height: cardH, rx: 9, fill: th.card, stroke: th.cardBorder, strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: cx + 10, y: cy + 17, fontSize: "10", fill: th.muted }, fmtHrLong2(h.hour)), /* @__PURE__ */ React.createElement("text", { x: cx + 10, y: cy + 34, fontSize: "12.5", fontWeight: "700", fill: th.text }, fmtK(h.sales), /* @__PURE__ */ React.createElement("tspan", { fontSize: "10", fontWeight: "500", fill: th.muted }, `  \xB7  ${fmtNum(h.count)} checks`)));
+      })())), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: "0.5rem" } }, "Hourly Breakdown"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))", gap: "0.25rem" } }, visible.filter((h) => h.sales > 0).map((h) => {
         const isHovered = hoveredHour === h.hour;
         const isDimmed = hoveredHour != null && hoveredHour !== h.hour;
         const pct = h.sales / hourlyData.reduce((a, x) => a + x.sales, 0) * 100;
@@ -12231,7 +12361,7 @@ ${pendingEmail.emails.join("\n")}`,
               WebkitTapHighlightColor: "transparent"
             }
           },
-          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: isHovered ? G : th.muted, minWidth: 44 } }, fmtHrLong(h.hour)),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: isHovered ? G : th.muted, minWidth: 44 } }, fmtHrLong2(h.hour)),
           /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text } }, fmtUSD(h.sales)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, h.count, " chks \xB7 ", fmtAvg(avg))),
           /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: G, minWidth: 32, textAlign: "right" } }, pct.toFixed(1), "%")
         );
@@ -12308,21 +12438,21 @@ ${pendingEmail.emails.join("\n")}`,
       const fmtHr = (h) => h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : h - 12 + "p";
       const points = visible.map((h, i) => ({ x: i * segW + segW / 2, y: h.avg > 0 ? H - h.avg / chartMax * H : null, hour: h.hour, avg: h.avg, count: h.count, sales: h.sales }));
       const dataPts = points.filter((p) => p.y !== null);
-      const pathD = dataPts.length > 0 ? "M " + dataPts.map((p) => `${p.x},${p.y}`).join(" L ") : "";
-      const areaD = dataPts.length > 0 ? `M ${dataPts[0].x},${H} L ` + dataPts.map((p) => `${p.x},${p.y}`).join(" L ") + ` L ${dataPts[dataPts.length - 1].x},${H} Z` : "";
+      const pathD = smoothPath(dataPts);
+      const areaD = dataPts.length > 0 ? `${pathD} L ${dataPts[dataPts.length - 1].x},${H} L ${dataPts[0].x},${H} Z` : "";
       const gridLines = [chartMax / 4, chartMax / 2, chartMax * 3 / 4, chartMax];
       const overallAvg = (() => {
         const s = visible.reduce((a, h) => a + h.sales, 0);
         const c = visible.reduce((a, h) => a + h.count, 0);
         return c > 0 ? s / c : 0;
       })();
-      return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + CH + 54}`, style: { width: "100%", minWidth: totalW + 64, height: H + CH + 54, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `avgArea${distNum2}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#74c0fc", stopOpacity: "0.5" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#74c0fc", stopOpacity: "0.02" })), /* @__PURE__ */ React.createElement("linearGradient", { id: `cntBar${distNum2}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#b197fc", stopOpacity: "0.9" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#b197fc", stopOpacity: "0.3" }))), gridLines.map((v) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `-50 -24 ${totalW + 64} ${H + CH + 54}`, style: { width: "100%", minWidth: totalW + 64, height: H + CH + 54, display: "block", overflow: "visible" } }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: `avgArea${distNum2}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#74c0fc", stopOpacity: "0.28" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#74c0fc", stopOpacity: "0" })), /* @__PURE__ */ React.createElement("linearGradient", { id: `cntBar${distNum2}`, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#b197fc", stopOpacity: "0.85" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#b197fc", stopOpacity: "0.45" }))), gridLines.map((v) => {
         const y = H - v / chartMax * H;
-        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: "#74c0fc18", strokeWidth: 1, strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("text", { x: -8, y: y + 4, textAnchor: "end", fontSize: "10", fill: th.muted }, "$", v.toFixed(0)));
+        return /* @__PURE__ */ React.createElement("g", { key: v }, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: chartTokens(th).grid, strokeWidth: 1, strokeDasharray: "3 4" }), /* @__PURE__ */ React.createElement("text", { x: -10, y: y + 4, textAnchor: "end", fontSize: "10.5", fill: th.muted }, "$", v.toFixed(0)));
       }), overallAvg > 0 && (() => {
         const y = H - overallAvg / chartMax * H;
-        return /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: "#69db7c", strokeWidth: 1.5, strokeDasharray: "6 4", opacity: 0.7 }), /* @__PURE__ */ React.createElement("text", { x: totalW + 6, y: y + 4, fontSize: "10", fill: "#69db7c", fontWeight: "700" }, "avg ", fmtAvg(overallAvg)));
-      })(), /* @__PURE__ */ React.createElement("path", { d: areaD, fill: `url(#avgArea${distNum2})` }), /* @__PURE__ */ React.createElement("path", { d: pathD, fill: "none", stroke: "#74c0fc", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round", style: { filter: `drop-shadow(0 2px 6px #74c0fc44)` } }), points.map((p, i) => {
+        return /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: 0, y1: y, x2: totalW, y2: y, stroke: th.muted, strokeWidth: 1, strokeDasharray: "5 5", opacity: 0.6 }), /* @__PURE__ */ React.createElement("text", { x: totalW + 6, y: y + 4, fontSize: "10", fill: th.muted, fontWeight: "600" }, "avg ", fmtAvg(overallAvg)));
+      })(), /* @__PURE__ */ React.createElement("path", { d: areaD, fill: `url(#avgArea${distNum2})` }), /* @__PURE__ */ React.createElement("path", { d: pathD, fill: "none", stroke: "#74c0fc", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }), points.map((p, i) => {
         if (p.y === null) return null;
         const isHovered = hoveredHour === p.hour;
         const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
@@ -12335,22 +12465,17 @@ ${pendingEmail.emails.join("\n")}`,
             },
             onMouseLeave: () => setHoveredHour(null),
             style: { cursor: "pointer" },
-            opacity: isDimmed ? 0.35 : 1
+            opacity: 1
           },
           /* @__PURE__ */ React.createElement("rect", { x: p.x - segW / 2, y: 0, width: segW, height: H + CH + 30, fill: "transparent" }),
-          /* @__PURE__ */ React.createElement(
-            "circle",
-            {
-              cx: p.x,
-              cy: p.y,
-              r: isHovered ? 6 : 3.5,
-              fill: "#74c0fc",
-              style: { transition: "r .15s", filter: isHovered ? "drop-shadow(0 0 8px #74c0fc)" : "none" }
-            }
-          ),
-          isHovered && /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("rect", { x: p.x - 34, y: p.y - 36, width: 68, height: 24, rx: 4, fill: th.card3, stroke: "#74c0fc", strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: p.x, y: p.y - 20, textAnchor: "middle", fontSize: "11", fill: "#74c0fc", fontWeight: "800" }, fmtAvg(p.avg)))
+          isHovered && /* @__PURE__ */ React.createElement("g", { pointerEvents: "none" }, /* @__PURE__ */ React.createElement("line", { x1: p.x, y1: 0, x2: p.x, y2: H, stroke: chartTokens(th).crosshair, strokeWidth: 1, strokeDasharray: "3 4" }), /* @__PURE__ */ React.createElement("circle", { cx: p.x, cy: p.y, r: 4.5, fill: "#74c0fc", stroke: th.card, strokeWidth: 2 }), (() => {
+            const cardW = 112, cardH = 44;
+            const cx = Math.min(Math.max(p.x - cardW / 2, -40), totalW - cardW + 10);
+            const cy = Math.max(p.y - cardH - 12, -20);
+            return /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("rect", { x: cx, y: cy, width: cardW, height: cardH, rx: 9, fill: th.card, stroke: th.cardBorder, strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: cx + 10, y: cy + 17, fontSize: "10", fill: th.muted }, fmtHrLong(p.hour)), /* @__PURE__ */ React.createElement("text", { x: cx + 10, y: cy + 34, fontSize: "12.5", fontWeight: "700", fill: th.text }, fmtAvg(p.avg), /* @__PURE__ */ React.createElement("tspan", { fontSize: "10", fontWeight: "500", fill: th.muted }, `  \xB7  ${p.count} checks`)));
+          })())
         );
-      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: "#74c0fc66", strokeWidth: 1.5 }), /* @__PURE__ */ React.createElement("text", { x: -8, y: H + 18, textAnchor: "end", fontSize: "9", fill: th.muted }, "checks"), points.map((p, i) => {
+      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H, x2: totalW, y2: H, stroke: chartTokens(th).grid, strokeWidth: 1 }), /* @__PURE__ */ React.createElement("text", { x: -8, y: H + 18, textAnchor: "end", fontSize: "9", fill: th.muted }, "checks"), points.map((p, i) => {
         const barH = p.count > 0 ? Math.max(2, p.count / maxCount * (CH - 10)) : 0;
         const x = p.x - segW / 2 + 4;
         const w = segW - 8;
@@ -12367,20 +12492,9 @@ ${pendingEmail.emails.join("\n")}`,
             opacity: isDimmed ? 0.35 : 1,
             style: { cursor: "pointer" }
           },
-          barH > 0 && /* @__PURE__ */ React.createElement(
-            "rect",
-            {
-              x,
-              y: H + CH - barH,
-              width: w,
-              height: barH,
-              fill: `url(#cntBar${distNum2})`,
-              rx: 2,
-              style: { filter: isHovered ? "drop-shadow(0 0 4px #b197fc)" : "none" }
-            }
-          )
+          barH > 0 && /* @__PURE__ */ React.createElement("path", { d: roundedTopBar(x, H + CH - barH, w, barH, 3), fill: isHovered ? "#b197fc" : `url(#cntBar${distNum2})` })
         );
-      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H + CH, x2: totalW, y2: H + CH, stroke: "#b197fc44", strokeWidth: 1 }), points.map((p, i) => {
+      }), /* @__PURE__ */ React.createElement("line", { x1: 0, y1: H + CH, x2: totalW, y2: H + CH, stroke: chartTokens(th).grid, strokeWidth: 1 }), points.map((p, i) => {
         const isHovered = hoveredHour === p.hour;
         const isDimmed = hoveredHour != null && hoveredHour !== p.hour;
         return /* @__PURE__ */ React.createElement(
@@ -12391,9 +12505,9 @@ ${pendingEmail.emails.join("\n")}`,
             y: H + CH + 16,
             textAnchor: "middle",
             fontSize: "9",
-            fill: isHovered ? "#74c0fc" : th.muted,
-            fontWeight: isHovered ? 800 : 500,
-            opacity: isDimmed ? 0.4 : 1
+            fill: isHovered ? th.text : th.muted,
+            fontWeight: isHovered ? 700 : 500,
+            opacity: isDimmed ? 0.5 : 1
           },
           fmtHr(p.hour)
         );
@@ -24544,51 +24658,38 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       if (!canvasRef.current || typeof Chart === "undefined" || !trend.length) return;
       const labels = trend.map((m) => m.month);
-      const datasets = [{
+      const datasets = [lineSeries(th, {
         label: isDm ? districtLabel(user?.district) : "Portfolio avg",
         data: trend.map((m) => m.avgScore),
-        borderColor: O,
-        borderWidth: 3,
-        tension: 0.3,
-        fill: false,
-        pointRadius: 2
-      }];
+        color: O,
+        width: 2.5,
+        fill: true
+      })];
       if (isFull) {
         districts.forEach((d, i) => {
-          datasets.push({
+          datasets.push(lineSeries(th, {
             label: districtLabel(d),
             data: trend.map((m) => m.byDistrict && m.byDistrict[d] != null ? m.byDistrict[d] : null),
-            borderColor: DISTRICT_TREND_COLORS[i % DISTRICT_TREND_COLORS.length],
-            borderWidth: 1.5,
-            tension: 0.3,
-            fill: false,
-            pointRadius: 0,
-            borderDash: [4, 3]
-          });
+            color: DISTRICT_TREND_COLORS[i % DISTRICT_TREND_COLORS.length],
+            width: 1.5
+          }));
         });
       }
       if (isDm && portfolioTrend?.length) {
         const byMonth = new Map(portfolioTrend.map((m) => [m.month, m.avgScore]));
-        datasets.push({
+        datasets.push(lineSeries(th, {
           label: "Portfolio avg",
           data: labels.map((mo) => byMonth.has(mo) ? byMonth.get(mo) : null),
-          borderColor: th.muted,
-          borderWidth: 2,
-          tension: 0.3,
-          fill: false,
-          pointRadius: 0,
-          borderDash: [6, 4]
-        });
+          color: th.muted,
+          width: 1.5,
+          dashed: true
+        }));
       }
       chartRef.current = new Chart(canvasRef.current, {
         type: "line",
         data: { labels, datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { display: true, position: "bottom", labels: { color: th.muted, boxWidth: 12, font: { size: 10 } } } },
-          scales: { x: { ticks: { color: th.muted } }, y: { min: 0, max: 100, ticks: { color: th.muted } } }
-        }
+        options: cleanChartOptions(th, { maintainAspectRatio: true, scales: { y: { min: 0, max: 100 } }, plugins: { legend: { display: datasets.length > 1 } } }),
+        plugins: [crosshairPlugin(th)]
       });
       return () => {
         if (chartRef.current) {
@@ -25178,6 +25279,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     })();
     const [sales, setSales] = useState(null);
+    const [tappedHour, setTappedHour] = useState(null);
     const [salesYesterday, setSalesYesterday] = useState(null);
     const [salesLastYear, setSalesLastYear] = useState(null);
     const [labor, setLabor] = useState(null);
@@ -25664,7 +25766,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ), /* @__PURE__ */ React.createElement("div", { style: { ...mSm, padding: "0.8rem 0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: mKpiLbl }, "Guests"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: mDisp, fontSize: "30px", fontWeight: 700, lineHeight: 1, color: th.text } }, displayGuests != null ? Math.round(displayGuests).toLocaleString() : "--"), /* @__PURE__ */ React.createElement("div", { style: mKpiSub }, isLive ? "today" : "total")), /* @__PURE__ */ React.createElement("div", { style: { ...mSm, padding: "0.8rem 0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: mKpiLbl }, "Avg Check"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: mDisp, fontSize: "30px", fontWeight: 700, lineHeight: 1, color: th.text } }, mAvgCheck), /* @__PURE__ */ React.createElement("div", { style: mKpiSub }, "per guest"))), !mLoadingNow && /* @__PURE__ */ React.createElement("div", { style: { ...mBig, padding: "1rem 1rem 0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.85rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut } }, "Sales by Hour"), peakHour && /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: O } }, "Peak ", hourLabel(peakHour.hour), " \xB7 ", fmt(peakHour.sales))), visibleHours.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut, textAlign: "center", padding: "0.9rem 0" } }, "No sales yet") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 3, height: 210 } }, visibleHours.map((h) => {
       const isPeak = peakHour && h.hour === peakHour.hour;
       const heightPct = Math.max(4, Math.round(h.sales / maxSales * 100));
-      return /* @__PURE__ */ React.createElement("div", { key: h.hour, title: `${hourLabel(h.hour)}: ${fmt(h.sales)}`, style: { flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("div", { style: { width: "100%", height: heightPct + "%", minHeight: 4, background: isPeak ? O : mBarMut, borderRadius: "6px 6px 3px 3px", transition: "height 0.4s ease" } }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "8px", fontWeight: 600, letterSpacing: "0.01em", color: isPeak ? O : mMut, marginTop: "0.3rem", whiteSpace: "nowrap", overflow: "hidden" } }, hourLabel(h.hour)));
+      const isTapped = tappedHour === h.hour;
+      const lit = tappedHour == null ? isPeak : isTapped;
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: h.hour,
+          onClick: () => setTappedHour(isTapped ? null : h.hour),
+          title: `${hourLabel(h.hour)}: ${fmt(h.sales)}`,
+          style: { position: "relative", flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", cursor: "pointer", opacity: tappedHour != null && !isTapped ? 0.45 : 1, transition: "opacity 0.2s ease" }
+        },
+        isTapped && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", bottom: `calc(${Math.min(heightPct, 82)}% + 1.35rem)`, fontFamily: mMono, fontSize: "10px", fontWeight: 700, color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "2px 6px", whiteSpace: "nowrap", zIndex: 2, pointerEvents: "none" } }, fmt(h.sales)),
+        /* @__PURE__ */ React.createElement("div", { style: { width: "100%", height: heightPct + "%", minHeight: 4, background: lit ? O : mBarMut, borderRadius: "6px 6px 0 0", transition: "height 0.5s cubic-bezier(.22,1,.36,1), background 0.2s ease" } }),
+        /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "8px", fontWeight: 600, letterSpacing: "0.01em", color: lit ? O : mMut, marginTop: "0.3rem", whiteSpace: "nowrap", overflow: "hidden" } }, hourLabel(h.hour))
+      );
     }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -25764,7 +25879,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.21";
+  var APP_VERSION = "v22.23";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -30301,6 +30416,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
     const [activeTab, setActiveTab] = useState("hourly");
+    const [laborHoverHr, setLaborHoverHr] = useState(null);
     const [punches, setPunches] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [storeHistory, setStoreHistory] = useState(null);
@@ -30658,7 +30774,35 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const pct = h.sales > 0 ? h.labor / h.sales * 100 : 0;
       const clr = laborColor2(pct);
       const hrLabel = h.hr === 12 ? "12p" : h.hr > 12 ? h.hr - 12 + "p" : h.hr + "a";
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 2, height: 110, width: "100%", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: "40%", height: laborH + "%", background: clr, borderRadius: "2px 2px 0 0", minHeight: h.labor > 0 ? 2 : 0, transition: "height .3s" }, title: `Labor: ${fmtDollars(h.labor)}` }), /* @__PURE__ */ React.createElement("div", { style: { width: "40%", height: salesH + "%", background: "#FF671F55", borderRadius: "2px 2px 0 0", minHeight: h.sales > 0 ? 2 : 0, transition: "height .3s" }, title: `Sales: ${fmtDollars(h.sales)}` })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, marginTop: 2 } }, hrLabel));
+      const hrLong = h.hr === 12 ? "12 PM" : h.hr > 12 ? h.hr - 12 + " PM" : h.hr + " AM";
+      const isHover = laborHoverHr === h.hr;
+      const dim = laborHoverHr != null && !isHover;
+      const hasData = h.labor > 0 || h.sales > 0;
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          onMouseEnter: () => hasData && setLaborHoverHr(h.hr),
+          onMouseLeave: () => setLaborHoverHr(null),
+          style: { position: "relative", display: "flex", flexDirection: "column", alignItems: "center", flex: 1, minWidth: 0, cursor: hasData ? "pointer" : "default" }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 3, height: 140, width: "100%", justifyContent: "center", opacity: dim ? 0.4 : 1, transition: "opacity .2s ease" } }, /* @__PURE__ */ React.createElement("div", { style: { width: "36%", height: laborH + "%", background: clr, borderRadius: "4px 4px 0 0", minHeight: h.labor > 0 ? 2 : 0, transition: "height .5s cubic-bezier(.22,1,.36,1)" } }), /* @__PURE__ */ React.createElement("div", { style: { width: "36%", height: salesH + "%", background: isHover ? withAlpha(O, 0.75) : `linear-gradient(180deg, ${withAlpha(O, 0.5)}, ${withAlpha(O, 0.2)})`, borderRadius: "4px 4px 0 0", minHeight: h.sales > 0 ? 2 : 0, transition: "height .5s cubic-bezier(.22,1,.36,1)" } })),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: isHover ? th.text : th.muted, fontWeight: isHover ? 700 : 500, marginTop: 4 } }, hrLabel),
+        isHover && /* @__PURE__ */ React.createElement("div", { style: {
+          position: "absolute",
+          top: 0,
+          ...h.hr <= 7 ? { left: 0 } : h.hr >= 20 ? { right: 0 } : { left: "50%", transform: "translateX(-50%)" },
+          zIndex: 5,
+          pointerEvents: "none",
+          whiteSpace: "nowrap",
+          background: th.card,
+          border: `1px solid ${th.cardBorder}`,
+          borderRadius: 10,
+          padding: "0.45rem 0.65rem",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+          fontSize: "0.72rem",
+          color: th.text
+        } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 3 } }, hrLong), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: O, marginRight: 6 } }), "Sales ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.sales))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: clr, marginRight: 6 } }), "Labor ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.labor)), h.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", pct.toFixed(1), "%")))
+      );
     }
     useEffect(() => {
       if (activeTab !== "optimizer" || weekSchedule !== null) return;
@@ -30687,7 +30831,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { label: "Labor %", value: fmtPct(dispLaborPct), color: laborColor2(dispLaborPct) },
       { label: "Sales $", value: fmtDollars(dispSales), color: "#FF671F" },
       { label: "Clocked In", value: String((liveSummary ? liveSummary.currentlyClockedIn : onClockCount) || 0), color: "#4caf50" }
-    ].map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "1rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, textTransform: "uppercase", fontWeight: 600, letterSpacing: 0.5 } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 700, color: k.color, marginTop: "0.25rem", fontFamily: "'Source Sans 3'" } }, k.value)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}`, marginBottom: "1.25rem", width: "fit-content" } }, tabBtn("hourly", "Hourly"), tabBtn("daily", "Daily"), tabBtn("weekly", "Weekly"), tabBtn("optimizer", "\u26A1 Optimizer")), activeTab === "hourly" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" } }, "Labor vs Sales by Hour", /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.75rem", fontSize: "0.7rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 10, height: 10, background: "#4caf50", marginRight: 3, borderRadius: 2 } }), "Labor", /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 10, height: 10, background: "#FF671F55", marginLeft: 8, marginRight: 3, borderRadius: 2 } }), "Sales")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 2, paddingBottom: "0.25rem", overflowX: "auto" } }, hourlyLabor.map((h) => /* @__PURE__ */ React.createElement(HourlyBar, { key: h.hr, h }))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Hour", "Labor $", "Sales $", "Labor %", "Working"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thS }, h)))), /* @__PURE__ */ React.createElement("tbody", null, hourlyLabor.filter((h) => h.labor > 0 || h.sales > 0).map((h) => {
+    ].map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { ...card(th), padding: "1rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: th.muted, textTransform: "uppercase", fontWeight: 600, letterSpacing: 0.5 } }, k.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 700, color: k.color, marginTop: "0.25rem", fontFamily: "'Source Sans 3'" } }, k.value)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: `1px solid ${th.cardBorder}`, marginBottom: "1.25rem", width: "fit-content" } }, tabBtn("hourly", "Hourly"), tabBtn("daily", "Daily"), tabBtn("weekly", "Weekly"), tabBtn("optimizer", "\u26A1 Optimizer")), activeTab === "hourly" && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" } }, "Labor vs Sales by Hour", /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.75rem", fontSize: "0.7rem", color: th.muted, fontWeight: 500 } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, background: "#4caf50", marginRight: 5, borderRadius: "50%" } }), "Labor", /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, background: O, marginLeft: 12, marginRight: 5, borderRadius: "50%" } }), "Sales")), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", paddingTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      top: "0.5rem",
+      height: 140,
+      pointerEvents: "none",
+      backgroundImage: `repeating-linear-gradient(to bottom, ${chartTokens(th).grid} 0 1px, transparent 1px 35px)`
+    } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", alignItems: "flex-end", gap: 2, paddingBottom: "0.25rem", overflowX: "auto", overflowY: "visible" } }, hourlyLabor.map((h) => /* @__PURE__ */ React.createElement(React.Fragment, { key: h.hr }, HourlyBar({ h }))))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Hour", "Labor $", "Sales $", "Labor %", "Working"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thS }, h)))), /* @__PURE__ */ React.createElement("tbody", null, hourlyLabor.filter((h) => h.labor > 0 || h.sales > 0).map((h) => {
       const pct = h.sales > 0 ? h.labor / h.sales * 100 : 0;
       const onClock = h.empsInHour || 0;
       return /* @__PURE__ */ React.createElement("tr", { key: h.hr }, /* @__PURE__ */ React.createElement("td", { style: tdS }, fmtHr(h.hr)), /* @__PURE__ */ React.createElement("td", { style: tdS }, fmtDollars(h.labor)), /* @__PURE__ */ React.createElement("td", { style: tdS }, fmtDollars(h.sales)), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: laborColor2(pct), fontWeight: 600 } }, h.sales > 0 ? fmtPct(pct) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdS }, onClock || "\u2014"));
@@ -31181,7 +31333,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           }
         },
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text } }, s.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", alignItems: "center" } }, t.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: pill(clr, { fontWeight: 800 }) }, fmtPct(pct)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6875rem", color: th.muted } }, "D", s.district))),
-        /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: th.cardBorder, borderRadius: 999, marginBottom: "0.45rem", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(pct / 35 * 100, 100)}%`, background: clr, borderRadius: 999, boxShadow: `0 0 8px ${clr}88`, transition: "width .5s ease" } })),
+        /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: th.cardBorder, borderRadius: 999, marginBottom: "0.45rem", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(pct / 35 * 100, 100)}%`, background: clr, borderRadius: 999, transition: "width .6s cubic-bezier(.22,1,.36,1)" } })),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.2rem", fontWeight: 700, color: th.text, marginBottom: "0.2rem" } }, fmtDollars(t.laborDollars)),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.35rem" } }, "of ", fmtDollars(t.sales), " sales"),
         viewDate && (t.employees || 0) > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: pill("#74c0fc", { fontSize: "0.58rem", fontWeight: 800 }) }, t.employees, " worked \xB7 ", Math.round((t.hoursWorked || 0) * 10) / 10, " hrs")),
@@ -31218,14 +31370,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         type: "line",
         data: {
           labels: history.map((h) => h.date),
-          datasets: [{ label: "Margin %", data: history.map((h) => h.marginPct), borderColor: "#FF671F", borderWidth: 2, tension: 0.3, fill: false, pointRadius: 0 }]
+          datasets: [lineSeries(th, { label: "Margin %", data: history.map((h) => h.marginPct), color: "#FF671F", fill: true })]
         },
-        options: {
-          responsive: true,
+        options: cleanChartOptions(th, {
           maintainAspectRatio: true,
-          plugins: { legend: { display: false } },
-          scales: { x: { ticks: { color: th.muted, maxTicksLimit: 8 } }, y: { ticks: { color: th.muted } } }
-        }
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` Margin ${c.parsed.y != null ? c.parsed.y.toFixed(1) : "\u2014"}%` } } },
+          scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { ticks: { callback: (v) => `${v}%` } } }
+        }),
+        plugins: [crosshairPlugin(th)]
       });
       return () => {
         if (chartRef.current) {
@@ -32577,34 +32729,26 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       const all = [results.impacted, ...results.controls];
       const labels = [...new Set(all.flatMap((r) => r.series.map((s) => s.weekOf)))].sort();
-      const palette = ["#FF671F", "#2563eb", "#16a34a", "#9333ea", "#0891b2"];
       const datasets = all.map((r, i) => {
         const byWeek = Object.fromEntries(r.series.map((s) => [s.weekOf, s.sales]));
-        return {
+        return lineSeries(th, {
           label: r.name + (i === 0 ? " (impacted)" : ""),
           data: labels.map((w) => byWeek[w] ?? null),
-          borderColor: palette[i % palette.length],
-          borderWidth: i === 0 ? 3 : 1.5,
-          spanGaps: true,
-          tension: 0.25,
-          pointRadius: 2
-        };
+          color: seriesColor(i),
+          width: i === 0 ? 2.5 : 1.5,
+          fill: i === 0,
+          spanGaps: true
+        });
       });
       chartRef.current = new window.Chart(chartCanvas.current.getContext("2d"), {
         type: "line",
         data: { labels, datasets },
-        options: {
-          responsive: true,
+        options: cleanChartOptions(th, {
           maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: th.text } },
-            tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } }
-          },
-          scales: {
-            x: { ticks: { color: th.muted, maxRotation: 60, minRotation: 60 }, grid: { color: th.sidebarBorder } },
-            y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) }, grid: { color: th.sidebarBorder } }
-          }
-        }
+          plugins: { tooltip: { callbacks: { label: (c) => ` ${c.dataset.label}: ${fmtDollars(c.parsed.y)}` } } },
+          scales: { y: { ticks: { callback: (v) => fmtDollars(v) } } }
+        }),
+        plugins: [crosshairPlugin(th)]
       });
       return () => {
         if (chartRef.current) {
@@ -32890,17 +33034,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         type: "line",
         data: {
           labels: weeks.map(([wk]) => wk),
-          datasets: [{ label: "Spend", data: weeks.map(([, w]) => w.spend), borderColor: O2, backgroundColor: `${O2}22`, borderWidth: 2, tension: 0.3, fill: true, pointRadius: 2 }]
+          datasets: [lineSeries(th, { label: "Spend", data: weeks.map(([, w]) => w.spend), color: O2, fill: true })]
         },
-        options: {
-          responsive: true,
+        options: cleanChartOptions(th, {
           maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { color: th.muted, maxTicksLimit: 10 } },
-            y: { ticks: { color: th.muted, callback: (v) => fmtDollars(v) } }
-          }
-        }
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` Spend ${fmtDollars(c.parsed.y)}` } } },
+          scales: { x: { ticks: { maxTicksLimit: 10 } }, y: { ticks: { callback: (v) => fmtDollars(v) } } }
+        }),
+        plugins: [crosshairPlugin(th)]
       });
       return () => {
         if (chartRef.current) {
@@ -36510,54 +36651,47 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           chartRef.current.destroy();
           chartRef.current = null;
         }
-        const textColor = isDark ? "#e5e7eb" : "#374151";
-        const gridColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
-        const defaultColors = ["#FF671F", "#3b82f6", "#22c55e", "#a855f7", "#f59e0b", "#ef4444", "#06b6d4"];
-        const datasets = (data.datasets || []).map((ds, idx) => ({
-          ...ds,
-          backgroundColor: ds.backgroundColor || (data.chartType === "doughnut" ? defaultColors : defaultColors[idx % defaultColors.length] + "cc"),
-          borderColor: ds.borderColor || (data.chartType === "line" ? defaultColors[idx % defaultColors.length] : void 0),
-          borderWidth: ds.borderWidth !== void 0 ? ds.borderWidth : data.chartType === "line" ? 2 : 1,
-          tension: data.chartType === "line" ? ds.tension !== void 0 ? ds.tension : 0.3 : void 0,
-          fill: data.chartType === "line" ? ds.fill !== void 0 ? ds.fill : false : void 0
-        }));
+        const cth = getTheme(isDark);
+        const t = chartTokens(cth);
         const isStacked = data.chartType === "stacked";
         const chartType = isStacked ? "bar" : data.chartType || "bar";
-        const options = {
-          responsive: true,
+        const rawSets = data.datasets || [];
+        const datasets = rawSets.map((ds, idx) => {
+          const color = seriesColor(idx);
+          if (chartType === "doughnut" || chartType === "pie") {
+            return { backgroundColor: CHART_PALETTE, borderColor: t.tooltipBg, borderWidth: 2, hoverOffset: 6, ...ds };
+          }
+          if (chartType === "line") {
+            return { ...lineSeries(cth, { color: ds.borderColor || color, fill: rawSets.length === 1 }), ...ds, ...ds.borderColor ? {} : { borderColor: color } };
+          }
+          return { backgroundColor: color, hoverBackgroundColor: withAlpha(color, 0.85), borderRadius: isStacked ? 4 : 6, maxBarThickness: 40, ...ds };
+        });
+        const userOpts = data.options || {};
+        const options = cleanChartOptions(cth, {
           maintainAspectRatio: true,
           plugins: {
-            legend: {
-              labels: { color: textColor, font: { family: "Source Sans 3, sans-serif", size: 12 } }
-            },
-            title: data.title ? {
-              display: true,
-              text: data.title,
-              color: textColor,
-              font: { family: "Raleway, sans-serif", size: 14, weight: "700" }
-            } : { display: false },
-            ...data.options && data.options.plugins ? data.options.plugins : {}
+            title: data.title ? { display: true, text: data.title, color: t.text, align: "start", padding: { bottom: 12 }, font: { family: t.titleFont, size: 14, weight: "700" } } : { display: false },
+            ...userOpts.plugins || {}
           },
-          scales: chartType === "doughnut" ? {} : {
-            x: {
-              stacked: isStacked,
-              ticks: { color: textColor, font: { family: "Source Sans 3, sans-serif", size: 11 } },
-              grid: { color: gridColor },
-              ...data.options && data.options.scales && data.options.scales.x ? data.options.scales.x : {}
-            },
-            y: {
-              stacked: isStacked,
-              ticks: { color: textColor, font: { family: "Source Sans 3, sans-serif", size: 11 } },
-              grid: { color: gridColor },
-              ...data.options && data.options.scales && data.options.scales.y ? data.options.scales.y : {}
-            }
+          scales: {
+            x: { stacked: isStacked, ...userOpts.scales && userOpts.scales.x || {} },
+            y: { stacked: isStacked, ...userOpts.scales && userOpts.scales.y || {} }
           },
-          ...data.options ? { ...data.options, plugins: void 0, scales: void 0 } : {}
-        };
+          ...userOpts,
+          plugins: void 0,
+          scales: void 0
+        });
+        if (chartType === "doughnut" || chartType === "pie") {
+          options.scales = {};
+          options.cutout = chartType === "doughnut" ? "68%" : 0;
+          options.interaction = { mode: "nearest", intersect: true };
+          options.plugins.legend.position = "right";
+        }
         chartRef.current = new Chart(canvasRef.current, {
           type: chartType,
           data: { labels: data.labels || [], datasets },
-          options
+          options,
+          plugins: chartType === "line" ? [crosshairPlugin(cth)] : []
         });
         return () => {
           if (chartRef.current) {
