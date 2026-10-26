@@ -77,7 +77,20 @@ export default async (request) => {
 
     // 3. Save backup blob for today
     const today = dateStr();
-    const backupKey = `${BACKUP_PREFIX}${today}`;
+    let backupKey = `${BACKUP_PREFIX}${today}`;
+    // v22.26: never replace a same-day backup that holds MORE real photos (a run after
+    // photos were wiped would otherwise overwrite the copy needed to restore them) —
+    // save alongside it instead.
+    const realPhotos = (list) => (Array.isArray(list) ? list : []).reduce((s, r) =>
+      s + (r?.workLogs || []).reduce((t, w) => t + (w?.photos || []).filter(p => typeof p?.data === 'string' && p.data.length > 32).length, 0), 0);
+    try {
+      const existing = await store.get(backupKey, { type: 'json' });
+      const had = realPhotos(existing?.data || existing);
+      if (had > realPhotos(valid)) {
+        backupKey = `${backupKey}_${Date.now()}`;
+        console.warn(`[reports-backup] today's backup has more photos (${had}) — keeping it, saving this run as ${backupKey}`);
+      }
+    } catch {}
     await store.setJSON(backupKey, {
       savedAt: new Date().toISOString(),
       data: valid,

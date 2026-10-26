@@ -20,11 +20,12 @@
 import { google } from 'googleapis';
 import { getStore } from '@netlify/blobs';
 import { sql } from '../_shared/db.mjs';
-import { sendSms, sendEmail } from '../_shared/channels.mjs';
+import { sendSms, sendEmail, sendHtmlEmail } from '../_shared/channels.mjs';
 import { refreshStoreList } from '../_shared/store-status.mjs';
 import { STORES, ALL_STORES } from '../labor-cron.mjs';
 import { parseIcs, candidateFromSummary, meetingLink } from '../../../src/interview-ics.mjs';
 import { dueReminder, reminderText } from '../../../src/interview-reminders.mjs';
+import { parseHireSubject, isRecentHire, htmlToText, extractDetails, buildHireEmail } from '../../../src/ally-hires.mjs';
 
 const DOMAIN = process.env.INTERVIEW_MAILBOX_DOMAIN || 'peoplecapitalgroup.com';
 const STATUS_KEY = 'pcg_interview_reminders_status';
@@ -47,6 +48,14 @@ export async function saveConfig(patch) {
 export const reminderMode = () => {
   const m = String(process.env.INTERVIEW_REMINDERS_MODE || 'live').toLowerCase();
   return ['off', 'shadow', 'live'].includes(m) ? m : 'live';
+};
+// New-hire emails to exec/IT (v22.24) have their own switch, ALLY_HIRES_MODE:
+//   unset / "shadow" — only the INTERVIEW_REMINDERS_SHADOW_EMAIL account (Ahmed), labelled
+//   "live"           — every active executive + IT user with an email
+//   "off"            — hires are still recorded, nobody is emailed
+export const hiresMode = () => {
+  const m = String(process.env.ALLY_HIRES_MODE || 'shadow').toLowerCase();
+  return ['off', 'shadow', 'live'].includes(m) ? m : 'shadow';
 };
 const shadowEmail = () => (process.env.INTERVIEW_REMINDERS_SHADOW_EMAIL || 'ahmed@peoplecapitalgroup.com').toLowerCase();
 
@@ -75,6 +84,17 @@ export async function ensureTables(db) {
     msg_id   text NOT NULL,
     seen_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (store_pc, msg_id)
+  )`;
+  await db`CREATE TABLE IF NOT EXISTS ally_hires (
+    msg_id      text PRIMARY KEY,
+    store_pc    text NOT NULL,
+    candidate   text NOT NULL,
+    subject     text,
+    received_at timestamptz,
+    details     jsonb,
+    notified_at timestamptz,
+    notify_note text,
+    created_at  timestamptz NOT NULL DEFAULT now()
   )`;
   _ready = true;
 }
@@ -127,16 +147,36 @@ async function upsertEvent(db, pc, e, msgId) {
   return true;
 }
 
-async function scanMailbox(db, store) {
+// Plain text of a message body (text/plain preferred, else text/html stripped).
+function bodyText(msg) {
+  const parts = [];
+  const walk = (p) => { if (!p) return; parts.push(p); (p.parts || []).forEach(walk); };
+  walk(msg.payload);
+  const dec = (p) => p?.body?.data ? Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8') : '';
+  const plain = parts.find(p => /text\/plain/i.test(p.mimeType || '') && p.body?.data);
+  if (plain) return dec(plain);
+  const html = parts.find(p => /text\/html/i.test(p.mimeType || '') && p.body?.data);
+  return html ? htmlToText(dec(html)) : (msg.snippet || '');
+}
+
+// hires: collector — "<Name> is Officially Hired!" emails found in this mailbox.
+async function scanMailbox(db, store, hires = []) {
   const mailbox = `${store.pc}@${DOMAIN}`;
   const gmail = gmailFor(mailbox);
-  const list = await gmail.users.messages.list({ userId: 'me', q: 'newer_than:14d {from:paradox.ai filename:ics subject:interview}', maxResults: 50 });
+  const list = await gmail.users.messages.list({ userId: 'me', q: 'newer_than:14d {from:paradox.ai filename:ics subject:interview subject:"officially hired"}', maxResults: 50 });
   const ids = (list.data.messages || []).map(m => m.id);
   if (!ids.length) return { found: 0, updated: 0 };
   const seen = new Set((await db`SELECT msg_id FROM interview_seen_messages WHERE store_pc = ${store.pc} AND msg_id = ANY(${ids})`).map(r => r.msg_id));
   let updated = 0;
   for (const id of ids.filter(x => !seen.has(x))) {
     const msg = (await gmail.users.messages.get({ userId: 'me', id, format: 'full' })).data;
+    const subject = (msg.payload?.headers || []).find(h => /^subject$/i.test(h.name))?.value || '';
+    const hired = parseHireSubject(subject);
+    if (hired) {
+      hires.push({ msgId: id, storePc: String(store.pc), candidate: hired, subject, receivedMs: Number(msg.internalDate), details: extractDetails(bodyText(msg)) });
+      await db`INSERT INTO interview_seen_messages (store_pc, msg_id) VALUES (${store.pc}, ${id}) ON CONFLICT DO NOTHING`;
+      continue;
+    }
     const ics = await calendarText(gmail, msg);
     if (ics) for (const e of parseIcs(ics)) { if (await upsertEvent(db, store.pc, e, id)) updated++; }
     await db`INSERT INTO interview_seen_messages (store_pc, msg_id) VALUES (${store.pc}, ${id}) ON CONFLICT DO NOTHING`;
@@ -171,25 +211,85 @@ async function deliver(people, text, subject) {
   return { smsSent: sms.sent, emails: emails.length };
 }
 
+// Locations records (pcg_stores_v1) by pc — property name, address, legal entity, DM.
+async function loadLocations() {
+  try {
+    const raw = await blobs().get('pcg_stores_v1', { type: 'json' });
+    const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+    return new Map(list.filter(x => x && x.pc != null).map(x => [String(x.pc), x]));
+  } catch { return new Map(); }
+}
+
+// Record new "Officially Hired" emails, then email exec/IT about every hire from the
+// last 48h that hasn't gone out yet (so a failed send is retried next run, and an
+// old backlog found on the first run is recorded but never emailed).
+async function processHires(db, hires) {
+  const now = Date.now();
+  for (const h of hires) {
+    const received = Number.isFinite(h.receivedMs) ? new Date(h.receivedMs).toISOString() : null;
+    const recent = isRecentHire(h.receivedMs, now);
+    await db`INSERT INTO ally_hires (msg_id, store_pc, candidate, subject, received_at, details, notify_note)
+      VALUES (${h.msgId}, ${h.storePc}, ${h.candidate}, ${h.subject}, ${received}, ${JSON.stringify(h.details || [])}::jsonb, ${recent ? null : 'older than 48h when found — recorded, not emailed'})
+      ON CONFLICT (msg_id) DO NOTHING`;
+  }
+  const pending = await db`SELECT * FROM ally_hires WHERE notified_at IS NULL AND (notify_note IS NULL OR notify_note = 'email failed')
+    AND received_at > now() - interval '48 hours' ORDER BY received_at LIMIT 25`;
+  const hm = hiresMode();
+  if (!pending.length || hm === 'off') return { mode: hm, sent: 0, pending: pending.length };
+  const team = (await db`SELECT email FROM users WHERE active = true AND user_type IN ('executive','it') AND email IS NOT NULL`).map(r => r.email);
+  let recipients = team, testLabel = null;
+  if (hm === 'shadow') {
+    const me = (await db`SELECT email FROM users WHERE lower(email) = ${shadowEmail()} LIMIT 1`)[0];
+    recipients = [me?.email || shadowEmail()];
+    testLabel = `all exec + IT (${team.length} people)`;
+  }
+  const locs = await loadLocations();
+  let sent = 0;
+  for (const r of pending) {
+    const store = locs.get(String(r.store_pc)) || ALL_STORES.find(x => String(x.pc) === String(r.store_pc)) || { pc: r.store_pc };
+    const e = buildHireEmail({ candidate: r.candidate, store, receivedAt: r.received_at, details: Array.isArray(r.details) ? r.details : [], testLabel });
+    const ok = recipients.length ? await sendHtmlEmail(recipients, e.subject, e.html) : false;
+    if (ok) { sent++; await db`UPDATE ally_hires SET notified_at = now(), notify_note = ${hm === 'shadow' ? 'emailed (test mode)' : `emailed ${recipients.length}`} WHERE msg_id = ${r.msg_id}`; }
+    else await db`UPDATE ally_hires SET notify_note = 'email failed' WHERE msg_id = ${r.msg_id}`;
+  }
+  return { mode: hm, sent, pending: pending.length };
+}
+
+// "Send me a test" from Admin: email one recorded hire to the person who pressed it.
+export async function sendHireTest(db, msgId, toEmail) {
+  const r = (await db`SELECT * FROM ally_hires WHERE msg_id = ${String(msgId)}`)[0];
+  if (!r) return { ok: false, error: 'Hire not found.' };
+  const locs = await loadLocations();
+  const store = locs.get(String(r.store_pc)) || ALL_STORES.find(x => String(x.pc) === String(r.store_pc)) || { pc: r.store_pc };
+  const e = buildHireEmail({ candidate: r.candidate, store, receivedAt: r.received_at, details: Array.isArray(r.details) ? r.details : [], testLabel: 'you only (test send)' });
+  const ok = await sendHtmlEmail([toEmail], e.subject, e.html);
+  return ok ? { ok: true, to: toEmail } : { ok: false, error: 'Email failed to send.' };
+}
+
 export async function runInterviewReminders({ trigger = 'cron' } = {}) {
   const mode = reminderMode();
   const startedAt = Date.now();
-  if (mode === 'off') return { ok: true, mode, skipped: true };
+  if (mode === 'off' && hiresMode() === 'off') return { ok: true, mode, skipped: true };
   const db = sql();
   await ensureTables(db);
   await refreshStoreList(STORES, ALL_STORES);
 
   // 1) mailboxes
   const mailboxes = {};
+  const hires = [];
   await pool(STORES, 6, async (store) => {
-    try { mailboxes[store.pc] = { ok: true, ...(await scanMailbox(db, store)) }; }
+    try { mailboxes[store.pc] = { ok: true, ...(await scanMailbox(db, store, hires)) }; }
     catch (e) { mailboxes[store.pc] = { ok: false, error: String(e?.response?.data?.error_description || e?.response?.data?.error?.message || e.message || e).slice(0, 200) }; }
   });
+
+  // 1b) new hires → exec/IT (v22.24)
+  let hireRun = null;
+  try { hireRun = await processHires(db, hires); } catch (e) { console.warn('[interview-reminders] hires failed:', e.message); hireRun = { error: e.message }; }
 
   // 2) reminders
   const now = Date.now();
   const etHour = etHourNow();
-  const rows = await db`SELECT * FROM interview_invites WHERE status = 'active' AND start_at > now() AND start_at < now() + interval '25 hours'`;
+  const rows = mode === 'off' ? [] : await db`SELECT * FROM interview_invites WHERE status = 'active' AND start_at > now() AND start_at < now() + interval '25 hours'`;
   const storeByPc = Object.fromEntries(ALL_STORES.map(s => [String(s.pc), s]));
   let shadowPerson = null;
   if (mode === 'shadow') shadowPerson = (await db`SELECT name, phone, email FROM users WHERE lower(email) = ${shadowEmail()} LIMIT 1`)[0] || null;
@@ -228,10 +328,10 @@ export async function runInterviewReminders({ trigger = 'cron' } = {}) {
   const summary = {
     at: new Date().toISOString(), trigger, mode, durationMs: Date.now() - startedAt,
     shadowTo: mode === 'shadow' ? (shadowPerson ? `${shadowPerson.name}${shadowPerson.phone ? '' : ' (no phone on file)'}` : `no portal user with email ${shadowEmail()}`) : null,
-    mailboxes, sent: [...sent, ...prevSent].slice(0, 40),
+    mailboxes, sent: [...sent, ...prevSent].slice(0, 40), hires: hireRun,
   };
   try { await blobs().setJSON(STATUS_KEY, { savedAt: summary.at, data: summary }); } catch (e) { console.warn('[interview-reminders] status save failed:', e.message); }
   const okBoxes = Object.values(mailboxes).filter(m => m.ok).length;
   console.log(`[interview-reminders] ${mode}: ${okBoxes}/${STORES.length} mailboxes read, ${sent.length} reminder(s) sent`);
-  return { ok: true, mode, mailboxesOk: okBoxes, mailboxes: STORES.length, sent: sent.length };
+  return { ok: true, mode, mailboxesOk: okBoxes, mailboxes: STORES.length, sent: sent.length, hires: hireRun };
 }

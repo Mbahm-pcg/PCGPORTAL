@@ -9299,35 +9299,47 @@
   var DR_INDEX_KEY = "pcg_daily_reports_index_v1";
   var drKey = (id) => `${DR_KEY_PREFIX}${id}`;
   var drPhotosKey = (id) => `${DR_KEY_PREFIX}${id}${DR_PHOTOS_SUFFIX}`;
+  var isRealReportPhoto = (p) => !!(p && typeof p.data === "string" && p.data.length > 32);
   async function cloudSaveReport(report) {
     if (!report || report.id == null) return false;
     const photoMap = {};
+    let hasReal = false;
+    const { _photosLoaded, ...rest } = report;
     const slimReport = {
-      ...report,
+      ...rest,
       workLogs: (report.workLogs || []).map((w, i) => {
-        if (w.photos && w.photos.length > 0) photoMap[i] = w.photos;
+        const real = (w.photos || []).filter(isRealReportPhoto);
+        if (real.length > 0) {
+          photoMap[i] = real;
+          hasReal = true;
+        }
         return { ...w, photos: [] };
       })
     };
+    const writePhotos = _photosLoaded === true || hasReal;
     await Promise.all([
       cloudSaveOrThrow(drKey(report.id), slimReport),
-      cloudSaveOrThrow(drPhotosKey(report.id), photoMap)
+      writePhotos ? cloudSaveOrThrow(drPhotosKey(report.id), photoMap) : Promise.resolve(true)
     ]);
     return true;
   }
   async function cloudLoadReport(id) {
     if (id == null) return null;
-    const [report, photoMap] = await Promise.all([
-      cloudLoad(drKey(id)),
-      cloudLoad(drPhotosKey(id))
-    ]);
+    const photosReq = fetch("/.netlify/functions/storage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "load", key: drPhotosKey(id) })
+    }).then(async (r) => r.ok ? { ok: true, data: (await r.json()).data || null } : { ok: false }).catch(() => ({ ok: false }));
+    const [report, photos] = await Promise.all([cloudLoad(drKey(id)), photosReq]);
     if (!report) return null;
+    const photoMap = photos.ok ? photos.data : null;
     if (photoMap && typeof photoMap === "object") {
       report.workLogs = (report.workLogs || []).map((w, i) => ({
         ...w,
         photos: photoMap[i] || w.photos || []
       }));
     }
+    if (photos.ok) report._photosLoaded = true;
     return report;
   }
   async function cloudDeleteReport(id) {
@@ -13982,6 +13994,62 @@ ${t2.slice(0, 300)}`);
     }
     return doc;
   }
+  function ReportPhotoRestore({ th, showAlert: showAlert2 }) {
+    const [open, setOpen] = useState(false);
+    const [busy, setBusy] = useState(null);
+    const [status, setStatus] = useState(null);
+    const call = async (mode, extra = {}) => {
+      setBusy(mode);
+      let before = null;
+      try {
+        const r0 = await fetch("/.netlify/functions/reports-photo-restore", { credentials: "include", headers: { ...authHeader() } });
+        before = (await r0.json().catch(() => null))?.status?.startedAt || null;
+        const res = await fetch("/.netlify/functions/reports-photo-restore-background", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ mode, ...extra }) });
+        if (res.status !== 202 && !res.ok) throw new Error(res.status === 403 ? "Exec/IT only." : `HTTP ${res.status}`);
+        for (let i = 0; i < 120; i++) {
+          await new Promise((r) => setTimeout(r, 3e3));
+          const r2 = await fetch("/.netlify/functions/reports-photo-restore", { credentials: "include", headers: { ...authHeader() } });
+          const j = await r2.json().catch(() => null);
+          const s = j?.status;
+          if (s && s.startedAt !== before && s.mode === mode && s.state !== "running") {
+            setStatus(s);
+            if (s.state === "error") showAlert2 && showAlert2("error", s.error);
+            break;
+          }
+        }
+      } catch (e) {
+        showAlert2 && showAlert2("error", `${mode} failed: ${e.message}`);
+      }
+      setBusy(null);
+    };
+    const fmt = (iso) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "\u2014";
+    const bkLabel = (key) => {
+      const m = /(\d{4})(\d{2})(\d{2})/.exec(key || "");
+      return m ? (/* @__PURE__ */ new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`)).toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " backup" : key;
+    };
+    const plan = status?.plan;
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setOpen(true),
+        title: "Put photos back from the nightly backups (exec/IT)",
+        style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: th.card3, color: th.muted, border: `1px solid ${th.cardBorder}` })
+      },
+      "\u{1F6DF} Restore photos"
+    ), open && /* @__PURE__ */ React.createElement("div", { onClick: () => !busy && setOpen(false), style: { position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "1rem", width: "min(620px, 94vw)", maxHeight: "86vh", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1.2rem 1.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: "1.05rem" } }, "Restore report photos"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.5 } }, "Checks every nightly backup and puts back photos a report is missing. It never removes photos, and saves a copy of the current state first so it can be undone. Start with a dry run \u2014 nothing changes until you press Restore.")), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.4rem 1.4rem", overflowY: "auto", fontSize: "0.83rem", color: th.text } }, busy && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, padding: "0.5rem 0" } }, busy === "scan" ? "Checking backups\u2026" : busy === "restore" ? "Restoring photos\u2026" : "Undoing\u2026", " this can take a minute."), !busy && status?.mode === "undo" && status.state === "done" && /* @__PURE__ */ React.createElement("div", { style: { color: "#16a34a", padding: "0.5rem 0" } }, "Undone \u2014 ", status.undone, " report(s) put back to how they were before the restore."), !busy && status?.mode === "restore" && status.state === "done" && /* @__PURE__ */ React.createElement("div", { style: { color: "#16a34a", padding: "0.5rem 0" } }, "Restored ", /* @__PURE__ */ React.createElement("strong", null, status.restoredPhotos), " photo", status.restoredPhotos === 1 ? "" : "s", " on ", status.restoredReports, " report", status.restoredReports === 1 ? "" : "s", ". Refresh the page to see them.", status.failed?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { color: "#dc2626" } }, status.failed.length, " report(s) failed: ", status.failed.map((f) => f.id).join(", "))), !busy && plan && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { margin: "0.4rem 0 0.6rem", fontWeight: 700 } }, plan.reports === 0 ? "Nothing to restore \u2014 no backup has photos these reports are missing." : `${status.mode === "restore" ? "Restored" : "Can restore"} ${plan.photos} photo${plan.photos === 1 ? "" : "s"} on ${plan.reports} report${plan.reports === 1 ? "" : "s"}`), plan.items.map((it) => /* @__PURE__ */ React.createElement("div", { key: it.id, style: { display: "flex", justifyContent: "space-between", gap: "0.75rem", padding: "0.4rem 0", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", null, it.date || it.id, it.preparedBy ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", it.preparedBy) : null), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "+", it.restore), " from ", bkLabel(it.from)))), (status.backups || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", fontSize: "0.75rem", color: th.muted } }, "Backups checked: ", status.backups.map((b) => `${bkLabel(b.key)}${b.error ? " (unreadable)" : ""}`).join(", ")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", padding: "0.9rem 1.4rem 1.2rem", borderTop: `1px solid ${th.cardBorder}`, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, status?.mode === "restore" && status.undoKey && status.state === "done" && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        disabled: !!busy,
+        onClick: () => {
+          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call("undo", { undoKey: status.undoKey });
+        },
+        style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text }
+      },
+      "Undo restore"
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
+      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call("restore");
+    }, style: { ...btn(th) } }, "Restore ", plan.photos, " photos"))))));
+  }
   function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert: showAlert2, editable }) {
     const dailyReports = _dr2 || [];
     const [drView, setDrView] = useState("list");
@@ -14062,13 +14130,13 @@ ${t2.slice(0, 300)}`);
     const updateWorkLog = (idx, field, val) => {
       setRForm((f) => ({ ...f, workLogs: f.workLogs.map((w, i) => i === idx ? { ...w, [field]: val } : w) }));
     };
-    const compressImage = (file, maxWidth = 1600, quality = 0.7) => {
+    const compressImage = (file, maxWidth = 1280, quality = 0.65) => {
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const img = new Image();
           img.onload = () => {
-            if (img.width <= maxWidth && file.size < 5e5) {
+            if (img.width <= 480 && file.size < 12e4) {
               resolve(ev.target.result);
               return;
             }
@@ -14163,9 +14231,7 @@ ${t2.slice(0, 300)}`);
       const errors = [];
       for (const r of toSync) {
         try {
-          const localHasStripped = (r.workLogs || []).some((w) => (w.photos || []).some((p) => p._photoStripped));
-          const full = localHasStripped ? await cloudLoadReport(r.id) || r : r;
-          await cloudSaveReport(full);
+          await cloudSaveReport(r);
           ok++;
         } catch (err) {
           fail++;
@@ -14996,7 +15062,7 @@ ${t2.slice(0, 300)}`);
         })
       },
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1rem", lineHeight: 1.2 } }, /* @__PURE__ */ React.createElement("span", null, backupState === "running" ? "\u23F3 Backing up\u2026" : backupState === "done" ? "\u2713 Backed Up" : backupState === "error" ? "\u26A0 Failed" : "\u{1F5C4} Backup Reports"), backupState === "idle" && lastBackupTime && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", opacity: 0.7 } }, "Last: ", lastBackupTime.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })))
-    ))), forceSyncMsg && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: forceSyncState === "error" ? "#ef4444" : th.muted, marginBottom: "0.75rem", marginTop: "-0.5rem" } }, forceSyncMsg), projReports.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem", marginBottom: "0.5rem" } }, "\u{1F4CB}"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.875rem" } }, "No daily reports yet."), editable && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: startCreate, style: { ...btn(th), fontSize: "0.8125rem" } }, "Create First Report"), /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: th.card3, color: th.muted, cursor: "pointer" }), display: "inline-flex", alignItems: "center", gap: "0.25rem", fontSize: "0.8125rem", opacity: pdfImporting ? 0.6 : 1 } }, /* @__PURE__ */ React.createElement("input", { ref: pdfImportRef, type: "file", accept: ".pdf", style: { display: "none" }, onChange: importPdfReport, disabled: pdfImporting }), pdfImporting ? "\u23F3 Importing..." : "\u{1F4C4} Import PDF"))) : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.625rem" } }, projReports.map((r) => /* @__PURE__ */ React.createElement(
+    ), isFullAdmin(user) && /* @__PURE__ */ React.createElement(ReportPhotoRestore, { th, showAlert: showAlert2 }))), forceSyncMsg && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: forceSyncState === "error" ? "#ef4444" : th.muted, marginBottom: "0.75rem", marginTop: "-0.5rem" } }, forceSyncMsg), projReports.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem", marginBottom: "0.5rem" } }, "\u{1F4CB}"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.875rem" } }, "No daily reports yet."), editable && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: startCreate, style: { ...btn(th), fontSize: "0.8125rem" } }, "Create First Report"), /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: th.card3, color: th.muted, cursor: "pointer" }), display: "inline-flex", alignItems: "center", gap: "0.25rem", fontSize: "0.8125rem", opacity: pdfImporting ? 0.6 : 1 } }, /* @__PURE__ */ React.createElement("input", { ref: pdfImportRef, type: "file", accept: ".pdf", style: { display: "none" }, onChange: importPdfReport, disabled: pdfImporting }), pdfImporting ? "\u23F3 Importing..." : "\u{1F4C4} Import PDF"))) : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.625rem" } }, projReports.map((r) => /* @__PURE__ */ React.createElement(
       "div",
       {
         key: r.id,
@@ -17599,6 +17665,88 @@ ${t2.slice(0, 300)}`);
       () => setActivityOpen((o) => !o)
     ), activityOpen && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column" } }, (st?.sent || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No reminders sent yet."), (st?.sent || []).slice(0, 25).map((s, i, arr) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.5rem 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtAgo(s.at)), " \xB7 ", s.kind === "hour" ? "1-hour reminder" : "1-day reminder", " \xB7 ", s.store, " \xB7 ", s.candidate || "candidate", " \xB7 ", s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`, " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: s.smsSent ? "#16a34a" : "#dc2626" } }, s.smsSent ? "text sent" : "no text"), s.emails ? " \xB7 email sent" : "")))));
   }
+  function NewHiresPanel({ th, showAlert: showAlert2, users }) {
+    const [data, setData] = useState(null);
+    const [err, setErr] = useState(null);
+    const [running, setRunning] = useState(false);
+    const [testing, setTesting] = useState(null);
+    const load = useCallback(async () => {
+      try {
+        const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        setData(j);
+        setErr(null);
+      } catch (e) {
+        setErr(e.message);
+      }
+    }, []);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const runNow = async () => {
+      setRunning(true);
+      const before = data?.status?.at || null;
+      try {
+        const res = await fetch("/.netlify/functions/interview-reminders-run-background", { method: "POST", credentials: "include", headers: { ...authHeader() } });
+        if (res.status !== 202 && !res.ok) throw new Error(res.status === 403 ? "Only exec/IT can run this." : `HTTP ${res.status}`);
+        showAlert2 && showAlert2("success", "Checking every store mailbox \u2014 new hires show here in a minute or two.");
+        for (let i = 0; i < 36; i++) {
+          await new Promise((r) => setTimeout(r, 5e3));
+          const r2 = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
+          const j = await r2.json().catch(() => null);
+          if (j && j.status?.at && j.status.at !== before) {
+            setData(j);
+            break;
+          }
+        }
+      } catch (e) {
+        showAlert2 && showAlert2("error", `Check failed: ${e.message}`);
+      }
+      setRunning(false);
+    };
+    const sendTest = async (msgId) => {
+      setTesting(msgId);
+      try {
+        const res = await fetch("/.netlify/functions/interview-reminders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ action: "testHire", msgId }) });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        showAlert2 && showAlert2("success", `Test email sent to ${j.to}.`);
+      } catch (e) {
+        showAlert2 && showAlert2("error", `Test failed: ${e.message}`);
+      }
+      setTesting(null);
+    };
+    const mode = data?.hiresMode;
+    const storeName = (pc) => [...LIVE_OPEN_STORES || [], ...STORES_SEED].find((s) => String(s.pc) === String(pc))?.name || `PC# ${pc}`;
+    const fmtWhen = (iso) => iso ? new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "\u2014";
+    const team = (users || []).filter((u) => u.active !== false && (u.userType === "executive" || u.userType === "it") && u.email).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    const modeInfo = {
+      live: ["LIVE", "#16a34a", /* @__PURE__ */ React.createElement(React.Fragment, null, "Each new hire is emailed to every exec and IT account below.")],
+      shadow: ["TEST MODE", O, /* @__PURE__ */ React.createElement(React.Fragment, null, "Hire emails go ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "only to the test account (you)"), ", labelled with who they'd reach. Nobody below is emailed yet.")],
+      off: ["OFF", th.muted, /* @__PURE__ */ React.createElement(React.Fragment, null, "Hire emails are switched off \u2014 hires are still recorded below.")]
+    }[mode] || ["\u2026", th.muted, "Loading\u2026"];
+    const box = { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.85rem", padding: "1rem 1.15rem", marginBottom: "1rem" };
+    const h3 = { fontWeight: 700, fontSize: "0.95rem", color: th.text, fontFamily: "'Raleway'", marginBottom: "0.2rem" };
+    const sub = { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: "1.35rem", fontWeight: 800, color: th.text, fontFamily: "'Raleway'" } }, "New hires"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: 4 } }, 'When Ally emails a store that someone is "Officially Hired!", exec and IT get an email with who, which store (PC# and property name) and where. Managers and DMs are never sent these.')), err && /* @__PURE__ */ React.createElement("div", { style: { color: "#dc2626", fontSize: "0.85rem", marginBottom: "1rem" } }, "Couldn't load: ", err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.85rem", flexWrap: "wrap", padding: "0.8rem 1rem", borderRadius: "0.85rem", border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { padding: "0.22rem 0.6rem", borderRadius: "0.35rem", background: modeInfo[1], color: "#fff", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.04em" } }, modeInfo[0]), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px", fontSize: "0.84rem", color: th.muted } }, modeInfo[2], " ", /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, "Mailboxes checked every 5 min.")), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: runNow,
+        disabled: running,
+        style: { padding: "0.55rem 1.1rem", borderRadius: "0.55rem", border: "none", background: O, color: "#fff", fontWeight: 700, fontSize: "0.84rem", fontFamily: "'Source Sans 3'", cursor: running ? "default" : "pointer", opacity: running ? 0.6 : 1 }
+      },
+      running ? "Checking\u2026" : "Check mailboxes now"
+    )), /* @__PURE__ */ React.createElement("div", { style: box }, /* @__PURE__ */ React.createElement("div", { style: h3 }, "Recent hires"), /* @__PURE__ */ React.createElement("div", { style: sub }, 'The latest "Officially Hired!" emails found in the store mailboxes. Hires already older than 48 hours when first found are recorded but not emailed \u2014 use "Send me a test" to see the email.'), (data?.hires || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, data ? "No hires found yet." : "Loading\u2026"), (data?.hires || []).map((h, i, arr) => /* @__PURE__ */ React.createElement("div", { key: h.msg_id || i, style: { display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", alignItems: "baseline", padding: "0.55rem 0", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.84rem" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, h.candidate), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 ", storeName(h.store_pc), " (PC# ", h.store_pc, ")")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, fmtWhen(h.received_at), " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: h.notified_at ? "#16a34a" : h.notify_note === "email failed" ? "#dc2626" : th.muted } }, h.notified_at ? h.notify_note || "emailed" : h.notify_note || "pending"), " \xB7 ", /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => sendTest(h.msg_id),
+        disabled: testing === h.msg_id,
+        style: { background: "none", border: "none", padding: 0, color: O, fontWeight: 600, fontSize: "0.78rem", cursor: "pointer", fontFamily: "'Source Sans 3'", opacity: testing === h.msg_id ? 0.5 : 1 }
+      },
+      testing === h.msg_id ? "Sending\u2026" : "Send me a test"
+    ))))), /* @__PURE__ */ React.createElement("div", { style: { ...box, marginBottom: 0 } }, /* @__PURE__ */ React.createElement("div", { style: h3 }, "Who gets hire emails ", mode === "live" ? "" : "once live"), /* @__PURE__ */ React.createElement("div", { style: sub }, "Every active Exec and IT account with an email (", team.length, "). Change someone's role or deactivate them in Admin \u2192 Users."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, team.map((u) => /* @__PURE__ */ React.createElement("span", { key: u.id, style: { padding: "0.3rem 0.7rem", borderRadius: 999, border: `1px solid ${th.cardBorder}`, fontSize: "0.78rem", color: th.text } }, u.name || u.username, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 ", u.userType === "it" ? "IT" : "Exec"))), team.length === 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "No active exec or IT accounts with an email."))));
+  }
   var NOTIFY_ICONS = {
     project: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" })),
     ticket: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 8a2 2 0 0 0 0 4v0a2 2 0 0 0 0 4v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-1a2 2 0 0 1 0-4 2 2 0 0 1 0-4V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 6v12", strokeDasharray: "2 2" })),
@@ -17607,6 +17755,7 @@ ${t2.slice(0, 300)}`);
     systemHealth: /* @__PURE__ */ React.createElement("path", { d: "M3 12h4l2-6 4 12 2-6h6" }),
     minorTimecard: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "13", r: "7" }), /* @__PURE__ */ React.createElement("path", { d: "M12 10v3l2 1.5M5 5 3 7M19 5l2 2" })),
     weeklyHoursSchedule: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01" })),
+    newHires: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M19 8v6M16 11h6" })),
     interviewReminders: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 5h16v11H8l-4 4Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10.5", r: "2.2" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 14.2a4 4 0 0 1 7 0" })),
     mail: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "5", width: "18", height: "14", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "m3 7 9 6 9-6" })),
     phone: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "7", y: "2.5", width: "10", height: "19", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M11 18h2" })),
@@ -18087,7 +18236,8 @@ ${t2.slice(0, 300)}`);
         { id: "systemHealth", label: "System Health", count: notifCounts.systemHealth },
         { id: "minorTimecard", label: "Minor Timecard", count: notifCounts.minorTimecard },
         { id: "weeklyHoursSchedule", label: "Weekly Hours + Schedule", count: notifCounts.weeklyHoursSchedule },
-        { id: "interviewReminders", label: "Interview Reminders" }
+        { id: "interviewReminders", label: "Interview Reminders" },
+        { id: "newHires", label: "New Hires" }
       ] : []
     ].map((t) => {
       const on = notifSubTab === t.id;
@@ -18190,7 +18340,7 @@ ${t2.slice(0, 300)}`);
         onCountChange: setNotifCount("weeklyHoursSchedule"),
         description: "These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun\u2013Sat week \u2014 one Excel file and one PDF per store). There's no other fallback recipient \u2014 this list is the entire send list. Empty until you add someone."
       }
-    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 })), notifSubTab === "interviewReminders" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(InterviewRemindersPanel, { th, showAlert: showAlert2, users })), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 })), notifSubTab === "interviewReminders" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(InterviewRemindersPanel, { th, showAlert: showAlert2, users }), notifSubTab === "newHires" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(NewHiresPanel, { th, showAlert: showAlert2, users })), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => {
@@ -25879,7 +26029,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.23";
+  var APP_VERSION = "v22.26";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -38811,12 +38961,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const updateLog = (i, k, v) => setRForm((f) => ({ ...f, workLogs: f.workLogs.map((w, j) => j === i ? { ...w, [k]: v } : w) }));
     const setSurvey = (k, v) => setRForm((f) => ({ ...f, survey: { ...f.survey, [k]: v } }));
     const setSurveyNote = (k, v) => setRForm((f) => ({ ...f, surveyNotes: { ...f.surveyNotes, [k]: v } }));
-    const compressMobileImage = (file, maxWidth = 1600, quality = 0.7) => new Promise((resolve) => {
+    const compressMobileImage = (file, maxWidth = 1280, quality = 0.65) => new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (ev) => {
         const img = new Image();
         img.onload = () => {
-          if (img.width <= maxWidth && file.size < 5e5) {
+          if (img.width <= 480 && file.size < 12e4) {
             resolve(ev.target.result);
             return;
           }

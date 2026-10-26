@@ -30,6 +30,20 @@ export async function sendSms(numbers, message) {
   return { sent: results.filter(r => r.success).length, results };
 }
 
+// Same as sendEmail but with ready-made HTML (caller escapes its own content).
+export function sendHtmlEmail(to, subject, html) {
+  return new Promise((resolve) => {
+    const key = process.env.RESEND_API_KEY;
+    const list = (to || []).filter(Boolean);
+    if (!key || !list.length) return resolve(false);
+    const payload = JSON.stringify({ from: process.env.NOTIFY_FROM || 'PCG Portal <noreply@pcgops.com>', to: list, subject, html });
+    const req = https.request({ hostname: 'api.resend.com', path: '/emails', method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'Content-Length': Buffer.byteLength(payload) },
+    }, (res) => { res.on('data', () => {}); res.on('end', () => resolve(res.statusCode < 300)); });
+    req.on('error', () => resolve(false)); req.write(payload); req.end();
+  });
+}
+
 export function sendEmail(to, subject, text) {
   return new Promise((resolve) => {
     const key = process.env.RESEND_API_KEY;

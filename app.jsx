@@ -8673,30 +8673,46 @@ const DR_INDEX_KEY    = 'pcg_daily_reports_index_v1';
 const drKey       = (id) => `${DR_KEY_PREFIX}${id}`;
 const drPhotosKey = (id) => `${DR_KEY_PREFIX}${id}${DR_PHOTOS_SUFFIX}`;
 
+// A photo with real image data (not a `_photoStripped` placeholder / empty entry).
+const isRealReportPhoto = (p) => !!(p && typeof p.data === 'string' && p.data.length > 32);
+
+// v22.26 — the photo map is ONLY written when this copy really has the report's photos:
+// either it was loaded with its photos (cloudLoadReport sets _photosLoaded) or it carries
+// real photo data (a new report / newly added photos). Otherwise only the report text is
+// saved and the cloud photos are left alone. Before this, Force Sync and edits of copies
+// whose photos weren't loaded (e.g. a photo blob too big to download, >6 MB) saved an
+// EMPTY map or data-less placeholders over the real photos — confirmed 2026-10-26.
 async function cloudSaveReport(report) {
   if (!report || report.id == null) return false;
-  // Split: strip photo data out of the report, save separately
   const photoMap = {};
+  let hasReal = false;
+  const { _photosLoaded, ...rest } = report;
   const slimReport = {
-    ...report,
+    ...rest,
     workLogs: (report.workLogs || []).map((w, i) => {
-      if (w.photos && w.photos.length > 0) photoMap[i] = w.photos;
+      const real = (w.photos || []).filter(isRealReportPhoto);
+      if (real.length > 0) { photoMap[i] = real; hasReal = true; }
       return { ...w, photos: [] };
     }),
   };
+  const writePhotos = _photosLoaded === true || hasReal;
   await Promise.all([
     cloudSaveOrThrow(drKey(report.id), slimReport),
-    cloudSaveOrThrow(drPhotosKey(report.id), photoMap),
+    writePhotos ? cloudSaveOrThrow(drPhotosKey(report.id), photoMap) : Promise.resolve(true),
   ]);
   return true;
 }
 async function cloudLoadReport(id) {
   if (id == null) return null;
-  const [report, photoMap] = await Promise.all([
-    cloudLoad(drKey(id)),
-    cloudLoad(drPhotosKey(id)),
-  ]);
+  // Photos are loaded with an explicit request so a FAILED load (e.g. a photo blob over
+  // the ~6 MB limit) is told apart from "this report has no photos".
+  const photosReq = fetch('/.netlify/functions/storage', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'load', key: drPhotosKey(id) }),
+  }).then(async r => (r.ok ? { ok: true, data: (await r.json()).data || null } : { ok: false })).catch(() => ({ ok: false }));
+  const [report, photos] = await Promise.all([cloudLoad(drKey(id)), photosReq]);
   if (!report) return null;
+  const photoMap = photos.ok ? photos.data : null;
   // Recombine photos back into workLogs
   if (photoMap && typeof photoMap === 'object') {
     report.workLogs = (report.workLogs || []).map((w, i) => ({
@@ -8704,6 +8720,8 @@ async function cloudLoadReport(id) {
       photos: photoMap[i] || w.photos || [],
     }));
   }
+  // Only a successful photo load makes this copy authoritative for its photos.
+  if (photos.ok) report._photosLoaded = true;
   return report;
 }
 async function cloudDeleteReport(id) {
@@ -14834,6 +14852,103 @@ async function buildReportPdf(report, project) {
   return doc;
 }
 
+// ── Restore report photos (v22.26) ──────────────────────────────────────────
+// Exec/IT: put Daily Report photos back from the nightly backups after they were
+// wiped (Force Sync before v22.26). Dry run first; restore only fills photos a
+// report is missing (per work log); an undo snapshot is saved before writing.
+function ReportPhotoRestore({ th, showAlert }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(null); // 'scan' | 'restore' | 'undo'
+  const [status, setStatus] = useState(null);
+  const call = async (mode, extra = {}) => {
+    setBusy(mode);
+    let before = null;
+    try {
+      // the previous run, so an old result is never mistaken for this one
+      const r0 = await fetch('/.netlify/functions/reports-photo-restore', { credentials: 'include', headers: { ...authHeader() } });
+      before = (await r0.json().catch(() => null))?.status?.startedAt || null;
+      const res = await fetch('/.netlify/functions/reports-photo-restore-background', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ mode, ...extra }) });
+      if (res.status !== 202 && !res.ok) throw new Error(res.status === 403 ? 'Exec/IT only.' : `HTTP ${res.status}`);
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const r2 = await fetch('/.netlify/functions/reports-photo-restore', { credentials: 'include', headers: { ...authHeader() } });
+        const j = await r2.json().catch(() => null);
+        const s = j?.status;
+        if (s && s.startedAt !== before && s.mode === mode && s.state !== 'running') { setStatus(s); if (s.state === 'error') showAlert && showAlert('error', s.error); break; }
+      }
+    } catch (e) { showAlert && showAlert('error', `${mode} failed: ${e.message}`); }
+    setBusy(null);
+  };
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+  const bkLabel = (key) => { const m = /(\d{4})(\d{2})(\d{2})/.exec(key || ''); return m ? new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' backup' : key; };
+  const plan = status?.plan;
+  return (
+    <>
+      <button onClick={() => setOpen(true)} title="Put photos back from the nightly backups (exec/IT)"
+        style={btn(th, { padding: '0.4rem 1rem', fontSize: '0.8125rem', background: th.card3, color: th.muted, border: `1px solid ${th.cardBorder}` })}>
+        🛟 Restore photos
+      </button>
+      {open && (
+        <div onClick={() => !busy && setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '1rem', width: 'min(620px, 94vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '1.2rem 1.4rem 0.6rem' }}>
+              <div style={{ fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: '1.05rem' }}>Restore report photos</div>
+              <div style={{ fontSize: '0.82rem', color: th.muted, marginTop: '0.3rem', lineHeight: 1.5 }}>
+                Checks every nightly backup and puts back photos a report is missing. It never removes photos, and saves a copy of the current state first so it can be undone. Start with a dry run — nothing changes until you press Restore.
+              </div>
+            </div>
+            <div style={{ padding: '0.4rem 1.4rem', overflowY: 'auto', fontSize: '0.83rem', color: th.text }}>
+              {busy && <div style={{ color: th.muted, padding: '0.5rem 0' }}>{busy === 'scan' ? 'Checking backups…' : busy === 'restore' ? 'Restoring photos…' : 'Undoing…'} this can take a minute.</div>}
+              {!busy && status?.mode === 'undo' && status.state === 'done' && <div style={{ color: '#16a34a', padding: '0.5rem 0' }}>Undone — {status.undone} report(s) put back to how they were before the restore.</div>}
+              {!busy && status?.mode === 'restore' && status.state === 'done' && (
+                <div style={{ color: '#16a34a', padding: '0.5rem 0' }}>
+                  Restored <strong>{status.restoredPhotos}</strong> photo{status.restoredPhotos === 1 ? '' : 's'} on {status.restoredReports} report{status.restoredReports === 1 ? '' : 's'}. Refresh the page to see them.
+                  {status.failed?.length > 0 && <div style={{ color: '#dc2626' }}>{status.failed.length} report(s) failed: {status.failed.map(f => f.id).join(', ')}</div>}
+                </div>
+              )}
+              {!busy && plan && (
+                <>
+                  <div style={{ margin: '0.4rem 0 0.6rem', fontWeight: 700 }}>
+                    {plan.reports === 0 ? 'Nothing to restore — no backup has photos these reports are missing.' : `${status.mode === 'restore' ? 'Restored' : 'Can restore'} ${plan.photos} photo${plan.photos === 1 ? '' : 's'} on ${plan.reports} report${plan.reports === 1 ? '' : 's'}`}
+                  </div>
+                  {plan.items.map(it => (
+                    <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', padding: '0.4rem 0', borderTop: `1px solid ${th.cardBorder}` }}>
+                      <span>{it.date || it.id}{it.preparedBy ? <span style={{ color: th.muted }}> · {it.preparedBy}</span> : null}</span>
+                      <span style={{ color: th.muted, whiteSpace: 'nowrap' }}><strong style={{ color: th.text }}>+{it.restore}</strong> from {bkLabel(it.from)}</span>
+                    </div>
+                  ))}
+                  {(status.backups || []).length > 0 && (
+                    <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: th.muted }}>
+                      Backups checked: {status.backups.map(b => `${bkLabel(b.key)}${b.error ? ' (unreadable)' : ''}`).join(', ')}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', padding: '0.9rem 1.4rem 1.2rem', borderTop: `1px solid ${th.cardBorder}`, flexWrap: 'wrap' }}>
+              <div>
+                {status?.mode === 'restore' && status.undoKey && status.state === 'done' && (
+                  <button disabled={!!busy} onClick={() => { if (window.confirm('Undo the restore and put these reports back exactly as they were before it?')) call('undo', { undoKey: status.undoKey }); }}
+                    style={{ ...btn(th), background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.text }}>Undo restore</button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '0.6rem' }}>
+                <button disabled={!!busy} onClick={() => setOpen(false)} style={{ ...btn(th), background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.text }}>Close</button>
+                <button disabled={!!busy} onClick={() => call('scan')} style={{ ...btn(th), background: 'transparent', border: `1px solid ${O}88`, color: O }}>{status ? 'Check again' : 'Dry run'}</button>
+                {status?.mode === 'scan' && plan?.reports > 0 && (
+                  <button disabled={!!busy} onClick={() => { if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call('restore'); }} style={{ ...btn(th) }}>
+                    Restore {plan.photos} photos
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert, editable }) {
   const dailyReports = _dr2 || [];
   const [drView, setDrView] = useState("list"); // "list" | "create" | "preview"
@@ -14912,13 +15027,16 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     setRForm(f => ({ ...f, workLogs: f.workLogs.map((w,i) => i === idx ? { ...w, [field]: val } : w) }));
   };
 
-  const compressImage = (file, maxWidth = 1600, quality = 0.7) => {
+  // v22.26: smaller photos (1280px, q0.65, always re-encoded) — all of a report's photos
+  // are stored together and must stay under the ~6 MB transfer limit; 13 photos at the old
+  // 1600px/0.7 (or raw files under 500 KB) went over it. ~150–250 KB each now.
+  const compressImage = (file, maxWidth = 1280, quality = 0.65) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (ev) => {
         const img = new Image();
         img.onload = () => {
-          if (img.width <= maxWidth && file.size < 500000) {
+          if (img.width <= 480 && file.size < 120000) {
             resolve(ev.target.result);
             return;
           }
@@ -15030,11 +15148,10 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     const errors = [];
     for (const r of toSync) {
       try {
-        // Local state has photos stripped after a page load. Hydrate from cloud
-        // first so we re-upload the real photos, not empty placeholders.
-        const localHasStripped = (r.workLogs || []).some(w => (w.photos || []).some(p => p._photoStripped));
-        const full = localHasStripped ? (await cloudLoadReport(r.id) || r) : r;
-        await cloudSaveReport(full);
+        // v22.26: upload this device's copy as-is. cloudSaveReport only writes photos when
+        // the copy really has them, so a report already in the cloud keeps its photos (this
+        // used to re-upload empty/placeholder photo sets over the real ones).
+        await cloudSaveReport(r);
         ok++;
       } catch (err) { fail++; errors.push(`Report ${r.id}: ${err?.message || 'unknown'}`); }
     }
@@ -16193,6 +16310,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
               {backupState === 'idle' && lastBackupTime && <span style={{ fontSize: "0.6rem", opacity: 0.7 }}>Last: {lastBackupTime.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>}
             </div>
           </button>
+          {isFullAdmin(user) && <ReportPhotoRestore th={th} showAlert={showAlert} />}
         </div>}
       </div>
       {forceSyncMsg && (
@@ -19509,7 +19627,7 @@ function WeeklyReportSendNow({ th, showAlert }) {
 // ── Interview Reminders (v22.6, redesigned v22.10) ──────────────────────────
 // Paradox ("Ally from Dunkin'") emails interview invites to each store mailbox
 // ({pc}@peoplecapitalgroup.com) but can't text managers. The interview-reminders
-// cron reads those mailboxes every 15 min and texts + emails a reminder ~1 day
+// cron reads those mailboxes every 5 min and texts + emails a reminder ~1 day
 // and ~1 hour before each interview. This panel shows mailbox health, upcoming
 // interviews, who gets reminders (switchable per person or in bulk) and recent
 // sends, and can trigger a run now.
@@ -19810,6 +19928,119 @@ function InterviewRemindersPanel({ th, showAlert, users }) {
   );
 }
 
+// ── New Hires (v22.24) ──────────────────────────────────────────────────────
+// Ally (Paradox) emails "<Name> is Officially Hired!" to the store mailbox. The
+// mailbox check (interview-reminders cron, every 5 min) records each one and emails
+// exec + IT — never managers or DMs. ALLY_HIRES_MODE: shadow (test account only,
+// default) / live (every active exec + IT account) / off.
+function NewHiresPanel({ th, showAlert, users }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [testing, setTesting] = useState(null);
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders', { credentials: 'include', headers: { ...authHeader() } });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setData(j); setErr(null);
+    } catch (e) { setErr(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const runNow = async () => {
+    setRunning(true);
+    const before = data?.status?.at || null;
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders-run-background', { method: 'POST', credentials: 'include', headers: { ...authHeader() } });
+      if (res.status !== 202 && !res.ok) throw new Error(res.status === 403 ? 'Only exec/IT can run this.' : `HTTP ${res.status}`);
+      showAlert && showAlert('success', 'Checking every store mailbox — new hires show here in a minute or two.');
+      for (let i = 0; i < 36; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const r2 = await fetch('/.netlify/functions/interview-reminders', { credentials: 'include', headers: { ...authHeader() } });
+        const j = await r2.json().catch(() => null);
+        if (j && j.status?.at && j.status.at !== before) { setData(j); break; }
+      }
+    } catch (e) { showAlert && showAlert('error', `Check failed: ${e.message}`); }
+    setRunning(false);
+  };
+  const sendTest = async (msgId) => {
+    setTesting(msgId);
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'testHire', msgId }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      showAlert && showAlert('success', `Test email sent to ${j.to}.`);
+    } catch (e) { showAlert && showAlert('error', `Test failed: ${e.message}`); }
+    setTesting(null);
+  };
+
+  const mode = data?.hiresMode;
+  const storeName = (pc) => ([...(LIVE_OPEN_STORES || []), ...STORES_SEED].find(s => String(s.pc) === String(pc))?.name) || `PC# ${pc}`;
+  const fmtWhen = (iso) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+  const team = (users || []).filter(u => u.active !== false && (u.userType === 'executive' || u.userType === 'it') && u.email)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  const modeInfo = {
+    live: ['LIVE', '#16a34a', <>Each new hire is emailed to every exec and IT account below.</>],
+    shadow: ['TEST MODE', O, <>Hire emails go <strong style={{ color: th.text }}>only to the test account (you)</strong>, labelled with who they'd reach. Nobody below is emailed yet.</>],
+    off: ['OFF', th.muted, <>Hire emails are switched off — hires are still recorded below.</>],
+  }[mode] || ['…', th.muted, 'Loading…'];
+  const box = { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.85rem', padding: '1rem 1.15rem', marginBottom: '1rem' };
+  const h3 = { fontWeight: 700, fontSize: '0.95rem', color: th.text, fontFamily: "'Raleway'", marginBottom: '0.2rem' };
+  const sub = { fontSize: '0.8rem', color: th.muted, marginBottom: '0.75rem' };
+
+  return (
+    <div>
+      <div style={{ marginBottom: '1rem' }}>
+        <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: th.text, fontFamily: "'Raleway'" }}>New hires</h2>
+        <div style={{ fontSize: '0.84rem', color: th.muted, marginTop: 4 }}>When Ally emails a store that someone is "Officially Hired!", exec and IT get an email with who, which store (PC# and property name) and where. Managers and DMs are never sent these.</div>
+      </div>
+      {err && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: '1rem' }}>Couldn't load: {err}</div>}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap', padding: '0.8rem 1rem', borderRadius: '0.85rem', border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: '1rem' }}>
+        <span style={{ padding: '0.22rem 0.6rem', borderRadius: '0.35rem', background: modeInfo[1], color: '#fff', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.04em' }}>{modeInfo[0]}</span>
+        <div style={{ flex: '1 1 260px', fontSize: '0.84rem', color: th.muted }}>{modeInfo[2]} <span style={{ whiteSpace: 'nowrap' }}>Mailboxes checked every 5 min.</span></div>
+        <button onClick={runNow} disabled={running}
+          style={{ padding: '0.55rem 1.1rem', borderRadius: '0.55rem', border: 'none', background: O, color: '#fff', fontWeight: 700, fontSize: '0.84rem', fontFamily: "'Source Sans 3'", cursor: running ? 'default' : 'pointer', opacity: running ? 0.6 : 1 }}>
+          {running ? 'Checking…' : 'Check mailboxes now'}
+        </button>
+      </div>
+
+      <div style={box}>
+        <div style={h3}>Recent hires</div>
+        <div style={sub}>The latest "Officially Hired!" emails found in the store mailboxes. Hires already older than 48 hours when first found are recorded but not emailed — use "Send me a test" to see the email.</div>
+        {(data?.hires || []).length === 0 && <div style={{ fontSize: '0.82rem', color: th.muted }}>{data ? 'No hires found yet.' : 'Loading…'}</div>}
+        {(data?.hires || []).map((h, i, arr) => (
+          <div key={h.msg_id || i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'baseline', padding: '0.55rem 0', borderTop: `1px solid ${th.cardBorder}`, fontSize: '0.84rem' }}>
+            <span><strong style={{ color: th.text }}>{h.candidate}</strong> <span style={{ color: th.muted }}>· {storeName(h.store_pc)} (PC# {h.store_pc})</span></span>
+            <span style={{ color: th.muted, fontSize: '0.78rem' }}>
+              {fmtWhen(h.received_at)} · <span style={{ color: h.notified_at ? '#16a34a' : h.notify_note === 'email failed' ? '#dc2626' : th.muted }}>{h.notified_at ? (h.notify_note || 'emailed') : (h.notify_note || 'pending')}</span>
+              {' · '}
+              <button onClick={() => sendTest(h.msg_id)} disabled={testing === h.msg_id}
+                style={{ background: 'none', border: 'none', padding: 0, color: O, fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', fontFamily: "'Source Sans 3'", opacity: testing === h.msg_id ? 0.5 : 1 }}>
+                {testing === h.msg_id ? 'Sending…' : 'Send me a test'}
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...box, marginBottom: 0 }}>
+        <div style={h3}>Who gets hire emails {mode === 'live' ? '' : 'once live'}</div>
+        <div style={sub}>Every active Exec and IT account with an email ({team.length}). Change someone's role or deactivate them in Admin → Users.</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          {team.map(u => (
+            <span key={u.id} style={{ padding: '0.3rem 0.7rem', borderRadius: 999, border: `1px solid ${th.cardBorder}`, fontSize: '0.78rem', color: th.text }}>
+              {u.name || u.username} <span style={{ color: th.muted }}>· {u.userType === 'it' ? 'IT' : 'Exec'}</span>
+            </span>
+          ))}
+          {team.length === 0 && <span style={{ fontSize: '0.8rem', color: th.muted }}>No active exec or IT accounts with an email.</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Notification Access Panel building blocks (v22.2) ───────────────────────
 // One look for every recipient list in Admin > Notification Access Panel:
 // initials avatar, address, a small tag naming the list, a bordered trash
@@ -19822,6 +20053,7 @@ const NOTIFY_ICONS = {
   systemHealth: <path d="M3 12h4l2-6 4 12 2-6h6"/>,
   minorTimecard: <><circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 1.5M5 5 3 7M19 5l2 2"/></>,
   weeklyHoursSchedule: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></>,
+  newHires: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6M16 11h6"/></>,
   interviewReminders: <><path d="M4 5h16v11H8l-4 4Z"/><circle cx="12" cy="10.5" r="2.2"/><path d="M8.5 14.2a4 4 0 0 1 7 0"/></>,
   mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></>,
   phone:<><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></>,
@@ -20368,6 +20600,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
               { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
               { id: 'interviewReminders', label: 'Interview Reminders' },
+              { id: 'newHires', label: 'New Hires' },
             ] : []),
           ].map(t => {
             const on = notifSubTab === t.id;
@@ -20500,6 +20733,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         </>
       )}
       {notifSubTab === 'interviewReminders' && isFullAdmin(user) && <InterviewRemindersPanel th={th} showAlert={showAlert} users={users} />}
+      {notifSubTab === 'newHires' && isFullAdmin(user) && <NewHiresPanel th={th} showAlert={showAlert} users={users} />}
       </div>
 
       {/* Test Notifications */}
@@ -31842,7 +32076,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.23";
+const APP_VERSION = "v22.26";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -52069,12 +52303,13 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   const setSurvey  = (k,v) => setRForm(f => ({...f, survey:{...f.survey,[k]:v}}));
   const setSurveyNote = (k,v) => setRForm(f => ({...f, surveyNotes:{...f.surveyNotes,[k]:v}}));
 
-  const compressMobileImage = (file, maxWidth=1600, quality=0.7) => new Promise(resolve => {
+  // v22.26: same smaller size as the full-portal compressor (report photos must stay under ~6 MB together).
+  const compressMobileImage = (file, maxWidth=1280, quality=0.65) => new Promise(resolve => {
     const reader = new FileReader();
     reader.onload = ev => {
       const img = new Image();
       img.onload = () => {
-        if (img.width <= maxWidth && file.size < 500000) { resolve(ev.target.result); return; }
+        if (img.width <= 480 && file.size < 120000) { resolve(ev.target.result); return; }
         const canvas = document.createElement('canvas');
         const scale = Math.min(1, maxWidth / img.width);
         canvas.width = img.width * scale; canvas.height = img.height * scale;
