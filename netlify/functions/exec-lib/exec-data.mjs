@@ -118,7 +118,7 @@ async function execToday({ laborThresholdPct = 23 } = {}) {
       voids: live?.voids?.total != null ? r2(live.voids.total) : null,
       scheduledNow: t.scheduledNow || 0, onClock: t.employeesOnClock || 0, overtime: t.overtimeCount || 0,
       wtdSales: r2(wtdPrior + (Number(t.sales) || 0)),
-      wtdLastWeekSameDays: matched ? r2(lwSameDays + (lwFull ? Number(lwFull.sales) || 0 : 0)) : null,
+      wtdLastWeekSameDays: (matched || lwFull) ? r2(lwSameDays + (lwFull ? Number(lwFull.sales) || 0 : 0)) : null,
       lastWeekSameDayFull: lwFull ? r2(lwFull.sales) : null,
       sameTime: todaySameTime && lwSameTime ? { today: todaySameTime.sales, lastWeek: lwSameTime.sales, throughHour: completeHour } : null,
       overThreshold: r1(t.laborPct) >= laborThresholdPct && (Number(t.sales) || 0) > 0,

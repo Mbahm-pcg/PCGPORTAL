@@ -203,9 +203,13 @@ function rpcErr(id, code, message) {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
+// Fail CLOSED (v22.18). The previous "open if not configured" default meant that with
+// PCG_MCP_SECRET unset in Netlify — which it was, confirmed live 2026-10-25 — every tool
+// here (network sales, labor, Orion) answered anyone who had the URL. Now a missing secret
+// disables the endpoint with a clear message until one is set.
 function isAuthorized(request) {
   const secret = process.env.PCG_MCP_SECRET;
-  if (!secret) return true; // open if not configured (dev)
+  if (!secret) return 'unconfigured';
   const auth = request.headers.get('authorization') || '';
   return auth === `Bearer ${secret}`;
 }
@@ -225,7 +229,11 @@ export default async (request, context) => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
   if (request.method !== 'POST') return new Response(JSON.stringify(rpcErr(null, -32600, 'POST only')), { status: 405, headers });
 
-  if (!isAuthorized(request)) {
+  const authz = isAuthorized(request);
+  if (authz === 'unconfigured') {
+    return new Response(JSON.stringify(rpcErr(null, -32600, 'MCP endpoint disabled: set PCG_MCP_SECRET in the Netlify environment, then send Authorization: Bearer <secret>.')), { status: 503, headers });
+  }
+  if (!authz) {
     return new Response(JSON.stringify(rpcErr(null, -32600, 'Unauthorized')), { status: 401, headers });
   }
 
