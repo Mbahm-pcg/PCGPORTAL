@@ -160,6 +160,29 @@ export function storeSalesGrowth(blob, today, thisMonday) {
   return null;
 }
 
+// Labor dollars and sales over COMPLETE days only: Mon..yesterday of this week, or on a
+// Monday (nothing complete yet) the last complete week. The live WTD figure in
+// pcg_labor_v1 at a 7 AM run is two hours of data and reads 50-70% (seen 2026-10-26:
+// every district 46-70% on the scorecard), so it is never used for grading.
+export function storeLaborWindow(blob, today, thisMonday) {
+  const daily = (Array.isArray(blob?.daily) ? blob.daily : []).filter(d => typeof d?.date === 'string' && d.date >= thisMonday && d.date < today);
+  if (daily.length) {
+    const laborDollars = daily.reduce((a, d) => a + (Number(d.laborDollars) || 0), 0);
+    const sales = daily.reduce((a, d) => a + (Number(d.sales) || 0), 0);
+    if (sales > 0) {
+      const dates = daily.map(d => d.date).sort();
+      const dow = (d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+      const first = dates[0], last = dates[dates.length - 1];
+      return { laborDollars, sales, basis: `${dow(first)}${first !== last ? '-' + dow(last) : ''} this week (complete days)` };
+    }
+  }
+  const weekly = (Array.isArray(blob?.weekly) ? blob.weekly : []).filter(w => typeof w?.weekOf === 'string' && w.weekOf < thisMonday)
+    .sort((a, b) => b.weekOf.localeCompare(a.weekOf));
+  const last = weekly[0];
+  if (last?.sales > 0 && last.laborDollars != null) return { laborDollars: Number(last.laborDollars) || 0, sales: Number(last.sales), basis: 'last complete week' };
+  return null;
+}
+
 // Sum of the store's sales over the N complete weeks before thisMonday.
 export function trailingWeeksSales(blob, thisMonday, weeks) {
   const weekly = (Array.isArray(blob?.weekly) ? blob.weekly : []).filter(w => typeof w?.weekOf === 'string' && w.weekOf < thisMonday)
@@ -217,11 +240,20 @@ async function computeAndSaveDMScores(today) {
       try { storeBlobs[s.pc] = await cacheLoad(`pcg_labor_store_${s.pc}`); } catch { storeBlobs[s.pc] = null; }
     }));
     const growthBasis = { label: null };
+    const laborBasis = { label: null };
 
     for (const [district, stores] of Object.entries(byDistrict)) {
-      // 1. Labor score (lower is better; target ≤23%, red ≥35%)
-      const laborPcts = stores.map(s => s.wtd?.laborPct).filter(x => x != null && x > 5 && x < 150);
-      const avgLabor = laborPcts.length ? laborPcts.reduce((a,b)=>a+b,0)/laborPcts.length : null;
+      // 1. Labor score (lower is better; target ≤23%, red ≥35%) — sales-weighted over the
+      // district's complete days (storeLaborWindow), never the live partial-day WTD.
+      let distLaborDollars = 0, distLaborSales = 0;
+      for (const s of stores) {
+        const lw = storeLaborWindow(storeBlobs[s.pc], today, thisMonday);
+        if (!lw) continue;
+        distLaborDollars += lw.laborDollars; distLaborSales += lw.sales;
+        if (!laborBasis.label) laborBasis.label = lw.basis;
+      }
+      const rawLabor = distLaborSales > 0 ? (distLaborDollars / distLaborSales) * 100 : null;
+      const avgLabor = rawLabor != null && rawLabor > 5 && rawLabor < 60 ? rawLabor : null;
       const laborScore = avgLabor != null ? Math.max(0, Math.min(100, (35 - avgLabor) / (35 - 18) * 100)) : null;
 
       // 2. Sales growth score — like for like. The old version compared a PARTIAL current
@@ -302,7 +334,7 @@ async function computeAndSaveDMScores(today) {
     const existing = await cacheLoad('pcg_dm_scorecard') || [];
     const history  = Array.isArray(existing) ? existing : [];
     const trimmed  = [{ weekOf, computedAt: new Date().toISOString(), scores,
-                        basis: { sales: growthBasis.label || 'last complete week vs the week before', dcp: `last ${DCP_WEEKS} complete weeks` } },
+                        basis: { sales: growthBasis.label || 'last complete week vs the week before', dcp: `last ${DCP_WEEKS} complete weeks`, labor: laborBasis.label || 'last complete week' } },
                       ...history.filter(e => e.weekOf !== weekOf)].slice(0, 13);
     await cacheSave('pcg_dm_scorecard', trimmed);
     console.log('[analyst-cron] DM scorecard saved — week of', weekOf, '| districts:', Object.keys(scores).length);

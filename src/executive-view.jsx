@@ -16,7 +16,7 @@ const VIEWS = [
   { id: 'health', label: 'Data health' },
 ];
 
-const usd0 = (n) => (n == null ? '—' : '$' + Math.round(n).toLocaleString());
+const usd0 = (n) => (n == null ? '—' : (n < 0 ? '-' : '') + '$' + Math.round(Math.abs(n)).toLocaleString());
 const usd2 = (n) => (n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const usdK = (n) => (n == null ? '—' : Math.abs(n) >= 1e6 ? '$' + (n / 1e6).toFixed(2) + 'M' : Math.abs(n) >= 1e4 ? '$' + Math.round(n / 1000) + 'K' : usd0(n));
 const num = (n) => (n == null ? '—' : Math.round(n).toLocaleString());
@@ -97,10 +97,13 @@ function Table({ th, cols, rows, defaultSort, defaultDir = -1, keyField, maxHeig
     if (filter && q) { const s = q.toLowerCase(); r = r.filter((row) => cols.some((c) => String(row[c.key] ?? '').toLowerCase().includes(s))); }
     if (sortKey) {
       const col = cols.find((c) => c.key === sortKey);
+      // dir -1 = descending (↓, highest first), +1 = ascending (↑). v22.27: the sign was
+      // inverted, so every "highest first" table opened lowest first.
       r.sort((a, b) => {
         const av = a[sortKey], bv = b[sortKey];
-        if (col?.num) { const an = av == null ? -Infinity : Number(av), bn = bv == null ? -Infinity : Number(bv); return dir * (bn - an); }
-        return dir * String(bv ?? '').localeCompare(String(av ?? ''), undefined, { numeric: true });
+        if (col?.num) { const an = av == null ? -Infinity : Number(av), bn = bv == null ? -Infinity : Number(bv); return dir < 0 ? bn - an : an - bn; }
+        const cmp = String(av ?? '').localeCompare(String(bv ?? ''), undefined, { numeric: true });
+        return dir < 0 ? -cmp : cmp;
       });
     }
     return r;
@@ -119,7 +122,7 @@ function Table({ th, cols, rows, defaultSort, defaultDir = -1, keyField, maxHeig
           <thead>
             <tr>{cols.map((c) => (
               <th key={c.key} onClick={() => { if (sortKey === c.key) setDir((d) => -d); else { setSortKey(c.key); setDir(c.num ? -1 : 1); } }}
-                style={{ ...thCell(th, { textAlign: c.num ? 'right' : 'left', cursor: 'pointer', position: 'sticky', top: 0, background: th.card, borderBottom: `1px solid ${th.cardBorder}`, color: sortKey === c.key ? O : th.muted }) }}>
+                style={{ ...thCell(th, { textAlign: c.num ? 'right' : 'left', cursor: 'pointer', position: 'sticky', top: 0, zIndex: 1, background: th.card, borderBottom: `1px solid ${th.cardBorder}`, color: sortKey === c.key ? O : th.muted }) }}>
                 {c.label}{sortKey === c.key ? (dir < 0 ? ' ↓' : ' ↑') : ''}
               </th>))}</tr>
           </thead>
@@ -161,7 +164,7 @@ function TodayView({ th, user, go }) {
       </div>
       <div style={grid(200)}>
         <Tile th={th} accent={INFO} label="Net sales today" value={usd0(n.sales)}
-          sub={st ? <>vs same time last week <Delta v={st.pct} /> ({usd0(st.lastWeek)} through {hr12(st.throughHour + 1)})</> : 'Same-time comparison needs the hourly cache (available after 6 AM)'} />
+          sub={st ? <>vs same time last week <Delta v={st.pct} /> · through {hr12(st.throughHour + 1)}: {usd0(st.today)} vs {usd0(st.lastWeek)} (guest-check totals)</> : 'Same-time comparison needs the hourly cache (available after 6 AM)'} />
         <Tile th={th} accent={INFO} label={`Week to date (from Sun ${dateShort(wtd.weekStart)})`} value={usd0(wtd.sales)}
           sub={wtd.pct != null ? <>vs same days last week <Delta v={wtd.pct} /> ({usd0(wtd.lastWeekSameDays)})</> : 'Last week not in history yet'} />
         <Tile th={th} accent={laborColor(n.laborPct, data.laborThresholdPct) || GOOD} color={laborColor(n.laborPct, data.laborThresholdPct)} label="Labor today" value={pct1(n.laborPct)}
@@ -221,7 +224,11 @@ function WeekView({ th, user }) {
   const n = data.network;
   const dc = data.districts.map((d) => ({ ...d, label: `District ${d.district}` }));
   const ly = data.stores.filter((s) => s.vsLastYearPct != null).sort((a, b) => b.vsLastYearPct - a.vsLastYearPct);
-  const lyMax = Math.max(...ly.map((s) => Math.abs(s.vsLastYearPct)), 1);
+  // Bars are capped at ±LY_CAP% so one store with a partial last-year week (+164% on
+  // 10/26) does not flatten the other 43; the label always shows the real number.
+  const LY_CAP = 30;
+  const lyMax = Math.min(Math.max(...ly.map((s) => Math.abs(s.vsLastYearPct)), 1), LY_CAP);
+  const lyW = (v) => Math.min(Math.abs(v) / lyMax, 1) * 50;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
@@ -258,16 +265,16 @@ function WeekView({ th, user }) {
             ]} />) : <Empty th={th}>No store over the flag thresholds this week.</Empty>}
         </Card>
       </div>
-      <Card th={th} title="Every store vs the same week last year" note="Best to worst. Stores without a last-year week are listed in the table as “new”." style={{ marginBottom: '1rem' }}>
+      <Card th={th} title="Every store vs the same week last year" note={`Best to worst. Bars are capped at ±${LY_CAP}% (a store far outside that usually had a partial week last year); stores without a last-year week are listed in the table as “new”.`} style={{ marginBottom: '1rem' }}>
         {ly.length ? ly.map((s) => (
           <div key={s.pc} style={{ display: 'grid', gridTemplateColumns: '9rem 1fr 4.5rem', alignItems: 'center', gap: '0.5rem', fontSize: '0.76rem', padding: '1px 0' }}>
             <span style={{ color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
             <div style={{ position: 'relative', height: 10 }}>
               <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: th.cardBorder }} />
-              <div style={{ position: 'absolute', top: 1, height: 8, borderRadius: 4, background: s.vsLastYearPct >= 0 ? GOOD : BAD, opacity: 0.85,
-                left: s.vsLastYearPct >= 0 ? '50%' : `${50 - (Math.abs(s.vsLastYearPct) / lyMax) * 50}%`, width: `${(Math.abs(s.vsLastYearPct) / lyMax) * 50}%` }} />
+              <div style={{ position: 'absolute', top: 1, height: 8, borderRadius: 4, background: s.vsLastYearPct >= 0 ? GOOD : BAD, opacity: Math.abs(s.vsLastYearPct) > lyMax ? 0.45 : 0.85,
+                left: s.vsLastYearPct >= 0 ? '50%' : `${50 - lyW(s.vsLastYearPct)}%`, width: `${lyW(s.vsLastYearPct)}%` }} />
             </div>
-            <span style={{ textAlign: 'right', color: upGood(s.vsLastYearPct) || th.text, fontWeight: 700 }}>{spct(s.vsLastYearPct)}</span>
+            <span style={{ textAlign: 'right', color: upGood(s.vsLastYearPct) || th.text, fontWeight: 700 }}>{spct(s.vsLastYearPct)}{Math.abs(s.vsLastYearPct) > lyMax ? ' ▸' : ''}</span>
           </div>)) : <Empty th={th}>No last-year comparison in this week's report.</Empty>}
       </Card>
       <Card th={th} title="All stores" note="Click a column to sort; type to filter. Target is the store's labor + food target.">
@@ -302,7 +309,7 @@ function DistrictsView({ th, user, stores }) {
   return (
     <div>
       <Card th={th} title={sc ? `DM scorecard · week of ${dateShort(sc.weekOf)}` : 'DM scorecard'} style={{ marginBottom: '1rem' }}
-        note={sc ? `Computed ${timeShort(sc.computedAt)} · labor 25%, sales 25%, DCP 20%, response 15%, tickets 15% · ${sc.bands.strong}+ strong, ${sc.bands.watch}-${sc.bands.strong - 1} watch · sales growth: ${sc.basis?.sales || 'last complete week vs the week before'} · DCP: ${sc.basis?.dcp || 'current week'}` : 'The analyst run has not written a scorecard yet.'}>
+        note={sc ? `Computed ${timeShort(sc.computedAt)} · labor 25%, sales 25%, DCP 20%, response 15%, tickets 15% · ${sc.bands.strong}+ strong, ${sc.bands.watch}-${sc.bands.strong - 1} watch · labor: ${sc.basis?.labor || 'live week-to-date (recomputed from complete days at the next 7 AM run)'} · sales growth: ${sc.basis?.sales || 'last complete week vs the week before'} · DCP: ${sc.basis?.dcp || 'current week'}` : 'The analyst run has not written a scorecard yet.'}>
         {sc ? (
           <Table th={th} keyField="district" rows={sc.rows} defaultSort="rank" defaultDir={1} maxHeight={420} cols={[
             { key: 'rank', label: '#', num: true }, { key: 'dmName', label: 'DM' }, { key: 'district', label: 'Dist', num: true, fmt: (v) => 'D' + v },
@@ -348,7 +355,7 @@ function DevelopmentView({ th, user, go }) {
   return (
     <div>
       <div style={grid(190)}>
-        <Tile th={th} accent={INFO} label="Locations" value={pf.locations} sub={<>{pf.open} open · {pf.remodel} remodel · {pf.tempClosed} temp closed · {pf.comingSoon} coming soon</>} />
+        <Tile th={th} accent={INFO} label="Locations" value={pf.locations} sub={<>{pf.open} open · {pf.remodel} remodel · {pf.tempClosed} temp closed · {pf.comingSoon} coming soon · {pf.permanentlyClosed} permanently closed{(() => { const other = pf.locations - pf.open - pf.remodel - pf.tempClosed - pf.comingSoon - pf.permanentlyClosed; return other > 0 ? ` · ${other} no status` : ''; })()}</>} />
         <Tile th={th} accent={INFO} label="Next-Gen stores" value={pf.nextGen} sub={<>{pf.locations - pf.permanentlyClosed ? Math.round((pf.nextGen / (pf.locations - pf.permanentlyClosed)) * 100) : 0}% of the portfolio · {pf.bridge} Bridge · {pf.districts} districts</>} />
         <Tile th={th} accent={p.counts.overdue ? BAD : GOOD} label="Active projects" value={p.counts.active} color={null} sub={<><span style={{ color: p.counts.overdue ? BAD : th.muted, fontWeight: 700 }}>{p.counts.overdue} past due</span> · {p.counts.noDueDate} without a due date · {p.counts.complete} complete</>} />
         <Tile th={th} accent={INFO} label="NDCP spend, avg full week" value={usdK(nd.totals?.avgFullWeekSpend)} sub={nd.totals ? <>over {nd.totals.fullWeeks} complete weeks</> : nd.error || 'No NDCP data'} />

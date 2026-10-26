@@ -119,7 +119,16 @@ describe('execDistricts / execDevelopment / execHealth / execAttention', () => {
     assert.strictEqual(by.deposit_upload_age.status, 'fail');
     assert.strictEqual(by.analyst_lock.status, 'pass');
     assert.strictEqual(by.scorecard_growth.status, 'pass');
+    assert.strictEqual(by.scorecard_labor.status, 'pass');
     assert.strictEqual(by.labor_coverage.status, 'pass');
+  });
+  test('a scorecard graded on partial-day labor (64% districts) fails the labor check', async () => {
+    const hot = JSON.parse(JSON.stringify(blobs.pcg_dm_scorecard));
+    hot[0].scores[2].avgLaborPct = 64.2; hot[0].scores[8].avgLaborPct = 46.1;
+    const ex = createExecData({ load: async (k) => (k === 'pcg_dm_scorecard' ? hot : load(k)), dbFactory });
+    const by = Object.fromEntries((await ex.execHealth()).checks.map((c) => [c.id, c]));
+    assert.strictEqual(by.scorecard_labor.status, 'fail');
+    assert.match(by.scorecard_labor.detail, /2 district\(s\) above 40%/);
   });
   test('attention groups labor by severity', async () => {
     const a = await exec.execAttention();

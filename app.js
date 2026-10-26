@@ -944,7 +944,7 @@
     { id: "development", label: "Development & supply" },
     { id: "health", label: "Data health" }
   ];
-  var usd0 = (n) => n == null ? "\u2014" : "$" + Math.round(n).toLocaleString();
+  var usd0 = (n) => n == null ? "\u2014" : (n < 0 ? "-" : "") + "$" + Math.round(Math.abs(n)).toLocaleString();
   var usd2 = (n) => n == null ? "\u2014" : "$" + Number(n).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   var usdK = (n) => n == null ? "\u2014" : Math.abs(n) >= 1e6 ? "$" + (n / 1e6).toFixed(2) + "M" : Math.abs(n) >= 1e4 ? "$" + Math.round(n / 1e3) + "K" : usd0(n);
   var num = (n) => n == null ? "\u2014" : Math.round(n).toLocaleString();
@@ -1015,9 +1015,10 @@
           const av = a[sortKey], bv = b[sortKey];
           if (col?.num) {
             const an = av == null ? -Infinity : Number(av), bn = bv == null ? -Infinity : Number(bv);
-            return dir * (bn - an);
+            return dir < 0 ? bn - an : an - bn;
           }
-          return dir * String(bv ?? "").localeCompare(String(av ?? ""), void 0, { numeric: true });
+          const cmp = String(av ?? "").localeCompare(String(bv ?? ""), void 0, { numeric: true });
+          return dir < 0 ? -cmp : cmp;
         });
       }
       return r;
@@ -1034,7 +1035,7 @@
             setDir(c.num ? -1 : 1);
           }
         },
-        style: { ...thCell(th, { textAlign: c.num ? "right" : "left", cursor: "pointer", position: "sticky", top: 0, background: th.card, borderBottom: `1px solid ${th.cardBorder}`, color: sortKey === c.key ? O : th.muted }) }
+        style: { ...thCell(th, { textAlign: c.num ? "right" : "left", cursor: "pointer", position: "sticky", top: 0, zIndex: 1, background: th.card, borderBottom: `1px solid ${th.cardBorder}`, color: sortKey === c.key ? O : th.muted }) }
       },
       c.label,
       sortKey === c.key ? dir < 0 ? " \u2193" : " \u2191" : ""
@@ -1061,7 +1062,7 @@
         accent: INFO,
         label: "Net sales today",
         value: usd0(n.sales),
-        sub: st ? /* @__PURE__ */ React.createElement(React.Fragment, null, "vs same time last week ", /* @__PURE__ */ React.createElement(Delta, { v: st.pct }), " (", usd0(st.lastWeek), " through ", hr12(st.throughHour + 1), ")") : "Same-time comparison needs the hourly cache (available after 6 AM)"
+        sub: st ? /* @__PURE__ */ React.createElement(React.Fragment, null, "vs same time last week ", /* @__PURE__ */ React.createElement(Delta, { v: st.pct }), " \xB7 through ", hr12(st.throughHour + 1), ": ", usd0(st.today), " vs ", usd0(st.lastWeek), " (guest-check totals)") : "Same-time comparison needs the hourly cache (available after 6 AM)"
       }
     ), /* @__PURE__ */ React.createElement(
       Tile,
@@ -1121,7 +1122,9 @@
     const n = data.network;
     const dc = data.districts.map((d) => ({ ...d, label: `District ${d.district}` }));
     const ly = data.stores.filter((s) => s.vsLastYearPct != null).sort((a, b) => b.vsLastYearPct - a.vsLastYearPct);
-    const lyMax = Math.max(...ly.map((s) => Math.abs(s.vsLastYearPct)), 1);
+    const LY_CAP = 30;
+    const lyMax = Math.min(Math.max(...ly.map((s) => Math.abs(s.vsLastYearPct)), 1), LY_CAP);
+    const lyW = (v) => Math.min(Math.abs(v) / lyMax, 1) * 50;
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, "Uploaded weekly report \xB7 week #", data.weekNum, " ending ", data.weekEnd, data.isDraft ? " (draft)" : ""), data.weeksAvailable.length > 1 && /* @__PURE__ */ React.createElement("select", { value: weekIndex, onChange: (e) => setWeekIndex(Number(e.target.value)), style: { background: th.inputBg, border: `1px solid ${th.inputBorder}`, color: th.text, borderRadius: 6, padding: "0.25rem 0.5rem", fontSize: "0.78rem" } }, data.weeksAvailable.map((w) => /* @__PURE__ */ React.createElement("option", { key: w.index, value: w.index }, "Wk #", w.weekNum, " \u2014 ", w.weekEnd)))), /* @__PURE__ */ React.createElement("div", { style: grid(200) }, /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "Net sales", value: usdK(n.sales), sub: /* @__PURE__ */ React.createElement(React.Fragment, null, "vs prior week ", /* @__PURE__ */ React.createElement(Delta, { v: n.vsPriorWeekPct }), " (", (n.vsPriorWeekDollars >= 0 ? "+" : "-") + usd0(Math.abs(n.vsPriorWeekDollars)), ") \xB7 vs last year ", /* @__PURE__ */ React.createElement(Delta, { v: n.vsLastYearPct }), " (", n.storesWithLastYear, " of ", n.stores, " stores comparable)") }), /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "Guests", value: num(n.guests), sub: /* @__PURE__ */ React.createElement(React.Fragment, null, "vs prior week ", /* @__PURE__ */ React.createElement(Delta, { v: n.vsPriorWeekGuestsPct }), " \xB7 ", usd0(n.perStoreSales), " per store") }), /* @__PURE__ */ React.createElement(Tile, { th, accent: laborColor(n.laborPct) || GOOD, color: laborColor(n.laborPct), label: "Labor %", value: pct1(n.laborPct), sub: "network average for the week" }), /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "Food cost %", value: pct1(n.foodCostPct), sub: /* @__PURE__ */ React.createElement(React.Fragment, null, "bakery ", pct1(n.bakeryPct)) }), /* @__PURE__ */ React.createElement(Tile, { th, accent: n.totalCostPct >= 50 ? WARN : GOOD, label: "Total cost % (labor + food)", value: pct1(n.totalCostPct), sub: /* @__PURE__ */ React.createElement(React.Fragment, null, "next week forecast ", usdK(n.forecastNextWeek)) })), /* @__PURE__ */ React.createElement("div", { style: two }, /* @__PURE__ */ React.createElement(Card, { th, title: "Districts", note: "Same columns as the store table. Total % is labor + food." }, /* @__PURE__ */ React.createElement(Table, { th, keyField: "district", rows: dc, defaultSort: "district", defaultDir: 1, maxHeight: 360, cols: [
       { key: "label", label: "District" },
       { key: "dmName", label: "DM" },
@@ -1140,16 +1143,16 @@
       { key: "vsPriorWeekPct", label: "vs PW", num: true, fmt: spct, color: upGood },
       { key: "laborPct", label: "Labor %", num: true, fmt: pct1, color: (v) => v >= 30 ? BAD : null },
       { key: "totalCostPct", label: "Total %", num: true, fmt: pct1, color: (v) => v >= 58 ? BAD : null }
-    ] }) : /* @__PURE__ */ React.createElement(Empty, { th }, "No store over the flag thresholds this week."))), /* @__PURE__ */ React.createElement(Card, { th, title: "Every store vs the same week last year", note: "Best to worst. Stores without a last-year week are listed in the table as \u201Cnew\u201D.", style: { marginBottom: "1rem" } }, ly.length ? ly.map((s) => /* @__PURE__ */ React.createElement("div", { key: s.pc, style: { display: "grid", gridTemplateColumns: "9rem 1fr 4.5rem", alignItems: "center", gap: "0.5rem", fontSize: "0.76rem", padding: "1px 0" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", height: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: th.cardBorder } }), /* @__PURE__ */ React.createElement("div", { style: {
+    ] }) : /* @__PURE__ */ React.createElement(Empty, { th }, "No store over the flag thresholds this week."))), /* @__PURE__ */ React.createElement(Card, { th, title: "Every store vs the same week last year", note: `Best to worst. Bars are capped at \xB1${LY_CAP}% (a store far outside that usually had a partial week last year); stores without a last-year week are listed in the table as \u201Cnew\u201D.`, style: { marginBottom: "1rem" } }, ly.length ? ly.map((s) => /* @__PURE__ */ React.createElement("div", { key: s.pc, style: { display: "grid", gridTemplateColumns: "9rem 1fr 4.5rem", alignItems: "center", gap: "0.5rem", fontSize: "0.76rem", padding: "1px 0" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", height: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: th.cardBorder } }), /* @__PURE__ */ React.createElement("div", { style: {
       position: "absolute",
       top: 1,
       height: 8,
       borderRadius: 4,
       background: s.vsLastYearPct >= 0 ? GOOD : BAD,
-      opacity: 0.85,
-      left: s.vsLastYearPct >= 0 ? "50%" : `${50 - Math.abs(s.vsLastYearPct) / lyMax * 50}%`,
-      width: `${Math.abs(s.vsLastYearPct) / lyMax * 50}%`
-    } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", color: upGood(s.vsLastYearPct) || th.text, fontWeight: 700 } }, spct(s.vsLastYearPct)))) : /* @__PURE__ */ React.createElement(Empty, { th }, "No last-year comparison in this week's report.")), /* @__PURE__ */ React.createElement(Card, { th, title: "All stores", note: "Click a column to sort; type to filter. Target is the store's labor + food target." }, /* @__PURE__ */ React.createElement(Table, { th, keyField: "pc", rows: data.stores, defaultSort: "sales", filter: true, maxHeight: 560, cols: [
+      opacity: Math.abs(s.vsLastYearPct) > lyMax ? 0.45 : 0.85,
+      left: s.vsLastYearPct >= 0 ? "50%" : `${50 - lyW(s.vsLastYearPct)}%`,
+      width: `${lyW(s.vsLastYearPct)}%`
+    } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", color: upGood(s.vsLastYearPct) || th.text, fontWeight: 700 } }, spct(s.vsLastYearPct), Math.abs(s.vsLastYearPct) > lyMax ? " \u25B8" : ""))) : /* @__PURE__ */ React.createElement(Empty, { th }, "No last-year comparison in this week's report.")), /* @__PURE__ */ React.createElement(Card, { th, title: "All stores", note: "Click a column to sort; type to filter. Target is the store's labor + food target." }, /* @__PURE__ */ React.createElement(Table, { th, keyField: "pc", rows: data.stores, defaultSort: "sales", filter: true, maxHeight: 560, cols: [
       { key: "name", label: "Store" },
       { key: "city", label: "City" },
       { key: "district", label: "Dist", num: true, fmt: (v) => v ? "D" + v : "\u2014" },
@@ -1189,7 +1192,7 @@
         th,
         title: sc ? `DM scorecard \xB7 week of ${dateShort(sc.weekOf)}` : "DM scorecard",
         style: { marginBottom: "1rem" },
-        note: sc ? `Computed ${timeShort(sc.computedAt)} \xB7 labor 25%, sales 25%, DCP 20%, response 15%, tickets 15% \xB7 ${sc.bands.strong}+ strong, ${sc.bands.watch}-${sc.bands.strong - 1} watch \xB7 sales growth: ${sc.basis?.sales || "last complete week vs the week before"} \xB7 DCP: ${sc.basis?.dcp || "current week"}` : "The analyst run has not written a scorecard yet."
+        note: sc ? `Computed ${timeShort(sc.computedAt)} \xB7 labor 25%, sales 25%, DCP 20%, response 15%, tickets 15% \xB7 ${sc.bands.strong}+ strong, ${sc.bands.watch}-${sc.bands.strong - 1} watch \xB7 labor: ${sc.basis?.labor || "live week-to-date (recomputed from complete days at the next 7 AM run)"} \xB7 sales growth: ${sc.basis?.sales || "last complete week vs the week before"} \xB7 DCP: ${sc.basis?.dcp || "current week"}` : "The analyst run has not written a scorecard yet."
       },
       sc ? /* @__PURE__ */ React.createElement(Table, { th, keyField: "district", rows: sc.rows, defaultSort: "rank", defaultDir: 1, maxHeight: 420, cols: [
         { key: "rank", label: "#", num: true },
@@ -1218,7 +1221,10 @@
     const p = data.projects, nd = data.ndcp, pf = data.portfolio;
     const ndMax = Math.max(...(nd.weeks || []).map((w) => w.spend), 1);
     const typeRows = Object.entries(p.byType).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count);
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: grid(190) }, /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "Locations", value: pf.locations, sub: /* @__PURE__ */ React.createElement(React.Fragment, null, pf.open, " open \xB7 ", pf.remodel, " remodel \xB7 ", pf.tempClosed, " temp closed \xB7 ", pf.comingSoon, " coming soon") }), /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "Next-Gen stores", value: pf.nextGen, sub: /* @__PURE__ */ React.createElement(React.Fragment, null, pf.locations - pf.permanentlyClosed ? Math.round(pf.nextGen / (pf.locations - pf.permanentlyClosed) * 100) : 0, "% of the portfolio \xB7 ", pf.bridge, " Bridge \xB7 ", pf.districts, " districts") }), /* @__PURE__ */ React.createElement(Tile, { th, accent: p.counts.overdue ? BAD : GOOD, label: "Active projects", value: p.counts.active, color: null, sub: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: p.counts.overdue ? BAD : th.muted, fontWeight: 700 } }, p.counts.overdue, " past due"), " \xB7 ", p.counts.noDueDate, " without a due date \xB7 ", p.counts.complete, " complete") }), /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "NDCP spend, avg full week", value: usdK(nd.totals?.avgFullWeekSpend), sub: nd.totals ? /* @__PURE__ */ React.createElement(React.Fragment, null, "over ", nd.totals.fullWeeks, " complete weeks") : nd.error || "No NDCP data" }), /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "NDCP spend, last 13 weeks", value: usdK(nd.totals?.spend), sub: nd.totals ? /* @__PURE__ */ React.createElement(React.Fragment, null, num(nd.totals.orders), " orders \xB7 ", num(nd.totals.revisedOrders), " revised at least once") : "" })), /* @__PURE__ */ React.createElement("div", { style: two }, /* @__PURE__ */ React.createElement(Card, { th, title: "NDCP weekly spend", note: nd.totals?.basis || "" }, nd.weeks?.length ? nd.weeks.map((w, i) => {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: grid(190) }, /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "Locations", value: pf.locations, sub: /* @__PURE__ */ React.createElement(React.Fragment, null, pf.open, " open \xB7 ", pf.remodel, " remodel \xB7 ", pf.tempClosed, " temp closed \xB7 ", pf.comingSoon, " coming soon \xB7 ", pf.permanentlyClosed, " permanently closed", (() => {
+      const other = pf.locations - pf.open - pf.remodel - pf.tempClosed - pf.comingSoon - pf.permanentlyClosed;
+      return other > 0 ? ` \xB7 ${other} no status` : "";
+    })()) }), /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "Next-Gen stores", value: pf.nextGen, sub: /* @__PURE__ */ React.createElement(React.Fragment, null, pf.locations - pf.permanentlyClosed ? Math.round(pf.nextGen / (pf.locations - pf.permanentlyClosed) * 100) : 0, "% of the portfolio \xB7 ", pf.bridge, " Bridge \xB7 ", pf.districts, " districts") }), /* @__PURE__ */ React.createElement(Tile, { th, accent: p.counts.overdue ? BAD : GOOD, label: "Active projects", value: p.counts.active, color: null, sub: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { color: p.counts.overdue ? BAD : th.muted, fontWeight: 700 } }, p.counts.overdue, " past due"), " \xB7 ", p.counts.noDueDate, " without a due date \xB7 ", p.counts.complete, " complete") }), /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "NDCP spend, avg full week", value: usdK(nd.totals?.avgFullWeekSpend), sub: nd.totals ? /* @__PURE__ */ React.createElement(React.Fragment, null, "over ", nd.totals.fullWeeks, " complete weeks") : nd.error || "No NDCP data" }), /* @__PURE__ */ React.createElement(Tile, { th, accent: INFO, label: "NDCP spend, last 13 weeks", value: usdK(nd.totals?.spend), sub: nd.totals ? /* @__PURE__ */ React.createElement(React.Fragment, null, num(nd.totals.orders), " orders \xB7 ", num(nd.totals.revisedOrders), " revised at least once") : "" })), /* @__PURE__ */ React.createElement("div", { style: two }, /* @__PURE__ */ React.createElement(Card, { th, title: "NDCP weekly spend", note: nd.totals?.basis || "" }, nd.weeks?.length ? nd.weeks.map((w, i) => {
       const partial = i === nd.weeks.length - 1;
       return /* @__PURE__ */ React.createElement("div", { key: w.weekOf, style: { display: "grid", gridTemplateColumns: "4.5rem 1fr 5.5rem", gap: "0.5rem", alignItems: "center", fontSize: "0.76rem", padding: "1px 0" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, dateShort(w.weekOf)), /* @__PURE__ */ React.createElement("div", { style: { height: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 8, borderRadius: 4, background: partial ? th.cardBorder : INFO, opacity: 0.85, width: `${w.spend / ndMax * 100}%` } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", color: th.text } }, usdK(w.spend), partial ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " partial") : ""));
     }) : /* @__PURE__ */ React.createElement(Empty, { th }, nd.error || "No NDCP orders in the last 13 weeks.")), /* @__PURE__ */ React.createElement(Card, { th, title: "Projects by type", note: "Counts exclude records named \u201Ctest\u201D." }, typeRows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.type, style: { display: "grid", gridTemplateColumns: "8rem 1fr 2rem", gap: "0.5rem", alignItems: "center", fontSize: "0.78rem", padding: "2px 0" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, r.type), /* @__PURE__ */ React.createElement("div", { style: { height: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 8, borderRadius: 4, background: INFO, opacity: 0.85, width: `${r.count / Math.max(...typeRows.map((x) => x.count), 1) * 100}%` } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", color: th.text } }, r.count))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => go && go("projects"), style: { background: "none", border: `1px solid ${th.cardBorder}`, color: O, borderRadius: 6, padding: "0.3rem 0.7rem", cursor: "pointer", fontSize: "0.76rem", fontWeight: 700 } }, "Open Projects \u2192")))), /* @__PURE__ */ React.createElement(Card, { th, title: "Construction and remodel projects", note: "Past due = not complete and past its due date. A project with no due date can never be overdue, which is why it is called out." }, /* @__PURE__ */ React.createElement(Table, { th, keyField: "id", rows: p.rows, defaultSort: "overdue", filter: true, maxHeight: 520, cols: [
@@ -26029,7 +26035,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.26";
+  var APP_VERSION = "v22.27";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

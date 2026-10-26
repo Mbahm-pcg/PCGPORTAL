@@ -356,6 +356,10 @@ async function execHealth() {
     const allNeg = growths.length >= 4 && growths.every((g) => g < -5);
     add('scorecard_fresh', 'DM scorecard computed in the last 26 h', ageH <= 26, `Computed ${ageH} h ago (week of ${sc.weekOf})`, { ageHours: ageH });
     add('scorecard_growth', 'DM scorecard sales growth is like for like', !allNeg, allNeg ? 'Every district shows sales down more than 5% - usually a partial week compared to a full one' : `Growth basis: ${sc.basis?.sales || 'unspecified'}`, { growths });
+    // Labor % graded from partial-day data reads 45-70% (two hours of a Monday morning).
+    const labors = Object.values(sc.scores || {}).map((s) => s.avgLaborPct).filter((g) => g != null);
+    const hot = labors.filter((l) => l > 40);
+    add('scorecard_labor', 'DM scorecard labor % is from complete days', !hot.length, hot.length ? `${hot.length} district(s) above 40% labor - a partial-day figure, not a real week` : `Labor basis: ${sc.basis?.labor || 'unspecified'}`, { labors });
   } else add('scorecard_fresh', 'DM scorecard computed in the last 26 h', false, 'No scorecard on record');
 
   // 5. Analyst run lock not stuck
