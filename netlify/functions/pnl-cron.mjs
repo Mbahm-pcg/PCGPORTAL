@@ -9,6 +9,7 @@ import { getStore } from '@netlify/blobs';
 import { DEFAULT_COGS_PCT } from './analyst-lib/pnl-calc.mjs';
 import { refreshStoreList } from './_shared/store-status.mjs';
 import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
+import { districtNumbers } from '../../src/store-status.mjs';
 
 export const config = { schedule: '0 11 1 * *' };
 
@@ -98,7 +99,7 @@ Top 5 (lowest): ${networkData.storeResults.sort((a, b) => a.laborPct - b.laborPc
 Bottom 5 (highest): ${networkData.storeResults.sort((a, b) => b.laborPct - a.laborPct).slice(0, 5).map(s => `${s.name} ${s.laborPct.toFixed(1)}%`).join(', ')}
 
 District breakdown:
-${[1,2,3,4,5,6,7,8].map(d => {
+${districtNumbers(__STORE_LIST).map(d => {
   const distStores = networkData.storeResults.filter(s => s.district === d);
   const dSales = distStores.reduce((a, b) => a + b.sales, 0);
   const dLabor = distStores.reduce((a, b) => a + b.labor, 0);
@@ -126,7 +127,7 @@ ${[1,2,3,4,5,6,7,8].map(d => {
     });
 
     // Generate per-district P&L artifacts
-    for (let d = 1; d <= 8; d++) {
+    for (const d of districtNumbers(__STORE_LIST)) { // v22.21: every district with stores (was 1..8)
       try {
         const distStores = getStoresByDistrict(d);
         const distData = await buildMonthlyData(distStores);

@@ -5,6 +5,7 @@ import { generateStructured } from './analyst-claude.mjs';
 import { PERSONA } from './analyst-prompts.mjs';
 import { cacheSave, cacheLoad } from './analyst-cache.mjs';
 import { logAudit } from './analyst-audit.mjs';
+import { districtNumbers } from '../../../src/store-status.mjs';
 let nodemailer;
 try { nodemailer = (await import('nodemailer')).default; } catch {}
 
@@ -547,13 +548,13 @@ async function sendDMBriefs(settings, users) {
   const today = new Date().toISOString().slice(0, 10);
   let sent = 0;
 
-  for (let d = 1; d <= 8; d++) {
+  for (const d of districtNumbers(STORES)) { // v22.21: every district with stores (was 1..8)
     try {
       const briefHtml = await generateDMBrief(d);
       if (!briefHtml) continue;
 
       // Find DM email from users list — skip if excluded
-      const dmUser = (users || []).find(u => u.userType === 'dm' && u.district === d && u.active);
+      const dmUser = (users || []).find(u => u.userType === 'dm' && Number(u.district) === d && u.active);
       const excludedDM = settings.excludeDM || [];
       if (dmUser && excludedDM.includes(dmUser.id)) { console.log(`[analyst-reports] DM D${d} excluded, skipping`); continue; }
       const dmEmail = dmUser?.email || DM_INFO[d]?.email;

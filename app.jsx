@@ -8,7 +8,7 @@ import { ExecutiveView } from './src/executive-view.jsx';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
-import { isClosedOn, PERMANENTLY_CLOSED } from './src/store-status.mjs';
+import { isClosedOn, PERMANENTLY_CLOSED, districtNumbers } from './src/store-status.mjs';
 import { planDistrictApply, applyPlanToStores, applyPlanToDistricts } from './src/district-apply.mjs';
 import { addDays as ocAddDays, weekTotals as ocWeekTotals, weekContaining as ocWeekContaining } from './src/office-clock-weeks.mjs';
 import { DATE_TYPES, dateLabel, daysUntil, warningStatus, nextDeadline, dealDeadlineFlag, icsForDeal } from './src/deal-dates.mjs';
@@ -4166,6 +4166,10 @@ const DISTRICT_COLORS = {
   6: { bg:"#3fa79a", text:"#04302a" },
   7: { bg:"#a3b859", text:"#2a3305" },
   8: { bg:"#e0559f", text:"#3a0524" },
+  9: { bg:"#9b7fe0", text:"#1f0f3a" },
+  10: { bg:"#d9a066", text:"#3a2306" },
+  11: { bg:"#5fc4b8", text:"#06302b" },
+  12: { bg:"#c97a7a", text:"#3a0b0b" },
 };
 // A pale tint of a district's header color, for banding every row in that
 // district (not just the header) — matches the reference spreadsheet, where
@@ -8306,7 +8310,7 @@ function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, cur
                         style={{ ...btn(th, { padding:"0.25rem 0.625rem", fontSize:"0.7rem", background:(form.districts||[]).includes("all")?O+"33":"transparent", color:(form.districts||[]).includes("all")?O:th.muted, border:`1px solid ${(form.districts||[]).includes("all")?O:th.cardBorder}` }) }}>
                         All Districts
                       </button>
-                      {[1,2,3,4,5,6,7,8].map(n => (
+                      {districtNumbers(openStoreList()).map(n => (
                         <button key={n} onClick={()=>setForm(f=>{
                           const cur = (f.districts||[]).filter(d=>d!=="all");
                           return {...f, districts: cur.includes(String(n)) ? cur.filter(d=>d!==String(n)) : [...cur, String(n)]};
@@ -13445,6 +13449,8 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
     .filter(s => !isDMUser || Number(s.district) === dmDistrict)
     .map(s => s.pc);
   const dmStoreCount = activePCs.length;
+  // Every district that has open stores (v22.21) — was a fixed 8.
+  const pulseDistrictNums = districtNumbers(stores.filter(s => s.status === 'Open'));
 
   // Hourly history drives the intraday completion curve. One blob per store,
   // 90-day retention, written nightly by pulse-hourly-snapshot. Loaded once —
@@ -14136,7 +14142,7 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
           <div style={{ fontSize:'3rem', marginBottom:'0.75rem', animation:'pulseRing 2s ease-out infinite' }}>💚</div>
           <div style={{ fontFamily:"'Raleway'", fontWeight:800, fontSize:'1.1rem', color:G, marginBottom:'0.25rem' }}>Loading Pulse Data...</div>
           <div style={{ fontSize:'0.75rem', color:`${G}66`, marginBottom:'1.25rem' }}>
-            {isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across 8 districts`}
+            {isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across ${pulseDistrictNums.length} district${pulseDistrictNums.length === 1 ? '' : 's'}`}
           </div>
           <div style={{ maxWidth:300, margin:'0 auto' }}>
             {/* Store count row above bar */}
@@ -14152,9 +14158,9 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
                 <div style={{ position:'absolute', top:0, left:'-60%', width:'60%', height:'100%', background:'linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)', animation:'shimmerSlide 1.6s ease-in-out infinite' }} />
               </div>
             </div>
-            {/* District dots — DMs only see their district, admins see all 8 */}
+            {/* District dots — DMs only see their district, admins see every district with stores */}
             <div style={{ display:'flex', justifyContent:'space-between', marginTop:'0.6rem' }}>
-              {(isDMUser ? [dmDistrict] : [1,2,3,4,5,6,7,8]).map((d, idx, arr) => {
+              {(isDMUser ? [dmDistrict] : pulseDistrictNums).map((d, idx, arr) => {
                 const dPct = (idx + 1) / arr.length;
                 const isDone = progress / 100 >= dPct;
                 const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
@@ -31762,7 +31768,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.20";
+const APP_VERSION = "v22.21";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -38311,6 +38317,8 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
           6: '#ff922b', // orange
           7: '#20c997', // teal
           8: '#e599f7', // light purple
+          9: '#4dabf7', // blue (v22.21)
+          10: '#a9e34b', // green-yellow
         };
         const distColor = (n) => DIST_COLORS[n] || '#94a3b8';
         return (
@@ -38330,8 +38338,8 @@ function CashManagement({ user, th, stores, districts, cashDeposits, setCashDepo
           </div>
           {/* District color legend */}
           <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'0.875rem', fontSize:'0.65rem' }}>
-            {[1,2,3,4,5,6,7,8].map(n => {
-              const d = (districts || DISTRICTS_SEED)[n];
+            {districtNumbers(stores).map(n => {
+              const d = (districts || DISTRICTS_SEED)[n] || { num: n };
               if (!d) return null;
               return (
                 <div key={n} style={{ display:'flex', alignItems:'center', gap:'0.3rem' }}>
@@ -41467,7 +41475,7 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
             <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} aria-label="District"
               style={{ appearance: 'none', WebkitAppearance: 'none', border: 'none', background: 'transparent', color: th.text, fontFamily: "'Source Sans 3'", fontSize: '0.84rem', fontWeight: 600, padding: '0.55rem 2.4rem 0.55rem 1.1rem', cursor: 'pointer', outline: 'none', minWidth: 160 }}>
               <option value="all">All Districts</option>
-              {[1,2,3,4,5,6,7,8].map(d => <option key={d} value={String(d)}>{districtLabel(d)}</option>)}
+              {districtNumbers(stores).map(d => <option key={d} value={String(d)}>{districtLabel(d)}</option>)}
             </select>
             <span style={{ position: 'absolute', right: '0.9rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', display: 'flex' }}>{chev()}</span>
           </label>

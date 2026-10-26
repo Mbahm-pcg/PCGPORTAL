@@ -27,6 +27,7 @@ import { sql } from './_shared/db.mjs';
 import { dcpPct } from './ndcp-lib/store-map.js';
 import { refreshStoreList } from './_shared/store-status.mjs';
 import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './analyst-lib/analyst-data.mjs';
+import { districtNumbers } from '../../src/store-status.mjs';
 
 // ── Run lock ─────────────────────────────────────────────────────────────────
 // One run at a time. The scheduler's retries (and a manual trigger landing on top of a
@@ -525,7 +526,7 @@ export default async (request, context) => {
       }
 
       // Per-district briefs (for DMs)
-      for (let d = 1; d <= 8; d++) {
+      for (const d of districtNumbers(__STORE_LIST)) { // v22.21: every district with stores (was 1..8)
         try {
           const distData = await buildDataContext({ district: d, includeVoids: true });
           if (distData.includes('No labor data')) continue;
@@ -580,7 +581,7 @@ export default async (request, context) => {
       } catch (e) { console.warn('[analyst-cron] Failed to save exec dashboard artifact:', e.message); }
 
       // Save DM briefs as report artifacts
-      for (let d = 1; d <= 8; d++) {
+      for (const d of districtNumbers(__STORE_LIST)) {
         try {
           const briefData = await cacheLoad(`analyst/briefs/${today}_${d}`);
           if (briefData?.content) {

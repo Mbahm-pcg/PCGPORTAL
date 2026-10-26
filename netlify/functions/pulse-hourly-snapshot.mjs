@@ -8,6 +8,8 @@ import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { classifyItem } from './food-cost.mjs';
 import { loadNewProductRegistry, matchNewProducts } from './analyst-lib/new-products.mjs';
 import { refreshStoreList } from './_shared/store-status.mjs';
+import { districtCoords } from '../../src/store-status.mjs';
+import { STORE_COORDS } from './analyst-lib/store-coords.mjs';
 
 // No schedule here (v22.18): pulse-hourly-snapshot-background.mjs carries it with the
 // 15-minute background budget. This module keeps the logic and the shared exports.
@@ -170,7 +172,8 @@ export function wmoToCondition(code) {
 async function fetchDistrictWeather(date) {
   const weather = {};
   await Promise.all(
-    Object.entries(DISTRICT_COORDS).map(async ([district, { lat, lon }]) => {
+    // v22.21: preset districts + any new one (centred on its own stores)
+    Object.entries(districtCoords(STORES, DISTRICT_COORDS, STORE_COORDS)).map(async ([district, { lat, lon }]) => {
       const url = `https://archive-api.open-meteo.com/v1/archive` +
         `?latitude=${lat}&longitude=${lon}` +
         `&start_date=${date}&end_date=${date}` +
@@ -541,7 +544,7 @@ export default async () => {
   const date = yesterdayET();
   console.log(`[hourly-snapshot] Starting snapshot for ${date}`);
 
-  // Fetch weather for all 8 districts in parallel (free, no key needed)
+  // Fetch weather for every district in parallel (free, no key needed)
   const districtWeather = await fetchDistrictWeather(date);
   const conditionSummary = Object.entries(districtWeather)
     .map(([d, w]) => `D${d}:${w ? w.condition : 'err'}`)

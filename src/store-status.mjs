@@ -70,6 +70,32 @@ export function applyDistricts(list, districtMap) {
   return moved;
 }
 
+// The districts that actually have stores, sorted (v22.21). Replaces hard-coded
+// 1..8 loops so a new district (e.g. District 9, added 2026-10-26) shows up in
+// screens, DM briefs, P&L and weather with no code change.
+export function districtNumbers(stores) {
+  const set = new Set();
+  for (const s of (Array.isArray(stores) ? stores : [])) {
+    const d = Number(s && s.district);
+    if (Number.isInteger(d) && d >= 1) set.add(d);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+// Weather coordinates per district: the preset ones, plus — for any district with
+// no preset — the middle point of its own stores (storeCoords: pc -> { lat, lng }).
+export function districtCoords(stores, preset, storeCoords) {
+  const out = { ...(preset || {}) };
+  for (const d of districtNumbers(stores)) {
+    if (out[d]) continue;
+    const pts = stores.filter(s => Number(s.district) === d).map(s => storeCoords && storeCoords[String(s.pc)]).filter(Boolean);
+    if (!pts.length) continue;
+    const avg = (k) => Math.round((pts.reduce((a, p) => a + Number(p[k]), 0) / pts.length) * 1000) / 1000;
+    out[d] = { lat: avg('lat'), lon: avg('lng') };
+  }
+  return out;
+}
+
 // `list` = any store-shaped array with a pc. statusMap null/undefined (statuses
 // unavailable) = fail OPEN: keep every store rather than silently dropping all.
 export function activeSubset(list, statusMap, onIso, graceDays = 0) {

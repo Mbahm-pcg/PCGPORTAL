@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isClosedOn, activeSubset, statusMapFromStores, districtMapFromStores, applyDistricts } from './store-status.mjs';
+import { isClosedOn, activeSubset, statusMapFromStores, districtMapFromStores, applyDistricts, districtNumbers, districtCoords } from './store-status.mjs';
 
 const closed = { pc: '1', status: 'Permanently Closed', closedDate: '2026-08-30' };
 const open = { pc: '2', status: 'Open' };
@@ -66,4 +66,18 @@ test('applyDistricts: copies the DM name only onto stores that carry one; no Loc
   assert.equal('dmName' in list[1], false);
   assert.equal(list[1].district, 3);
   assert.equal(applyDistricts(list, null), 0);
+});
+
+test('districtNumbers: every district that has stores, sorted — District 9 included', () => {
+  assert.deepEqual(districtNumbers([{ district: 2 }, { district: '9' }, { district: 1 }, { district: 2 }, { district: 0 }, { district: '' }, {}]), [1, 2, 9]);
+  assert.deepEqual(districtNumbers(null), []);
+});
+
+test('districtCoords: keeps preset districts, places a new one at the middle of its stores', () => {
+  const stores = [{ pc: '1', district: 1 }, { pc: '2', district: 9 }, { pc: '3', district: 9 }, { pc: '4', district: 10 }];
+  const coords = { 2: { lat: 40.0, lng: -75.0 }, 3: { lat: 40.2, lng: -75.2 } };
+  const out = districtCoords(stores, { 1: { lat: 1, lon: 1 } }, coords);
+  assert.deepEqual(out[1], { lat: 1, lon: 1 });
+  assert.deepEqual(out[9], { lat: 40.1, lon: -75.1 });
+  assert.equal(out[10], undefined); // no coordinates known for its store → left out, never invented
 });

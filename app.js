@@ -1344,6 +1344,14 @@
     const day = String(onIso || "").slice(0, 10) || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     return day > addDays(closed, graceDays);
   }
+  function districtNumbers(stores) {
+    const set = /* @__PURE__ */ new Set();
+    for (const s of Array.isArray(stores) ? stores : []) {
+      const d = Number(s && s.district);
+      if (Number.isInteger(d) && d >= 1) set.add(d);
+    }
+    return [...set].sort((a, b) => a - b);
+  }
 
   // src/district-apply.mjs
   var norm = (v) => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -5806,7 +5814,11 @@
     5: { bg: "#6fa8dc", text: "#04203a" },
     6: { bg: "#3fa79a", text: "#04302a" },
     7: { bg: "#a3b859", text: "#2a3305" },
-    8: { bg: "#e0559f", text: "#3a0524" }
+    8: { bg: "#e0559f", text: "#3a0524" },
+    9: { bg: "#9b7fe0", text: "#1f0f3a" },
+    10: { bg: "#d9a066", text: "#3a2306" },
+    11: { bg: "#5fc4b8", text: "#06302b" },
+    12: { bg: "#c97a7a", text: "#3a0b0b" }
   };
   function districtTint(hex, alpha = 0.16) {
     const h = hex.replace("#", "");
@@ -8779,7 +8791,7 @@
         style: { ...btn(th, { padding: "0.25rem 0.625rem", fontSize: "0.7rem", background: (form.districts || []).includes("all") ? O + "33" : "transparent", color: (form.districts || []).includes("all") ? O : th.muted, border: `1px solid ${(form.districts || []).includes("all") ? O : th.cardBorder}` }) }
       },
       "All Districts"
-    ), [1, 2, 3, 4, 5, 6, 7, 8].map((n) => /* @__PURE__ */ React.createElement(
+    ), districtNumbers(openStoreList()).map((n) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: n,
@@ -12587,6 +12599,7 @@ ${pendingEmail.emails.join("\n")}`,
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
     const dmStoreCount = activePCs.length;
+    const pulseDistrictNums = districtNumbers(stores.filter((s) => s.status === "Open"));
     useEffect(() => {
       let alive = true;
       Promise.all(activePCs.map(
@@ -13186,7 +13199,7 @@ ${t2.slice(0, 300)}`);
         filterPcs: dmPCSet,
         title: isDMUser ? "Top Complaints This Month \u2014 Your District" : void 0
       }
-    )), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users, dayStoreCache, viewMode, todayStr, hourlyHistories }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { key: pulseView.pc, pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user, users, laborData, txnDeepLinkRef, initialTab: pulseView.initialTab || "sales", dayStoreCache, viewMode, todayStr, hourlyHistories }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across 8 districts`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : [1, 2, 3, 4, 5, 6, 7, 8]).map((d, idx, arr) => {
+    )), pulseView?.level === "district" && loaded.length > 0 && /* @__PURE__ */ React.createElement(DistrictDetail, { distNum: pulseView.num, stores, storeData, busDt, districts, th, G, setPulseView, laborData, users, dayStoreCache, viewMode, todayStr, hourlyHistories }), pulseView?.level === "store" && loaded.length > 0 && /* @__PURE__ */ React.createElement(StoreDetail, { key: pulseView.pc, pc: pulseView.pc, stores, storeData, busDt, th, G, setPulseView, user, users, laborData, txnDeepLinkRef, initialTab: pulseView.initialTab || "sales", dayStoreCache, viewMode, todayStr, hourlyHistories }), loading && Object.keys(storeData).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem", textAlign: "center", marginBottom: "1rem", background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`, border: `1px solid ${G}33` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem", animation: "pulseRing 2s ease-out infinite" } }, "\u{1F49A}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: G, marginBottom: "0.25rem" } }, "Loading Pulse Data..."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: `${G}66`, marginBottom: "1.25rem" } }, isDMUser ? `Connecting to ${dmStoreCount} stores in ${districtLabel(dmDistrict)}` : `Connecting to ${activePCs.length} stores across ${pulseDistrictNums.length} district${pulseDistrictNums.length === 1 ? "" : "s"}`), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 300, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: G, fontWeight: 700 } }, Math.min(Math.round(progress / 100 * activePCs.length), activePCs.length), " / ", activePCs.length, " stores"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", color: `${G}88`, fontWeight: 700 } }, progress, "%")), /* @__PURE__ */ React.createElement("div", { style: { background: `${G}22`, borderRadius: 999, height: 8, overflow: "hidden", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: `linear-gradient(90deg, ${G}, #00ff9d)`, borderRadius: 999, transition: "width 0.3s ease", width: `${progress}%`, boxShadow: `0 0 10px ${G}99`, position: "relative", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 0, left: "-60%", width: "60%", height: "100%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)", animation: "shimmerSlide 1.6s ease-in-out infinite" } }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "0.6rem" } }, (isDMUser ? [dmDistrict] : pulseDistrictNums).map((d, idx, arr) => {
       const dPct = (idx + 1) / arr.length;
       const isDone = progress / 100 >= dPct;
       const isActive = progress / 100 >= idx / arr.length && progress / 100 < dPct;
@@ -25751,7 +25764,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.20";
+  var APP_VERSION = "v22.21";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29461,12 +29474,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         // orange
         7: "#20c997",
         // teal
-        8: "#e599f7"
+        8: "#e599f7",
         // light purple
+        9: "#4dabf7",
+        // blue (v22.21)
+        10: "#a9e34b"
+        // green-yellow
       };
       const distColor = (n) => DIST_COLORS[n] || "#94a3b8";
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", overflowX: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "Deposit Grid \u2014 Week of ", (/* @__PURE__ */ new Date(weekRange.sun + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" }), " to ", (/* @__PURE__ */ new Date(weekRange.sat + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, duplicatesRemoved > 0 && /* @__PURE__ */ React.createElement("div", { title: "Deposits with the same store + same amount (penny-exact) within a 14-day window are treated as duplicates and excluded.", style: { fontSize: "0.62rem", color: Y, fontWeight: 700, padding: "0.25rem 0.55rem", background: `${Y}15`, border: `1px solid ${Y}55`, borderRadius: "0.4rem" } }, "\u26A0 ", duplicatesRemoved, " duplicate", duplicatesRemoved !== 1 ? "s" : "", " removed"), canEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, fontStyle: "italic" } }, "\u{1F4A1} Click any deposit cell to edit or delete"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.875rem", fontSize: "0.65rem" } }, [1, 2, 3, 4, 5, 6, 7, 8].map((n) => {
-        const d = (districts || DISTRICTS_SEED)[n];
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", overflowX: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "Deposit Grid \u2014 Week of ", (/* @__PURE__ */ new Date(weekRange.sun + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" }), " to ", (/* @__PURE__ */ new Date(weekRange.sat + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, duplicatesRemoved > 0 && /* @__PURE__ */ React.createElement("div", { title: "Deposits with the same store + same amount (penny-exact) within a 14-day window are treated as duplicates and excluded.", style: { fontSize: "0.62rem", color: Y, fontWeight: 700, padding: "0.25rem 0.55rem", background: `${Y}15`, border: `1px solid ${Y}55`, borderRadius: "0.4rem" } }, "\u26A0 ", duplicatesRemoved, " duplicate", duplicatesRemoved !== 1 ? "s" : "", " removed"), canEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, fontStyle: "italic" } }, "\u{1F4A1} Click any deposit cell to edit or delete"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.875rem", fontSize: "0.65rem" } }, districtNumbers(stores).map((n) => {
+        const d = (districts || DISTRICTS_SEED)[n] || { num: n };
         if (!d) return null;
         return /* @__PURE__ */ React.createElement("div", { key: n, style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: distColor(n) } }), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "D", n, " \xB7 ", /* @__PURE__ */ React.createElement("strong", { style: { color: distColor(n) } }, (d.name || "").split(" ")[0])));
       })), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `2px solid ${th.cardBorder}`, background: th.card } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.65rem", textAlign: "left", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7, whiteSpace: "nowrap" } }, "Store"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.4rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7 } }, "Dist"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.65rem", textAlign: "left", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7, whiteSpace: "nowrap" } }, "District Mgr"), weekRange.dates.map((date, i) => {
@@ -31122,7 +31139,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         style: { appearance: "none", WebkitAppearance: "none", border: "none", background: "transparent", color: th.text, fontFamily: "'Source Sans 3'", fontSize: "0.84rem", fontWeight: 600, padding: "0.55rem 2.4rem 0.55rem 1.1rem", cursor: "pointer", outline: "none", minWidth: 160 }
       },
       /* @__PURE__ */ React.createElement("option", { value: "all" }, "All Districts"),
-      [1, 2, 3, 4, 5, 6, 7, 8].map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, districtLabel(d)))
+      districtNumbers(stores).map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, districtLabel(d)))
     ), /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", right: "0.9rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", display: "flex" } }, chev())), summary.overtimeCount > 0 && /* @__PURE__ */ React.createElement("span", { style: pill("#f44336", { fontSize: "0.75rem", padding: "0.3rem 0.6rem" }) }, summary.overtimeCount, " OT"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }), /* @__PURE__ */ React.createElement("label", { style: { position: "relative", flex: "0 1 300px", minWidth: 200 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.9rem", top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" } }, ICONS.search(th.muted)), /* @__PURE__ */ React.createElement(
       "input",
       {

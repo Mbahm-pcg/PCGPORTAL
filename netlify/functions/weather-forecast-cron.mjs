@@ -2,6 +2,8 @@
 import https from 'node:https';
 import { cacheSave, cacheLoad } from './analyst-lib/analyst-cache.mjs';
 import { refreshStoreList } from './_shared/store-status.mjs';
+import { districtNumbers, districtCoords } from '../../src/store-status.mjs';
+import { STORE_COORDS } from './analyst-lib/store-coords.mjs';
 
 export const config = { schedule: '0 12 * * *' };
 
@@ -67,7 +69,8 @@ function getJSON(url) {
 async function fetchForecasts() {
   const forecasts = {};
   await Promise.all(
-    Object.entries(DISTRICT_COORDS).map(async ([district, { lat, lon }]) => {
+    // v22.21: preset districts + any new one (centred on its own stores)
+    Object.entries(districtCoords(STORES, DISTRICT_COORDS, STORE_COORDS)).map(async ([district, { lat, lon }]) => {
       const url = `https://api.open-meteo.com/v1/forecast` +
         `?latitude=${lat}&longitude=${lon}` +
         `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode` +
@@ -96,7 +99,7 @@ async function fetchForecasts() {
 
 async function buildCorrelations() {
   const conditionSales = {};
-  for (let d = 1; d <= 8; d++) conditionSales[d] = {};
+  for (const d of districtNumbers(STORES)) conditionSales[d] = {};
 
   const districtStores = {};
   for (const s of STORES) {
