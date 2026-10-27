@@ -1,6 +1,6 @@
 
 import { Icon, OrionIcon, ICONS, CAT_ICONS_SVG, BTN } from './src/icons.jsx';
-import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
+import { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, FONTS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill } from './src/theme.js';
 import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from './src/pnl-access.mjs';
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
@@ -32078,7 +32078,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.28";
+const APP_VERSION = "v22.29";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -47373,6 +47373,157 @@ function TipsReportBuilder({ th, stores, user }) {
 // Paycor call per day, same as the nightly report), shows what each day's saved
 // crew currently has for them, and applies the checked days in one go through
 // tips-manual-edit.mjs `bulkSave` — same per-day recalculation as a single-day save.
+// ── Tips Editor — Hallmark redesign (v22.29) ────────────────────────────────
+// Full redesign of the one-day and several-days tip correctors, in the portal's
+// own brand (orange, Raleway + Source Sans 3, src/theme.js tokens). Every server
+// call, handler, field and fact is unchanged; only the composition, system and
+// motion changed. The screen's object is the TIP POOL, drawn as one bar split into
+// each person's slice by hours, which re-balances as hours are typed. Motion is
+// state only (brisk): numbers tick to new values, rows slide in / fold away, the
+// mode indicator slides. Everything snaps under prefers-reduced-motion.
+const TE_CSS = (th) => `/* Hallmark · redesign: full · shape: app screen · scope: app · theme: brand (PCG orange, Raleway + Source Sans 3) · motion: brisk · signature: the tip pool split by hours */
+/* critique: was a plain form over a grey table that repeated its three figures twice; now the pool itself is the object, one bar split by hours that re-balances as you type */
+/* answered: tokens live in src/theme.js (th.*, FONTS, O) — the portal styles inline, so this block holds only states, motion and focus */
+:root { --te-accent: ${O}; --te-text: ${th.text}; --te-hover: ${th.card3}; --te-font: ${FONTS.body}; }
+.te-root { font-family: var(--te-font); color: var(--te-text); }
+.te-root * { box-sizing: border-box; }
+.te-focus:focus-visible, .te-btn:focus-visible, .te-tab:focus-visible, .te-pick:focus-visible { outline: 2px solid var(--te-accent) !important; outline-offset: 2px; }
+.te-input:focus-visible { outline: 2px solid var(--te-accent) !important; outline-offset: -1px; }
+.te-btn { transition: background-color 220ms cubic-bezier(.2,.8,.2,1), color 220ms cubic-bezier(.2,.8,.2,1), transform 120ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease !important; }
+.te-btn:active:not(:disabled) { transform: translateY(1px); }
+.te-btn:disabled, .te-input:disabled { cursor: not-allowed; }
+.te-tab-ind { transition: transform 220ms cubic-bezier(.2,.8,.2,1); }
+.te-tab { transition: color 220ms ease; }
+.te-seg, .te-sep { transition: transform 420ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease; }
+.te-row { animation: teRowIn 220ms cubic-bezier(.2,.8,.2,1) both; transition: background-color 220ms ease; }
+.te-row-leaving { animation: teRowOut 150ms cubic-bezier(.4,0,1,1) both; }
+.te-disclose { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1); }
+.te-disclose[data-open="true"] { grid-template-rows: 1fr; }
+.te-disclose > div { overflow: hidden; min-height: 0; }
+.te-pick { transition: background-color 120ms ease; }
+.te-pick:hover { background: var(--te-hover); }
+.te-skel { animation: teBreathe 1.2s ease-in-out infinite; background: var(--te-hover); border-radius: 0.4rem; }
+.te-num { font-variant-numeric: tabular-nums; }
+@keyframes teRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes teRowOut { to { opacity: 0; transform: translateX(14px); } }
+@keyframes teBreathe { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .te-row, .te-row-leaving, .te-skel { animation: none; }
+  .te-seg, .te-sep, .te-tab-ind, .te-disclose { transition: opacity 150ms linear; }
+}`;
+
+const teReducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const teMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const teHours = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Counts from the previous value to the new one (ease-out, ~500ms); an interrupted
+// count continues from wherever it is. Reduced motion: the final value at once.
+function useTickedNumber(value, ms = 500) {
+  const target = Number(value) || 0;
+  const [shown, setShown] = useState(target);
+  const fromRef = useRef(target);
+  useEffect(() => {
+    const from = fromRef.current;
+    if (teReducedMotion() || Math.abs(from - target) < 0.005) { fromRef.current = target; setShown(target); return undefined; }
+    let raf = 0, start = null;
+    const step = (t) => {
+      if (start == null) start = t;
+      const p = Math.min(1, (t - start) / ms);
+      const v = from + (target - from) * (1 - Math.pow(1 - p, 3));
+      fromRef.current = v; setShown(v);
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return shown;
+}
+
+function TeTicker({ value, format, style }) {
+  const v = useTickedNumber(value);
+  return <span className="te-num" style={style}>{format(v)}</span>;
+}
+
+function TeFigure({ th, label, value, format, note }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: '0.8rem', color: th.muted }}>{label}</div>
+      <TeTicker value={value} format={format} style={{ display: 'block', fontFamily: FONTS.head, fontWeight: 800, fontSize: '1.35rem', color: th.text, lineHeight: 1.2 }} />
+      {note && <div style={{ fontSize: '0.75rem', color: th.muted, marginTop: '0.1rem' }}>{note}</div>}
+    </div>
+  );
+}
+
+// The signature: the pool as one bar, one slice per person sized by hours. Slices move
+// by transform only (translateX + scaleX from a full-width box); separators are their
+// own elements so the gaps never stretch.
+function TePoolSplit({ th, crew, colorFor, keyFor, hoverKey, setHoverKey, pool, totalHours, rate }) {
+  let acc = 0;
+  const slices = crew.map((c, i) => {
+    const h = Math.max(0, Number(c.hours) || 0);
+    const frac = totalHours > 0 ? h / totalHours : 0;
+    const s = { key: keyFor(c, i), name: c.name, color: colorFor(i), off: acc, frac, share: totalHours > 0 ? tipsRound2(rate * h) : 0 };
+    acc += frac;
+    return s;
+  });
+  const label = totalHours > 0
+    ? `Tip pool of ${teMoney.format(pool)} split by hours: ${slices.filter(s => s.frac > 0).map(s => `${s.name} ${teMoney.format(s.share)}`).join(', ')}`
+    : 'No hours entered yet, so the pool is not split.';
+  return (
+    <div role="img" aria-label={label} style={{ position: 'relative', height: 18, borderRadius: 999, overflow: 'hidden', background: th.card3 }}>
+      {slices.map(s => (
+        <div key={s.key} aria-hidden="true" className="te-seg"
+          onMouseEnter={() => setHoverKey(s.key)} onMouseLeave={() => setHoverKey(null)}
+          style={{ position: 'absolute', inset: 0, transformOrigin: 'left center', background: s.color,
+            transform: `translateX(${(s.off * 100).toFixed(3)}%) scaleX(${s.frac.toFixed(4)})`,
+            opacity: hoverKey && hoverKey !== s.key ? 0.35 : 1 }} />
+      ))}
+      {slices.slice(1).map(s => (
+        <div key={`sep-${s.key}`} aria-hidden="true" className="te-sep"
+          style={{ position: 'absolute', inset: 0, pointerEvents: 'none', transform: `translateX(${(s.off * 100).toFixed(3)}%)`, opacity: s.frac > 0 && s.off > 0 ? 1 : 0 }}>
+          <div style={{ position: 'absolute', left: -1, top: 0, bottom: 0, width: 2, background: th.card }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const TeTrash = ({ color }) => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6" /></svg>
+);
+const TePlus = ({ color }) => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+);
+
+// Rows slide in only when ADDED (no reveal on load — app screens), fold away on remove.
+function TeCrewRow({ th, c, color, rowKey, entering, leaving, hovered, setHoverKey, share, onHours, onRemove }) {
+  return (
+    <tr className={leaving ? 'te-row-leaving' : entering ? 'te-row' : undefined}
+      onMouseEnter={() => setHoverKey(rowKey)} onMouseLeave={() => setHoverKey(null)}
+      style={{ borderTop: `1px solid ${th.cardBorder}`, background: hovered ? th.card2 : 'transparent', transition: 'background-color 220ms ease' }}>
+      <td style={{ padding: '0.55rem 1.1rem' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.6rem', fontWeight: 600 }}>
+          <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
+          {c.name}
+        </span>
+      </td>
+      <td style={{ padding: '0.45rem 1.1rem' }}>
+        <input type="number" min="0" step="0.01" value={c.hours} onChange={e => onHours(e.target.value)} aria-label={`Hours for ${c.name}`}
+          className="te-input te-num" style={{ ...inp(th), width: 104, padding: '0.45rem 0.6rem', fontSize: '0.92rem' }} />
+      </td>
+      <td style={{ padding: '0.55rem 1.1rem', textAlign: 'right' }}>
+        <TeTicker value={share} format={teMoney.format} style={{ fontWeight: 700, color: th.text }} />
+      </td>
+      <td style={{ padding: '0.45rem 1.1rem', textAlign: 'right' }}>
+        <button type="button" onClick={onRemove} disabled={leaving} className="te-btn" aria-label={`Remove ${c.name}`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: 'transparent', border: `1px solid ${th.cardBorder}`, color: th.danger, borderRadius: '0.55rem', padding: '0.4rem 0.7rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, fontFamily: FONTS.body, minHeight: 34 }}>
+          <TeTrash color={th.danger} />Remove
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 function TipsBulkEditor({ th, stores }) {
   const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return tipsFormatISODate(d); })();
   const twoWeeksAgo = (() => { const d = new Date(); d.setDate(d.getDate() - 14); return tipsFormatISODate(d); })();
@@ -47451,84 +47602,91 @@ function TipsBulkEditor({ th, stores }) {
 
   const filteredRoster = (roster || []).filter(r => !personQuery.trim() || r.name.toLowerCase().includes(personQuery.trim().toLowerCase())).slice(0, 12);
   const dayLabel = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  const cell = { padding: '0.55rem 0.9rem', borderBottom: `1px solid ${th.cardBorder}`, fontSize: '0.84rem', color: th.text };
-  const headCell = { textAlign: 'left', padding: '0.55rem 0.9rem', color: th.muted, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${th.cardBorder}`, background: th.card2 };
+  const cell = { padding: '0.6rem 0.9rem', borderTop: `1px solid ${th.cardBorder}`, fontSize: '0.88rem', color: th.text, verticalAlign: 'middle' };
+  const headCell = { textAlign: 'left', padding: '0.6rem 0.9rem', color: th.muted, fontSize: '0.8rem', fontWeight: 600, background: th.card2 };
+  const fieldLabel = { display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.8rem', color: th.muted };
+  const ghostBtn = { ...btn(th, { background: th.card3, color: th.text, padding: '0.5rem 0.9rem', fontSize: '0.84rem', minHeight: 36 }) };
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
-        <label style={{ fontSize: '0.78rem', color: th.muted }}>
-          Store<br />
-          <select style={{ ...inp(th), minWidth: 220 }} value={storePc} onChange={e => pickStore(e.target.value)}>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
+        <label style={fieldLabel}>
+          Store
+          <select className="te-input" style={{ ...inp(th), minWidth: 220, padding: '0.55rem 0.8rem', fontSize: '0.92rem' }} value={storePc} onChange={e => pickStore(e.target.value)}>
             <option value="">Select a store…</option>
             {stores.map(s => <option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
           </select>
         </label>
-        <label style={{ fontSize: '0.78rem', color: th.muted, position: 'relative' }}>
-          Employee<br />
+        <label style={{ ...fieldLabel, position: 'relative' }}>
+          Employee
           {person ? (
-            <div style={{ ...inp(th), minWidth: 220, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-              <span style={{ color: th.text, fontWeight: 600 }}>{person.name}</span>
-              <span role="button" onClick={() => { setPerson(null); setDays(null); setResult(null); }} style={{ color: th.muted, cursor: 'pointer' }}>×</span>
+            <div style={{ ...inp(th), minWidth: 220, padding: '0.45rem 0.5rem 0.45rem 0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+              <span style={{ color: th.text, fontWeight: 600, fontSize: '0.92rem' }}>{person.name}</span>
+              <button type="button" className="te-btn" aria-label={`Clear ${person.name}`} onClick={() => { setPerson(null); setDays(null); setResult(null); }}
+                style={{ background: 'transparent', border: 'none', color: th.muted, cursor: 'pointer', fontSize: '1rem', lineHeight: 1, padding: '0.2rem 0.4rem', borderRadius: '0.4rem' }}>×</button>
             </div>
           ) : (
             <>
-              <input type="text" disabled={!storePc || rosterLoading} placeholder={rosterLoading ? 'Loading roster…' : (storePc ? 'Search this store\'s employees…' : 'Pick a store first')}
-                value={personQuery} onChange={e => setPersonQuery(e.target.value)} style={{ ...inp(th), minWidth: 220 }} />
+              <input type="text" className="te-input" disabled={!storePc || rosterLoading} placeholder={rosterLoading ? 'Loading roster…' : (storePc ? 'Search this store\'s employees…' : 'Pick a store first')}
+                value={personQuery} onChange={e => setPersonQuery(e.target.value)} style={{ ...inp(th), minWidth: 220, padding: '0.55rem 0.8rem', fontSize: '0.92rem' }} />
               {personQuery.trim() && roster && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 240, overflowY: 'auto' }}>
-                  {filteredRoster.length === 0 && <div style={{ padding: '0.5rem 0.7rem', fontSize: '0.8rem', color: th.muted }}>No matching active employees.</div>}
+                <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.6rem', boxShadow: '0 12px 28px rgba(0,0,0,0.16)', maxHeight: 260, overflowY: 'auto', padding: '0.25rem' }}>
+                  {filteredRoster.length === 0 && <div style={{ padding: '0.5rem 0.7rem', fontSize: '0.84rem', color: th.muted }}>No matching active employees.</div>}
                   {filteredRoster.map(r => (
-                    <div key={r.guid} onClick={() => { setPerson(r); setPersonQuery(''); setDays(null); setResult(null); }}
-                      onMouseEnter={e => e.currentTarget.style.background = th.card3} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                      style={{ padding: '0.45rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
-                      <span>{r.name}</span><span style={{ color: th.muted, fontSize: '0.72rem' }}>{r.jobTitle || ''}</span>
-                    </div>
+                    <button type="button" key={r.guid} className="te-pick" onClick={() => { setPerson(r); setPersonQuery(''); setDays(null); setResult(null); }}
+                      style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: '0.45rem', padding: '0.5rem 0.7rem', cursor: 'pointer', fontSize: '0.88rem', color: th.text, display: 'flex', justifyContent: 'space-between', gap: '0.5rem', fontFamily: FONTS.body }}>
+                      <span>{r.name}</span><span style={{ color: th.muted, fontSize: '0.78rem' }}>{r.jobTitle || ''}</span>
+                    </button>
                   ))}
                 </div>
               )}
             </>
           )}
         </label>
-        <label style={{ fontSize: '0.78rem', color: th.muted }}>
-          From<br />
-          <input type="date" style={inp(th)} value={startDate} max={endDate} onChange={e => setStartDate(e.target.value)} />
+        <label style={fieldLabel}>
+          From
+          <input type="date" className="te-input" style={{ ...inp(th), padding: '0.55rem 0.8rem', fontSize: '0.92rem' }} value={startDate} max={endDate} onChange={e => setStartDate(e.target.value)} />
         </label>
-        <label style={{ fontSize: '0.78rem', color: th.muted }}>
-          To<br />
-          <input type="date" style={inp(th)} value={endDate} min={startDate} max={tipsFormatISODate(new Date())} onChange={e => setEndDate(e.target.value)} />
+        <label style={fieldLabel}>
+          To
+          <input type="date" className="te-input" style={{ ...inp(th), padding: '0.55rem 0.8rem', fontSize: '0.92rem' }} value={endDate} min={startDate} max={tipsFormatISODate(new Date())} onChange={e => setEndDate(e.target.value)} />
         </label>
-        <button onClick={loadDays} disabled={!person || loading} style={{ ...btn(th), opacity: (!person || loading) ? 0.5 : 1 }}>
+        <button type="button" className="te-btn" onClick={loadDays} disabled={!person || loading} style={{ ...btn(th, { padding: '0.6rem 1.2rem', fontSize: '0.92rem', minHeight: 40 }), opacity: (!person || loading) ? 0.5 : 1 }}>
           {loading ? 'Checking Paycor…' : 'Load days'}
         </button>
       </div>
 
-      {error && <div style={{ ...card(th), padding: '0.85rem 1rem', color: '#e03131', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
+      {error && <div role="alert" style={{ ...card(th), padding: '0.8rem 1rem', borderLeft: `3px solid ${th.danger}`, color: th.danger, fontSize: '0.86rem', marginBottom: '1rem' }}>{error}</div>}
       {result && (
-        <div style={{ ...card(th), padding: '0.85rem 1rem', fontSize: '0.82rem', marginBottom: '1rem', color: result.every(r => r.ok) ? '#2f9e44' : '#e8590c' }}>
-          {result.every(r => r.ok) ? '✓ ' : ''}Updated {result.filter(r => r.ok).length} of {result.length} day{result.length !== 1 ? 's' : ''}.
-          {result.filter(r => !r.ok).map(r => <div key={r.date} style={{ color: '#e03131', marginTop: '0.2rem' }}>{dayLabel(r.date)}: {r.reason}</div>)}
+        <div role="status" style={{ ...card(th), padding: '0.8rem 1rem', fontSize: '0.86rem', marginBottom: '1rem', borderLeft: `3px solid ${result.every(r => r.ok) ? th.success : th.warn}`, color: result.every(r => r.ok) ? th.success : th.warn }}>
+          Updated {result.filter(r => r.ok).length} of {result.length} day{result.length !== 1 ? 's' : ''}.
+          {result.filter(r => !r.ok).map(r => <div key={r.date} style={{ color: th.danger, marginTop: '0.2rem' }}>{dayLabel(r.date)}: {r.reason}</div>)}
+        </div>
+      )}
+
+      {loading && !days && (
+        <div aria-hidden="true" style={{ ...card(th), padding: '1rem', display: 'grid', gap: '0.7rem' }}>
+          {[60, 100, 100, 100, 100].map((w, i) => <div key={i} className="te-skel" style={{ height: i === 0 ? 20 : 34, width: `${w}%` }} />)}
         </div>
       )}
 
       {days && (
         <div style={{ ...card(th), padding: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', padding: '0.9rem 1rem' }}>
-            <div>
-              <div style={{ fontWeight: 800, color: th.text }}>{person.name} · {selectedStore?.name}</div>
-              <div style={{ fontSize: '0.73rem', color: th.muted, marginTop: '0.1rem' }}>Days where Paycor's punched hours differ from the saved crew are pre-checked. Hours set to 0 remove them from that day.</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.75rem', padding: '1.1rem 1.1rem 0.9rem' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: FONTS.head, fontWeight: 800, fontSize: '1.15rem', color: th.text, overflowWrap: 'break-word' }}>{person.name}</div>
+              <div style={{ fontSize: '0.84rem', color: th.muted, marginTop: '0.1rem' }}>{selectedStore?.name}</div>
+              <div style={{ fontSize: '0.8rem', color: th.muted, marginTop: '0.45rem', maxWidth: 560 }}>Days where Paycor’s punched hours differ from the saved crew are pre-checked. Hours set to 0 remove them from that day.</div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => setEdits(prev => { const n = { ...prev }; selectable.forEach(d => { n[d.date] = { ...n[d.date], checked: !allChecked }; }); return n; })}
-                style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.45rem 0.8rem', fontSize: '0.78rem' }) }}>{allChecked ? 'Uncheck all' : 'Check all'}</button>
-              <button onClick={() => setEdits(prev => { const n = { ...prev }; selectable.forEach(d => { if (d.punchedHours != null) n[d.date] = { ...n[d.date], hours: String(d.punchedHours) }; }); return n; })}
-                style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.45rem 0.8rem', fontSize: '0.78rem' }) }}>Use Paycor hours</button>
+              <button type="button" className="te-btn" onClick={() => setEdits(prev => { const n = { ...prev }; selectable.forEach(d => { n[d.date] = { ...n[d.date], checked: !allChecked }; }); return n; })} style={ghostBtn}>{allChecked ? 'Uncheck all' : 'Check all'}</button>
+              <button type="button" className="te-btn" onClick={() => setEdits(prev => { const n = { ...prev }; selectable.forEach(d => { if (d.punchedHours != null) n[d.date] = { ...n[d.date], hours: String(d.punchedHours) }; }); return n; })} style={ghostBtn}>Use Paycor hours</button>
             </div>
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 660 }}>
               <thead><tr>
-                <th style={{ ...headCell, width: 40 }}></th>
+                <th style={{ ...headCell, width: 44 }}><span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Include</span></th>
                 {['Day', 'Saved crew now', 'Paycor punched', 'New hours', 'Day\'s pool'].map(h => <th key={h} style={headCell}>{h}</th>)}
               </tr></thead>
               <tbody>
@@ -47537,25 +47695,28 @@ function TipsBulkEditor({ th, stores }) {
                   const disabled = !d.hasSnapshot;
                   const differs = d.punchedHours != null && Math.abs((d.currentHours || 0) - d.punchedHours) > 0.009;
                   return (
-                    <tr key={d.date} style={{ opacity: disabled ? 0.5 : 1 }}>
-                      <td style={cell}><input type="checkbox" disabled={disabled} checked={!!e.checked} onChange={ev => setEdit(d.date, { checked: ev.target.checked })} aria-label={`Include ${d.date}`} /></td>
+                    <tr key={d.date} style={{ opacity: disabled ? 0.5 : 1, background: e.checked && !disabled ? withAlpha(O, 0.06) : 'transparent', transition: 'background-color 220ms ease' }}>
+                      <td style={cell}><input type="checkbox" className="te-focus" disabled={disabled} checked={!!e.checked} onChange={ev => setEdit(d.date, { checked: ev.target.checked })} aria-label={`Include ${d.date}`} style={{ width: 18, height: 18, accentColor: O, cursor: disabled ? 'default' : 'pointer' }} /></td>
                       <td style={{ ...cell, fontWeight: 600, whiteSpace: 'nowrap' }}>{dayLabel(d.date)}</td>
-                      <td style={cell}>{disabled ? <span style={{ color: th.muted }}>No tips data saved</span> : d.currentHours == null ? <span style={{ color: '#e8590c', fontWeight: 700 }}>Missing</span> : `${tipsRound2(d.currentHours)} hrs${d.currentShare != null ? ` · $${Number(d.currentShare).toFixed(2)}` : ''}`}</td>
-                      <td style={{ ...cell, color: differs ? '#e8590c' : th.text, fontWeight: differs ? 700 : 400 }}>{d.punchedHours == null ? <span style={{ color: th.muted }}>—</span> : `${d.punchedHours} hrs`}</td>
-                      <td style={cell}><input type="number" min="0" max="24" step="0.01" disabled={disabled} value={e.hours ?? ''} onChange={ev => setEdit(d.date, { hours: ev.target.value, checked: true })} style={{ ...inp(th), width: 100, padding: '0.4rem 0.55rem' }} /></td>
-                      <td style={{ ...cell, color: th.muted }}>{d.tipPool != null ? `$${Number(d.tipPool).toFixed(2)}` : '—'}</td>
+                      <td style={cell}>{disabled ? <span style={{ color: th.muted }}>No tips data saved</span> : d.currentHours == null ? <span style={{ color: th.warn, fontWeight: 700 }}>Missing</span> : (
+                        <span className="te-num">{tipsRound2(d.currentHours)} hrs{d.currentShare != null && <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem' }}>{teMoney.format(Number(d.currentShare))} share</span>}</span>
+                      )}</td>
+                      <td className="te-num" style={{ ...cell, color: differs ? th.warn : th.text, fontWeight: differs ? 700 : 400 }}>{d.punchedHours == null ? <span style={{ color: th.muted }}>None</span> : `${d.punchedHours} hrs`}</td>
+                      <td style={cell}><input type="number" min="0" max="24" step="0.01" disabled={disabled} value={e.hours ?? ''} onChange={ev => setEdit(d.date, { hours: ev.target.value, checked: true })} aria-label={`New hours for ${dayLabel(d.date)}`} className="te-input te-num" style={{ ...inp(th), width: 100, padding: '0.42rem 0.55rem', fontSize: '0.9rem' }} /></td>
+                      <td className="te-num" style={{ ...cell, color: th.muted }}>{d.tipPool != null ? teMoney.format(Number(d.tipPool)) : 'None'}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          <div style={{ padding: '0.9rem 1rem', borderTop: `1px solid ${th.cardBorder}` }}>
-            <textarea rows={2} placeholder="Correction reason (optional, saved on every changed day)…" value={reason} onChange={e => setReason(e.target.value)} style={{ ...inp(th), width: '100%', resize: 'vertical', fontFamily: "'Source Sans 3'" }} />
+          <div style={{ padding: '0.9rem 1.1rem', borderTop: `1px solid ${th.cardBorder}` }}>
+            <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, color: th.text, marginBottom: '0.35rem' }}>Correction reason</label>
+            <textarea rows={2} className="te-input" placeholder="Correction reason (optional, saved on every changed day)…" value={reason} onChange={e => setReason(e.target.value)} style={{ ...inp(th), width: '100%', resize: 'vertical', fontFamily: FONTS.body, fontSize: '0.92rem' }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.9rem', padding: '0.8rem 1rem', borderTop: `1px solid ${th.cardBorder}`, background: th.card2 }}>
-            <span style={{ fontSize: '0.78rem', color: th.muted, marginRight: 'auto' }}>{checkedDays.length} day{checkedDays.length !== 1 ? 's' : ''} selected</span>
-            <button onClick={apply} disabled={saving || !checkedDays.length} style={{ ...btn(th), opacity: (saving || !checkedDays.length) ? 0.5 : 1 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.9rem', padding: '0.85rem 1.1rem', borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: 'wrap' }}>
+            <span aria-live="polite" style={{ fontSize: '0.84rem', color: th.muted, marginRight: 'auto' }}><TeTicker value={checkedDays.length} format={v => Math.round(v)} style={{ fontWeight: 700, color: th.text }} /> day{checkedDays.length !== 1 ? 's' : ''} selected</span>
+            <button type="button" className="te-btn" onClick={apply} disabled={saving || !checkedDays.length} style={{ ...btn(th, { padding: '0.6rem 1.2rem', fontSize: '0.92rem', minHeight: 40 }), opacity: (saving || !checkedDays.length) ? 0.5 : 1 }}>
               {saving ? 'Saving…' : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? 's' : ''}`}
             </button>
           </div>
@@ -47581,6 +47742,12 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterQuery, setRosterQuery] = useState('');
   const [showRoster, setShowRoster] = useState(false);
+  // v22.29 (redesign): hover link between a pool slice and its row; rows on their way out;
+  // the Save button's brief "Saved" label (silent success — the numbers show the result).
+  const [hoverKey, setHoverKey] = useState(null);
+  const [leavingKeys, setLeavingKeys] = useState([]);
+  const [justSaved, setJustSaved] = useState(false);
+  const [addedKeys, setAddedKeys] = useState([]); // rows added this session (they slide in)
 
   const selectedStore = stores.find(s => String(s.pc) === String(storePc));
 
@@ -47602,7 +47769,7 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
       setStore(j.store);
       setCrew((j.store.crew || []).map(c => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
     } catch {
-      setError('Network error — load failed.');
+      setError('Network error: load failed.');
     }
     setLoading(false);
   };
@@ -47620,7 +47787,7 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
       if (res.ok) setRoster(j.roster || []);
       else setError(j?.error || 'Could not load the store\'s employee roster.');
     } catch {
-      setError('Network error — could not load the employee roster.');
+      setError('Network error: could not load the employee roster.');
     }
     setRosterLoading(false);
     setShowRoster(true);
@@ -47632,11 +47799,22 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
       return;
     }
     setCrew(prev => [...prev, { name: r.name, payrollId: r.payrollId, guid: r.guid, hours: 0 }]);
+    setAddedKeys(prev => [...prev, r.guid || `${r.name}#${crew.length}`]);
     setShowRoster(false);
     setRosterQuery('');
   };
 
-  const removeCrew = (idx) => setCrew(prev => prev.filter((_, i) => i !== idx));
+  const keyFor = (c, i) => c.guid || `${c.name}#${i}`;
+  // Remove: the row folds away (150ms) before it leaves the working copy.
+  const removeCrew = (idx) => {
+    const k = keyFor(crew[idx], idx);
+    setLeavingKeys(prev => [...prev, k]);
+    setTimeout(() => {
+      setCrew(prev => prev.filter((c, i) => keyFor(c, i) !== k));
+      setLeavingKeys(prev => prev.filter(x => x !== k));
+      setHoverKey(h => (h === k ? null : h));
+    }, teReducedMotion() ? 0 : 150);
+  };
   const setCrewHours = (idx, hours) => setCrew(prev => prev.map((c, i) => i === idx ? { ...c, hours } : c));
 
   const save = async () => {
@@ -47652,9 +47830,11 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
       if (!res.ok) { setError(j?.error || `Save failed (${res.status})`); setSaving(false); return; }
       setStore(j.store);
       setCrew((j.store.crew || []).map(c => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
-      setSavedMsg(`Saved — recalculated ${j.store.crew.length} people's shares from a $${pool.toFixed(2)} pool.`);
+      setSavedMsg(`Saved. Recalculated ${j.store.crew.length} people’s shares from a $${pool.toFixed(2)} pool.`);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2500);
     } catch {
-      setError('Network error — save failed.');
+      setError('Network error: save failed.');
     }
     setSaving(false);
   };
@@ -47675,25 +47855,25 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
     setError(null);
   };
 
-  const StatBlock = ({ label, value }) => (
-    <div style={{ textAlign: 'right' }}>
-      <div style={{ fontSize: '0.65rem', color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>{label}</div>
-      <div style={{ fontSize: '1rem', fontWeight: 800, color: th.text }}>{value}</div>
-    </div>
-  );
+  const dayTitle = (iso) => { try { return new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); } catch { return iso; } };
+  const fieldLabel = { display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.8rem', color: th.muted };
+  const headCell = { textAlign: 'left', padding: '0.6rem 1.1rem', color: th.muted, fontSize: '0.8rem', fontWeight: 600, background: th.card2 };
 
   return (
-    <div>
-      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '0.3rem' }}>Tips Editor</h2>
-      <p style={{ color: th.muted, fontSize: '0.82rem', marginTop: 0, marginBottom: '1rem' }}>
-        Correct one store's crew for one already-saved day — add someone who's missing, fix their hours, or remove a mistake. Saving recalculates every person's share from the real tip pool, same math the nightly report already uses. The pool itself (real Pulse sales data) isn't editable here.
-        {onGoToReport && <> Already fixed what you needed? <span onClick={onGoToReport} style={{ color: '#FF671F', fontWeight: 700, cursor: 'pointer' }}>Go to the Tips Report →</span> to re-send the corrected period to Paycor.</>}
+    <div className="te-root">
+      <style>{TE_CSS(th)}</style>
+      <h2 style={{ fontFamily: FONTS.head, fontWeight: 800, color: th.text, margin: '0 0 0.3rem', fontSize: '1.5rem' }}>Tips Editor</h2>
+      <p style={{ color: th.muted, fontSize: '0.88rem', marginTop: 0, marginBottom: '1.1rem', maxWidth: 760, lineHeight: 1.5 }}>
+        Correct one store’s crew for one already-saved day: add someone who’s missing, fix their hours, or remove a mistake. Saving recalculates every person’s share from the real tip pool, same math the nightly report already uses. The pool itself (real Pulse sales data) isn’t editable here.
+        {onGoToReport && <> Already fixed what you needed? <button type="button" className="te-btn" onClick={onGoToReport} style={{ background: 'none', border: 'none', padding: 0, color: O, fontWeight: 700, cursor: 'pointer', fontSize: 'inherit', fontFamily: FONTS.body }}>Go to the Tips Report</button> to re-send the corrected period to Paycor.</>}
       </p>
 
-      <div role="tablist" aria-label="Edit mode" style={{ display: 'inline-flex', gap: '0.25rem', padding: '0.25rem', background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, marginBottom: '1rem' }}>
+      {/* Mode switch — the indicator slides by transform */}
+      <div role="tablist" aria-label="Edit mode" style={{ position: 'relative', display: 'inline-grid', gridTemplateColumns: '1fr 1fr', padding: 4, background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, marginBottom: '1.1rem' }}>
+        <span aria-hidden="true" className="te-tab-ind" style={{ position: 'absolute', top: 4, bottom: 4, left: 4, width: 'calc(50% - 4px)', borderRadius: 999, background: O, transform: mode === 'range' ? 'translateX(100%)' : 'none' }} />
         {[['day', 'One day'], ['range', 'Several days']].map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={mode === k} onClick={() => setMode(k)}
-            style={{ padding: '0.4rem 1rem', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, fontFamily: "'Source Sans 3'", background: mode === k ? '#FF671F' : 'transparent', color: mode === k ? '#fff' : th.muted }}>
+          <button key={k} type="button" role="tab" aria-selected={mode === k} onClick={() => setMode(k)} className="te-tab"
+            style={{ position: 'relative', padding: '0.45rem 1.2rem', minHeight: 36, borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: '0.86rem', fontWeight: 700, fontFamily: FONTS.body, background: 'transparent', color: mode === k ? W : th.muted, whiteSpace: 'nowrap' }}>
             {label}
           </button>
         ))}
@@ -47702,118 +47882,130 @@ function TipsEditor({ th, stores, user, onGoToReport }) {
       {mode === 'range' && <TipsBulkEditor th={th} stores={stores} />}
 
       {mode === 'day' && (<>
-      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
-        <label style={{ fontSize: '0.78rem', color: th.muted }}>
-          Store<br />
-          <select style={{ ...inp(th), minWidth: 220 }} value={storePc} onChange={e => { setStorePc(e.target.value); setStore(null); setCrew([]); setRoster(null); }}>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
+        <label style={fieldLabel}>
+          Store
+          <select className="te-input" style={{ ...inp(th), minWidth: 220, padding: '0.55rem 0.8rem', fontSize: '0.92rem' }} value={storePc} onChange={e => { setStorePc(e.target.value); setStore(null); setCrew([]); setRoster(null); }}>
             <option value="">Select a store…</option>
             {stores.map(s => <option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
           </select>
         </label>
-        <label style={{ fontSize: '0.78rem', color: th.muted }}>
-          Date<br />
-          <input type="date" style={inp(th)} value={dateStr} max={todayStr} onChange={e => setDateStr(e.target.value)} />
+        <label style={fieldLabel}>
+          Date
+          <input type="date" className="te-input" style={{ ...inp(th), padding: '0.55rem 0.8rem', fontSize: '0.92rem' }} value={dateStr} max={todayStr} onChange={e => setDateStr(e.target.value)} />
         </label>
-        <button onClick={load} disabled={!storePc || !dateStr || loading} style={{ ...btn(th), opacity: (!storePc || !dateStr || loading) ? 0.5 : 1 }}>
+        <button type="button" className="te-btn" onClick={load} disabled={!storePc || !dateStr || loading} style={{ ...btn(th, { padding: '0.6rem 1.3rem', fontSize: '0.92rem', minHeight: 40 }), opacity: (!storePc || !dateStr || loading) ? 0.5 : 1 }}>
           {loading ? 'Loading…' : 'Load'}
         </button>
       </div>
 
-      {error && <div style={{ ...card(th), padding: '0.85rem 1rem', color: '#e03131', fontSize: '0.82rem', marginBottom: '1rem' }}>{error}</div>}
-      {savedMsg && <div style={{ ...card(th), padding: '0.85rem 1rem', color: '#2f9e44', fontSize: '0.82rem', marginBottom: '1rem' }}>✓ {savedMsg}</div>}
+      {error && <div role="alert" style={{ ...card(th), padding: '0.8rem 1rem', borderLeft: `3px solid ${th.danger}`, color: th.danger, fontSize: '0.86rem', marginBottom: '1rem' }}>{error}</div>}
+
+      {loading && !store && (
+        <div aria-hidden="true" style={{ ...card(th), padding: '1.2rem 1.1rem', display: 'grid', gap: '0.8rem' }}>
+          <div className="te-skel" style={{ height: 22, width: '40%' }} />
+          <div style={{ display: 'flex', gap: '2rem' }}>{[0, 1, 2].map(i => <div key={i} className="te-skel" style={{ height: 38, width: 110 }} />)}</div>
+          <div className="te-skel" style={{ height: 18, borderRadius: 999 }} />
+          {[0, 1, 2].map(i => <div key={i} className="te-skel" style={{ height: 38 }} />)}
+        </div>
+      )}
 
       {store && (
         <div style={{ ...card(th), padding: 0, overflow: 'hidden' }}>
-          {/* ── Header: store/date + icon on the left, stat blocks + Add Employee on the right ── */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', padding: '1.1rem 1.1rem 1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
-              {ICONS.calendar(th.muted)}
-              <div>
-                <div style={{ fontWeight: 800, color: th.text, fontSize: '1rem' }}>{store.name} · {dateStr}</div>
-                <div style={{ fontSize: '0.73rem', color: th.muted, marginTop: '0.1rem' }}>Tip pool: ${pool.toFixed(2)} (from Pulse, not editable here) · {totalHours.toFixed(2)} total hours · ${rate.toFixed(2)}/hr</div>
+          {/* Header: the day, its three figures, the action that adds a person */}
+          <div style={{ padding: '1.2rem 1.1rem 1rem', display: 'grid', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: FONTS.head, fontWeight: 800, fontSize: '1.2rem', color: th.text, overflowWrap: 'break-word' }}>{store.name}</div>
+                <div style={{ fontSize: '0.86rem', color: th.muted, marginTop: '0.1rem' }}>{dayTitle(dateStr)}</div>
               </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.4rem' }}>
-              <StatBlock label="Tip Pool" value={`$${pool.toFixed(2)}`} />
-              <StatBlock label="Total Hours" value={totalHours.toFixed(2)} />
-              <StatBlock label="Rate" value={`$${rate.toFixed(2)}/hr`} />
-              <button onClick={loadRoster} disabled={rosterLoading} style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.6rem 1rem', fontSize: '0.85rem' }) }}>
-                {rosterLoading ? 'Loading roster…' : '+ Add Employee'}
+              <button type="button" className="te-btn" onClick={() => (showRoster ? setShowRoster(false) : loadRoster())} disabled={rosterLoading} aria-expanded={showRoster}
+                style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.55rem 1rem', fontSize: '0.88rem', minHeight: 38 }), display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                <TePlus color={th.text} />{rosterLoading ? 'Loading roster…' : 'Add employee'}
               </button>
             </div>
-          </div>
-
-          {showRoster && (
-            <div style={{ background: th.card2, padding: '0.75rem 1.1rem', borderTop: `1px solid ${th.cardBorder}`, borderBottom: `1px solid ${th.cardBorder}` }}>
-              <input autoFocus type="text" placeholder="Search this store's active employees…" value={rosterQuery} onChange={e => setRosterQuery(e.target.value)} style={{ ...inp(th), width: '100%', marginBottom: '0.5rem' }} />
-              <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                {filteredRoster.length === 0 ? (
-                  <div style={{ fontSize: '0.78rem', color: th.muted, padding: '0.5rem' }}>No matching active employees.</div>
-                ) : filteredRoster.slice(0, 20).map(r => (
-                  <div key={r.guid} onClick={() => addFromRoster(r)} style={{ padding: '0.45rem 0.6rem', borderRadius: '0.4rem', cursor: 'pointer', fontSize: '0.82rem', color: th.text, display: 'flex', justifyContent: 'space-between' }}
-                    onMouseEnter={e => e.currentTarget.style.background = th.card3} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <span>{r.name}</span>
-                    <span style={{ color: th.muted, fontSize: '0.72rem' }}>{r.jobTitle || ''}</span>
-                  </div>
-                ))}
-              </div>
-              <div onClick={() => setShowRoster(false)} style={{ fontSize: '0.72rem', color: th.muted, cursor: 'pointer', marginTop: '0.4rem', textAlign: 'right' }}>Close</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem' }}>
+              <TeFigure th={th} label="Tip pool" value={pool} format={teMoney.format} note="From Pulse, not editable here" />
+              <TeFigure th={th} label="Total hours" value={totalHours} format={v => teHours.format(v)} />
+              <TeFigure th={th} label="Per hour" value={rate} format={v => `${teMoney.format(v)}/hr`} />
             </div>
-          )}
-
-          {/* ── Crew table ── */}
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
-            <thead>
-              <tr style={{ background: th.card2 }}>
-                {['Employee', 'Hours', 'Tip Share', 'Action'].map(h => <th key={h} style={{ textAlign: 'left', padding: '0.6rem 1.1rem', color: th.muted, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${th.cardBorder}` }}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {crew.length === 0 && (
-                <tr><td colSpan={4} style={{ padding: '1.2rem 1.1rem', color: th.muted, textAlign: 'center', fontStyle: 'italic' }}>No crew yet — use "+ Add Employee" above.</td></tr>
-              )}
-              {crew.map((c, idx) => {
-                const hoursNum = Number(c.hours) || 0;
-                const previewShare = totalHours > 0 ? tipsRound2(rate * hoursNum) : 0;
-                return (
-                  <tr key={c.guid || c.name + idx} style={{ borderBottom: `1px solid ${th.cardBorder}` }}>
-                    <td style={{ padding: '0.6rem 1.1rem', color: th.text, fontWeight: 600 }}>{c.name}</td>
-                    <td style={{ padding: '0.5rem 1.1rem' }}>
-                      <input type="number" min="0" step="0.01" value={c.hours} onChange={e => setCrewHours(idx, e.target.value)} style={{ ...inp(th), width: 110, padding: '0.45rem 0.6rem' }} />
-                    </td>
-                    <td style={{ padding: '0.6rem 1.1rem', color: th.text, fontWeight: 600 }}>${previewShare.toFixed(2)}</td>
-                    <td style={{ padding: '0.5rem 1.1rem' }}>
-                      <button onClick={() => removeCrew(idx)} style={{ background: 'none', border: '1px solid #e0313155', color: '#e03131', borderRadius: '0.5rem', padding: '0.35rem 0.7rem', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 700 }}>
-                        🗑 Remove
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-
-          {/* ── Correction reason ── */}
-          <div style={{ padding: '1.1rem', borderTop: `1px solid ${th.cardBorder}` }}>
-            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, color: th.text, marginBottom: '0.15rem' }}>Correction reason</label>
-            <div style={{ fontSize: '0.72rem', color: th.muted, marginBottom: '0.5rem' }}>Provide a reason for this correction (optional, saved for the record).</div>
-            <textarea rows={2} placeholder="e.g. Adjusted tip share due to hours correction…" value={reason} onChange={e => setReason(e.target.value)} style={{ ...inp(th), width: '100%', resize: 'vertical', fontFamily: "'Source Sans 3'" }} />
+            <TePoolSplit th={th} crew={crew} colorFor={seriesColor} keyFor={keyFor} hoverKey={hoverKey} setHoverKey={setHoverKey} pool={pool} totalHours={totalHours} rate={rate} />
           </div>
 
-          {/* ── Footer action bar ── */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.9rem', padding: '0.9rem 1.1rem', borderTop: `1px solid ${th.cardBorder}`, background: th.card2 }}>
-            {hasChanges && <span style={{ fontSize: '0.75rem', color: th.muted, marginRight: 'auto' }}>⏱ Unsaved changes</span>}
-            <button onClick={cancelEdits} disabled={!hasChanges || saving} style={{ ...btn(th, { background: th.card3, color: th.text }), opacity: (!hasChanges || saving) ? 0.5 : 1 }}>
+          {/* Add employee — opens in place (grid-rows disclosure, no modal) */}
+          <div className="te-disclose" data-open={showRoster ? 'true' : 'false'}>
+            <div>
+              <div style={{ background: th.card2, padding: '0.85rem 1.1rem', borderTop: `1px solid ${th.cardBorder}` }}>
+                <input autoFocus={showRoster} type="text" className="te-input" aria-label="Search this store's active employees" placeholder="Search this store's active employees…" value={rosterQuery} onChange={e => setRosterQuery(e.target.value)} style={{ ...inp(th), width: '100%', marginBottom: '0.5rem', padding: '0.55rem 0.8rem', fontSize: '0.92rem' }} />
+                <div style={{ maxHeight: 220, overflowY: 'auto', display: 'grid', gap: 2 }}>
+                  {filteredRoster.length === 0 ? (
+                    <div style={{ fontSize: '0.84rem', color: th.muted, padding: '0.5rem' }}>No matching active employees.</div>
+                  ) : filteredRoster.slice(0, 20).map(r => (
+                    <button type="button" key={r.guid} className="te-pick" onClick={() => addFromRoster(r)} tabIndex={showRoster ? 0 : -1}
+                      style={{ width: '100%', textAlign: 'left', padding: '0.5rem 0.65rem', borderRadius: '0.45rem', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.88rem', color: th.text, display: 'flex', justifyContent: 'space-between', fontFamily: FONTS.body }}>
+                      <span>{r.name}</span>
+                      <span style={{ color: th.muted, fontSize: '0.78rem' }}>{r.jobTitle || ''}</span>
+                    </button>
+                  ))}
+                </div>
+                <div style={{ textAlign: 'right', marginTop: '0.4rem' }}>
+                  <button type="button" className="te-btn" onClick={() => setShowRoster(false)} tabIndex={showRoster ? 0 : -1} style={{ background: 'none', border: 'none', color: th.muted, cursor: 'pointer', fontSize: '0.8rem', fontFamily: FONTS.body, padding: '0.25rem 0.4rem', borderRadius: '0.4rem' }}>Close</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Crew — each row's colour matches its slice of the pool above */}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem', minWidth: 520 }}>
+              <thead>
+                <tr>
+                  <th style={headCell}>Employee</th>
+                  <th style={headCell}>Hours</th>
+                  <th style={{ ...headCell, textAlign: 'right' }}>Tip share</th>
+                  <th style={{ ...headCell, textAlign: 'right' }}><span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Action</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {crew.length === 0 && (
+                  <tr><td colSpan={4} style={{ padding: '1.4rem 1.1rem', color: th.muted, textAlign: 'center', borderTop: `1px solid ${th.cardBorder}` }}>No crew yet. Use “Add employee” above.</td></tr>
+                )}
+                {crew.map((c, idx) => {
+                  const k = keyFor(c, idx);
+                  const hoursNum = Number(c.hours) || 0;
+                  const previewShare = totalHours > 0 ? tipsRound2(rate * hoursNum) : 0;
+                  return (
+                    <TeCrewRow key={k} th={th} c={c} color={seriesColor(idx)} rowKey={k} entering={addedKeys.includes(k)} leaving={leavingKeys.includes(k)} hovered={hoverKey === k} setHoverKey={setHoverKey}
+                      share={previewShare} onHours={v => setCrewHours(idx, v)} onRemove={() => removeCrew(idx)} />
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Correction reason */}
+          <div style={{ padding: '1.1rem', borderTop: `1px solid ${th.cardBorder}` }}>
+            <label htmlFor="te-reason" style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: th.text, marginBottom: '0.15rem' }}>Correction reason</label>
+            <div style={{ fontSize: '0.8rem', color: th.muted, marginBottom: '0.5rem' }}>Provide a reason for this correction (optional, saved for the record).</div>
+            <textarea id="te-reason" rows={2} className="te-input" placeholder="e.g. Adjusted tip share due to hours correction…" value={reason} onChange={e => setReason(e.target.value)} style={{ ...inp(th), width: '100%', resize: 'vertical', fontFamily: FONTS.body, fontSize: '0.92rem' }} />
+          </div>
+
+          {/* Footer action bar */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.9rem', padding: '0.9rem 1.1rem', borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: 'wrap' }}>
+            <span role="status" style={{ fontSize: '0.84rem', marginRight: 'auto', color: hasChanges ? th.warn : th.success, fontWeight: 600 }}>
+              {hasChanges ? 'Unsaved changes' : (savedMsg || '')}
+            </span>
+            <button type="button" className="te-btn" onClick={cancelEdits} disabled={!hasChanges || saving} style={{ ...btn(th, { background: th.card3, color: th.text, padding: '0.6rem 1.2rem', fontSize: '0.92rem', minHeight: 40 }), opacity: (!hasChanges || saving) ? 0.5 : 1 }}>
               Cancel
             </button>
-            <button onClick={save} disabled={saving || crew.length === 0} style={{ ...btn(th), opacity: (saving || crew.length === 0) ? 0.5 : 1 }}>
-              {saving ? 'Saving…' : 'Save Correction'}
+            <button type="button" className="te-btn" onClick={save} disabled={saving || crew.length === 0} style={{ ...btn(th, { padding: '0.6rem 1.3rem', fontSize: '0.92rem', minHeight: 40, background: justSaved ? th.success : O }), opacity: (saving || crew.length === 0) ? 0.5 : 1 }}>
+              {saving ? 'Saving…' : justSaved ? 'Saved' : 'Save Correction'}
             </button>
           </div>
 
           {store.manualEdit && (
-            <div style={{ fontSize: '0.7rem', color: th.muted, padding: '0 1.1rem 1rem' }}>
-              Last manually corrected by {store.manualEdit.by} on {new Date(store.manualEdit.at).toLocaleString()}{store.manualEdit.reason ? ` — "${store.manualEdit.reason}"` : ''}.
+            <div style={{ fontSize: '0.78rem', color: th.muted, padding: '0.7rem 1.1rem 1rem' }}>
+              Last manually corrected by {store.manualEdit.by} on {new Date(store.manualEdit.at).toLocaleString()}{store.manualEdit.reason ? `: “${store.manualEdit.reason}”` : ''}.
             </div>
           )}
         </div>

@@ -20,6 +20,10 @@ const DARK = {
   cardBorder: "#2a2a2a",
   text: "#e8e8e8",
   muted: "#a0a0a0",
+  // v22.29 status tokens (used by the Tips Editor; reuse for any new state colour)
+  danger: "#ff6b6b",
+  success: "#51cf66",
+  warn: "#ffa94d",
   subtle: "#555",
   inputBg: "#242424",
   inputBorder: "#333",
@@ -41,6 +45,9 @@ const LIGHT = {
   cardBorder: "#e0ddd8",
   text: "#1a1710",
   muted: "#6b6560",
+  danger: "#c92a2a",
+  success: "#2b8a3e",
+  warn: "#c2410c",
   subtle: "#aaa",
   inputBg: "#f8f6f3",
   inputBorder: "#dedad4",
@@ -56,6 +63,8 @@ function getTheme(dark) { return dark ? DARK : LIGHT; }
 // ── Design tokens — the single source of truth for the consistency pass ──────
 // Radii: card = outer containers · inner = nested cards/grid cells · control =
 // buttons/inputs · chip = small tags · pill = fully rounded badges
+// Font tokens (v22.29) — the brand faces, so new screens never type a font-family inline.
+const FONTS = { head: "'Raleway', sans-serif", body: "'Source Sans 3', sans-serif" };
 const RADIUS = { card: "1rem", inner: "0.625rem", control: "0.6rem", chip: "0.375rem", pill: 999 };
 
 /** Page-level title — one per view (e.g. "Labor", "Projects") */
@@ -96,4 +105,4 @@ function accentCard(th, accentColor, extra = {}) {
   return { background: th.card, borderRadius: "1rem", borderTop: `1px solid ${th.cardBorder}`, borderRight: `1px solid ${th.cardBorder}`, borderBottom: `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${accentColor}`, ...extra };
 }
 
-export { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill };
+export { BRAND_CONFIG, O, Od, W, DARK, LIGHT, getTheme, btn, inp, card, accentCard, RADIUS, FONTS, pageTitle, sectionTitle, microLabel, thCell, tdCell, pill };

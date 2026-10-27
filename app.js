@@ -129,6 +129,10 @@
     cardBorder: "#2a2a2a",
     text: "#e8e8e8",
     muted: "#a0a0a0",
+    // v22.29 status tokens (used by the Tips Editor; reuse for any new state colour)
+    danger: "#ff6b6b",
+    success: "#51cf66",
+    warn: "#ffa94d",
     subtle: "#555",
     inputBg: "#242424",
     inputBorder: "#333",
@@ -149,6 +153,9 @@
     cardBorder: "#e0ddd8",
     text: "#1a1710",
     muted: "#6b6560",
+    danger: "#c92a2a",
+    success: "#2b8a3e",
+    warn: "#c2410c",
     subtle: "#aaa",
     inputBg: "#f8f6f3",
     inputBorder: "#dedad4",
@@ -161,6 +168,7 @@
   function getTheme(dark) {
     return dark ? DARK : LIGHT;
   }
+  var FONTS = { head: "'Raleway', sans-serif", body: "'Source Sans 3', sans-serif" };
   var RADIUS = { card: "1rem", inner: "0.625rem", control: "0.6rem", chip: "0.375rem", pill: 999 };
   function pageTitle(th, extra = {}) {
     return { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.4rem", color: th.text, letterSpacing: -0.5, ...extra };
@@ -26036,7 +26044,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.28";
+  var APP_VERSION = "v22.29";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -35200,6 +35208,150 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       })), /* @__PURE__ */ React.createElement("style", null, "@keyframes tipsSendPulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }"));
     })(), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
   }
+  var TE_CSS = (th) => `/* Hallmark \xB7 redesign: full \xB7 shape: app screen \xB7 scope: app \xB7 theme: brand (PCG orange, Raleway + Source Sans 3) \xB7 motion: brisk \xB7 signature: the tip pool split by hours */
+/* critique: was a plain form over a grey table that repeated its three figures twice; now the pool itself is the object, one bar split by hours that re-balances as you type */
+/* answered: tokens live in src/theme.js (th.*, FONTS, O) \u2014 the portal styles inline, so this block holds only states, motion and focus */
+:root { --te-accent: ${O}; --te-text: ${th.text}; --te-hover: ${th.card3}; --te-font: ${FONTS.body}; }
+.te-root { font-family: var(--te-font); color: var(--te-text); }
+.te-root * { box-sizing: border-box; }
+.te-focus:focus-visible, .te-btn:focus-visible, .te-tab:focus-visible, .te-pick:focus-visible { outline: 2px solid var(--te-accent) !important; outline-offset: 2px; }
+.te-input:focus-visible { outline: 2px solid var(--te-accent) !important; outline-offset: -1px; }
+.te-btn { transition: background-color 220ms cubic-bezier(.2,.8,.2,1), color 220ms cubic-bezier(.2,.8,.2,1), transform 120ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease !important; }
+.te-btn:active:not(:disabled) { transform: translateY(1px); }
+.te-btn:disabled, .te-input:disabled { cursor: not-allowed; }
+.te-tab-ind { transition: transform 220ms cubic-bezier(.2,.8,.2,1); }
+.te-tab { transition: color 220ms ease; }
+.te-seg, .te-sep { transition: transform 420ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease; }
+.te-row { animation: teRowIn 220ms cubic-bezier(.2,.8,.2,1) both; transition: background-color 220ms ease; }
+.te-row-leaving { animation: teRowOut 150ms cubic-bezier(.4,0,1,1) both; }
+.te-disclose { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1); }
+.te-disclose[data-open="true"] { grid-template-rows: 1fr; }
+.te-disclose > div { overflow: hidden; min-height: 0; }
+.te-pick { transition: background-color 120ms ease; }
+.te-pick:hover { background: var(--te-hover); }
+.te-skel { animation: teBreathe 1.2s ease-in-out infinite; background: var(--te-hover); border-radius: 0.4rem; }
+.te-num { font-variant-numeric: tabular-nums; }
+@keyframes teRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes teRowOut { to { opacity: 0; transform: translateX(14px); } }
+@keyframes teBreathe { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .te-row, .te-row-leaving, .te-skel { animation: none; }
+  .te-seg, .te-sep, .te-tab-ind, .te-disclose { transition: opacity 150ms linear; }
+}`;
+  var teReducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var teMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var teHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function useTickedNumber(value, ms = 500) {
+    const target = Number(value) || 0;
+    const [shown, setShown] = useState(target);
+    const fromRef = useRef(target);
+    useEffect(() => {
+      const from = fromRef.current;
+      if (teReducedMotion() || Math.abs(from - target) < 5e-3) {
+        fromRef.current = target;
+        setShown(target);
+        return void 0;
+      }
+      let raf = 0, start = null;
+      const step = (t) => {
+        if (start == null) start = t;
+        const p = Math.min(1, (t - start) / ms);
+        const v = from + (target - from) * (1 - Math.pow(1 - p, 3));
+        fromRef.current = v;
+        setShown(v);
+        if (p < 1) raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+      return () => cancelAnimationFrame(raf);
+    }, [target, ms]);
+    return shown;
+  }
+  function TeTicker({ value, format, style }) {
+    const v = useTickedNumber(value);
+    return /* @__PURE__ */ React.createElement("span", { className: "te-num", style }, format(v));
+  }
+  function TeFigure({ th, label, value, format, note }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, label), /* @__PURE__ */ React.createElement(TeTicker, { value, format, style: { display: "block", fontFamily: FONTS.head, fontWeight: 800, fontSize: "1.35rem", color: th.text, lineHeight: 1.2 } }), note && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "0.1rem" } }, note));
+  }
+  function TePoolSplit({ th, crew, colorFor, keyFor, hoverKey, setHoverKey, pool, totalHours, rate }) {
+    let acc = 0;
+    const slices = crew.map((c, i) => {
+      const h = Math.max(0, Number(c.hours) || 0);
+      const frac = totalHours > 0 ? h / totalHours : 0;
+      const s = { key: keyFor(c, i), name: c.name, color: colorFor(i), off: acc, frac, share: totalHours > 0 ? tipsRound2(rate * h) : 0 };
+      acc += frac;
+      return s;
+    });
+    const label = totalHours > 0 ? `Tip pool of ${teMoney.format(pool)} split by hours: ${slices.filter((s) => s.frac > 0).map((s) => `${s.name} ${teMoney.format(s.share)}`).join(", ")}` : "No hours entered yet, so the pool is not split.";
+    return /* @__PURE__ */ React.createElement("div", { role: "img", "aria-label": label, style: { position: "relative", height: 18, borderRadius: 999, overflow: "hidden", background: th.card3 } }, slices.map((s) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: s.key,
+        "aria-hidden": "true",
+        className: "te-seg",
+        onMouseEnter: () => setHoverKey(s.key),
+        onMouseLeave: () => setHoverKey(null),
+        style: {
+          position: "absolute",
+          inset: 0,
+          transformOrigin: "left center",
+          background: s.color,
+          transform: `translateX(${(s.off * 100).toFixed(3)}%) scaleX(${s.frac.toFixed(4)})`,
+          opacity: hoverKey && hoverKey !== s.key ? 0.35 : 1
+        }
+      }
+    )), slices.slice(1).map((s) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: `sep-${s.key}`,
+        "aria-hidden": "true",
+        className: "te-sep",
+        style: { position: "absolute", inset: 0, pointerEvents: "none", transform: `translateX(${(s.off * 100).toFixed(3)}%)`, opacity: s.frac > 0 && s.off > 0 ? 1 : 0 }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", left: -1, top: 0, bottom: 0, width: 2, background: th.card } })
+    )));
+  }
+  var TeTrash = ({ color }) => /* @__PURE__ */ React.createElement("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6" }));
+  var TePlus = ({ color }) => /* @__PURE__ */ React.createElement("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2.2", strokeLinecap: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M12 5v14M5 12h14" }));
+  function TeCrewRow({ th, c, color, rowKey, entering, leaving, hovered, setHoverKey, share, onHours, onRemove }) {
+    return /* @__PURE__ */ React.createElement(
+      "tr",
+      {
+        className: leaving ? "te-row-leaving" : entering ? "te-row" : void 0,
+        onMouseEnter: () => setHoverKey(rowKey),
+        onMouseLeave: () => setHoverKey(null),
+        style: { borderTop: `1px solid ${th.cardBorder}`, background: hovered ? th.card2 : "transparent", transition: "background-color 220ms ease" }
+      },
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 1.1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.6rem", fontWeight: 600 } }, /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 } }), c.name)),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "0.45rem 1.1rem" } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "number",
+          min: "0",
+          step: "0.01",
+          value: c.hours,
+          onChange: (e) => onHours(e.target.value),
+          "aria-label": `Hours for ${c.name}`,
+          className: "te-input te-num",
+          style: { ...inp(th), width: 104, padding: "0.45rem 0.6rem", fontSize: "0.92rem" }
+        }
+      )),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 1.1rem", textAlign: "right" } }, /* @__PURE__ */ React.createElement(TeTicker, { value: share, format: teMoney.format, style: { fontWeight: 700, color: th.text } })),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "0.45rem 1.1rem", textAlign: "right" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          onClick: onRemove,
+          disabled: leaving,
+          className: "te-btn",
+          "aria-label": `Remove ${c.name}`,
+          style: { display: "inline-flex", alignItems: "center", gap: "0.35rem", background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.danger, borderRadius: "0.55rem", padding: "0.4rem 0.7rem", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600, fontFamily: FONTS.body, minHeight: 34 }
+        },
+        /* @__PURE__ */ React.createElement(TeTrash, { color: th.danger }),
+        "Remove"
+      ))
+    );
+  }
   function TipsBulkEditor({ th, stores }) {
     const yesterday = (() => {
       const d = /* @__PURE__ */ new Date();
@@ -35298,70 +35450,69 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const filteredRoster = (roster || []).filter((r) => !personQuery.trim() || r.name.toLowerCase().includes(personQuery.trim().toLowerCase())).slice(0, 12);
     const dayLabel = (iso) => (/* @__PURE__ */ new Date(`${iso}T12:00:00`)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-    const cell = { padding: "0.55rem 0.9rem", borderBottom: `1px solid ${th.cardBorder}`, fontSize: "0.84rem", color: th.text };
-    const headCell = { textAlign: "left", padding: "0.55rem 0.9rem", color: th.muted, fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${th.cardBorder}`, background: th.card2 };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Store", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), minWidth: 220 }, value: storePc, onChange: (e) => pickStore(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")")))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted, position: "relative" } }, "Employee", /* @__PURE__ */ React.createElement("br", null), person ? /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), minWidth: 220, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, person.name), /* @__PURE__ */ React.createElement("span", { role: "button", onClick: () => {
-      setPerson(null);
-      setDays(null);
-      setResult(null);
-    }, style: { color: th.muted, cursor: "pointer" } }, "\xD7")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+    const cell = { padding: "0.6rem 0.9rem", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.88rem", color: th.text, verticalAlign: "middle" };
+    const headCell = { textAlign: "left", padding: "0.6rem 0.9rem", color: th.muted, fontSize: "0.8rem", fontWeight: 600, background: th.card2 };
+    const fieldLabel = { display: "flex", flexDirection: "column", gap: "0.3rem", fontSize: "0.8rem", color: th.muted };
+    const ghostBtn = { ...btn(th, { background: th.card3, color: th.text, padding: "0.5rem 0.9rem", fontSize: "0.84rem", minHeight: 36 }) };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: fieldLabel }, "Store", /* @__PURE__ */ React.createElement("select", { className: "te-input", style: { ...inp(th), minWidth: 220, padding: "0.55rem 0.8rem", fontSize: "0.92rem" }, value: storePc, onChange: (e) => pickStore(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")")))), /* @__PURE__ */ React.createElement("label", { style: { ...fieldLabel, position: "relative" } }, "Employee", person ? /* @__PURE__ */ React.createElement("div", { style: { ...inp(th), minWidth: 220, padding: "0.45rem 0.5rem 0.45rem 0.8rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600, fontSize: "0.92rem" } }, person.name), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "te-btn",
+        "aria-label": `Clear ${person.name}`,
+        onClick: () => {
+          setPerson(null);
+          setDays(null);
+          setResult(null);
+        },
+        style: { background: "transparent", border: "none", color: th.muted, cursor: "pointer", fontSize: "1rem", lineHeight: 1, padding: "0.2rem 0.4rem", borderRadius: "0.4rem" }
+      },
+      "\xD7"
+    )) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "text",
+        className: "te-input",
         disabled: !storePc || rosterLoading,
         placeholder: rosterLoading ? "Loading roster\u2026" : storePc ? "Search this store's employees\u2026" : "Pick a store first",
         value: personQuery,
         onChange: (e) => setPersonQuery(e.target.value),
-        style: { ...inp(th), minWidth: 220 }
+        style: { ...inp(th), minWidth: 220, padding: "0.55rem 0.8rem", fontSize: "0.92rem" }
       }
-    ), personQuery.trim() && roster && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.15)", maxHeight: 240, overflowY: "auto" } }, filteredRoster.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.7rem", fontSize: "0.8rem", color: th.muted } }, "No matching active employees."), filteredRoster.map((r) => /* @__PURE__ */ React.createElement(
-      "div",
+    ), personQuery.trim() && roster && /* @__PURE__ */ React.createElement("div", { role: "listbox", style: { position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 20, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem", boxShadow: "0 12px 28px rgba(0,0,0,0.16)", maxHeight: 260, overflowY: "auto", padding: "0.25rem" } }, filteredRoster.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.7rem", fontSize: "0.84rem", color: th.muted } }, "No matching active employees."), filteredRoster.map((r) => /* @__PURE__ */ React.createElement(
+      "button",
       {
+        type: "button",
         key: r.guid,
+        className: "te-pick",
         onClick: () => {
           setPerson(r);
           setPersonQuery("");
           setDays(null);
           setResult(null);
         },
-        onMouseEnter: (e) => e.currentTarget.style.background = th.card3,
-        onMouseLeave: (e) => e.currentTarget.style.background = "transparent",
-        style: { padding: "0.45rem 0.7rem", cursor: "pointer", fontSize: "0.82rem", color: th.text, display: "flex", justifyContent: "space-between", gap: "0.5rem" }
+        style: { width: "100%", textAlign: "left", background: "transparent", border: "none", borderRadius: "0.45rem", padding: "0.5rem 0.7rem", cursor: "pointer", fontSize: "0.88rem", color: th.text, display: "flex", justifyContent: "space-between", gap: "0.5rem", fontFamily: FONTS.body }
       },
       /* @__PURE__ */ React.createElement("span", null, r.name),
-      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, r.jobTitle || "")
-    ))))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "From", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: startDate, max: endDate, onChange: (e) => setStartDate(e.target.value) })), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "To", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: endDate, min: startDate, max: tipsFormatISODate(/* @__PURE__ */ new Date()), onChange: (e) => setEndDate(e.target.value) })), /* @__PURE__ */ React.createElement("button", { onClick: loadDays, disabled: !person || loading, style: { ...btn(th), opacity: !person || loading ? 0.5 : 1 } }, loading ? "Checking Paycor\u2026" : "Load days")), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", color: "#e03131", fontSize: "0.82rem", marginBottom: "1rem" } }, error), result && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", fontSize: "0.82rem", marginBottom: "1rem", color: result.every((r) => r.ok) ? "#2f9e44" : "#e8590c" } }, result.every((r) => r.ok) ? "\u2713 " : "", "Updated ", result.filter((r) => r.ok).length, " of ", result.length, " day", result.length !== 1 ? "s" : "", ".", result.filter((r) => !r.ok).map((r) => /* @__PURE__ */ React.createElement("div", { key: r.date, style: { color: "#e03131", marginTop: "0.2rem" } }, dayLabel(r.date), ": ", r.reason))), days && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text } }, person.name, " \xB7 ", selectedStore?.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.1rem" } }, "Days where Paycor's punched hours differ from the saved crew are pre-checked. Hours set to 0 remove them from that day.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => setEdits((prev) => {
-          const n = { ...prev };
-          selectable.forEach((d) => {
-            n[d.date] = { ...n[d.date], checked: !allChecked };
-          });
-          return n;
-        }),
-        style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.45rem 0.8rem", fontSize: "0.78rem" }) }
-      },
-      allChecked ? "Uncheck all" : "Check all"
-    ), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => setEdits((prev) => {
-          const n = { ...prev };
-          selectable.forEach((d) => {
-            if (d.punchedHours != null) n[d.date] = { ...n[d.date], hours: String(d.punchedHours) };
-          });
-          return n;
-        }),
-        style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.45rem 0.8rem", fontSize: "0.78rem" }) }
-      },
-      "Use Paycor hours"
-    ))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 640 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...headCell, width: 40 } }), ["Day", "Saved crew now", "Paycor punched", "New hours", "Day's pool"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: headCell }, h)))), /* @__PURE__ */ React.createElement("tbody", null, days.map((d) => {
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, r.jobTitle || "")
+    ))))), /* @__PURE__ */ React.createElement("label", { style: fieldLabel }, "From", /* @__PURE__ */ React.createElement("input", { type: "date", className: "te-input", style: { ...inp(th), padding: "0.55rem 0.8rem", fontSize: "0.92rem" }, value: startDate, max: endDate, onChange: (e) => setStartDate(e.target.value) })), /* @__PURE__ */ React.createElement("label", { style: fieldLabel }, "To", /* @__PURE__ */ React.createElement("input", { type: "date", className: "te-input", style: { ...inp(th), padding: "0.55rem 0.8rem", fontSize: "0.92rem" }, value: endDate, min: startDate, max: tipsFormatISODate(/* @__PURE__ */ new Date()), onChange: (e) => setEndDate(e.target.value) })), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: loadDays, disabled: !person || loading, style: { ...btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: !person || loading ? 0.5 : 1 } }, loading ? "Checking Paycor\u2026" : "Load days")), error && /* @__PURE__ */ React.createElement("div", { role: "alert", style: { ...card(th), padding: "0.8rem 1rem", borderLeft: `3px solid ${th.danger}`, color: th.danger, fontSize: "0.86rem", marginBottom: "1rem" } }, error), result && /* @__PURE__ */ React.createElement("div", { role: "status", style: { ...card(th), padding: "0.8rem 1rem", fontSize: "0.86rem", marginBottom: "1rem", borderLeft: `3px solid ${result.every((r) => r.ok) ? th.success : th.warn}`, color: result.every((r) => r.ok) ? th.success : th.warn } }, "Updated ", result.filter((r) => r.ok).length, " of ", result.length, " day", result.length !== 1 ? "s" : "", ".", result.filter((r) => !r.ok).map((r) => /* @__PURE__ */ React.createElement("div", { key: r.date, style: { color: th.danger, marginTop: "0.2rem" } }, dayLabel(r.date), ": ", r.reason))), loading && !days && /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { ...card(th), padding: "1rem", display: "grid", gap: "0.7rem" } }, [60, 100, 100, 100, 100].map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "te-skel", style: { height: i === 0 ? 20 : 34, width: `${w}%` } }))), days && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "0.75rem", padding: "1.1rem 1.1rem 0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: FONTS.head, fontWeight: 800, fontSize: "1.15rem", color: th.text, overflowWrap: "break-word" } }, person.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: "0.1rem" } }, selectedStore?.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.45rem", maxWidth: 560 } }, "Days where Paycor\u2019s punched hours differ from the saved crew are pre-checked. Hours set to 0 remove them from that day.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: () => setEdits((prev) => {
+      const n = { ...prev };
+      selectable.forEach((d) => {
+        n[d.date] = { ...n[d.date], checked: !allChecked };
+      });
+      return n;
+    }), style: ghostBtn }, allChecked ? "Uncheck all" : "Check all"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: () => setEdits((prev) => {
+      const n = { ...prev };
+      selectable.forEach((d) => {
+        if (d.punchedHours != null) n[d.date] = { ...n[d.date], hours: String(d.punchedHours) };
+      });
+      return n;
+    }), style: ghostBtn }, "Use Paycor hours"))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 660 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...headCell, width: 44 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" } }, "Include")), ["Day", "Saved crew now", "Paycor punched", "New hours", "Day's pool"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: headCell }, h)))), /* @__PURE__ */ React.createElement("tbody", null, days.map((d) => {
       const e = edits[d.date] || {};
       const disabled = !d.hasSnapshot;
       const differs = d.punchedHours != null && Math.abs((d.currentHours || 0) - d.punchedHours) > 9e-3;
-      return /* @__PURE__ */ React.createElement("tr", { key: d.date, style: { opacity: disabled ? 0.5 : 1 } }, /* @__PURE__ */ React.createElement("td", { style: cell }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", disabled, checked: !!e.checked, onChange: (ev) => setEdit(d.date, { checked: ev.target.checked }), "aria-label": `Include ${d.date}` })), /* @__PURE__ */ React.createElement("td", { style: { ...cell, fontWeight: 600, whiteSpace: "nowrap" } }, dayLabel(d.date)), /* @__PURE__ */ React.createElement("td", { style: cell }, disabled ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "No tips data saved") : d.currentHours == null ? /* @__PURE__ */ React.createElement("span", { style: { color: "#e8590c", fontWeight: 700 } }, "Missing") : `${tipsRound2(d.currentHours)} hrs${d.currentShare != null ? ` \xB7 $${Number(d.currentShare).toFixed(2)}` : ""}`), /* @__PURE__ */ React.createElement("td", { style: { ...cell, color: differs ? "#e8590c" : th.text, fontWeight: differs ? 700 : 400 } }, d.punchedHours == null ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2014") : `${d.punchedHours} hrs`), /* @__PURE__ */ React.createElement("td", { style: cell }, /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", max: "24", step: "0.01", disabled, value: e.hours ?? "", onChange: (ev) => setEdit(d.date, { hours: ev.target.value, checked: true }), style: { ...inp(th), width: 100, padding: "0.4rem 0.55rem" } })), /* @__PURE__ */ React.createElement("td", { style: { ...cell, color: th.muted } }, d.tipPool != null ? `$${Number(d.tipPool).toFixed(2)}` : "\u2014"));
-    })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("textarea", { rows: 2, placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: "'Source Sans 3'" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.8rem 1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted, marginRight: "auto" } }, checkedDays.length, " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
+      return /* @__PURE__ */ React.createElement("tr", { key: d.date, style: { opacity: disabled ? 0.5 : 1, background: e.checked && !disabled ? withAlpha(O, 0.06) : "transparent", transition: "background-color 220ms ease" } }, /* @__PURE__ */ React.createElement("td", { style: cell }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", className: "te-focus", disabled, checked: !!e.checked, onChange: (ev) => setEdit(d.date, { checked: ev.target.checked }), "aria-label": `Include ${d.date}`, style: { width: 18, height: 18, accentColor: O, cursor: disabled ? "default" : "pointer" } })), /* @__PURE__ */ React.createElement("td", { style: { ...cell, fontWeight: 600, whiteSpace: "nowrap" } }, dayLabel(d.date)), /* @__PURE__ */ React.createElement("td", { style: cell }, disabled ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "No tips data saved") : d.currentHours == null ? /* @__PURE__ */ React.createElement("span", { style: { color: th.warn, fontWeight: 700 } }, "Missing") : /* @__PURE__ */ React.createElement("span", { className: "te-num" }, tipsRound2(d.currentHours), " hrs", d.currentShare != null && /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem" } }, teMoney.format(Number(d.currentShare)), " share"))), /* @__PURE__ */ React.createElement("td", { className: "te-num", style: { ...cell, color: differs ? th.warn : th.text, fontWeight: differs ? 700 : 400 } }, d.punchedHours == null ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "None") : `${d.punchedHours} hrs`), /* @__PURE__ */ React.createElement("td", { style: cell }, /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", max: "24", step: "0.01", disabled, value: e.hours ?? "", onChange: (ev) => setEdit(d.date, { hours: ev.target.value, checked: true }), "aria-label": `New hours for ${dayLabel(d.date)}`, className: "te-input te-num", style: { ...inp(th), width: 100, padding: "0.42rem 0.55rem", fontSize: "0.9rem" } })), /* @__PURE__ */ React.createElement("td", { className: "te-num", style: { ...cell, color: th.muted } }, d.tipPool != null ? teMoney.format(Number(d.tipPool)) : "None"));
+    })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.88rem", fontWeight: 600, color: th.text, marginBottom: "0.35rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("textarea", { rows: 2, className: "te-input", placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: FONTS.body, fontSize: "0.92rem" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.84rem", color: th.muted, marginRight: "auto" } }, /* @__PURE__ */ React.createElement(TeTicker, { value: checkedDays.length, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
   }
   function TipsEditor({ th, stores, user, onGoToReport }) {
     const [mode, setMode] = useState("day");
@@ -35379,6 +35530,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [rosterLoading, setRosterLoading] = useState(false);
     const [rosterQuery, setRosterQuery] = useState("");
     const [showRoster, setShowRoster] = useState(false);
+    const [hoverKey, setHoverKey] = useState(null);
+    const [leavingKeys, setLeavingKeys] = useState([]);
+    const [justSaved, setJustSaved] = useState(false);
+    const [addedKeys, setAddedKeys] = useState([]);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const pool = tipsRound2(store?.tipPool || 0);
     const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
@@ -35407,7 +35562,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setStore(j.store);
         setCrew((j.store.crew || []).map((c) => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
       } catch {
-        setError("Network error \u2014 load failed.");
+        setError("Network error: load failed.");
       }
       setLoading(false);
     };
@@ -35428,7 +35583,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         if (res.ok) setRoster(j.roster || []);
         else setError(j?.error || "Could not load the store's employee roster.");
       } catch {
-        setError("Network error \u2014 could not load the employee roster.");
+        setError("Network error: could not load the employee roster.");
       }
       setRosterLoading(false);
       setShowRoster(true);
@@ -35439,10 +35594,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return;
       }
       setCrew((prev) => [...prev, { name: r.name, payrollId: r.payrollId, guid: r.guid, hours: 0 }]);
+      setAddedKeys((prev) => [...prev, r.guid || `${r.name}#${crew.length}`]);
       setShowRoster(false);
       setRosterQuery("");
     };
-    const removeCrew = (idx) => setCrew((prev) => prev.filter((_, i) => i !== idx));
+    const keyFor = (c, i) => c.guid || `${c.name}#${i}`;
+    const removeCrew = (idx) => {
+      const k = keyFor(crew[idx], idx);
+      setLeavingKeys((prev) => [...prev, k]);
+      setTimeout(() => {
+        setCrew((prev) => prev.filter((c, i) => keyFor(c, i) !== k));
+        setLeavingKeys((prev) => prev.filter((x) => x !== k));
+        setHoverKey((h) => h === k ? null : h);
+      }, teReducedMotion() ? 0 : 150);
+    };
     const setCrewHours = (idx, hours) => setCrew((prev) => prev.map((c, i) => i === idx ? { ...c, hours } : c));
     const save = async () => {
       setSaving(true);
@@ -35464,9 +35629,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
         setStore(j.store);
         setCrew((j.store.crew || []).map((c) => ({ name: c.name, payrollId: c.payrollId, guid: c.guid, hours: c.hours })));
-        setSavedMsg(`Saved \u2014 recalculated ${j.store.crew.length} people's shares from a $${pool.toFixed(2)} pool.`);
+        setSavedMsg(`Saved. Recalculated ${j.store.crew.length} people\u2019s shares from a $${pool.toFixed(2)} pool.`);
+        setJustSaved(true);
+        setTimeout(() => setJustSaved(false), 2500);
       } catch {
-        setError("Network error \u2014 save failed.");
+        setError("Network error: save failed.");
       }
       setSaving(false);
     };
@@ -35480,38 +35647,78 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setReason("");
       setError(null);
     };
-    const StatBlock = ({ label, value }) => /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1rem", fontWeight: 800, color: th.text } }, value));
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "0.3rem" } }, "Tips Editor"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.82rem", marginTop: 0, marginBottom: "1rem" } }, "Correct one store's crew for one already-saved day \u2014 add someone who's missing, fix their hours, or remove a mistake. Saving recalculates every person's share from the real tip pool, same math the nightly report already uses. The pool itself (real Pulse sales data) isn't editable here.", onGoToReport && /* @__PURE__ */ React.createElement(React.Fragment, null, " Already fixed what you needed? ", /* @__PURE__ */ React.createElement("span", { onClick: onGoToReport, style: { color: "#FF671F", fontWeight: 700, cursor: "pointer" } }, "Go to the Tips Report \u2192"), " to re-send the corrected period to Paycor.")), /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "Edit mode", style: { display: "inline-flex", gap: "0.25rem", padding: "0.25rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, marginBottom: "1rem" } }, [["day", "One day"], ["range", "Several days"]].map(([k, label]) => /* @__PURE__ */ React.createElement(
+    const dayTitle = (iso) => {
+      try {
+        return (/* @__PURE__ */ new Date(`${iso}T12:00:00`)).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+      } catch {
+        return iso;
+      }
+    };
+    const fieldLabel = { display: "flex", flexDirection: "column", gap: "0.3rem", fontSize: "0.8rem", color: th.muted };
+    const headCell = { textAlign: "left", padding: "0.6rem 1.1rem", color: th.muted, fontSize: "0.8rem", fontWeight: 600, background: th.card2 };
+    return /* @__PURE__ */ React.createElement("div", { className: "te-root" }, /* @__PURE__ */ React.createElement("style", null, TE_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: FONTS.head, fontWeight: 800, color: th.text, margin: "0 0 0.3rem", fontSize: "1.5rem" } }, "Tips Editor"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.88rem", marginTop: 0, marginBottom: "1.1rem", maxWidth: 760, lineHeight: 1.5 } }, "Correct one store\u2019s crew for one already-saved day: add someone who\u2019s missing, fix their hours, or remove a mistake. Saving recalculates every person\u2019s share from the real tip pool, same math the nightly report already uses. The pool itself (real Pulse sales data) isn\u2019t editable here.", onGoToReport && /* @__PURE__ */ React.createElement(React.Fragment, null, " Already fixed what you needed? ", /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: onGoToReport, style: { background: "none", border: "none", padding: 0, color: O, fontWeight: 700, cursor: "pointer", fontSize: "inherit", fontFamily: FONTS.body } }, "Go to the Tips Report"), " to re-send the corrected period to Paycor.")), /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "Edit mode", style: { position: "relative", display: "inline-grid", gridTemplateColumns: "1fr 1fr", padding: 4, background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", className: "te-tab-ind", style: { position: "absolute", top: 4, bottom: 4, left: 4, width: "calc(50% - 4px)", borderRadius: 999, background: O, transform: mode === "range" ? "translateX(100%)" : "none" } }), [["day", "One day"], ["range", "Several days"]].map(([k, label]) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: k,
+        type: "button",
         role: "tab",
         "aria-selected": mode === k,
         onClick: () => setMode(k),
-        style: { padding: "0.4rem 1rem", borderRadius: 999, border: "none", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700, fontFamily: "'Source Sans 3'", background: mode === k ? "#FF671F" : "transparent", color: mode === k ? "#fff" : th.muted }
+        className: "te-tab",
+        style: { position: "relative", padding: "0.45rem 1.2rem", minHeight: 36, borderRadius: 999, border: "none", cursor: "pointer", fontSize: "0.86rem", fontWeight: 700, fontFamily: FONTS.body, background: "transparent", color: mode === k ? W : th.muted, whiteSpace: "nowrap" }
       },
       label
-    ))), mode === "range" && /* @__PURE__ */ React.createElement(TipsBulkEditor, { th, stores }), mode === "day" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Store", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("select", { style: { ...inp(th), minWidth: 220 }, value: storePc, onChange: (e) => {
+    ))), mode === "range" && /* @__PURE__ */ React.createElement(TipsBulkEditor, { th, stores }), mode === "day" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: fieldLabel }, "Store", /* @__PURE__ */ React.createElement("select", { className: "te-input", style: { ...inp(th), minWidth: 220, padding: "0.55rem 0.8rem", fontSize: "0.92rem" }, value: storePc, onChange: (e) => {
       setStorePc(e.target.value);
       setStore(null);
       setCrew([]);
       setRoster(null);
-    } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")")))), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.78rem", color: th.muted } }, "Date", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: dateStr, max: todayStr, onChange: (e) => setDateStr(e.target.value) })), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !storePc || !dateStr || loading, style: { ...btn(th), opacity: !storePc || !dateStr || loading ? 0.5 : 1 } }, loading ? "Loading\u2026" : "Load")), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", color: "#e03131", fontSize: "0.82rem", marginBottom: "1rem" } }, error), savedMsg && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.85rem 1rem", color: "#2f9e44", fontSize: "0.82rem", marginBottom: "1rem" } }, "\u2713 ", savedMsg), store && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem", padding: "1.1rem 1.1rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.6rem" } }, ICONS.calendar(th.muted), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, fontSize: "1rem" } }, store.name, " \xB7 ", dateStr), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.1rem" } }, "Tip pool: $", pool.toFixed(2), " (from Pulse, not editable here) \xB7 ", totalHours.toFixed(2), " total hours \xB7 $", rate.toFixed(2), "/hr"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "1.4rem" } }, /* @__PURE__ */ React.createElement(StatBlock, { label: "Tip Pool", value: `$${pool.toFixed(2)}` }), /* @__PURE__ */ React.createElement(StatBlock, { label: "Total Hours", value: totalHours.toFixed(2) }), /* @__PURE__ */ React.createElement(StatBlock, { label: "Rate", value: `$${rate.toFixed(2)}/hr` }), /* @__PURE__ */ React.createElement("button", { onClick: loadRoster, disabled: rosterLoading, style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.6rem 1rem", fontSize: "0.85rem" }) } }, rosterLoading ? "Loading roster\u2026" : "+ Add Employee"))), showRoster && /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, padding: "0.75rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, type: "text", placeholder: "Search this store's active employees\u2026", value: rosterQuery, onChange: (e) => setRosterQuery(e.target.value), style: { ...inp(th), width: "100%", marginBottom: "0.5rem" } }), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 200, overflowY: "auto" } }, filteredRoster.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, padding: "0.5rem" } }, "No matching active employees.") : filteredRoster.slice(0, 20).map((r) => /* @__PURE__ */ React.createElement(
-      "div",
+    } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")")))), /* @__PURE__ */ React.createElement("label", { style: fieldLabel }, "Date", /* @__PURE__ */ React.createElement("input", { type: "date", className: "te-input", style: { ...inp(th), padding: "0.55rem 0.8rem", fontSize: "0.92rem" }, value: dateStr, max: todayStr, onChange: (e) => setDateStr(e.target.value) })), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: load, disabled: !storePc || !dateStr || loading, style: { ...btn(th, { padding: "0.6rem 1.3rem", fontSize: "0.92rem", minHeight: 40 }), opacity: !storePc || !dateStr || loading ? 0.5 : 1 } }, loading ? "Loading\u2026" : "Load")), error && /* @__PURE__ */ React.createElement("div", { role: "alert", style: { ...card(th), padding: "0.8rem 1rem", borderLeft: `3px solid ${th.danger}`, color: th.danger, fontSize: "0.86rem", marginBottom: "1rem" } }, error), loading && !store && /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { ...card(th), padding: "1.2rem 1.1rem", display: "grid", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { className: "te-skel", style: { height: 22, width: "40%" } }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "2rem" } }, [0, 1, 2].map((i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "te-skel", style: { height: 38, width: 110 } }))), /* @__PURE__ */ React.createElement("div", { className: "te-skel", style: { height: 18, borderRadius: 999 } }), [0, 1, 2].map((i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "te-skel", style: { height: 38 } }))), store && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1.2rem 1.1rem 1rem", display: "grid", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: FONTS.head, fontWeight: 800, fontSize: "1.2rem", color: th.text, overflowWrap: "break-word" } }, store.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.muted, marginTop: "0.1rem" } }, dayTitle(dateStr))), /* @__PURE__ */ React.createElement(
+      "button",
       {
+        type: "button",
+        className: "te-btn",
+        onClick: () => showRoster ? setShowRoster(false) : loadRoster(),
+        disabled: rosterLoading,
+        "aria-expanded": showRoster,
+        style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.55rem 1rem", fontSize: "0.88rem", minHeight: 38 }), display: "inline-flex", alignItems: "center", gap: "0.4rem" }
+      },
+      /* @__PURE__ */ React.createElement(TePlus, { color: th.text }),
+      rosterLoading ? "Loading roster\u2026" : "Add employee"
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "1rem" } }, /* @__PURE__ */ React.createElement(TeFigure, { th, label: "Tip pool", value: pool, format: teMoney.format, note: "From Pulse, not editable here" }), /* @__PURE__ */ React.createElement(TeFigure, { th, label: "Total hours", value: totalHours, format: (v) => teHours.format(v) }), /* @__PURE__ */ React.createElement(TeFigure, { th, label: "Per hour", value: rate, format: (v) => `${teMoney.format(v)}/hr` })), /* @__PURE__ */ React.createElement(TePoolSplit, { th, crew, colorFor: seriesColor, keyFor, hoverKey, setHoverKey, pool, totalHours, rate })), /* @__PURE__ */ React.createElement("div", { className: "te-disclose", "data-open": showRoster ? "true" : "false" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("input", { autoFocus: showRoster, type: "text", className: "te-input", "aria-label": "Search this store's active employees", placeholder: "Search this store's active employees\u2026", value: rosterQuery, onChange: (e) => setRosterQuery(e.target.value), style: { ...inp(th), width: "100%", marginBottom: "0.5rem", padding: "0.55rem 0.8rem", fontSize: "0.92rem" } }), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 220, overflowY: "auto", display: "grid", gap: 2 } }, filteredRoster.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, padding: "0.5rem" } }, "No matching active employees.") : filteredRoster.slice(0, 20).map((r) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
         key: r.guid,
+        className: "te-pick",
         onClick: () => addFromRoster(r),
-        style: { padding: "0.45rem 0.6rem", borderRadius: "0.4rem", cursor: "pointer", fontSize: "0.82rem", color: th.text, display: "flex", justifyContent: "space-between" },
-        onMouseEnter: (e) => e.currentTarget.style.background = th.card3,
-        onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
+        tabIndex: showRoster ? 0 : -1,
+        style: { width: "100%", textAlign: "left", padding: "0.5rem 0.65rem", borderRadius: "0.45rem", border: "none", background: "transparent", cursor: "pointer", fontSize: "0.88rem", color: th.text, display: "flex", justifyContent: "space-between", fontFamily: FONTS.body }
       },
       /* @__PURE__ */ React.createElement("span", null, r.name),
-      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, r.jobTitle || "")
-    ))), /* @__PURE__ */ React.createElement("div", { onClick: () => setShowRoster(false), style: { fontSize: "0.72rem", color: th.muted, cursor: "pointer", marginTop: "0.4rem", textAlign: "right" } }, "Close")), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.card2 } }, ["Employee", "Hours", "Tip Share", "Action"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: "left", padding: "0.6rem 1.1rem", color: th.muted, fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${th.cardBorder}` } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, crew.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 4, style: { padding: "1.2rem 1.1rem", color: th.muted, textAlign: "center", fontStyle: "italic" } }, 'No crew yet \u2014 use "+ Add Employee" above.')), crew.map((c, idx) => {
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, r.jobTitle || "")
+    ))), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", marginTop: "0.4rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: () => setShowRoster(false), tabIndex: showRoster ? 0 : -1, style: { background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.8rem", fontFamily: FONTS.body, padding: "0.25rem 0.4rem", borderRadius: "0.4rem" } }, "Close"))))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.9rem", minWidth: 520 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: headCell }, "Employee"), /* @__PURE__ */ React.createElement("th", { style: headCell }, "Hours"), /* @__PURE__ */ React.createElement("th", { style: { ...headCell, textAlign: "right" } }, "Tip share"), /* @__PURE__ */ React.createElement("th", { style: { ...headCell, textAlign: "right" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" } }, "Action")))), /* @__PURE__ */ React.createElement("tbody", null, crew.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 4, style: { padding: "1.4rem 1.1rem", color: th.muted, textAlign: "center", borderTop: `1px solid ${th.cardBorder}` } }, "No crew yet. Use \u201CAdd employee\u201D above.")), crew.map((c, idx) => {
+      const k = keyFor(c, idx);
       const hoursNum = Number(c.hours) || 0;
       const previewShare = totalHours > 0 ? tipsRound2(rate * hoursNum) : 0;
-      return /* @__PURE__ */ React.createElement("tr", { key: c.guid || c.name + idx, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.6rem 1.1rem", color: th.text, fontWeight: 600 } }, c.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 1.1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", step: "0.01", value: c.hours, onChange: (e) => setCrewHours(idx, e.target.value), style: { ...inp(th), width: 110, padding: "0.45rem 0.6rem" } })), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.6rem 1.1rem", color: th.text, fontWeight: 600 } }, "$", previewShare.toFixed(2)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 1.1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => removeCrew(idx), style: { background: "none", border: "1px solid #e0313155", color: "#e03131", borderRadius: "0.5rem", padding: "0.35rem 0.7rem", cursor: "pointer", fontSize: "0.76rem", fontWeight: 700 } }, "\u{1F5D1} Remove")));
-    }))), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.84rem", fontWeight: 700, color: th.text, marginBottom: "0.15rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.5rem" } }, "Provide a reason for this correction (optional, saved for the record)."), /* @__PURE__ */ React.createElement("textarea", { rows: 2, placeholder: "e.g. Adjusted tip share due to hours correction\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: "'Source Sans 3'" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2 } }, hasChanges && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, marginRight: "auto" } }, "\u23F1 Unsaved changes"), /* @__PURE__ */ React.createElement("button", { onClick: cancelEdits, disabled: !hasChanges || saving, style: { ...btn(th, { background: th.card3, color: th.text }), opacity: !hasChanges || saving ? 0.5 : 1 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: save, disabled: saving || crew.length === 0, style: { ...btn(th), opacity: saving || crew.length === 0 ? 0.5 : 1 } }, saving ? "Saving\u2026" : "Save Correction")), store.manualEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, padding: "0 1.1rem 1rem" } }, "Last manually corrected by ", store.manualEdit.by, " on ", new Date(store.manualEdit.at).toLocaleString(), store.manualEdit.reason ? ` \u2014 "${store.manualEdit.reason}"` : "", "."))));
+      return /* @__PURE__ */ React.createElement(
+        TeCrewRow,
+        {
+          key: k,
+          th,
+          c,
+          color: seriesColor(idx),
+          rowKey: k,
+          entering: addedKeys.includes(k),
+          leaving: leavingKeys.includes(k),
+          hovered: hoverKey === k,
+          setHoverKey,
+          share: previewShare,
+          onHours: (v) => setCrewHours(idx, v),
+          onRemove: () => removeCrew(idx)
+        }
+      );
+    })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "te-reason", style: { display: "block", fontSize: "0.9rem", fontWeight: 700, color: th.text, marginBottom: "0.15rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" } }, "Provide a reason for this correction (optional, saved for the record)."), /* @__PURE__ */ React.createElement("textarea", { id: "te-reason", rows: 2, className: "te-input", placeholder: "e.g. Adjusted tip share due to hours correction\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: FONTS.body, fontSize: "0.92rem" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { role: "status", style: { fontSize: "0.84rem", marginRight: "auto", color: hasChanges ? th.warn : th.success, fontWeight: 600 } }, hasChanges ? "Unsaved changes" : savedMsg || ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: cancelEdits, disabled: !hasChanges || saving, style: { ...btn(th, { background: th.card3, color: th.text, padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: !hasChanges || saving ? 0.5 : 1 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: save, disabled: saving || crew.length === 0, style: { ...btn(th, { padding: "0.6rem 1.3rem", fontSize: "0.92rem", minHeight: 40, background: justSaved ? th.success : O }), opacity: saving || crew.length === 0 ? 0.5 : 1 } }, saving ? "Saving\u2026" : justSaved ? "Saved" : "Save Correction")), store.manualEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, padding: "0.7rem 1.1rem 1rem" } }, "Last manually corrected by ", store.manualEdit.by, " on ", new Date(store.manualEdit.at).toLocaleString(), store.manualEdit.reason ? `: \u201C${store.manualEdit.reason}\u201D` : "", "."))));
   }
   function EmployeeHoursReport({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
