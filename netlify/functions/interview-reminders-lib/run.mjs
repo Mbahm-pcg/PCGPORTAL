@@ -25,7 +25,7 @@ import { refreshStoreList } from '../_shared/store-status.mjs';
 import { STORES, ALL_STORES } from '../labor-cron.mjs';
 import { parseIcs, candidateFromSummary, meetingLink } from '../../../src/interview-ics.mjs';
 import { dueReminder, reminderText } from '../../../src/interview-reminders.mjs';
-import { parseHireSubject, isRecentHire, htmlToText, extractDetails, buildHireEmail } from '../../../src/ally-hires.mjs';
+import { parseHireSubject, isRecentHire, htmlToText, extractDetails, buildHireEmail, buildHireText, cleanHireRecipients } from '../../../src/ally-hires.mjs';
 
 const DOMAIN = process.env.INTERVIEW_MAILBOX_DOMAIN || 'peoplecapitalgroup.com';
 const STATUS_KEY = 'pcg_interview_reminders_status';
@@ -53,10 +53,28 @@ export const reminderMode = () => {
 //   unset / "shadow" — only the INTERVIEW_REMINDERS_SHADOW_EMAIL account (Ahmed), labelled
 //   "live"           — every active executive + IT user with an email
 //   "off"            — hires are still recorded, nobody is emailed
-export const hiresMode = () => {
-  const m = String(process.env.ALLY_HIRES_MODE || 'shadow').toLowerCase();
-  return ['off', 'shadow', 'live'].includes(m) ? m : 'shadow';
-};
+// v22.31: Test/Live and WHO gets hire alerts are chosen in Admin (New Hires tab), saved in
+// blob pcg_ally_hires_config { live, recipients: [{ userId, email, sms }] }. The env var
+// ALLY_HIRES_MODE=off stays as an emergency kill switch that overrides the screen.
+const HIRES_CONFIG_KEY = 'pcg_ally_hires_config';
+export async function loadHiresConfig() {
+  try {
+    const w = await blobs().get(HIRES_CONFIG_KEY, { type: 'json' });
+    const d = (w && w.data) || {};
+    return { live: d.live === true, recipients: cleanHireRecipients(d.recipients), updatedAt: d.updatedAt || null, updatedBy: d.updatedBy || null };
+  } catch { return { live: false, recipients: [], updatedAt: null, updatedBy: null }; }
+}
+export async function saveHiresConfig({ live, recipients }, by) {
+  const data = { live: live === true, recipients: cleanHireRecipients(recipients), updatedAt: new Date().toISOString(), updatedBy: by || null };
+  await blobs().setJSON(HIRES_CONFIG_KEY, { savedAt: data.updatedAt, data });
+  return data;
+}
+export const hiresKilled = () => String(process.env.ALLY_HIRES_MODE || '').toLowerCase() === 'off';
+// 'off' (kill switch) | 'live' | 'shadow' (test: only the shadow account gets them)
+export async function hiresModeNow(cfg) {
+  if (hiresKilled()) return 'off';
+  return (cfg || await loadHiresConfig()).live ? 'live' : 'shadow';
+}
 const shadowEmail = () => (process.env.INTERVIEW_REMINDERS_SHADOW_EMAIL || 'ahmed@peoplecapitalgroup.com').toLowerCase();
 
 let _ready = false;
@@ -234,22 +252,39 @@ async function processHires(db, hires) {
   }
   const pending = await db`SELECT * FROM ally_hires WHERE notified_at IS NULL AND (notify_note IS NULL OR notify_note = 'email failed')
     AND received_at > now() - interval '48 hours' ORDER BY received_at LIMIT 25`;
-  const hm = hiresMode();
+  const cfg = await loadHiresConfig();
+  const hm = await hiresModeNow(cfg);
   if (!pending.length || hm === 'off') return { mode: hm, sent: 0, pending: pending.length };
-  const team = (await db`SELECT email FROM users WHERE active = true AND user_type IN ('executive','it') AND email IS NOT NULL`).map(r => r.email);
-  let recipients = team, testLabel = null;
-  if (hm === 'shadow') {
-    const me = (await db`SELECT email FROM users WHERE lower(email) = ${shadowEmail()} LIMIT 1`)[0];
-    recipients = [me?.email || shadowEmail()];
-    testLabel = `all exec + IT (${team.length} people)`;
+  // The chosen people (active accounts only), each by email and/or text.
+  const ids = cfg.recipients.map(r => r.userId);
+  const people = ids.length ? await db`SELECT id, name, email, phone FROM users WHERE id = ANY(${ids}) AND active = true` : [];
+  const byId = new Map(people.map(p => [Number(p.id), p]));
+  let emails = [], phones = [], testLabel = null;
+  for (const r of cfg.recipients) {
+    const p = byId.get(r.userId);
+    if (!p) continue;
+    if (r.email && p.email) emails.push(p.email);
+    if (r.sms && p.phone) phones.push(p.phone);
   }
+  if (hm === 'shadow') {
+    const n = cfg.recipients.filter(r => byId.has(r.userId)).length;
+    testLabel = n ? `${n} chosen ${n === 1 ? 'person' : 'people'}` : 'nobody chosen yet';
+    const me = (await db`SELECT email, phone FROM users WHERE lower(email) = ${shadowEmail()} LIMIT 1`)[0];
+    emails = [me?.email || shadowEmail()];
+    phones = []; // test mode: email only, so testing never texts anyone
+  }
+  if (!emails.length && !phones.length) return { mode: hm, sent: 0, pending: pending.length, note: 'no recipients chosen' };
   const locs = await loadLocations();
   let sent = 0;
   for (const r of pending) {
     const store = locs.get(String(r.store_pc)) || ALL_STORES.find(x => String(x.pc) === String(r.store_pc)) || { pc: r.store_pc };
     const e = buildHireEmail({ candidate: r.candidate, store, receivedAt: r.received_at, details: Array.isArray(r.details) ? r.details : [], testLabel });
-    const ok = recipients.length ? await sendHtmlEmail(recipients, e.subject, e.html) : false;
-    if (ok) { sent++; await db`UPDATE ally_hires SET notified_at = now(), notify_note = ${hm === 'shadow' ? 'emailed (test mode)' : `emailed ${recipients.length}`} WHERE msg_id = ${r.msg_id}`; }
+    const mailed = emails.length ? await sendHtmlEmail(emails, e.subject, e.html) : false;
+    let texted = 0;
+    if (phones.length) { try { texted = (await sendSms(phones, buildHireText({ candidate: r.candidate, store, receivedAt: r.received_at }))).sent || 0; } catch {} }
+    const ok = mailed || texted > 0;
+    const note = hm === 'shadow' ? 'emailed (test mode)' : [mailed ? `emailed ${emails.length}` : null, phones.length ? `texted ${texted}/${phones.length}` : null].filter(Boolean).join(', ');
+    if (ok) { sent++; await db`UPDATE ally_hires SET notified_at = now(), notify_note = ${note} WHERE msg_id = ${r.msg_id}`; }
     else await db`UPDATE ally_hires SET notify_note = 'email failed' WHERE msg_id = ${r.msg_id}`;
   }
   return { mode: hm, sent, pending: pending.length };
@@ -269,7 +304,7 @@ export async function sendHireTest(db, msgId, toEmail) {
 export async function runInterviewReminders({ trigger = 'cron' } = {}) {
   const mode = reminderMode();
   const startedAt = Date.now();
-  if (mode === 'off' && hiresMode() === 'off') return { ok: true, mode, skipped: true };
+  if (mode === 'off' && hiresKilled()) return { ok: true, mode, skipped: true };
   const db = sql();
   await ensureTables(db);
   await refreshStoreList(STORES, ALL_STORES);

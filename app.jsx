@@ -9,6 +9,7 @@ import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, po
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
 import { isClosedOn, PERMANENTLY_CLOSED, districtNumbers } from './src/store-status.mjs';
+import { FIN_CSS, FinFigure, FinFigures, FinTicker, FinBanner, FinSkeleton, FinTabs, FinBar, FinStatusIcon, FinRefreshIcon, finStyles, finMoney, finMoney0, finHours, finInt, finPct } from './src/finance-ui.jsx';
 import { CHART_PALETTE, seriesColor, withAlpha, chartTokens, cleanChartOptions, lineSeries, crosshairPlugin, smoothPath, roundedTopBar } from './src/chart-style.js';
 import { planDistrictApply, applyPlanToStores, applyPlanToDistricts } from './src/district-apply.mjs';
 import { addDays as ocAddDays, weekTotals as ocWeekTotals, weekContaining as ocWeekContaining } from './src/office-clock-weeks.mjs';
@@ -19940,6 +19941,10 @@ function NewHiresPanel({ th, showAlert, users }) {
   const [err, setErr] = useState(null);
   const [running, setRunning] = useState(false);
   const [testing, setTesting] = useState(null);
+  // v22.31: who gets hire alerts (email and/or text) and Test vs Live — chosen here.
+  const [draft, setDraft] = useState(null);       // { live, recipients: [{ userId, email, sms }] }
+  const [savingCfg, setSavingCfg] = useState(false);
+  const [pickQ, setPickQ] = useState('');
   const load = useCallback(async () => {
     try {
       const res = await fetch('/.netlify/functions/interview-reminders', { credentials: 'include', headers: { ...authHeader() } });
@@ -19977,16 +19982,55 @@ function NewHiresPanel({ th, showAlert, users }) {
     setTesting(null);
   };
 
+  useEffect(() => {
+    if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [] });
+  }, [data, draft]);
+  const savedCfg = data?.hiresConfig || { live: false, recipients: [] };
+  const dirty = !!draft && JSON.stringify({ live: draft.live, recipients: draft.recipients }) !== JSON.stringify({ live: !!savedCfg.live, recipients: savedCfg.recipients || [] });
+  const recOf = (id) => (draft?.recipients || []).find(r => r.userId === id);
+  const setChannel = (u, channel, on) => setDraft(d => {
+    const cur = (d.recipients || []).find(r => r.userId === u.id) || { userId: u.id, email: false, sms: false };
+    const next = { ...cur, [channel]: on };
+    const others = (d.recipients || []).filter(r => r.userId !== u.id);
+    return { ...d, recipients: next.email || next.sms ? [...others, next] : others };
+  });
+  const addExecIt = () => setDraft(d => {
+    const have = new Set((d.recipients || []).map(r => r.userId));
+    const add = (users || []).filter(u => u.active !== false && (u.userType === 'executive' || u.userType === 'it') && u.email && !have.has(u.id))
+      .map(u => ({ userId: u.id, email: true, sms: false }));
+    return { ...d, recipients: [...(d.recipients || []), ...add] };
+  });
+  const saveCfg = async () => {
+    if (!draft) return;
+    const chosen = (draft.recipients || []).length;
+    if (draft.live && !savedCfg.live && !window.confirm(`Go live? Every new hire from now on is sent to the ${chosen} ${chosen === 1 ? 'person' : 'people'} chosen below.`)) return;
+    setSavingCfg(true);
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'saveHiresConfig', live: draft.live, recipients: draft.recipients }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setData(d => ({ ...(d || {}), hiresConfig: j.hiresConfig, hiresMode: j.hiresMode }));
+      setDraft({ live: !!j.hiresConfig.live, recipients: j.hiresConfig.recipients || [] });
+      showAlert && showAlert('success', j.hiresConfig.live ? `Live: hire alerts now go to ${j.hiresConfig.recipients.length} chosen ${j.hiresConfig.recipients.length === 1 ? 'person' : 'people'}.` : 'Saved. Still in test mode.');
+    } catch (e) { showAlert && showAlert('error', `Couldn't save: ${e.message}`); }
+    setSavingCfg(false);
+  };
+
   const mode = data?.hiresMode;
   const storeName = (pc) => ([...(LIVE_OPEN_STORES || []), ...STORES_SEED].find(s => String(s.pc) === String(pc))?.name) || `PC# ${pc}`;
   const fmtWhen = (iso) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
   const team = (users || []).filter(u => u.active !== false && (u.userType === 'executive' || u.userType === 'it') && u.email)
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   const modeInfo = {
-    live: ['LIVE', '#16a34a', <>Each new hire is emailed to every exec and IT account below.</>],
-    shadow: ['TEST MODE', O, <>Hire emails go <strong style={{ color: th.text }}>only to the test account (you)</strong>, labelled with who they'd reach. Nobody below is emailed yet.</>],
-    off: ['OFF', th.muted, <>Hire emails are switched off — hires are still recorded below.</>],
+    live: ['LIVE', '#16a34a', <>Each new hire is sent to the people chosen below, by email and/or text.</>],
+    shadow: ['TEST MODE', O, <>Hire alerts go <strong style={{ color: th.text }}>only to the test account (you), by email</strong>, labelled with who they'd reach. Nobody below is contacted yet.</>],
+    off: ['OFF', th.muted, <>Hire alerts are switched off by the ALLY_HIRES_MODE=off setting in Netlify. Hires are still recorded below.</>],
   }[mode] || ['…', th.muted, 'Loading…'];
+  const pickable = (users || []).filter(u => u.active !== false && (u.email || u.phone))
+    .filter(u => !pickQ.trim() || `${u.name} ${u.email || ''} ${u.userType}`.toLowerCase().includes(pickQ.trim().toLowerCase()))
+    .sort((a, b) => (recOf(b.id) ? 1 : 0) - (recOf(a.id) ? 1 : 0) || String(a.name || '').localeCompare(String(b.name || '')));
+  const roleLabel = (t) => ({ executive: 'Exec', it: 'IT', office_staff: 'Office', dm: 'DM', manager: 'Manager', construction: 'Construction', maintenance: 'Maintenance' }[t] || t);
+  const chip = (on, disabled) => ({ padding: '0.3rem 0.75rem', borderRadius: 999, fontSize: '0.76rem', fontWeight: 700, fontFamily: "'Source Sans 3'", cursor: disabled ? 'not-allowed' : 'pointer', border: `1px solid ${on ? '#16a34a55' : th.cardBorder}`, background: on ? '#16a34a14' : th.card, color: disabled ? th.subtle : on ? '#16a34a' : th.muted, opacity: disabled ? 0.6 : 1 });
   const box = { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.85rem', padding: '1rem 1.15rem', marginBottom: '1rem' };
   const h3 = { fontWeight: 700, fontSize: '0.95rem', color: th.text, fontFamily: "'Raleway'", marginBottom: '0.2rem' };
   const sub = { fontSize: '0.8rem', color: th.muted, marginBottom: '0.75rem' };
@@ -19995,7 +20039,7 @@ function NewHiresPanel({ th, showAlert, users }) {
     <div>
       <div style={{ marginBottom: '1rem' }}>
         <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: th.text, fontFamily: "'Raleway'" }}>New hires</h2>
-        <div style={{ fontSize: '0.84rem', color: th.muted, marginTop: 4 }}>When Ally emails a store that someone is "Officially Hired!", exec and IT get an email with who, which store (PC# and property name) and where. Managers and DMs are never sent these.</div>
+        <div style={{ fontSize: '0.84rem', color: th.muted, marginTop: 4 }}>When Ally emails a store that someone is "Officially Hired!", the people you choose below get an email and/or a text with who, which store (PC# and property name) and where. Nobody else is sent these.</div>
       </div>
       {err && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: '1rem' }}>Couldn't load: {err}</div>}
 
@@ -20028,16 +20072,54 @@ function NewHiresPanel({ th, showAlert, users }) {
       </div>
 
       <div style={{ ...box, marginBottom: 0 }}>
-        <div style={h3}>Who gets hire emails {mode === 'live' ? '' : 'once live'}</div>
-        <div style={sub}>Every active Exec and IT account with an email ({team.length}). Change someone's role or deactivate them in Admin → Users.</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-          {team.map(u => (
-            <span key={u.id} style={{ padding: '0.3rem 0.7rem', borderRadius: 999, border: `1px solid ${th.cardBorder}`, fontSize: '0.78rem', color: th.text }}>
-              {u.name || u.username} <span style={{ color: th.muted }}>· {u.userType === 'it' ? 'IT' : 'Exec'}</span>
-            </span>
-          ))}
-          {team.length === 0 && <span style={{ fontSize: '0.8rem', color: th.muted }}>No active exec or IT accounts with an email.</span>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div>
+            <div style={h3}>Who gets hire alerts</div>
+            <div style={{ ...sub, marginBottom: 0 }}>Choose each person and how they hear about it. Only the people you pick are ever contacted.</div>
+          </div>
+          {draft && (
+            <div role="radiogroup" aria-label="Mode" style={{ display: 'inline-flex', padding: 3, borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card2 }}>
+              {[[false, 'Test'], [true, 'Live']].map(([v, l]) => (
+                <button key={l} type="button" role="radio" aria-checked={draft.live === v} onClick={() => setDraft(d => ({ ...d, live: v }))}
+                  style={{ padding: '0.35rem 1rem', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, fontFamily: "'Source Sans 3'", background: draft.live === v ? (v ? '#16a34a' : O) : 'transparent', color: draft.live === v ? '#fff' : th.muted }}>{l}</button>
+              ))}
+            </div>
+          )}
         </div>
+        {!draft && <div style={{ fontSize: '0.82rem', color: th.muted, marginTop: '0.6rem' }}>Loading…</div>}
+        {draft && <>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', margin: '0.85rem 0 0.6rem' }}>
+            <input value={pickQ} onChange={e => setPickQ(e.target.value)} placeholder="Search anyone in the portal…" aria-label="Search people"
+              style={{ ...inp(th), flex: '1 1 220px', maxWidth: 340, padding: '0.5rem 0.75rem', fontSize: '0.86rem' }} />
+            <button type="button" onClick={addExecIt} style={{ padding: '0.45rem 0.9rem', borderRadius: '0.55rem', border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Add all exec + IT by email</button>
+            <span style={{ fontSize: '0.8rem', color: th.muted, marginLeft: 'auto' }}>{(draft.recipients || []).length} chosen</span>
+          </div>
+          <div style={{ maxHeight: 360, overflowY: 'auto', border: `1px solid ${th.cardBorder}`, borderRadius: '0.6rem' }}>
+            {pickable.length === 0 && <div style={{ padding: '0.8rem', fontSize: '0.82rem', color: th.muted }}>Nobody matches.</div>}
+            {pickable.map((u, i) => {
+              const r = recOf(u.id) || { email: false, sms: false };
+              return (
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0.75rem', borderTop: i ? `1px solid ${th.cardBorder}` : 'none', background: r.email || r.sms ? withAlpha('#16a34a', 0.05) : 'transparent', flexWrap: 'wrap' }}>
+                  <span style={{ flex: '1 1 180px', minWidth: 0, fontSize: '0.86rem', color: th.text, fontWeight: r.email || r.sms ? 700 : 500 }}>
+                    {u.name || u.username} <span style={{ color: th.muted, fontWeight: 400, fontSize: '0.78rem' }}>({roleLabel(u.userType)})</span>
+                  </span>
+                  <button type="button" aria-pressed={!!r.email} disabled={!u.email} title={u.email ? u.email : 'No email on file'} onClick={() => setChannel(u, 'email', !r.email)} style={chip(!!r.email, !u.email)}>Email</button>
+                  <button type="button" aria-pressed={!!r.sms} disabled={!u.phone} title={u.phone ? u.phone : 'No phone on file'} onClick={() => setChannel(u, 'sms', !r.sms)} style={chip(!!r.sms, !u.phone)}>Text</button>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+            {dirty && <span style={{ fontSize: '0.8rem', color: O, fontWeight: 600, marginRight: 'auto' }}>Unsaved changes</span>}
+            {dirty && <button type="button" onClick={() => setDraft({ live: !!savedCfg.live, recipients: savedCfg.recipients || [] })} disabled={savingCfg}
+              style={{ padding: '0.5rem 1rem', borderRadius: '0.55rem', border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontWeight: 600, fontSize: '0.84rem', cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Cancel</button>}
+            <button type="button" onClick={saveCfg} disabled={!dirty || savingCfg}
+              style={{ padding: '0.55rem 1.2rem', borderRadius: '0.55rem', border: 'none', background: draft.live ? '#16a34a' : O, color: '#fff', fontWeight: 700, fontSize: '0.86rem', cursor: dirty ? 'pointer' : 'default', opacity: !dirty || savingCfg ? 0.5 : 1, fontFamily: "'Source Sans 3'" }}>
+              {savingCfg ? 'Saving…' : draft.live && !savedCfg.live ? 'Go live' : 'Save'}
+            </button>
+          </div>
+          {data?.hiresConfig?.updatedAt && <div style={{ fontSize: '0.74rem', color: th.muted, marginTop: '0.4rem', textAlign: 'right' }}>Last changed by {data.hiresConfig.updatedBy || 'someone'}, {fmtWhen(data.hiresConfig.updatedAt)}</div>}
+        </>}
       </div>
     </div>
   );
@@ -32078,7 +32160,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.29";
+const APP_VERSION = "v22.31";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -47163,195 +47245,208 @@ function TipsReportBuilder({ th, stores, user }) {
     }
   };
 
+  // ── v22.30 Hallmark redesign (design.md, Finance system) — the view only; every
+  // handler above is unchanged. Signature: the pay period as a 14-day tip calendar,
+  // each day's bar sized by its tips. Paycor send: a progress bar + a live per-store list.
+  const fs = finStyles(th);
+  const periodDates = start ? Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i))) : [];
+  const flaggedByPc = (snapshots && start) ? tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr) : {};
+  const flaggedPcs = Object.keys(flaggedByPc);
+  const storeNameOf = (pc) => (stores || []).find(s => String(s.pc) === String(pc))?.name || pc;
+  const maxDay = dayInfo ? Math.max(1, ...dayInfo.map(d => d.total || 0)) : 1;
+  const shortDate = (iso) => { const dt = tipsParseISODate(iso); return `${TIPS_MONTHS[dt.getUTCMonth()].slice(0, 3)} ${dt.getUTCDate()}`; };
+  const longDate = (dt) => `${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}`;
+
   return (
-    <div>
-      <h2 style={{ fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: '0.4rem' }}>Tips Report</h2>
-      <p style={{ color: th.muted, fontSize: '0.85rem', marginBottom: '1.25rem', maxWidth: '52ch', lineHeight: 1.5 }}>
-        Pulls the pay period's tip data straight from what's already saved each night — no files to upload, nothing fetched live. Pick the first day of the pay period below.
+    <div className="fin-root">
+      <style>{FIN_CSS(th)}</style>
+      <h2 style={fs.title}>Tips Report</h2>
+      <p style={fs.lede}>
+        Pulls the pay period’s tip data straight from what’s already saved each night: no files to upload, nothing fetched live. Pick the first day of the pay period below.
       </p>
 
-      <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: th.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: '0.35rem' }}>Pay period start date</div>
-          <input type="date" value={periodStart} max={todayStr} onChange={e => { setPeriodStart(e.target.value); setSnapshots(null); setDayInfo(null); setError(null); setMissingCheck(null); }} style={{ ...inp(th), width: 200 }} />
-        </div>
-        <button onClick={load} disabled={!periodStart || loading} style={{ ...btn(th), opacity: (!periodStart || loading) ? 0.6 : 1 }}>{loading ? 'Loading…' : 'Load period'}</button>
-        {start && (
-          <span style={{ fontSize: '0.8rem', color: th.muted }}>
-            Covers {TIPS_DOW_FULL[start.getUTCDay()]}, {TIPS_MONTHS[start.getUTCMonth()]} {start.getUTCDate()} – {TIPS_DOW_FULL[end.getUTCDay()]}, {TIPS_MONTHS[end.getUTCMonth()]} {end.getUTCDate()}, {end.getUTCFullYear()}
-          </span>
-        )}
+      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <label style={fs.fieldLabel}>
+          Pay period start date
+          <input type="date" className="fin-input" value={periodStart} max={todayStr} onChange={e => { setPeriodStart(e.target.value); setSnapshots(null); setDayInfo(null); setError(null); setMissingCheck(null); }} style={{ ...fs.input, width: 200 }} />
+        </label>
+        <button type="button" className="fin-btn" onClick={load} disabled={!periodStart || loading} style={{ ...fs.primary, opacity: (!periodStart || loading) ? 0.5 : 1 }}>{loading ? 'Loading…' : 'Load period'}</button>
+        {start && <span style={{ fontSize: '0.86rem', color: th.muted, paddingBottom: '0.6rem' }}>Covers {longDate(start)} to {longDate(end)}, {end.getUTCFullYear()}</span>}
       </div>
 
-      {tooOld && (
-        <div style={{ ...card(th), borderLeft: '4px solid #f59e0b', padding: '0.9rem 1.1rem', marginBottom: '1.25rem', fontSize: '0.82rem', color: th.text }}>
-          That start date is {daysOld} days ago — daily snapshots are only kept for about {TIPS_SNAPSHOT_RETENTION_DAYS} days, so some or all of this period's data may already be gone. Try a more recent pay period.
-        </div>
-      )}
-
-      {error && (
-        <div style={{ ...card(th), borderLeft: '4px solid #ef4444', padding: '0.9rem 1.1rem', marginBottom: '1.25rem', fontSize: '0.82rem', color: th.text }}>{error}</div>
-      )}
+      {tooOld && <FinBanner th={th} tone="warn">That start date is {daysOld} days ago. Daily snapshots are only kept for about {TIPS_SNAPSHOT_RETENTION_DAYS} days, so some or all of this period’s data may already be gone. Try a more recent pay period.</FinBanner>}
+      {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
+      {loading && !dayInfo && <FinSkeleton th={th} rows={2} figures={3} />}
 
       {dayInfo && (
-        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.9rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-            <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>Pay period progress</div>
-            <div style={{ fontSize: '0.8rem', color: th.muted }}>{filledCount} / 14 days found · <strong style={{ color: th.text }}>${grandTotal.toFixed(2)}</strong> so far</div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.4rem', marginBottom: missingDates.length ? '0.9rem' : 0 }}>
-            {dayInfo.map(d => {
-              const dt = tipsParseISODate(d.date);
-              // Today's own data doesn't exist yet either — the nightly report
-              // only runs after the business day closes — so there's nothing
-              // to refresh for today any more than there is for a future date.
-              const isFuture = d.date >= todayStr;
-              const isRefreshing = refreshingDates.has(d.date);
-              return (
-                <div key={d.date} title={d.filled ? `${d.employees} employees, ${d.stores} stores, $${(d.total || 0).toFixed(2)}` : 'No data saved for this day'}
-                  style={{ position: 'relative', borderRadius: 8, border: `1px solid ${d.filled ? '#22c55e55' : th.cardBorder}`, background: d.filled ? '#22c55e14' : th.card2, padding: '0.5rem 0.3rem', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.62rem', fontWeight: 700, color: d.filled ? '#16a34a' : th.muted, textTransform: 'uppercase' }}>{TIPS_DOW[dt.getUTCDay()]}</div>
-                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: th.text, marginTop: 2 }}>{dt.getUTCMonth() + 1}/{dt.getUTCDate()}</div>
-                  {!isFuture && (
-                    <span onClick={() => !isRefreshing && refreshOneDay(d.date)} title={isRefreshing ? 'Refreshing…' : `Re-fetch ${d.date} from Pulse/Paycor`}
-                      style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.62rem', color: isRefreshing ? th.muted : th.subtle, cursor: isRefreshing ? 'default' : 'pointer', opacity: isRefreshing ? 1 : 0.6 }}>
-                      {isRefreshing ? '…' : '↻'}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {missingDates.length > 0 && (
-            <div style={{ fontSize: '0.76rem', color: '#f59e0b' }}>No saved data for: {missingDates.join(', ')} — either before the nightly report existed, or that night's run didn't complete.</div>
-          )}
-          {notYetCollectedDates.length > 0 && (
-            <div style={{ fontSize: '0.76rem', color: th.muted, marginTop: missingDates.length ? '0.3rem' : 0 }}>{notYetCollectedDates.join(', ')} {notYetCollectedDates.length === 1 ? "hasn't" : "haven't"} happened yet or {notYetCollectedDates.length === 1 ? "isn't" : "aren't"} closed out for the night — nothing to collect yet.</div>
-          )}
-          {(() => {
-            const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-            const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
-            const flaggedPcs = Object.keys(flaggedByPc);
-            if (flaggedPcs.length === 0) return null;
-            const storeName = (pc) => (stores || []).find(s => String(s.pc) === String(pc))?.name || pc;
-            return (
-              <div style={{ fontSize: '0.78rem', color: '#dc2626', background: '#dc262614', border: '1px solid #dc262655', borderRadius: 8, padding: '0.7rem 0.85rem', marginTop: '0.6rem' }}>
-                <strong>⚠ {flaggedPcs.length} store(s) have an unresolved data gap this period — these will be skipped if you send to Paycor now, not silently included wrong:</strong>
-                <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem' }}>
-                  {flaggedPcs.map(pc => {
-                    const uniqueDates = [...new Set(flaggedByPc[pc].map(f => f.date))];
-                    return (
-                      <li key={pc} style={{ marginBottom: '0.2rem' }}>
-                        {storeName(pc)}: {flaggedByPc[pc].map(f => f.detail).join('; ')}
-                        {uniqueDates.map(d => {
-                          const rKey = `${pc}|${d}`;
-                          const isRefreshing = refreshingStores.has(rKey);
-                          return (
-                            <span key={d} onClick={() => !isRefreshing && refreshOneDay(d, pc)}
-                              style={{ marginLeft: '0.5rem', fontSize: '0.72rem', color: isRefreshing ? th.muted : '#dc2626', textDecoration: isRefreshing ? 'none' : 'underline', cursor: isRefreshing ? 'default' : 'pointer', fontWeight: 700 }}>
-                              {isRefreshing ? `↻ refreshing ${d}…` : `↻ Retry ${d}`}
-                            </span>
-                          );
-                        })}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            );
-          })()}
-          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginTop: '1rem' }}>
-            <button onClick={download} style={{ ...btn(th, { background: '#1B8F5C' }) }}>Download workbook</button>
-            <button onClick={checkMissingEmployees} disabled={missingCheck?.loading} style={{ ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 }}>
-              {missingCheck?.loading ? 'Checking Paycor rosters…' : 'Check for missing employees'}
-            </button>
-            {canPushToPaycor && (
-              <button onClick={sendToPaycor} disabled={paycorPush?.running} style={{ ...btn(th, { background: '#7c3aed' }), opacity: paycorPush?.running ? 0.6 : 1 }}>
-                {paycorPush?.running ? 'Sending to Paycor…' : 'Send to Paycor'}
-              </button>
-            )}
-          </div>
-
-          {canPushToPaycor && (
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: `1px solid ${th.cardBorder}` }}>
-              <span style={{ fontSize: '0.78rem', color: th.muted }}>Just fixed one store (e.g. in the Tips Editor)? Resend only that store:</span>
-              <select value={singleSendPc} onChange={e => setSingleSendPc(e.target.value)} style={{ ...inp(th), width: 'auto', minWidth: 200, padding: '0.5rem 0.8rem', fontSize: '0.82rem' }}>
-                <option value="">Select a store…</option>
-                {(stores || []).filter(s => s.paycor).map(s => <option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
-              </select>
-              <button onClick={sendOneStoreToPaycor} disabled={!singleSendPc || singleSending || paycorPush?.running} style={{ ...btn(th, { background: '#7c3aed', padding: '0.5rem 1rem', fontSize: '0.82rem' }), opacity: (!singleSendPc || singleSending || paycorPush?.running) ? 0.6 : 1 }}>
-                {singleSending ? 'Sending…' : 'Send Just This Store'}
-              </button>
+        <div style={{ ...fs.panel, marginBottom: '1rem' }}>
+          <div style={fs.panelHead}>
+            <div style={{ minWidth: 0 }}>
+              <div style={fs.panelTitle}>Pay period</div>
+              <div style={{ fontSize: '0.86rem', color: th.muted, marginTop: '0.1rem' }}>{shortDate(periodDates[0])} to {shortDate(periodDates[13])}, {end.getUTCFullYear()}</div>
             </div>
-          )}
-        </div>
-      )}
+            <FinFigures>
+              <FinFigure th={th} label="Tips so far" value={grandTotal} format={finMoney.format} />
+              <FinFigure th={th} label="Days found" value={filledCount} format={v => `${Math.round(v)} of 14`} />
+              <FinFigure th={th} label="Stores with a data gap" value={flaggedPcs.length} format={v => finInt.format(v)} tone={flaggedPcs.length ? 'bad' : undefined} />
+            </FinFigures>
 
-      {paycorPush && (() => {
-        const doneCount = paycorPush.results.filter(r => r.status !== 'pending').length;
-        const icons = {
-          pending: { glyph: '○', color: th.muted, spin: true },
-          ok: { glyph: '✓', color: '#16a34a', spin: false },
-          error: { glyph: '✗', color: '#ef4444', spin: false },
-          blocked: { glyph: '⚠', color: '#dc2626', spin: false },
-          skipped: { glyph: '–', color: th.muted, spin: false },
-        };
-        return (
-          <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.8rem' }}>
-              <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text }}>Paycor send progress</div>
-              <div style={{ fontSize: '0.8rem', color: th.muted }}>{doneCount} / {paycorPush.results.length} stores{paycorPush.running ? '…' : ' done'}</div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.4rem 0.8rem' }}>
-              {paycorPush.results.map((r) => {
-                const ic = icons[r.status] || icons.skipped;
+            {/* Signature: the 14-day tip calendar */}
+            <div role="list" aria-label="Tips by day this pay period" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '0.45rem' }}>
+              {dayInfo.map(d => {
+                const dt = tipsParseISODate(d.date);
+                const isFuture = d.date >= todayStr;
+                const isRefreshing = refreshingDates.has(d.date);
+                const gap = !d.filled && !isFuture;
+                const frac = d.filled ? (d.total || 0) / maxDay : 0;
                 return (
-                  <div key={r.pc} title={r.detail || ''} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.78rem' }}>
-                    <span style={{ color: ic.color, fontWeight: 700, flexShrink: 0, width: '1.1rem', textAlign: 'center', animation: ic.spin ? 'tipsSendPulse 1.1s ease-in-out infinite' : 'none' }}>{ic.glyph}</span>
-                    <span style={{ minWidth: 0 }}>
-                      <span style={{ color: th.text, fontWeight: 600 }}>{r.store}</span>
-                      {r.detail && r.status !== 'pending' && (
-                        <span style={{ display: 'block', color: ic.color, fontSize: '0.7rem', lineHeight: 1.3 }}>{r.status === 'blocked' ? 'BLOCKED — ' : ''}{r.detail}</span>
+                  <div key={d.date} role="listitem" title={d.filled ? `${d.employees} employees, ${d.stores} stores, $${(d.total || 0).toFixed(2)}` : 'No data saved for this day'}
+                    style={{ position: 'relative', minWidth: 0, borderRadius: '0.6rem', border: `1px solid ${gap ? withAlpha(th.warn, 0.45) : th.cardBorder}`, background: isFuture ? 'transparent' : th.card2, padding: '0.5rem 0.45rem 0.45rem', display: 'grid', gap: '0.3rem', opacity: isFuture ? 0.55 : 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.2rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: th.muted }}>{TIPS_DOW[dt.getUTCDay()]} {dt.getUTCMonth() + 1}/{dt.getUTCDate()}</span>
+                      {!isFuture && (
+                        <button type="button" className="fin-btn" onClick={() => !isRefreshing && refreshOneDay(d.date)} disabled={isRefreshing} aria-label={isRefreshing ? `Refreshing ${d.date}` : `Re-fetch ${d.date} from Pulse/Paycor`} title={isRefreshing ? 'Refreshing…' : `Re-fetch ${d.date} from Pulse/Paycor`}
+                          style={{ background: 'transparent', border: 'none', padding: 4, margin: -4, borderRadius: '0.4rem', cursor: isRefreshing ? 'default' : 'pointer', display: 'inline-flex' }}>
+                          <FinRefreshIcon color={isRefreshing ? O : th.muted} spinning={isRefreshing} />
+                        </button>
                       )}
+                    </div>
+                    <div aria-hidden="true" style={{ position: 'relative', height: 46, borderRadius: '0.35rem', overflow: 'hidden', background: th.card3 }}>
+                      <div className="fin-col" style={{ position: 'absolute', inset: 0, background: d.filled ? O : 'transparent', transform: `scaleY(${Math.max(d.filled ? 0.04 : 0, frac).toFixed(3)})` }} />
+                    </div>
+                    <span className="fin-num" style={{ fontSize: '0.8rem', fontWeight: 700, color: gap ? th.warn : isFuture ? th.muted : th.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {d.filled ? finMoney0.format(d.total || 0) : isFuture ? 'Not yet' : 'No data'}
                     </span>
                   </div>
                 );
               })}
             </div>
-            <style>{'@keyframes tipsSendPulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }'}</style>
+            {missingDates.length > 0 && <div style={{ fontSize: '0.82rem', color: th.warn }}>No saved data for {missingDates.map(shortDate).join(', ')}. Either before the nightly report existed, or that night’s run didn’t complete.</div>}
+            {notYetCollectedDates.length > 0 && <div style={{ fontSize: '0.82rem', color: th.muted }}>{notYetCollectedDates.map(shortDate).join(', ')} {notYetCollectedDates.length === 1 ? 'hasn’t' : 'haven’t'} happened yet or {notYetCollectedDates.length === 1 ? 'isn’t' : 'aren’t'} closed out for the night, so there’s nothing to collect yet.</div>}
+          </div>
+
+          {flaggedPcs.length > 0 && (
+            <div role="alert" style={{ borderTop: `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${th.danger}`, padding: '0.9rem 1.1rem', background: withAlpha(th.danger, 0.06) }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.88rem', fontWeight: 700, color: th.danger }}>
+                <FinStatusIcon th={th} status="blocked" />
+                <span>{flaggedPcs.length} store{flaggedPcs.length === 1 ? ' has' : 's have'} an unresolved data gap this period. They’ll be skipped if you send to Paycor now, not silently included wrong.</span>
+              </div>
+              <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.6rem', display: 'grid', gap: '0.35rem' }}>
+                {flaggedPcs.map(pc => {
+                  const uniqueDates = [...new Set(flaggedByPc[pc].map(f => f.date))];
+                  return (
+                    <li key={pc} style={{ fontSize: '0.84rem', color: th.text }}>
+                      <strong>{storeNameOf(pc)}</strong>: {flaggedByPc[pc].map(f => f.detail).join('; ')}
+                      {uniqueDates.map(d => {
+                        const isRefreshing = refreshingStores.has(`${pc}|${d}`);
+                        return (
+                          <button key={d} type="button" className="fin-btn" onClick={() => !isRefreshing && refreshOneDay(d, pc)} disabled={isRefreshing}
+                            style={{ marginLeft: '0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: 'transparent', border: `1px solid ${withAlpha(th.danger, 0.4)}`, borderRadius: '0.45rem', padding: '0.15rem 0.5rem', fontSize: '0.78rem', fontWeight: 700, color: isRefreshing ? th.muted : th.danger, cursor: isRefreshing ? 'default' : 'pointer', fontFamily: FONTS.body }}>
+                            <FinRefreshIcon color={isRefreshing ? th.muted : th.danger} size={12} spinning={isRefreshing} />{isRefreshing ? `Refreshing ${shortDate(d)}…` : `Retry ${shortDate(d)}`}
+                          </button>
+                        );
+                      })}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {canPushToPaycor && (
+            <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center', padding: '0.85rem 1.1rem', borderTop: `1px solid ${th.cardBorder}` }}>
+              <span style={{ fontSize: '0.84rem', color: th.muted }}>Just fixed one store (e.g. in the Tips Editor)? Resend only that store:</span>
+              <select className="fin-input" value={singleSendPc} onChange={e => setSingleSendPc(e.target.value)} style={{ ...fs.input, width: 'auto', minWidth: 210 }}>
+                <option value="">Select a store…</option>
+                {(stores || []).filter(s => s.paycor).map(s => <option key={s.pc} value={s.pc}>{s.name} (PC# {s.pc})</option>)}
+              </select>
+              <button type="button" className="fin-btn" onClick={sendOneStoreToPaycor} disabled={!singleSendPc || singleSending || paycorPush?.running} style={{ ...fs.ghost, opacity: (!singleSendPc || singleSending || paycorPush?.running) ? 0.5 : 1 }}>
+                {singleSending ? 'Sending…' : 'Send Just This Store'}
+              </button>
+            </div>
+          )}
+
+          <div style={fs.footer}>
+            <span style={{ fontSize: '0.82rem', color: th.muted, marginRight: 'auto', maxWidth: 520 }}>The workbook’s first sheet, “Pay Period Totals,” adds up each employee’s tips across the whole period; that’s the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.</span>
+            <button type="button" className="fin-btn" onClick={checkMissingEmployees} disabled={missingCheck?.loading} style={{ ...fs.ghost, opacity: missingCheck?.loading ? 0.5 : 1 }}>
+              {missingCheck?.loading ? 'Checking Paycor rosters…' : 'Check for missing employees'}
+            </button>
+            <button type="button" className="fin-btn" onClick={download} style={canPushToPaycor ? fs.ghost : fs.primary}>Download workbook</button>
+            {canPushToPaycor && (
+              <button type="button" className="fin-btn" onClick={sendToPaycor} disabled={paycorPush?.running} style={{ ...fs.primary, opacity: paycorPush?.running ? 0.5 : 1 }}>
+                {paycorPush?.running ? 'Sending to Paycor…' : 'Send to Paycor'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {paycorPush && (() => {
+        const doneCount = paycorPush.results.filter(r => r.status !== 'pending').length;
+        const total = paycorPush.results.length;
+        const okCount = paycorPush.results.filter(r => r.status === 'ok').length;
+        const problemCount = paycorPush.results.filter(r => r.status === 'error' || r.status === 'blocked').length;
+        return (
+          <div style={{ ...fs.panel, marginBottom: '1rem' }}>
+            <div style={fs.panelHead}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div style={fs.panelTitle}>Paycor send progress</div>
+                <span aria-live="polite" style={{ fontSize: '0.86rem', color: th.muted }}>
+                  <FinTicker value={doneCount} format={v => Math.round(v)} style={{ fontWeight: 700, color: th.text }} /> of {total} stores {paycorPush.running ? 'so far' : 'done'}
+                </span>
+              </div>
+              <FinBar th={th} frac={total ? doneCount / total : 0} height={8} />
+              <FinFigures>
+                <FinFigure th={th} label="Staged" value={okCount} format={v => finInt.format(v)} tone={okCount ? 'good' : undefined} />
+                <FinFigure th={th} label="Need attention" value={problemCount} format={v => finInt.format(v)} tone={problemCount ? 'bad' : undefined} />
+              </FinFigures>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.5rem 1rem', padding: '0 1.1rem 1.1rem' }}>
+              {paycorPush.results.map(r => (
+                <div key={r.pc} title={r.detail || ''} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.84rem', minWidth: 0 }}>
+                  <FinStatusIcon th={th} status={r.status} />
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ color: th.text, fontWeight: 600 }}>{r.store}</span>
+                    {r.detail && r.status !== 'pending' && (
+                      <span style={{ display: 'block', color: r.status === 'ok' ? th.muted : r.status === 'skipped' ? th.muted : th.danger, fontSize: '0.78rem', lineHeight: 1.35 }}>{r.status === 'blocked' ? 'Blocked: ' : ''}{r.detail}</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })()}
 
       {missingCheck && (
-        <div style={{ ...card(th), padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <div style={{ fontFamily: "'Raleway'", fontWeight: 700, fontSize: '0.9rem', color: th.text, marginBottom: '0.4rem' }}>Active employees with no tips this period</div>
-          <div style={{ fontSize: '0.78rem', color: th.muted, marginBottom: '0.9rem', lineHeight: 1.5 }}>
-            Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing — worth a quick check before finalizing.
+        <div style={{ ...fs.panel, marginBottom: '1rem' }}>
+          <div style={fs.panelHead}>
+            <div>
+              <div style={fs.panelTitle}>Active employees with no tips this period</div>
+              <div style={{ fontSize: '0.84rem', color: th.muted, marginTop: '0.3rem', lineHeight: 1.5, maxWidth: 720 }}>
+                Compares each store’s live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn’t work at all this period, or worked but their punches are missing. Worth a quick check before finalizing.
+              </div>
+            </div>
+            {missingCheck.loading && <div style={{ fontSize: '0.86rem', color: th.muted, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><FinStatusIcon th={th} status="pending" />Checking {(stores || []).filter(s => s.paycor).length} stores…</div>}
+            {missingCheck.error && <div role="alert" style={{ fontSize: '0.86rem', color: th.danger }}>{missingCheck.error}</div>}
+            {!missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && (
+              <div style={{ fontSize: '0.86rem', color: th.success, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><FinStatusIcon th={th} status="ok" />Every active employee has recorded hours somewhere in this period. Nothing to flag.</div>
+            )}
           </div>
-          {missingCheck.loading && <div style={{ fontSize: '0.8rem', color: th.muted }}>Checking {(stores || []).filter(s => s.paycor).length} stores…</div>}
-          {missingCheck.error && <div style={{ fontSize: '0.82rem', color: '#ef4444' }}>{missingCheck.error}</div>}
-          {!missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && (
-            <div style={{ fontSize: '0.82rem', color: '#16a34a' }}>Every active employee has recorded hours somewhere in this period. Nothing to flag.</div>
-          )}
           {!missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+            <div style={{ display: 'grid' }}>
               {missingCheck.results.map(r => (
-                <div key={r.pc} style={{ borderLeft: `3px solid ${r.fetchError ? '#f59e0b' : '#ef4444'}`, paddingLeft: '0.75rem' }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: th.text }}>District {r.district} · {r.name} ({r.pc})</div>
+                <div key={r.pc} style={{ borderTop: `1px solid ${th.cardBorder}`, padding: '0.7rem 1.1rem', display: 'grid', gridTemplateColumns: 'minmax(0, 220px) minmax(0, 1fr)', gap: '0.25rem 1rem' }}>
+                  <div style={{ fontSize: '0.86rem', fontWeight: 700, color: th.text }}>{r.name} <span style={{ color: th.muted, fontWeight: 400 }}>(PC# {r.pc}, District {r.district})</span></div>
                   {r.fetchError
-                    ? <div style={{ fontSize: '0.76rem', color: '#f59e0b' }}>Couldn't check this store's roster: {r.fetchError}</div>
-                    : <div style={{ fontSize: '0.8rem', color: th.text }}>{r.missing.join(', ')}</div>}
+                    ? <div style={{ fontSize: '0.84rem', color: th.warn }}>Couldn’t check this store’s roster: {r.fetchError}</div>
+                    : <div style={{ fontSize: '0.86rem', color: th.text }}>{r.missing.join(', ')}</div>}
                 </div>
               ))}
             </div>
           )}
         </div>
       )}
-
-      <div style={{ fontSize: '0.75rem', color: th.muted, lineHeight: 1.6 }}>
-        The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period — that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.
-      </div>
     </div>
   );
 }

@@ -1367,6 +1367,123 @@
     return [...set].sort((a, b) => a - b);
   }
 
+  // src/finance-ui.jsx
+  var FIN_CSS = (th) => `/* Hallmark \xB7 redesign: full \xB7 shape: app screen \xB7 scope: app \xB7 theme: brand (PCG orange, Raleway + Source Sans 3) \xB7 motion: brisk \xB7 system: design.md (Finance) */
+/* critique: Finance screens were plain forms and grey tables with tracked-caps labels and repeated figures; the system gives each tab one object, ticking figures and quiet state-only motion */
+/* answered: tokens live in src/theme.js (th.*, FONTS, O) \u2014 the portal styles inline, so this block holds only states, motion and focus */
+:root { --fin-accent: ${O}; --fin-text: ${th.text}; --fin-hover: ${th.card3}; --fin-row: ${th.card2}; --fin-font: ${FONTS.body}; }
+.fin-root { font-family: var(--fin-font); color: var(--fin-text); }
+.fin-root * { box-sizing: border-box; }
+.fin-focus:focus-visible, .fin-btn:focus-visible, .fin-tab:focus-visible, .fin-pick:focus-visible, .fin-rowbtn:focus-visible { outline: 2px solid var(--fin-accent) !important; outline-offset: 2px; }
+.fin-input:focus-visible { outline: 2px solid var(--fin-accent) !important; outline-offset: -1px; }
+.fin-btn { transition: background-color 220ms cubic-bezier(.2,.8,.2,1), color 220ms cubic-bezier(.2,.8,.2,1), transform 120ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease !important; }
+.fin-btn:active:not(:disabled) { transform: translateY(1px); }
+.fin-btn:disabled, .fin-input:disabled { cursor: not-allowed; }
+.fin-tab-ind { transition: transform 220ms cubic-bezier(.2,.8,.2,1); }
+.fin-tab { transition: color 220ms ease; }
+.fin-bar { transition: transform 420ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease; transform-origin: left center; }
+.fin-row { animation: finRowIn 220ms cubic-bezier(.2,.8,.2,1) both; }
+.fin-row-leaving { animation: finRowOut 150ms cubic-bezier(.4,0,1,1) both; }
+.fin-hoverrow { transition: background-color 220ms ease; }
+.fin-hoverrow:hover { background: var(--fin-row); }
+.fin-disclose { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1); }
+.fin-disclose[data-open="true"] { grid-template-rows: 1fr; }
+.fin-disclose > div { overflow: hidden; min-height: 0; }
+.fin-pick, .fin-rowbtn { transition: background-color 120ms ease; }
+.fin-pick:hover, .fin-rowbtn:hover { background: var(--fin-hover); }
+.fin-skel { animation: finBreathe 1.2s ease-in-out infinite; background: var(--fin-hover); border-radius: 0.4rem; }
+.fin-num { font-variant-numeric: tabular-nums; }
+.fin-spin { animation: finSpin 0.9s linear infinite; transform-origin: 50% 50%; }
+.fin-col { transition: transform 420ms cubic-bezier(.2,.8,.2,1); transform-origin: bottom center; }
+@keyframes finSpin { to { transform: rotate(360deg); } }
+@keyframes finRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes finRowOut { to { opacity: 0; transform: translateX(14px); } }
+@keyframes finBreathe { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .fin-row, .fin-row-leaving, .fin-skel, .fin-spin { animation: none; }
+  .fin-bar, .fin-tab-ind, .fin-disclose, .fin-col { transition: opacity 150ms linear; }
+}`;
+  var finReducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var finMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var finMoney0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  var finHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var finInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+  function useTickedNumber(value, ms = 500) {
+    const target = Number(value) || 0;
+    const [shown, setShown] = React.useState(target);
+    const fromRef = React.useRef(target);
+    React.useEffect(() => {
+      const from = fromRef.current;
+      if (finReducedMotion() || Math.abs(from - target) < 5e-3) {
+        fromRef.current = target;
+        setShown(target);
+        return void 0;
+      }
+      let raf = 0, start = null;
+      const step = (t) => {
+        if (start == null) start = t;
+        const p = Math.min(1, (t - start) / ms);
+        const v = from + (target - from) * (1 - Math.pow(1 - p, 3));
+        fromRef.current = v;
+        setShown(v);
+        if (p < 1) raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+      return () => cancelAnimationFrame(raf);
+    }, [target, ms]);
+    return shown;
+  }
+  function FinTicker({ value, format, style }) {
+    const v = useTickedNumber(value);
+    return /* @__PURE__ */ React.createElement("span", { className: "fin-num", style }, format(v));
+  }
+  function FinFigure({ th, label, value, format, note, tone }) {
+    const color = tone === "good" ? th.success : tone === "bad" ? th.danger : tone === "warn" ? th.warn : th.text;
+    return /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, label), typeof value === "number" ? /* @__PURE__ */ React.createElement(FinTicker, { value, format, style: { display: "block", fontFamily: FONTS.head, fontWeight: 800, fontSize: "1.35rem", color, lineHeight: 1.2 } }) : /* @__PURE__ */ React.createElement("span", { className: "fin-num", style: { display: "block", fontFamily: FONTS.head, fontWeight: 800, fontSize: "1.35rem", color, lineHeight: 1.2 } }, value ?? "None"), note && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginTop: "0.1rem" } }, note));
+  }
+  function FinFigures({ children }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "1rem" } }, children);
+  }
+  function FinBanner({ th, tone = "info", children, style }) {
+    const color = tone === "error" ? th.danger : tone === "success" ? th.success : tone === "warn" ? th.warn : th.muted;
+    return /* @__PURE__ */ React.createElement("div", { role: tone === "error" ? "alert" : "status", style: { ...card(th), padding: "0.8rem 1rem", borderLeft: `3px solid ${color}`, color: tone === "info" ? th.text : color, fontSize: "0.86rem", marginBottom: "1rem", ...style } }, children);
+  }
+  function FinSkeleton({ th, rows = 4, figures = 3 }) {
+    return /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { ...card(th), padding: "1.2rem 1.1rem", display: "grid", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { className: "fin-skel", style: { height: 22, width: "40%" } }), figures > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "2rem", flexWrap: "wrap" } }, Array.from({ length: figures }, (_, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "fin-skel", style: { height: 38, width: 110 } }))), Array.from({ length: rows }, (_, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "fin-skel", style: { height: 36 } })));
+  }
+  function FinBar({ th, frac, color, height = 8, track = true, title }) {
+    const f = Math.max(0, Math.min(1, Number(frac) || 0));
+    return /* @__PURE__ */ React.createElement("div", { title, style: { position: "relative", height, borderRadius: 999, overflow: "hidden", background: track ? th.card3 : "transparent" } }, /* @__PURE__ */ React.createElement("div", { className: "fin-bar", style: { position: "absolute", inset: 0, background: color || O, transform: `scaleX(${f})` } }));
+  }
+  function FinStatusIcon({ th, status, size = 16 }) {
+    const c = status === "ok" ? th.success : status === "error" || status === "blocked" ? th.danger : status === "warn" ? th.warn : th.muted;
+    const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round", style: { flexShrink: 0 } };
+    if (status === "ok") return /* @__PURE__ */ React.createElement("svg", { "aria-hidden": "true", ...common }, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "m8 12.5 2.7 2.7L16 10" }));
+    if (status === "error") return /* @__PURE__ */ React.createElement("svg", { "aria-hidden": "true", ...common }, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "m9 9 6 6M15 9l-6 6" }));
+    if (status === "blocked" || status === "warn") return /* @__PURE__ */ React.createElement("svg", { "aria-hidden": "true", ...common }, /* @__PURE__ */ React.createElement("path", { d: "M12 3 2.5 20h19Z" }), /* @__PURE__ */ React.createElement("path", { d: "M12 10v4M12 17h.01" }));
+    if (status === "pending") return /* @__PURE__ */ React.createElement("svg", { "aria-hidden": "true", ...common, className: "fin-spin" }, /* @__PURE__ */ React.createElement("path", { d: "M12 3a9 9 0 1 1-9 9" }));
+    return /* @__PURE__ */ React.createElement("svg", { "aria-hidden": "true", ...common }, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M8 12h8" }));
+  }
+  var FinRefreshIcon = ({ color, size = 14, spinning }) => /* @__PURE__ */ React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2.2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", className: spinning ? "fin-spin" : void 0 }, /* @__PURE__ */ React.createElement("path", { d: "M20 11a8 8 0 1 0-2.3 5.7" }), /* @__PURE__ */ React.createElement("path", { d: "M20 4v7h-7" }));
+  function finStyles(th) {
+    return {
+      title: { fontFamily: FONTS.head, fontWeight: 800, color: th.text, margin: "0 0 0.3rem", fontSize: "1.5rem", overflowWrap: "break-word", minWidth: 0 },
+      lede: { color: th.muted, fontSize: "0.88rem", marginTop: 0, marginBottom: "1.1rem", maxWidth: 760, lineHeight: 1.5 },
+      panelTitle: { fontFamily: FONTS.head, fontWeight: 800, fontSize: "1.15rem", color: th.text, overflowWrap: "break-word", minWidth: 0 },
+      panel: { ...card(th), padding: 0, overflow: "hidden" },
+      panelHead: { padding: "1.1rem 1.1rem 1rem", display: "grid", gap: "1rem" },
+      fieldLabel: { display: "flex", flexDirection: "column", gap: "0.3rem", fontSize: "0.8rem", color: th.muted },
+      input: { ...inp(th), padding: "0.55rem 0.8rem", fontSize: "0.92rem" },
+      headCell: { textAlign: "left", padding: "0.6rem 0.9rem", color: th.muted, fontSize: "0.8rem", fontWeight: 600, background: th.card2, whiteSpace: "nowrap" },
+      cell: { padding: "0.6rem 0.9rem", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.88rem", color: th.text, verticalAlign: "middle" },
+      primary: btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }),
+      ghost: btn(th, { background: th.card3, color: th.text, padding: "0.55rem 1rem", fontSize: "0.88rem", minHeight: 38 }),
+      link: { background: "none", border: "none", padding: 0, color: O, fontWeight: 700, cursor: "pointer", fontSize: "inherit", fontFamily: FONTS.body },
+      footer: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" },
+      srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
+    };
+  }
+
   // src/chart-style.js
   var CHART_PALETTE = ["#FF671F", "#6366f1", "#14b8a6", "#f59e0b", "#d946ef", "#64748b", "#0ea5e9", "#84cc16"];
   var seriesColor = (i) => CHART_PALETTE[(i % CHART_PALETTE.length + CHART_PALETTE.length) % CHART_PALETTE.length];
@@ -17685,6 +17802,9 @@ ${t2.slice(0, 300)}`);
     const [err, setErr] = useState(null);
     const [running, setRunning] = useState(false);
     const [testing, setTesting] = useState(null);
+    const [draft, setDraft] = useState(null);
+    const [savingCfg, setSavingCfg] = useState(false);
+    const [pickQ, setPickQ] = useState("");
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -17732,19 +17852,56 @@ ${t2.slice(0, 300)}`);
       }
       setTesting(null);
     };
+    useEffect(() => {
+      if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [] });
+    }, [data, draft]);
+    const savedCfg = data?.hiresConfig || { live: false, recipients: [] };
+    const dirty = !!draft && JSON.stringify({ live: draft.live, recipients: draft.recipients }) !== JSON.stringify({ live: !!savedCfg.live, recipients: savedCfg.recipients || [] });
+    const recOf = (id) => (draft?.recipients || []).find((r) => r.userId === id);
+    const setChannel = (u, channel, on) => setDraft((d) => {
+      const cur = (d.recipients || []).find((r) => r.userId === u.id) || { userId: u.id, email: false, sms: false };
+      const next = { ...cur, [channel]: on };
+      const others = (d.recipients || []).filter((r) => r.userId !== u.id);
+      return { ...d, recipients: next.email || next.sms ? [...others, next] : others };
+    });
+    const addExecIt = () => setDraft((d) => {
+      const have = new Set((d.recipients || []).map((r) => r.userId));
+      const add = (users || []).filter((u) => u.active !== false && (u.userType === "executive" || u.userType === "it") && u.email && !have.has(u.id)).map((u) => ({ userId: u.id, email: true, sms: false }));
+      return { ...d, recipients: [...d.recipients || [], ...add] };
+    });
+    const saveCfg = async () => {
+      if (!draft) return;
+      const chosen = (draft.recipients || []).length;
+      if (draft.live && !savedCfg.live && !window.confirm(`Go live? Every new hire from now on is sent to the ${chosen} ${chosen === 1 ? "person" : "people"} chosen below.`)) return;
+      setSavingCfg(true);
+      try {
+        const res = await fetch("/.netlify/functions/interview-reminders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ action: "saveHiresConfig", live: draft.live, recipients: draft.recipients }) });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        setData((d) => ({ ...d || {}, hiresConfig: j.hiresConfig, hiresMode: j.hiresMode }));
+        setDraft({ live: !!j.hiresConfig.live, recipients: j.hiresConfig.recipients || [] });
+        showAlert2 && showAlert2("success", j.hiresConfig.live ? `Live: hire alerts now go to ${j.hiresConfig.recipients.length} chosen ${j.hiresConfig.recipients.length === 1 ? "person" : "people"}.` : "Saved. Still in test mode.");
+      } catch (e) {
+        showAlert2 && showAlert2("error", `Couldn't save: ${e.message}`);
+      }
+      setSavingCfg(false);
+    };
     const mode = data?.hiresMode;
     const storeName = (pc) => [...LIVE_OPEN_STORES || [], ...STORES_SEED].find((s) => String(s.pc) === String(pc))?.name || `PC# ${pc}`;
     const fmtWhen = (iso) => iso ? new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "\u2014";
     const team = (users || []).filter((u) => u.active !== false && (u.userType === "executive" || u.userType === "it") && u.email).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     const modeInfo = {
-      live: ["LIVE", "#16a34a", /* @__PURE__ */ React.createElement(React.Fragment, null, "Each new hire is emailed to every exec and IT account below.")],
-      shadow: ["TEST MODE", O, /* @__PURE__ */ React.createElement(React.Fragment, null, "Hire emails go ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "only to the test account (you)"), ", labelled with who they'd reach. Nobody below is emailed yet.")],
-      off: ["OFF", th.muted, /* @__PURE__ */ React.createElement(React.Fragment, null, "Hire emails are switched off \u2014 hires are still recorded below.")]
+      live: ["LIVE", "#16a34a", /* @__PURE__ */ React.createElement(React.Fragment, null, "Each new hire is sent to the people chosen below, by email and/or text.")],
+      shadow: ["TEST MODE", O, /* @__PURE__ */ React.createElement(React.Fragment, null, "Hire alerts go ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "only to the test account (you), by email"), ", labelled with who they'd reach. Nobody below is contacted yet.")],
+      off: ["OFF", th.muted, /* @__PURE__ */ React.createElement(React.Fragment, null, "Hire alerts are switched off by the ALLY_HIRES_MODE=off setting in Netlify. Hires are still recorded below.")]
     }[mode] || ["\u2026", th.muted, "Loading\u2026"];
+    const pickable = (users || []).filter((u) => u.active !== false && (u.email || u.phone)).filter((u) => !pickQ.trim() || `${u.name} ${u.email || ""} ${u.userType}`.toLowerCase().includes(pickQ.trim().toLowerCase())).sort((a, b) => (recOf(b.id) ? 1 : 0) - (recOf(a.id) ? 1 : 0) || String(a.name || "").localeCompare(String(b.name || "")));
+    const roleLabel = (t) => ({ executive: "Exec", it: "IT", office_staff: "Office", dm: "DM", manager: "Manager", construction: "Construction", maintenance: "Maintenance" })[t] || t;
+    const chip = (on, disabled) => ({ padding: "0.3rem 0.75rem", borderRadius: 999, fontSize: "0.76rem", fontWeight: 700, fontFamily: "'Source Sans 3'", cursor: disabled ? "not-allowed" : "pointer", border: `1px solid ${on ? "#16a34a55" : th.cardBorder}`, background: on ? "#16a34a14" : th.card, color: disabled ? th.subtle : on ? "#16a34a" : th.muted, opacity: disabled ? 0.6 : 1 });
     const box = { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.85rem", padding: "1rem 1.15rem", marginBottom: "1rem" };
     const h3 = { fontWeight: 700, fontSize: "0.95rem", color: th.text, fontFamily: "'Raleway'", marginBottom: "0.2rem" };
     const sub = { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: "1.35rem", fontWeight: 800, color: th.text, fontFamily: "'Raleway'" } }, "New hires"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: 4 } }, 'When Ally emails a store that someone is "Officially Hired!", exec and IT get an email with who, which store (PC# and property name) and where. Managers and DMs are never sent these.')), err && /* @__PURE__ */ React.createElement("div", { style: { color: "#dc2626", fontSize: "0.85rem", marginBottom: "1rem" } }, "Couldn't load: ", err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.85rem", flexWrap: "wrap", padding: "0.8rem 1rem", borderRadius: "0.85rem", border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { padding: "0.22rem 0.6rem", borderRadius: "0.35rem", background: modeInfo[1], color: "#fff", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.04em" } }, modeInfo[0]), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px", fontSize: "0.84rem", color: th.muted } }, modeInfo[2], " ", /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, "Mailboxes checked every 5 min.")), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: "1.35rem", fontWeight: 800, color: th.text, fontFamily: "'Raleway'" } }, "New hires"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: 4 } }, 'When Ally emails a store that someone is "Officially Hired!", the people you choose below get an email and/or a text with who, which store (PC# and property name) and where. Nobody else is sent these.')), err && /* @__PURE__ */ React.createElement("div", { style: { color: "#dc2626", fontSize: "0.85rem", marginBottom: "1rem" } }, "Couldn't load: ", err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.85rem", flexWrap: "wrap", padding: "0.8rem 1rem", borderRadius: "0.85rem", border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { padding: "0.22rem 0.6rem", borderRadius: "0.35rem", background: modeInfo[1], color: "#fff", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.04em" } }, modeInfo[0]), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px", fontSize: "0.84rem", color: th.muted } }, modeInfo[2], " ", /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, "Mailboxes checked every 5 min.")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: runNow,
@@ -17760,7 +17917,48 @@ ${t2.slice(0, 300)}`);
         style: { background: "none", border: "none", padding: 0, color: O, fontWeight: 600, fontSize: "0.78rem", cursor: "pointer", fontFamily: "'Source Sans 3'", opacity: testing === h.msg_id ? 0.5 : 1 }
       },
       testing === h.msg_id ? "Sending\u2026" : "Send me a test"
-    ))))), /* @__PURE__ */ React.createElement("div", { style: { ...box, marginBottom: 0 } }, /* @__PURE__ */ React.createElement("div", { style: h3 }, "Who gets hire emails ", mode === "live" ? "" : "once live"), /* @__PURE__ */ React.createElement("div", { style: sub }, "Every active Exec and IT account with an email (", team.length, "). Change someone's role or deactivate them in Admin \u2192 Users."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, team.map((u) => /* @__PURE__ */ React.createElement("span", { key: u.id, style: { padding: "0.3rem 0.7rem", borderRadius: 999, border: `1px solid ${th.cardBorder}`, fontSize: "0.78rem", color: th.text } }, u.name || u.username, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 ", u.userType === "it" ? "IT" : "Exec"))), team.length === 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "No active exec or IT accounts with an email."))));
+    ))))), /* @__PURE__ */ React.createElement("div", { style: { ...box, marginBottom: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: h3 }, "Who gets hire alerts"), /* @__PURE__ */ React.createElement("div", { style: { ...sub, marginBottom: 0 } }, "Choose each person and how they hear about it. Only the people you pick are ever contacted.")), draft && /* @__PURE__ */ React.createElement("div", { role: "radiogroup", "aria-label": "Mode", style: { display: "inline-flex", padding: 3, borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card2 } }, [[false, "Test"], [true, "Live"]].map(([v, l]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: l,
+        type: "button",
+        role: "radio",
+        "aria-checked": draft.live === v,
+        onClick: () => setDraft((d) => ({ ...d, live: v })),
+        style: { padding: "0.35rem 1rem", borderRadius: 999, border: "none", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700, fontFamily: "'Source Sans 3'", background: draft.live === v ? v ? "#16a34a" : O : "transparent", color: draft.live === v ? "#fff" : th.muted }
+      },
+      l
+    )))), !draft && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted, marginTop: "0.6rem" } }, "Loading\u2026"), draft && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", margin: "0.85rem 0 0.6rem" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: pickQ,
+        onChange: (e) => setPickQ(e.target.value),
+        placeholder: "Search anyone in the portal\u2026",
+        "aria-label": "Search people",
+        style: { ...inp(th), flex: "1 1 220px", maxWidth: 340, padding: "0.5rem 0.75rem", fontSize: "0.86rem" }
+      }
+    ), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: addExecIt, style: { padding: "0.45rem 0.9rem", borderRadius: "0.55rem", border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontWeight: 600, fontSize: "0.82rem", cursor: "pointer", fontFamily: "'Source Sans 3'" } }, "Add all exec + IT by email"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, marginLeft: "auto" } }, (draft.recipients || []).length, " chosen")), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 360, overflowY: "auto", border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem" } }, pickable.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.8rem", fontSize: "0.82rem", color: th.muted } }, "Nobody matches."), pickable.map((u, i) => {
+      const r = recOf(u.id) || { email: false, sms: false };
+      return /* @__PURE__ */ React.createElement("div", { key: u.id, style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.75rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none", background: r.email || r.sms ? withAlpha("#16a34a", 0.05) : "transparent", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { flex: "1 1 180px", minWidth: 0, fontSize: "0.86rem", color: th.text, fontWeight: r.email || r.sms ? 700 : 500 } }, u.name || u.username, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.78rem" } }, "(", roleLabel(u.userType), ")")), /* @__PURE__ */ React.createElement("button", { type: "button", "aria-pressed": !!r.email, disabled: !u.email, title: u.email ? u.email : "No email on file", onClick: () => setChannel(u, "email", !r.email), style: chip(!!r.email, !u.email) }, "Email"), /* @__PURE__ */ React.createElement("button", { type: "button", "aria-pressed": !!r.sms, disabled: !u.phone, title: u.phone ? u.phone : "No phone on file", onClick: () => setChannel(u, "sms", !r.sms), style: chip(!!r.sms, !u.phone) }, "Text"));
+    })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", justifyContent: "flex-end", marginTop: "0.75rem", flexWrap: "wrap" } }, dirty && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: O, fontWeight: 600, marginRight: "auto" } }, "Unsaved changes"), dirty && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: () => setDraft({ live: !!savedCfg.live, recipients: savedCfg.recipients || [] }),
+        disabled: savingCfg,
+        style: { padding: "0.5rem 1rem", borderRadius: "0.55rem", border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontWeight: 600, fontSize: "0.84rem", cursor: "pointer", fontFamily: "'Source Sans 3'" }
+      },
+      "Cancel"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: saveCfg,
+        disabled: !dirty || savingCfg,
+        style: { padding: "0.55rem 1.2rem", borderRadius: "0.55rem", border: "none", background: draft.live ? "#16a34a" : O, color: "#fff", fontWeight: 700, fontSize: "0.86rem", cursor: dirty ? "pointer" : "default", opacity: !dirty || savingCfg ? 0.5 : 1, fontFamily: "'Source Sans 3'" }
+      },
+      savingCfg ? "Saving\u2026" : draft.live && !savedCfg.live ? "Go live" : "Save"
+    )), data?.hiresConfig?.updatedAt && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginTop: "0.4rem", textAlign: "right" } }, "Last changed by ", data.hiresConfig.updatedBy || "someone", ", ", fmtWhen(data.hiresConfig.updatedAt)))));
   }
   var NOTIFY_ICONS = {
     project: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" })),
@@ -26044,7 +26242,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.29";
+  var APP_VERSION = "v22.31";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -34957,14 +35155,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
       XLSX.writeFile(wb, `Biweekly_Tips_Report_${tipsFormatISODate(start)}_to_${tipsFormatISODate(end)}.xlsx`);
     };
-    const stageOneStoreForPaycor = async (storeKey, byStore, flaggedByPc) => {
+    const stageOneStoreForPaycor = async (storeKey, byStore, flaggedByPc2) => {
       const recs = byStore[storeKey];
       const storePc = recs?.[0]?.pc;
       const storeMeta = (stores || []).find((s) => s.pc === storePc);
       const cfg = paycorCfg[storePc];
       const fail = (status, detail) => ({ pc: storePc, store: storeKey, status, detail });
-      if (flaggedByPc[storePc]?.length) {
-        return fail("blocked", `Unresolved data gap \u2014 re-fetch before sending: ${flaggedByPc[storePc].map((f) => f.detail).join("; ")}`);
+      if (flaggedByPc2[storePc]?.length) {
+        return fail("blocked", `Unresolved data gap \u2014 re-fetch before sending: ${flaggedByPc2[storePc].map((f) => f.detail).join("; ")}`);
       }
       if (!storeMeta?.paycor) return fail("error", "No Paycor legal entity ID configured for this store");
       if (!cfg?.earningCode) return fail("skipped", "Earning code not auto-filled yet for this store \u2014 try Send again in a moment");
@@ -35050,12 +35248,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const sendToPaycor = async () => {
       if (!snapshots || !start) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
-      const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
+      const periodDates2 = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const flaggedByPc2 = tipsFindFlaggedStorePcs(snapshots, periodDates2, stores, todayStr);
       const results = storeOrder.map((store) => ({ pc: byStore[store][0]?.pc, store, status: "pending", detail: null }));
       setPaycorPush({ running: true, results });
       for (const store of storeOrder) {
-        const result = await stageOneStoreForPaycor(store, byStore, flaggedByPc);
+        const result = await stageOneStoreForPaycor(store, byStore, flaggedByPc2);
         const idx = results.findIndex((r) => r.pc === result.pc);
         if (idx >= 0) results[idx] = result;
         setPaycorPush({ running: true, results: [...results] });
@@ -35067,14 +35265,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setSingleSending(true);
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
       const storeKey = storeOrder.find((k) => String(byStore[k][0]?.pc) === String(singleSendPc));
-      const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
+      const periodDates2 = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const flaggedByPc2 = tipsFindFlaggedStorePcs(snapshots, periodDates2, stores, todayStr);
       let result;
       if (!storeKey) {
         const storeMeta = (stores || []).find((s) => String(s.pc) === String(singleSendPc));
         result = { pc: singleSendPc, store: storeMeta?.name || singleSendPc, status: "skipped", detail: "No tips data for this store in the loaded period" };
       } else {
-        result = await stageOneStoreForPaycor(storeKey, byStore, flaggedByPc);
+        result = await stageOneStoreForPaycor(storeKey, byStore, flaggedByPc2);
       }
       setSingleSending(false);
       setPaycorPush((prev) => {
@@ -35142,71 +35340,78 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setMissingCheck({ loading: false, results: null, error: e.message || "Check failed." });
       }
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, marginBottom: "0.4rem" } }, "Tips Report"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "1.25rem", maxWidth: "52ch", lineHeight: 1.5 } }, "Pulls the pay period's tip data straight from what's already saved each night \u2014 no files to upload, nothing fetched live. Pick the first day of the pay period below."), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem", display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.35rem" } }, "Pay period start date"), /* @__PURE__ */ React.createElement("input", { type: "date", value: periodStart, max: todayStr, onChange: (e) => {
+    const fs = finStyles(th);
+    const periodDates = start ? Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i))) : [];
+    const flaggedByPc = snapshots && start ? tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr) : {};
+    const flaggedPcs = Object.keys(flaggedByPc);
+    const storeNameOf = (pc) => (stores || []).find((s) => String(s.pc) === String(pc))?.name || pc;
+    const maxDay = dayInfo ? Math.max(1, ...dayInfo.map((d) => d.total || 0)) : 1;
+    const shortDate = (iso) => {
+      const dt = tipsParseISODate(iso);
+      return `${TIPS_MONTHS[dt.getUTCMonth()].slice(0, 3)} ${dt.getUTCDate()}`;
+    };
+    const longDate = (dt) => `${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}`;
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root" }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: fs.title }, "Tips Report"), /* @__PURE__ */ React.createElement("p", { style: fs.lede }, "Pulls the pay period\u2019s tip data straight from what\u2019s already saved each night: no files to upload, nothing fetched live. Pick the first day of the pay period below."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: fs.fieldLabel }, "Pay period start date", /* @__PURE__ */ React.createElement("input", { type: "date", className: "fin-input", value: periodStart, max: todayStr, onChange: (e) => {
       setPeriodStart(e.target.value);
       setSnapshots(null);
       setDayInfo(null);
       setError(null);
       setMissingCheck(null);
-    }, style: { ...inp(th), width: 200 } })), /* @__PURE__ */ React.createElement("button", { onClick: load, disabled: !periodStart || loading, style: { ...btn(th), opacity: !periodStart || loading ? 0.6 : 1 } }, loading ? "Loading\u2026" : "Load period"), start && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "Covers ", TIPS_DOW_FULL[start.getUTCDay()], ", ", TIPS_MONTHS[start.getUTCMonth()], " ", start.getUTCDate(), " \u2013 ", TIPS_DOW_FULL[end.getUTCDay()], ", ", TIPS_MONTHS[end.getUTCMonth()], " ", end.getUTCDate(), ", ", end.getUTCFullYear())), tooOld && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderLeft: "4px solid #f59e0b", padding: "0.9rem 1.1rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: th.text } }, "That start date is ", daysOld, " days ago \u2014 daily snapshots are only kept for about ", TIPS_SNAPSHOT_RETENTION_DAYS, " days, so some or all of this period's data may already be gone. Try a more recent pay period."), error && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderLeft: "4px solid #ef4444", padding: "0.9rem 1.1rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: th.text } }, error), dayInfo && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.9rem", flexWrap: "wrap", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "Pay period progress"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, filledCount, " / 14 days found \xB7 ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "$", grandTotal.toFixed(2)), " so far")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "0.4rem", marginBottom: missingDates.length ? "0.9rem" : 0 } }, dayInfo.map((d) => {
+    }, style: { ...fs.input, width: 200 } })), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: load, disabled: !periodStart || loading, style: { ...fs.primary, opacity: !periodStart || loading ? 0.5 : 1 } }, loading ? "Loading\u2026" : "Load period"), start && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.86rem", color: th.muted, paddingBottom: "0.6rem" } }, "Covers ", longDate(start), " to ", longDate(end), ", ", end.getUTCFullYear())), tooOld && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "That start date is ", daysOld, " days ago. Daily snapshots are only kept for about ", TIPS_SNAPSHOT_RETENTION_DAYS, " days, so some or all of this period\u2019s data may already be gone. Try a more recent pay period."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), loading && !dayInfo && /* @__PURE__ */ React.createElement(FinSkeleton, { th, rows: 2, figures: 3 }), dayInfo && /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Pay period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.muted, marginTop: "0.1rem" } }, shortDate(periodDates[0]), " to ", shortDate(periodDates[13]), ", ", end.getUTCFullYear())), /* @__PURE__ */ React.createElement(FinFigures, null, /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Tips so far", value: grandTotal, format: finMoney.format }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Days found", value: filledCount, format: (v) => `${Math.round(v)} of 14` }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Stores with a data gap", value: flaggedPcs.length, format: (v) => finInt.format(v), tone: flaggedPcs.length ? "bad" : void 0 })), /* @__PURE__ */ React.createElement("div", { role: "list", "aria-label": "Tips by day this pay period", style: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "0.45rem" } }, dayInfo.map((d) => {
       const dt = tipsParseISODate(d.date);
       const isFuture = d.date >= todayStr;
       const isRefreshing = refreshingDates.has(d.date);
+      const gap = !d.filled && !isFuture;
+      const frac = d.filled ? (d.total || 0) / maxDay : 0;
       return /* @__PURE__ */ React.createElement(
         "div",
         {
           key: d.date,
+          role: "listitem",
           title: d.filled ? `${d.employees} employees, ${d.stores} stores, $${(d.total || 0).toFixed(2)}` : "No data saved for this day",
-          style: { position: "relative", borderRadius: 8, border: `1px solid ${d.filled ? "#22c55e55" : th.cardBorder}`, background: d.filled ? "#22c55e14" : th.card2, padding: "0.5rem 0.3rem", textAlign: "center" }
+          style: { position: "relative", minWidth: 0, borderRadius: "0.6rem", border: `1px solid ${gap ? withAlpha(th.warn, 0.45) : th.cardBorder}`, background: isFuture ? "transparent" : th.card2, padding: "0.5rem 0.45rem 0.45rem", display: "grid", gap: "0.3rem", opacity: isFuture ? 0.55 : 1 }
         },
-        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: d.filled ? "#16a34a" : th.muted, textTransform: "uppercase" } }, TIPS_DOW[dt.getUTCDay()]),
-        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.text, marginTop: 2 } }, dt.getUTCMonth() + 1, "/", dt.getUTCDate()),
-        !isFuture && /* @__PURE__ */ React.createElement(
-          "span",
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, TIPS_DOW[dt.getUTCDay()], " ", dt.getUTCMonth() + 1, "/", dt.getUTCDate()), !isFuture && /* @__PURE__ */ React.createElement(
+          "button",
           {
+            type: "button",
+            className: "fin-btn",
             onClick: () => !isRefreshing && refreshOneDay(d.date),
+            disabled: isRefreshing,
+            "aria-label": isRefreshing ? `Refreshing ${d.date}` : `Re-fetch ${d.date} from Pulse/Paycor`,
             title: isRefreshing ? "Refreshing\u2026" : `Re-fetch ${d.date} from Pulse/Paycor`,
-            style: { position: "absolute", top: 2, right: 4, fontSize: "0.62rem", color: isRefreshing ? th.muted : th.subtle, cursor: isRefreshing ? "default" : "pointer", opacity: isRefreshing ? 1 : 0.6 }
+            style: { background: "transparent", border: "none", padding: 4, margin: -4, borderRadius: "0.4rem", cursor: isRefreshing ? "default" : "pointer", display: "inline-flex" }
           },
-          isRefreshing ? "\u2026" : "\u21BB"
-        )
+          /* @__PURE__ */ React.createElement(FinRefreshIcon, { color: isRefreshing ? O : th.muted, spinning: isRefreshing })
+        )),
+        /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "relative", height: 46, borderRadius: "0.35rem", overflow: "hidden", background: th.card3 } }, /* @__PURE__ */ React.createElement("div", { className: "fin-col", style: { position: "absolute", inset: 0, background: d.filled ? O : "transparent", transform: `scaleY(${Math.max(d.filled ? 0.04 : 0, frac).toFixed(3)})` } })),
+        /* @__PURE__ */ React.createElement("span", { className: "fin-num", style: { fontSize: "0.8rem", fontWeight: 700, color: gap ? th.warn : isFuture ? th.muted : th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, d.filled ? finMoney0.format(d.total || 0) : isFuture ? "Not yet" : "No data")
       );
-    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "No saved data for: ", missingDates.join(", "), " \u2014 either before the nightly report existed, or that night's run didn't complete."), notYetCollectedDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: th.muted, marginTop: missingDates.length ? "0.3rem" : 0 } }, notYetCollectedDates.join(", "), " ", notYetCollectedDates.length === 1 ? "hasn't" : "haven't", " happened yet or ", notYetCollectedDates.length === 1 ? "isn't" : "aren't", " closed out for the night \u2014 nothing to collect yet."), (() => {
-      const periodDates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-      const flaggedByPc = tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr);
-      const flaggedPcs = Object.keys(flaggedByPc);
-      if (flaggedPcs.length === 0) return null;
-      const storeName = (pc) => (stores || []).find((s) => String(s.pc) === String(pc))?.name || pc;
-      return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", background: "#dc262614", border: "1px solid #dc262655", borderRadius: 8, padding: "0.7rem 0.85rem", marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement("strong", null, "\u26A0 ", flaggedPcs.length, " store(s) have an unresolved data gap this period \u2014 these will be skipped if you send to Paycor now, not silently included wrong:"), /* @__PURE__ */ React.createElement("ul", { style: { margin: "0.4rem 0 0", paddingLeft: "1.1rem" } }, flaggedPcs.map((pc) => {
-        const uniqueDates = [...new Set(flaggedByPc[pc].map((f) => f.date))];
-        return /* @__PURE__ */ React.createElement("li", { key: pc, style: { marginBottom: "0.2rem" } }, storeName(pc), ": ", flaggedByPc[pc].map((f) => f.detail).join("; "), uniqueDates.map((d) => {
-          const rKey = `${pc}|${d}`;
-          const isRefreshing = refreshingStores.has(rKey);
-          return /* @__PURE__ */ React.createElement(
-            "span",
-            {
-              key: d,
-              onClick: () => !isRefreshing && refreshOneDay(d, pc),
-              style: { marginLeft: "0.5rem", fontSize: "0.72rem", color: isRefreshing ? th.muted : "#dc2626", textDecoration: isRefreshing ? "none" : "underline", cursor: isRefreshing ? "default" : "pointer", fontWeight: 700 }
-            },
-            isRefreshing ? `\u21BB refreshing ${d}\u2026` : `\u21BB Retry ${d}`
-          );
-        }));
-      })));
-    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: download, style: { ...btn(th, { background: "#1B8F5C" }) } }, "Download workbook"), /* @__PURE__ */ React.createElement("button", { onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...btn(th, { background: th.card2, color: th.text }), opacity: missingCheck?.loading ? 0.6 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...btn(th, { background: "#7c3aed" }), opacity: paycorPush?.running ? 0.6 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor")), canPushToPaycor && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Just fixed one store (e.g. in the Tips Editor)? Resend only that store:"), /* @__PURE__ */ React.createElement("select", { value: singleSendPc, onChange: (e) => setSingleSendPc(e.target.value), style: { ...inp(th), width: "auto", minWidth: 200, padding: "0.5rem 0.8rem", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), (stores || []).filter((s) => s.paycor).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")"))), /* @__PURE__ */ React.createElement("button", { onClick: sendOneStoreToPaycor, disabled: !singleSendPc || singleSending || paycorPush?.running, style: { ...btn(th, { background: "#7c3aed", padding: "0.5rem 1rem", fontSize: "0.82rem" }), opacity: !singleSendPc || singleSending || paycorPush?.running ? 0.6 : 1 } }, singleSending ? "Sending\u2026" : "Send Just This Store"))), paycorPush && (() => {
+    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.warn } }, "No saved data for ", missingDates.map(shortDate).join(", "), ". Either before the nightly report existed, or that night\u2019s run didn\u2019t complete."), notYetCollectedDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, notYetCollectedDates.map(shortDate).join(", "), " ", notYetCollectedDates.length === 1 ? "hasn\u2019t" : "haven\u2019t", " happened yet or ", notYetCollectedDates.length === 1 ? "isn\u2019t" : "aren\u2019t", " closed out for the night, so there\u2019s nothing to collect yet.")), flaggedPcs.length > 0 && /* @__PURE__ */ React.createElement("div", { role: "alert", style: { borderTop: `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${th.danger}`, padding: "0.9rem 1.1rem", background: withAlpha(th.danger, 0.06) } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "flex-start", fontSize: "0.88rem", fontWeight: 700, color: th.danger } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "blocked" }), /* @__PURE__ */ React.createElement("span", null, flaggedPcs.length, " store", flaggedPcs.length === 1 ? " has" : "s have", " an unresolved data gap this period. They\u2019ll be skipped if you send to Paycor now, not silently included wrong.")), /* @__PURE__ */ React.createElement("ul", { style: { margin: "0.5rem 0 0", paddingLeft: "1.6rem", display: "grid", gap: "0.35rem" } }, flaggedPcs.map((pc) => {
+      const uniqueDates = [...new Set(flaggedByPc[pc].map((f) => f.date))];
+      return /* @__PURE__ */ React.createElement("li", { key: pc, style: { fontSize: "0.84rem", color: th.text } }, /* @__PURE__ */ React.createElement("strong", null, storeNameOf(pc)), ": ", flaggedByPc[pc].map((f) => f.detail).join("; "), uniqueDates.map((d) => {
+        const isRefreshing = refreshingStores.has(`${pc}|${d}`);
+        return /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            key: d,
+            type: "button",
+            className: "fin-btn",
+            onClick: () => !isRefreshing && refreshOneDay(d, pc),
+            disabled: isRefreshing,
+            style: { marginLeft: "0.5rem", display: "inline-flex", alignItems: "center", gap: "0.3rem", background: "transparent", border: `1px solid ${withAlpha(th.danger, 0.4)}`, borderRadius: "0.45rem", padding: "0.15rem 0.5rem", fontSize: "0.78rem", fontWeight: 700, color: isRefreshing ? th.muted : th.danger, cursor: isRefreshing ? "default" : "pointer", fontFamily: FONTS.body }
+          },
+          /* @__PURE__ */ React.createElement(FinRefreshIcon, { color: isRefreshing ? th.muted : th.danger, size: 12, spinning: isRefreshing }),
+          isRefreshing ? `Refreshing ${shortDate(d)}\u2026` : `Retry ${shortDate(d)}`
+        );
+      }));
+    }))), canPushToPaycor && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.84rem", color: th.muted } }, "Just fixed one store (e.g. in the Tips Editor)? Resend only that store:"), /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: singleSendPc, onChange: (e) => setSingleSendPc(e.target.value), style: { ...fs.input, width: "auto", minWidth: 210 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), (stores || []).filter((s) => s.paycor).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")"))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: sendOneStoreToPaycor, disabled: !singleSendPc || singleSending || paycorPush?.running, style: { ...fs.ghost, opacity: !singleSendPc || singleSending || paycorPush?.running ? 0.5 : 1 } }, singleSending ? "Sending\u2026" : "Send Just This Store")), /* @__PURE__ */ React.createElement("div", { style: fs.footer }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.muted, marginRight: "auto", maxWidth: 520 } }, "The workbook\u2019s first sheet, \u201CPay Period Totals,\u201D adds up each employee\u2019s tips across the whole period; that\u2019s the one to key into Paycor. The other 14 sheets are the day-by-day breakdown."), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...fs.ghost, opacity: missingCheck?.loading ? 0.5 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: download, style: canPushToPaycor ? fs.ghost : fs.primary }, "Download workbook"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...fs.primary, opacity: paycorPush?.running ? 0.5 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), paycorPush && (() => {
       const doneCount = paycorPush.results.filter((r) => r.status !== "pending").length;
-      const icons = {
-        pending: { glyph: "\u25CB", color: th.muted, spin: true },
-        ok: { glyph: "\u2713", color: "#16a34a", spin: false },
-        error: { glyph: "\u2717", color: "#ef4444", spin: false },
-        blocked: { glyph: "\u26A0", color: "#dc2626", spin: false },
-        skipped: { glyph: "\u2013", color: th.muted, spin: false }
-      };
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text } }, "Paycor send progress"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, doneCount, " / ", paycorPush.results.length, " stores", paycorPush.running ? "\u2026" : " done")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "0.4rem 0.8rem" } }, paycorPush.results.map((r) => {
-        const ic = icons[r.status] || icons.skipped;
-        return /* @__PURE__ */ React.createElement("div", { key: r.pc, title: r.detail || "", style: { display: "flex", alignItems: "flex-start", gap: "0.4rem", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: ic.color, fontWeight: 700, flexShrink: 0, width: "1.1rem", textAlign: "center", animation: ic.spin ? "tipsSendPulse 1.1s ease-in-out infinite" : "none" } }, ic.glyph), /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, r.store), r.detail && r.status !== "pending" && /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: ic.color, fontSize: "0.7rem", lineHeight: 1.3 } }, r.status === "blocked" ? "BLOCKED \u2014 " : "", r.detail)));
-      })), /* @__PURE__ */ React.createElement("style", null, "@keyframes tipsSendPulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }"));
-    })(), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.9rem", color: th.text, marginBottom: "0.4rem" } }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginBottom: "0.9rem", lineHeight: 1.5 } }, "Compares each store's live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn't work at all this period, or worked but their punches are missing \u2014 worth a quick check before finalizing."), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#ef4444" } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: "#16a34a" } }, "Every active employee has recorded hours somewhere in this period. Nothing to flag."), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.7rem" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderLeft: `3px solid ${r.fetchError ? "#f59e0b" : "#ef4444"}`, paddingLeft: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, "District ", r.district, " \xB7 ", r.name, " (", r.pc, ")"), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b" } }, "Couldn't check this store's roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text } }, r.missing.join(", ")))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, lineHeight: 1.6 } }, `The downloaded workbook's first sheet, "Pay Period Totals," adds up each employee's tips across the whole period \u2014 that's the one to key into Paycor. The other 14 sheets are the day-by-day breakdown.`));
+      const total = paycorPush.results.length;
+      const okCount = paycorPush.results.filter((r) => r.status === "ok").length;
+      const problemCount = paycorPush.results.filter((r) => r.status === "error" || r.status === "blocked").length;
+      return /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Paycor send progress"), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.86rem", color: th.muted } }, /* @__PURE__ */ React.createElement(FinTicker, { value: doneCount, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " of ", total, " stores ", paycorPush.running ? "so far" : "done")), /* @__PURE__ */ React.createElement(FinBar, { th, frac: total ? doneCount / total : 0, height: 8 }), /* @__PURE__ */ React.createElement(FinFigures, null, /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Staged", value: okCount, format: (v) => finInt.format(v), tone: okCount ? "good" : void 0 }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Need attention", value: problemCount, format: (v) => finInt.format(v), tone: problemCount ? "bad" : void 0 }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.5rem 1rem", padding: "0 1.1rem 1.1rem" } }, paycorPush.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, title: r.detail || "", style: { display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.84rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: r.status }), /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, r.store), r.detail && r.status !== "pending" && /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: r.status === "ok" ? th.muted : r.status === "skipped" ? th.muted : th.danger, fontSize: "0.78rem", lineHeight: 1.35 } }, r.status === "blocked" ? "Blocked: " : "", r.detail))))));
+    })(), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.5, maxWidth: 720 } }, "Compares each store\u2019s live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn\u2019t work at all this period, or worked but their punches are missing. Worth a quick check before finalizing.")), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "pending" }), "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { role: "alert", style: { fontSize: "0.86rem", color: th.danger } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.success, display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "ok" }), "Every active employee has recorded hours somewhere in this period. Nothing to flag.")), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderTop: `1px solid ${th.cardBorder}`, padding: "0.7rem 1.1rem", display: "grid", gridTemplateColumns: "minmax(0, 220px) minmax(0, 1fr)", gap: "0.25rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", fontWeight: 700, color: th.text } }, r.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400 } }, "(PC# ", r.pc, ", District ", r.district, ")")), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.warn } }, "Couldn\u2019t check this store\u2019s roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.text } }, r.missing.join(", ")))))));
   }
   var TE_CSS = (th) => `/* Hallmark \xB7 redesign: full \xB7 shape: app screen \xB7 scope: app \xB7 theme: brand (PCG orange, Raleway + Source Sans 3) \xB7 motion: brisk \xB7 signature: the tip pool split by hours */
 /* critique: was a plain form over a grey table that repeated its three figures twice; now the pool itself is the object, one bar split by hours that re-balances as you type */
@@ -35241,7 +35446,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   var teReducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var teMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
   var teHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  function useTickedNumber(value, ms = 500) {
+  function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
     const [shown, setShown] = useState(target);
     const fromRef = useRef(target);
@@ -35267,7 +35472,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return shown;
   }
   function TeTicker({ value, format, style }) {
-    const v = useTickedNumber(value);
+    const v = useTickedNumber2(value);
     return /* @__PURE__ */ React.createElement("span", { className: "te-num", style }, format(v));
   }
   function TeFigure({ th, label, value, format, note }) {

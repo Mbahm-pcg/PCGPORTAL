@@ -39,6 +39,31 @@ export function extractDetails(text) {
   return out;
 }
 
+// Short SMS version (v22.31): who, where, when — one line, no links.
+export function buildHireText({ candidate, store, receivedAt, testLabel = null }) {
+  const pc = store?.pc ? String(store.pc) : '';
+  const prop = store?.name || (pc ? `PC# ${pc}` : 'a store');
+  const dist = store?.district ? `, District ${store.district}${store.dmName ? ` (DM ${store.dmName})` : ''}` : '';
+  const when = receivedAt ? new Date(receivedAt).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  return `${testLabel ? `[TEST: would go to ${testLabel}] ` : ''}PCG new hire: ${candidate} at ${prop}${pc && store?.name ? ` (PC# ${pc})` : ''}${dist}.${when ? ` Hired ${when} ET.` : ''}`;
+}
+
+// Who gets hire alerts (set in Admin → Notification Access Panel → New Hires).
+// recipients: [{ userId, email, sms }] → cleaned, de-duplicated, at least one channel each.
+export function cleanHireRecipients(list) {
+  const seen = new Set();
+  const out = [];
+  for (const r of Array.isArray(list) ? list : []) {
+    const id = Number(r && r.userId);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    const email = !!r.email, sms = !!r.sms;
+    if (!email && !sms) continue;
+    seen.add(id);
+    out.push({ userId: id, email, sms });
+  }
+  return out;
+}
+
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // store: Locations record ({ pc, name, legal, address, city, state, district, dmName }).

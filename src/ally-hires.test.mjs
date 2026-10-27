@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseHireSubject, isRecentHire, htmlToText, extractDetails, buildHireEmail } from './ally-hires.mjs';
+import { parseHireSubject, isRecentHire, htmlToText, extractDetails, buildHireEmail, buildHireText, cleanHireRecipients } from './ally-hires.mjs';
 
 test('parseHireSubject: the real Ally subject, and variations', () => {
   assert.equal(parseHireSubject("Dunkin': Niraj Bhatt is Officially Hired!"), 'Niraj Bhatt');
@@ -34,4 +34,18 @@ test('buildHireEmail: name, property, PC#, address, district/DM; test label; HTM
   assert.match(e.html, /Test mode — would go to: exec \+ IT/);
   assert.match(e.text, /Position: Crew/);
   assert.match(e.text, /Hired \(Ally\): Sat, Oct 24, 9:23 AM ET/);
+});
+
+test('buildHireText: one short line for SMS, with the test label when shadowing', () => {
+  const store = { pc: '341350', name: 'Yardley', district: 9, dmName: 'Tejal' };
+  assert.equal(buildHireText({ candidate: 'Sailee Bhosale', store, receivedAt: '2026-10-27T17:01:00Z' }),
+    'PCG new hire: Sailee Bhosale at Yardley (PC# 341350), District 9 (DM Tejal). Hired Tue, Oct 27, 1:01 PM ET.');
+  assert.match(buildHireText({ candidate: 'X', store, testLabel: '3 people' }), /^\[TEST: would go to 3 people\] PCG new hire: X/);
+});
+
+test('cleanHireRecipients: valid ids only, no duplicates, at least one channel', () => {
+  assert.deepEqual(cleanHireRecipients([
+    { userId: 5, email: true }, { userId: '7', sms: true, email: true }, { userId: 5, sms: true },
+    { userId: 9 }, { userId: 'x', email: true }, null,
+  ]), [{ userId: 5, email: true, sms: false }, { userId: 7, email: true, sms: true }]);
 });
