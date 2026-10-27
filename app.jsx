@@ -14880,7 +14880,7 @@ function ReportPhotoRestore({ th, showAlert }) {
     setBusy(null);
   };
   const fmt = (iso) => iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
-  const bkLabel = (key) => { const m = /(\d{4})(\d{2})(\d{2})/.exec(key || ''); return m ? new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' backup' : key; };
+  const bkLabel = (key) => { if (key === 'project_gallery') return 'Project Gallery'; const m = /(\d{4})(\d{2})(\d{2})/.exec(key || ''); return m ? new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' backup' : key; };
   const plan = status?.plan;
   return (
     <>
@@ -14918,8 +14918,10 @@ function ReportPhotoRestore({ th, showAlert }) {
                     </div>
                   ))}
                   {(status.backups || []).length > 0 && (
-                    <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: th.muted }}>
-                      Backups checked: {status.backups.map(b => `${bkLabel(b.key)}${b.error ? ' (unreadable)' : ''}`).join(', ')}
+                    <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: th.muted, lineHeight: 1.6 }}>
+                      {status.currentPhotos != null && <div>Photos in the cloud now: <strong style={{ color: th.text }}>{status.currentPhotos}</strong></div>}
+                      {status.gallery && <div>Project Gallery copies of report photos: <strong style={{ color: th.text }}>{status.gallery.error ? 'unreadable' : `${status.gallery.photos} (${status.gallery.reports || 0} reports)`}</strong></div>}
+                      <div>Backups checked: {status.backups.map(b => `${bkLabel(b.key)}${b.error ? ' (unreadable)' : b.photos != null ? ` (${b.photos} photos)` : ''}`).join(', ')}</div>
                     </div>
                   )}
                 </>
@@ -32076,7 +32078,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.27";
+const APP_VERSION = "v22.28";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
