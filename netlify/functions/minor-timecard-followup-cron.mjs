@@ -47,7 +47,7 @@ import https from 'node:https';
 import { getStore } from '@netlify/blobs';
 import { loadStoreDistricts } from './_shared/store-status.mjs';
 import { analyzeDayForViolation } from '../../src/minor-timecard-detect.mjs';
-import { shouldEscalateToday, execBackstopDue, resolveNotificationRecipients, applyResolutionCheck } from '../../src/minor-timecard-lifecycle.mjs';
+import { shouldEscalateToday, execBackstopDue, resolveNotificationRecipients, applyResolutionCheck, isPastFollowUpWindow, MAX_OPEN_DAYS } from '../../src/minor-timecard-lifecycle.mjs';
 import { buildEmailSubject, buildDigestEmailHtml } from '../../src/minor-timecard-email.mjs';
 
 export const config = { schedule: '30 11 * * *' }; // 7:30 AM ET, every day (after the Sunday detect run)
@@ -218,6 +218,10 @@ export default async (request) => {
   // every one of its still-open issues today.
   const openByStore = {};
   let resolvedCount = 0, escalatedCount = 0;
+  // v22.40: open issues past Day 7 (MAX_OPEN_DAYS) are deleted, not emailed again — by then
+  // payroll has almost always corrected the timecard in Paycor.
+  const expiredIds = new Set(issues.filter(i => i && i.id && isPastFollowUpWindow(i, todayDateStr)).map(i => i.id));
+  if (expiredIds.size) console.log(`[minor-timecard-followup] ${expiredIds.size} issue(s) past Day ${MAX_OPEN_DAYS} — removing, no email`);
 
   // Each issue is processed inside its own try/catch — one malformed record
   // (e.g. a corrupted date field) must never abort the whole run and lose
@@ -226,6 +230,7 @@ export default async (request) => {
   for (const issue of issues) {
     try {
       if (issue.status !== 'open') continue;
+      if (expiredIds.has(issue.id)) continue; // v22.40: past the follow-up window
       if (issue.firstFlaggedAt.slice(0, 10) === todayDateStr) continue; // don't double-notify the day it was created
 
       const dayPunches = await fetchDayPunches(issue.employeeId, issue.violationDate);
@@ -316,7 +321,7 @@ export default async (request) => {
   const changed = issues.filter(i => i && i.id && issueSignature(i) !== signatureAtLoad.get(i.id));
   if (mode === 'off') {
     console.log(`[minor-timecard-followup] (log-only) would have updated ${changed.length} issue(s); nothing written. Set MINOR_TIMECARD_LIVE=shadow or =true to act.`);
-  } else if (!changed.length) {
+  } else if (!changed.length && !expiredIds.size) {
     saved = true; // nothing to write is a successful no-op, not a failure
   } else {
     const freshIssuesRaw = await blobLoad(ISSUES_KEY);
@@ -328,15 +333,19 @@ export default async (request) => {
       console.error('[minor-timecard-followup] issues blob re-read failed before save — SKIPPING the write rather than risk overwriting live state with a partial array. Changes will be recomputed next run.');
     } else {
       for (const c of changed) {
+        if (expiredIds.has(c.id)) continue;
         const idx = freshIssues.findIndex(f => f.id === c.id);
         if (idx >= 0) freshIssues[idx] = c; else freshIssues.push(c);
       }
-      try { await blobSave(ISSUES_KEY, freshIssues); saved = true; }
+      // v22.40: drop expired issues — only ones still open in the fresh copy (a manual
+      // "Mark Resolved" since this run started keeps its record).
+      const toSave = freshIssues.filter(f => !(expiredIds.has(f.id) && f.status === 'open'));
+      try { await blobSave(ISSUES_KEY, toSave); saved = true; }
       catch (err) { console.error('[minor-timecard-followup] BLOB SAVE FAILED after emails were already sent — this run\'s resolutions/escalations lost:', err.message); }
     }
   }
 
-  const summary = { ok: true, mode, checked: issues.filter(i => i.status === 'open').length + resolvedCount, resolved: resolvedCount, newlyEscalated: escalatedCount, storesEmailed: emailsSent, issuesUpdated: changed.length, saved };
+  const summary = { ok: true, mode, expired: expiredIds.size, checked: issues.filter(i => i.status === 'open').length + resolvedCount, resolved: resolvedCount, newlyEscalated: escalatedCount, storesEmailed: emailsSent, issuesUpdated: changed.length, saved };
   console.log('[minor-timecard-followup] done:', JSON.stringify(summary));
   return new Response(JSON.stringify(summary), { status: 200, headers });
 };

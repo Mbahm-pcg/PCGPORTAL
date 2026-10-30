@@ -187,3 +187,13 @@ test('filterIssuesForRole: a Director sees all of their districts, nothing else'
   assert.deepEqual(filterIssuesForRole(issues, { userType: 'director', districts: [2, 7] }).map(i => i.pc), ['a', 'b']);
   assert.deepEqual(filterIssuesForRole(issues, { userType: 'director', districts: [] }), []);
 });
+
+test('isPastFollowUpWindow: open issues stop after Day 7', async () => {
+  const { isPastFollowUpWindow, issueDay } = await import('./minor-timecard-lifecycle.mjs');
+  const open = (d) => ({ status: 'open', firstFlaggedAt: `${d}T10:00:00.000Z` });
+  assert.equal(issueDay(open('2026-10-24'), '2026-10-30'), 7);
+  assert.equal(isPastFollowUpWindow(open('2026-10-24'), '2026-10-30'), false); // Day 7 = last day
+  assert.equal(isPastFollowUpWindow(open('2026-10-23'), '2026-10-30'), true);  // Day 8 → deleted
+  assert.equal(isPastFollowUpWindow({ ...open('2026-09-01'), status: 'resolved' }, '2026-10-30'), false);
+  assert.equal(isPastFollowUpWindow({ status: 'open', firstFlaggedAt: null }, '2026-10-30'), false);
+});

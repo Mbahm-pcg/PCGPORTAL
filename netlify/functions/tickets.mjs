@@ -111,6 +111,13 @@ async function ensureTables() {
       await sql`ALTER TABLE maint_ticket_comments ADD CONSTRAINT maint_ticket_comments_pkey PRIMARY KEY (ticket_id, id)`;
     }
   } catch (e) { console.warn('[tickets] comment PK migration skipped:', e.message); }
+  // v22.39: deleted-ticket ids. `sync` is upsert-only, so without this any portal still
+  // holding a deleted ticket in memory (another tab, a phone, a store tablet) re-inserted
+  // it on its next save — deleted tickets kept coming back. `sync` now skips these ids.
+  await sql`CREATE TABLE IF NOT EXISTS maint_ticket_deletions (
+    id          bigint PRIMARY KEY,
+    deleted_at  timestamptz NOT NULL DEFAULT now()
+  )`;
   _ready = true;
 }
 
@@ -334,8 +341,14 @@ export default async (request) => {
       // Upsert-only: no delete-missing. A stale/partial writer (e.g. the mobile
       // view's localStorage-backed copy) must never be able to wipe tickets it
       // simply hasn't loaded — deletions go through the explicit `delete` action.
-      const tickets = Array.isArray(payload.tickets) ? payload.tickets : [];
       const sql = db();
+      // Never resurrect a deleted ticket from a stale copy (v22.39).
+      const incoming = Array.isArray(payload.tickets) ? payload.tickets : [];
+      const incomingIds = incoming.map(t => toBigInt(t?.id)).filter(id => id != null);
+      const deleted = incomingIds.length
+        ? new Set((await sql`SELECT id FROM maint_ticket_deletions WHERE id = ANY(${incomingIds})`).map(r => Number(r.id)))
+        : new Set();
+      const tickets = deleted.size ? incoming.filter(t => !deleted.has(toBigInt(t?.id))) : incoming;
 
       // A ticket can only become Closed with a short (1-50 word) completion note
       // attached — the Tickets UI enforces this client-side, but that's only a
@@ -383,6 +396,7 @@ export default async (request) => {
         sql`DELETE FROM maint_ticket_expenses WHERE ticket_id = ${id}`,
         sql`DELETE FROM maint_ticket_comments WHERE ticket_id = ${id}`,
         sql`DELETE FROM maint_tickets WHERE id = ${id}`,
+        sql`INSERT INTO maint_ticket_deletions (id) VALUES (${id}) ON CONFLICT (id) DO NOTHING`,
       ]);
       return json(200, { ok: true });
     }

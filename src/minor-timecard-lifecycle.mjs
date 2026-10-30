@@ -47,6 +47,21 @@ export function shouldEscalateToday(issue, todayDateStr) {
   return todayDateStr >= mondayAfter(issue.weekEnd);
 }
 
+// v22.40: an open issue is followed up for at most MAX_OPEN_DAYS days (Day 1 = the day it
+// was first flagged). After that payroll has almost always fixed it in Paycor, so the
+// daily run deletes it instead of emailing "Day 20", "Day 31"… forever.
+export const MAX_OPEN_DAYS = 7;
+export function issueDay(issue, todayDateStr) {
+  const first = String(issue?.firstFlaggedAt || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(first)) return null;
+  return Math.floor((Date.parse(todayDateStr) - Date.parse(first)) / 86400000) + 1;
+}
+export function isPastFollowUpWindow(issue, todayDateStr, maxDays = MAX_OPEN_DAYS) {
+  if (issue?.status !== 'open') return false;
+  const day = issueDay(issue, todayDateStr);
+  return day != null && day > maxDays;
+}
+
 export function execBackstopDue(issue, todayDateStr) {
   if (issue.status !== 'open' || issue.escalatedAt == null) return false;
   const alreadySent = (issue.notifications || []).some(n => n.recipientRole === 'exec_backstop');
