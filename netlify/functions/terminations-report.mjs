@@ -3,8 +3,9 @@
 // synced blob (terminations-lib/run.mjs) — never calls Paycor.
 //
 // Scope is decided here, server-side, never by the client:
-//   DM      → only stores in their own district
+//   DM (incl. a Director, whose claims arrive as dm) → all of their districts
 //   manager / store_tablet → only their own store (users.store_pc)
+//   kiosk_pulse / kiosk_upload, a Director with no districts → 403
 //   everyone else → every store
 // Field-key diagnostics and per-store sync errors go to exec/IT only.
 import { sql } from './_shared/db.mjs';
@@ -22,6 +23,9 @@ export default async (request) => {
   if (!authed) return json(401, { error: 'unauthorized' });
   await syncDistricts(STORES, ALL_STORES);
   const ut = authed.userType;
+  // v22.38: shared-device kiosks have no portal access (no Tools hub at all), and a Director
+  // left with no districts has no scope — neither gets this data, even by calling directly.
+  if (ut === 'kiosk_pulse' || ut === 'kiosk_upload' || ut === 'director') return json(403, { error: 'forbidden' });
 
   let allowed = null; // null = every store
   if (ut === 'dm') {
