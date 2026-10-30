@@ -113,7 +113,7 @@ export function TerminationsReport({ th, user, isMobile, onBack }) {
           {onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
           <h2 style={S.title}>Terminations</h2>
           <p style={{ ...S.lede, marginBottom: 0 }}>
-            People who left, by store, from Paycor.{data?.scope === 'district' ? ' Your district only.' : data?.scope === 'store' ? ' Your store only.' : ''}
+            People who left, by store, from Paycor.{data?.scope === 'district' ? (districts.length > 1 ? ' Your districts only.' : ' Your district only.') : data?.scope === 'store' ? ' Your store only.' : ''}
           </p>
         </div>
         {isAdmin && (
@@ -156,7 +156,7 @@ export function TerminationsReport({ th, user, isMobile, onBack }) {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={th.text} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
                 </button>
               </div>
-              {data.scope === 'all' && districts.length > 1 && (
+              {data.scope !== 'store' && districts.length > 1 && (
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.84rem', color: th.muted, marginLeft: isMobile ? 0 : 'auto' }}>
                   District
                   <select className="fin-input" value={district} onChange={e => { setDistrict(e.target.value); setOpen(new Set()); }} style={{ ...S.input, width: 'auto', minHeight: 36, padding: '0.35rem 0.6rem' }}>

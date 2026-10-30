@@ -4,7 +4,7 @@
 // report") — this only ever reveals name/DOB/email for people at a store
 // the caller is already filing a report for, not new information.
 import { neon } from '@neondatabase/serverless';
-import { requireActiveUser } from './auth-lib/require-user.js';
+import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { STORES, callPaycorProxy } from './tips-report-cron-background.mjs';
 import { syncDistricts } from './_shared/store-status.mjs';
 
@@ -92,7 +92,7 @@ export default async (request) => {
       let allowed = ut === 'executive' || ut === 'it' || ut === 'office_staff';
       if (!allowed && ut === 'dm') {
         const store = STORES.find(s => String(s.pc) === storePc);
-        allowed = !!store && String(store.district) === String(caller.district);
+        allowed = !!store && claimDistricts(caller).includes(String(store.district)); // v22.34: a Director's whole list
       }
       if (!allowed && ut === 'manager') {
         const me = await sql`SELECT store_pc FROM users WHERE id = ${caller.sub}`;

@@ -5,6 +5,7 @@
 // legacy plaintext in pcg_users_v1 — hash is written transparently on match.
 // TODO Phase 6: remove loadUsers() blob fallback once all users have logged in.
 import { getStore } from '@netlify/blobs';
+import { parseDistricts } from '../../src/director-scope.mjs';
 import { sql } from './_shared/db.mjs';
 import { signToken } from './deal-lib/token.js';
 import { hashPassword, verifyPassword, validatePasswordComplexity, isSharedDevice } from './auth-lib/passwords.js';
@@ -140,6 +141,18 @@ async function verifyGoogleAccess(accessToken) {
   } catch { return null; }
 }
 
+// v22.34: a Director's districts ride in the token so the client can draw the district
+// switcher straight after login. Some login paths SELECT explicit columns, so fetch the
+// list separately when it's missing; any failure just means an empty list (the server
+// re-reads it fresh per request in requireActiveUser anyway).
+async function withDirectorDistricts(db, row) {
+  if (!row || (row.user_type || row.userType) !== 'director' || row.director_districts !== undefined) return row;
+  try {
+    const [d] = await db`SELECT director_districts FROM users WHERE id = ${row.id}`;
+    return { ...row, director_districts: d?.director_districts ?? null };
+  } catch { return row; }
+}
+
 // Build the signed token + safe user object from a resolved DB row.
 function issue(row, mustChange) {
   const secret = process.env.DEAL_SESSION_SECRET;
@@ -150,6 +163,7 @@ function issue(row, mustChange) {
     username: lc(row.username),
     userType: row.user_type || row.userType || null,
     district: row.district ?? null,
+    districts: (row.user_type || row.userType) === 'director' ? parseDistricts(row.director_districts) : undefined,
     name: row.name || null,
     isAdmin: row.is_admin || row.isAdmin || false,
     storePC: row.store_pc || row.storePC || null,
@@ -174,6 +188,7 @@ function issue(row, mustChange) {
     username: claims.username,
     userType: claims.userType,
     district: claims.district,
+    districts: claims.districts,
     name: claims.name,
     email: lc(row.email) || null,
     // Confirmed real (2026-10-05): this object — not another fetch — is what
@@ -282,7 +297,7 @@ export default async (request, context) => {
           if (!row) return reply(500, { error: 'failed to create user record' });
         }
 
-        const out = issue(row, row.must_change);
+        const out = issue(await withDirectorDistricts(db, row), row.must_change);
         if (!out) return reply(500, { error: 'server not configured' });
         // Include twoFactorSecret transiently so the client can run the TOTP prompt
         if (row.two_factor_required && row.two_factor_secret) {
@@ -360,7 +375,7 @@ export default async (request, context) => {
         return reply(401, { error: 'invalid credentials' });
       }
 
-      const out = issue(identity, mustChange);
+      const out = issue(await withDirectorDistricts(db, identity), mustChange);
       if (!out) return reply(500, { error: 'server not configured' });
       if (identity.two_factor_required && identity.two_factor_secret) {
         out.twoFactorSecret = identity.two_factor_secret;
@@ -606,7 +621,7 @@ export default async (request, context) => {
       db`UPDATE webauthn_credentials SET counter = ${verification.authenticationInfo.newCounter}, last_used_at = now() WHERE credential_id = ${row.credential_id}`.catch(() => {});
       db`DELETE FROM webauthn_challenges WHERE key = ${body.requestId}`.catch(() => {});
 
-      const out = issue(row, false);
+      const out = issue(await withDirectorDistricts(db, row), false);
       if (!out) return reply(500, { error: 'server not configured' });
       db`UPDATE users SET last_login = now() WHERE id = ${row.id}`.catch(() => {});
       return reply(200, out, { 'Set-Cookie': sessionCookie(out.token) });

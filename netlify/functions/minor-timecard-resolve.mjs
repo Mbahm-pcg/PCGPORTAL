@@ -2,7 +2,7 @@
 // override for exec/it/dm, for the case where Paycor's punch data hasn't
 // caught up to a real fix yet (a confirmed real gap — see the Omar Ali/
 // Westchester case, 2026-09-29). Restricted to exec/it/dm per the spec.
-import { requireActiveUser } from './auth-lib/require-user.js';
+import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { neon } from '@neondatabase/serverless';
 import { getStore } from '@netlify/blobs';
 
@@ -31,7 +31,7 @@ export default async (request) => {
   if (idx === -1) return new Response(JSON.stringify({ error: 'Issue not found' }), { status: 404, headers });
 
   // A DM may only resolve issues for their own district — exec/it can resolve any.
-  if (caller.userType === 'dm' && String(issues[idx].district) !== String(caller.district)) {
+  if (caller.userType === 'dm' && !claimDistricts(caller).includes(String(issues[idx].district))) { // v22.34: Directors cover several
     return new Response(JSON.stringify({ error: 'Not your district.' }), { status: 403, headers });
   }
 

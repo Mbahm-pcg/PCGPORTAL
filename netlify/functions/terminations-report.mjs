@@ -8,7 +8,7 @@
 //   everyone else → every store
 // Field-key diagnostics and per-store sync errors go to exec/IT only.
 import { sql } from './_shared/db.mjs';
-import { requireActiveUser } from './auth-lib/require-user.js';
+import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 import { syncDistricts } from './_shared/store-status.mjs';
 import { loadTerminations } from './terminations-lib/run.mjs';
@@ -25,7 +25,8 @@ export default async (request) => {
 
   let allowed = null; // null = every store
   if (ut === 'dm') {
-    allowed = new Set(ALL_STORES.filter(s => String(s.district) === String(authed.district)).map(s => String(s.pc)));
+    const ds = claimDistricts(authed); // v22.34: a Director gets all their districts in one report
+    allowed = new Set(ALL_STORES.filter(s => ds.includes(String(s.district))).map(s => String(s.pc)));
   } else if (ut === 'manager' || ut === 'store_tablet') {
     const me = (await db`SELECT store_pc FROM users WHERE id = ${authed.sub}`)[0];
     allowed = new Set(me?.store_pc ? [String(me.store_pc)] : []);

@@ -16,7 +16,7 @@ import { forecastStoreFull, forecastStoreWeek, learnHolidayFactor, tomorrowISO, 
 import { holidayInfo } from './analyst-lib/holidays.mjs';
 import { loadKBContent, buildKBContext } from './analyst-lib/analyst-kb.mjs';
 import { loadReportSettings, sendExecReport, sendExecDailyReport, sendDMBriefs } from './analyst-lib/analyst-reports.mjs';
-import { resolveCaller } from './_shared/auth.mjs';
+import { resolveCaller, viewDistrictFromRequest } from './_shared/auth.mjs';
 import { sql } from './_shared/db.mjs';
 import { sessionGate } from './auth-lib/require-user.js';
 import { refreshStoreList } from './_shared/store-status.mjs';
@@ -78,7 +78,7 @@ export default async (request, context) => {
   // callers fall through unchanged (no token → 'no-token').
   const eventShim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
   if (await sessionGate(eventShim, sql()) === 'revoked') return respond(401, { error: 'Session ended. Please sign in again.' });
-  const caller = await resolveCaller(userId);
+  const caller = await resolveCaller(userId, district ?? viewDistrictFromRequest(request));
   const effRole = caller?.role || userRole;
   // Backfill audit identity from the resolved caller so the log shows the real
   // person + role even when the client omitted them (fixes blank-role rows).

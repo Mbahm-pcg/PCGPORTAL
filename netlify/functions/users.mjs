@@ -1,6 +1,7 @@
 // users.mjs — User management CRUD API.
 // list action is public (no auth). All mutations require a valid portal token.
 import { sql } from './_shared/db.mjs';
+import { parseDistricts, formatDistricts } from '../../src/director-scope.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { hashPassword, validatePasswordComplexity, isSharedDevice } from './auth-lib/passwords.js';
 
@@ -81,6 +82,8 @@ async function ensureNotifyColumns(db) {
     // v22.16: other names a DM goes by in Locations ("Jayshilkumar Patel" for Jay Patel),
     // comma-separated. District Alignment's Apply to live matches on these.
     await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS aliases text`;
+    // v22.34: a Director of Operations' districts, "3,9" (src/director-scope.mjs).
+    await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS director_districts text`;
     _notifyColumnsEnsured = true;
   } catch (err) {
     console.warn('ensureNotifyColumns failed (continuing):', err?.message || err);
@@ -108,6 +111,7 @@ function toClient(row) {
     role:               row.role,
     userType:           row.user_type,
     district:           row.district,
+    districts:          parseDistricts(row.director_districts),
     storePC:            row.store_pc,
     active:             row.active,
     darkMode:           row.dark_mode,
@@ -181,7 +185,7 @@ export default async (request) => {
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
                audits_access, paycor_employee_id, paycor_department_id,
-               email_notify, sms_notify, push_notify, aliases
+               email_notify, sms_notify, push_notify, aliases, director_districts
         FROM users ORDER BY id
       `;
       return reply(200, rows.map(toClient));
@@ -196,6 +200,7 @@ export default async (request) => {
       const u = body.user || {};
       if (!u.username || !u.name || !u.userType) return reply(400, { error: 'username, name, userType required' });
       if (!canManage(claims, u.userType)) return reply(403, { error: 'cannot create users of this role' });
+      if (u.userType === 'director' && !parseDistricts(u.districts).length) return reply(400, { error: 'A Director of Operations needs at least one district.' });
 
       // audits_access grant: validate the value, and only executive/it may hand out a
       // non-null grant. A create payload that omits the field, or explicitly sends
@@ -221,7 +226,7 @@ export default async (request) => {
           username, name, email, phone, role, user_type, district, store_pc,
           active, dark_mode, initials, is_admin, must_setup, region,
           password_hash, must_change, two_factor_required, audits_access,
-          paycor_employee_id, aliases, created_at, updated_at
+          paycor_employee_id, aliases, director_districts, created_at, updated_at
         ) VALUES (
           ${username}, ${u.name}, ${lc(u.email) || null}, ${u.phone || null},
           ${u.role || null}, ${u.userType}, ${u.district ?? null},
@@ -230,7 +235,7 @@ export default async (request) => {
           ${u.initials || null}, ${u.isAdmin || false}, ${forceSetup},
           ${u.region || 'PA'}, ${passwordHash}, ${forceSetup},
           ${u.twoFactorRequired || false}, ${u.auditsAccess ?? null},
-          ${u.paycorEmployeeId || null}, ${cleanAliases(u.aliases)}, now(), now()
+          ${u.paycorEmployeeId || null}, ${cleanAliases(u.aliases)}, ${u.userType === 'director' ? formatDistricts(u.districts) : null}, now(), now()
         )
         ON CONFLICT (username) DO NOTHING
         RETURNING id
@@ -243,7 +248,7 @@ export default async (request) => {
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
                audits_access, paycor_employee_id, paycor_department_id,
-               email_notify, sms_notify, push_notify, aliases
+               email_notify, sms_notify, push_notify, aliases, director_districts
         FROM users WHERE id = ${row.id}
       `;
       return reply(201, { user: toClient(created) });
@@ -254,7 +259,7 @@ export default async (request) => {
       const { id, patch } = body;
       if (!id || !patch) return reply(400, { error: 'id and patch required' });
 
-      const [target] = await db`SELECT id, username, user_type, audits_access, paycor_employee_id, paycor_department_id FROM users WHERE id = ${id}`;
+      const [target] = await db`SELECT id, username, user_type, audits_access, paycor_employee_id, paycor_department_id, director_districts FROM users WHERE id = ${id}`;
       if (!target) return reply(404, { error: 'user not found' });
       // Any authenticated user may update their OWN contact info (the profile
       // modal every role uses) even when their role wouldn't otherwise pass
@@ -268,6 +273,12 @@ export default async (request) => {
       const isSelfEdit = claims && String(claims.sub) === String(id) && Object.keys(patch).every(k => SELF_EDIT_FIELDS.has(k));
       if (!isSelfEdit && !canManage(claims, target.user_type)) return reply(403, { error: 'forbidden' });
       if (patch.userType && !canManage(claims, patch.userType)) return reply(403, { error: 'cannot assign this role' });
+      // v22.34: a Director must always keep at least one district (no districts would leave
+      // them with no scope). Checked against the role they'll have after this save.
+      if ((patch.userType || target.user_type) === 'director') {
+        const next = Object.prototype.hasOwnProperty.call(patch, 'districts') ? parseDistricts(patch.districts) : parseDistricts(target.director_districts);
+        if (!next.length) return reply(400, { error: 'A Director of Operations needs at least one district.' });
+      }
 
       // Username changes need their own uniqueness check (same rule `create` enforces
       // via ON CONFLICT) — the main UPDATE below only ever narrows to this one row, so
@@ -364,6 +375,7 @@ export default async (request) => {
           sms_notify          = COALESCE(${patch.smsNotify ?? null}, sms_notify),
           push_notify         = COALESCE(${patch.pushNotify ?? null}, push_notify),
           aliases             = CASE WHEN ${Object.prototype.hasOwnProperty.call(patch, 'aliases')} THEN ${cleanAliases(patch.aliases)} ELSE aliases END,
+          director_districts  = CASE WHEN ${Object.prototype.hasOwnProperty.call(patch, 'districts')} THEN ${formatDistricts(patch.districts)} ELSE director_districts END,
           updated_at          = now()
         WHERE id = ${id}
       `;
@@ -374,7 +386,7 @@ export default async (request) => {
                initials, is_admin, must_setup, region,
                two_factor_required, two_factor_enabled, must_change, locked, failed_attempts,
                audits_access, paycor_employee_id, paycor_department_id,
-               email_notify, sms_notify, push_notify, aliases
+               email_notify, sms_notify, push_notify, aliases, director_districts
         FROM users WHERE id = ${id}
       `;
       return reply(200, { user: toClient(updated) });

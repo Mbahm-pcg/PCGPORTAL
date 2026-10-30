@@ -181,3 +181,9 @@ test('applyResolutionCheck: leaves the issue unchanged (never auto-resolves, nev
   const result = applyResolutionCheck(issue, { status: 'indeterminate', violates: false, consecutiveHours: null }, new Date());
   assert.deepEqual(result, issue);
 });
+
+test('filterIssuesForRole: a Director sees all of their districts, nothing else', () => {
+  const issues = [{ district: 2, pc: 'a' }, { district: 7, pc: 'b' }, { district: 4, pc: 'c' }];
+  assert.deepEqual(filterIssuesForRole(issues, { userType: 'director', districts: [2, 7] }).map(i => i.pc), ['a', 'b']);
+  assert.deepEqual(filterIssuesForRole(issues, { userType: 'director', districts: [] }), []);
+});

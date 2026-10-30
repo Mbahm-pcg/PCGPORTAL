@@ -197,7 +197,9 @@ function visibleStores(user) {
     // Baseline dm scope is district-limited; a grant elevates to full-portfolio
     // view, matching the 'view' grant's "treated like office_staff" behavior.
     if (hasGrant) return 'all';
-    const storePCs = AUDIT_STORES.filter((s) => String(s.district) === String(user.district)).map((s) => s.pc);
+    // v22.34: a Director's user carries all their districts (claimDistricts in require-user.js).
+    const ds = Array.isArray(user.districts) && user.districts.length ? user.districts.map(String) : [String(user.district)];
+    const storePCs = AUDIT_STORES.filter((s) => ds.includes(String(s.district))).map((s) => s.pc);
     return { storePCs };
   }
   if (user.userType === 'manager') {

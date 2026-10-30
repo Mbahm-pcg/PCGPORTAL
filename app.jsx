@@ -6,6 +6,7 @@ import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-neg
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { ExecutiveView } from './src/executive-view.jsx';
 import { TerminationsReport } from './src/terminations-ui.jsx';
+import { isDirector, parseDistricts } from './src/director-scope.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
@@ -549,6 +550,12 @@ function getOverallCompletion(project) {
 }
 const canEditProjects = (u) => u && (u.userType === "executive" || u.userType === "it" || u.userType === "office_staff" || u.userType === "construction");
 const canViewProjects = (u) => u && u.userType !== "manager";
+// v22.34 Director of Operations — districts a user is limited to: a DM's one district, a
+// Director's list; [] = not district-limited. Screens that load network-wide data and narrow
+// it for DMs use these so a Director gets exactly their districts, merged into one view.
+const userDistricts = (u) => u?.userType === "director" ? (u.districts || []).map(Number) : (u?.userType === "dm" && u.district != null && u.district !== "" ? [Number(u.district)] : []);
+const isDistrictScoped = (u) => u?.userType === "dm" || u?.userType === "director";
+const seesDistrict = (u, d) => userDistricts(u).includes(Number(d));
 
 // ── Password policy (client-side mirror of auth-lib/passwords.js) ─────────────
 // ≥12 chars with lowercase, uppercase, number, and special char. Shared devices
@@ -1000,7 +1007,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
       // the local record must be explicitly merged onto EITHER branch's result, not
       // assumed to come along for free.
       found = localAcct
-        ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false }
+        ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false, districts: res.user?.districts ?? localAcct.districts }
         : (res.user ? {
         id: res.user.id,
         username: res.user.username,
@@ -1018,6 +1025,7 @@ function Login({ onLogin, dark, toggleDark, users }) {
         twoFactorSecret: res.twoFactorSecret || null,
         mustSetup: res.user.mustSetup || false,
         officeClockLinked: res.user.officeClockLinked || false,
+        districts: res.user.districts,
         active: true,
       } : null);
     }
@@ -1065,14 +1073,14 @@ function Login({ onLogin, dark, toggleDark, users }) {
     // server-only field (officeClockLinked) that doesn't exist on the local
     // cached record.
     const found = localAcct
-      ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false }
+      ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false, districts: res.user?.districts ?? localAcct.districts }
       : (res.user ? {
       id: res.user.id, username: res.user.username, name: res.user.name, userType: res.user.userType,
       district: res.user.district, email: res.user.email, isAdmin: res.user.isAdmin || false,
       storePC: res.user.storePC || null, region: res.user.region || null, darkMode: res.user.darkMode || false,
       initials: res.user.initials || null, twoFactorRequired: res.user.twoFactorRequired || false,
       twoFactorEnabled: res.user.twoFactorEnabled || false, twoFactorSecret: res.twoFactorSecret || null,
-      mustSetup: res.user.mustSetup || false, officeClockLinked: res.user.officeClockLinked || false, active: true,
+      mustSetup: res.user.mustSetup || false, officeClockLinked: res.user.officeClockLinked || false, districts: res.user.districts, active: true,
     } : null);
     if (!found) return;
     const trusted = await isTwoFactorDeviceTrusted(found).catch(() => false);
@@ -3703,14 +3711,14 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
     ? ["Vice President","Chief Executive Officer","Chief Operating Officer","Chief Financial Officer","Chief of Staff","IT Administrator","HR / IT Staff","Office Staff","District Manager","Store Manager","Construction & Development","Field Operations Auditor"]
     : ["District Manager","Store Manager","Construction & Development"];
   const USERTYPE_OPTIONS = isFullAdmin(currentUser)
-    ? [["executive","Executive Team"],["it","IT Team"],["office_staff","Office Staff"],["auditor","Field Operations Auditor"],["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]]
-    : [["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]];
+    ? [["executive","Executive Team"],["it","IT Team"],["office_staff","Office Staff"],["auditor","Field Operations Auditor"],["director","Director of Operations"],["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]]
+    : [["director","Director of Operations"],["dm","District Manager"],["manager","Store Manager"],["store_tablet","Store Tablet"],["vendor","Vendor"],["construction","Construction & Development"],["maintenance","Maintenance"]];
 
   const [roleFilter, setRoleFilter] = useState("all");
   const [isMobileUsers, setIsMobileUsers] = useState(() => window.innerWidth < 700);
   React.useEffect(() => { const fn = () => setIsMobileUsers(window.innerWidth < 700); window.addEventListener("resize", fn); return () => window.removeEventListener("resize", fn); }, []);
-  const ROLE_COLOR = { executive:"#10b981", it:th.info, office_staff:"#8b5cf6", auditor:"#e11d48", dm:"#f59e0b", manager:"#9ca3af", store_tablet:"#14b8a6", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
-  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", auditor:"Auditor", dm:"District Mgr", manager:"Manager", store_tablet:"Store Tablet", vendor:"Vendor", construction:"Construction", maintenance:"Maintenance" };
+  const ROLE_COLOR = { executive:"#10b981", it:th.info, office_staff:"#8b5cf6", auditor:"#e11d48", director:"#ca8a04", dm:"#f59e0b", manager:"#9ca3af", store_tablet:"#14b8a6", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
+  const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", auditor:"Auditor", director:"Director of Ops", dm:"District Mgr", manager:"Manager", store_tablet:"Store Tablet", vendor:"Vendor", construction:"Construction", maintenance:"Maintenance" };
   const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
   const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
 
@@ -3896,6 +3904,42 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                     </div>
                   </div>
                 </>)}
+                {/* Districts overseen — Directors of Operations (v22.34). At least one is required
+                    (users.mjs enforces it too); they switch between them from the sidebar. */}
+                {form.userType === "director" && (() => {
+                  const chosen = new Set((form.districts || []).map(Number));
+                  const toggleD = (n) => setForm(f => {
+                    const cur = new Set((f.districts || []).map(Number));
+                    if (cur.has(n)) cur.delete(n); else cur.add(n);
+                    return { ...f, districts: [...cur].sort((a, b) => a - b) };
+                  });
+                  return (<>
+                    <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
+                      <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
+                      <span style={{ fontSize:"0.86rem", fontWeight:700, color:th.text }}>Districts overseen</span>
+                    </div>
+                    <div style={{ marginBottom:"1.25rem" }}>
+                      <div role="group" aria-label="Districts overseen" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))", gap:"0.45rem" }}>
+                        {districtOptions.map(d => {
+                          const on = chosen.has(d.num);
+                          const dmUser = (users || []).find(u => u.userType === 'dm' && u.active !== false && Number(u.district) === d.num);
+                          return (
+                            <button type="button" key={d.num} className="fin-btn" aria-pressed={on} onClick={() => toggleD(d.num)}
+                              style={{ textAlign:"left", padding:"0.55rem 0.7rem", borderRadius:"0.6rem", cursor:"pointer", border:`1.5px solid ${on ? rc : th.cardBorder}`, background: on ? withAlpha(rc, 0.12) : th.card2, color:th.text, fontFamily:FONTS.body }}>
+                              <span style={{ display:"block", fontWeight:700, fontSize:"0.86rem" }}>District {d.num}</span>
+                              <span style={{ display:"block", fontSize:"0.72rem", color:th.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{dmUser ? dmUser.name : (d.dmName || 'No DM')}, {d.storeCount} store{d.storeCount !== 1 ? 's' : ''}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ fontSize:"0.68rem", color: chosen.size ? th.info : th.warn, marginTop:"0.45rem", paddingLeft:"0.2rem" }}>
+                        {chosen.size
+                          ? `Oversees ${chosen.size} district${chosen.size === 1 ? '' : 's'}. They switch between them from the sidebar and see what each DM sees. Their DMs stay assigned as they are.`
+                          : "Pick at least one district."}
+                      </div>
+                    </div>
+                  </>);
+                })()}
                 {/* Contact section */}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                   <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
@@ -5437,7 +5481,7 @@ function AdminLocations({ stores, setStores, districts, user, th, setTab, users,
           />
         </div>
         {/* List/Map view toggle — same roles that used to see the standalone Map tab */}
-        {(isAdmin || isOfficeStaff || isDM) && (
+        {(isAdmin || isOfficeStaff || isDM || user?.userType === "director") && (
           <div style={{ display: "inline-flex", background: th.card2, padding: "0.2rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem" }}>
             {[{ id: 'list', label: '☰ List' }, { id: 'map', label: '🗺 Map' }, { id: 'directory', label: '📋 Directory' }].map(v => (
               <button key={v.id} onClick={() => setViewMode(v.id)} style={{
@@ -6811,6 +6855,11 @@ function DistrictAlignmentTool({ user, th, stores, users, onBack, setStores, dis
                           <span style={{ width: 10, height: 10, borderRadius: '50%', background: dc.bg, flexShrink: 0 }} />
                           <span style={{ fontFamily: "'Raleway'", fontWeight: 800, fontSize: '1.05rem', color: th.text }}>{dNum ? `District ${dNum}` : 'Unassigned'}</span>
                           <span style={{ fontSize: '0.8rem', color: th.muted }}>{dm ? dm.name : (dNum ? 'No district manager' : '')}</span>
+                          {/* v22.34: the Director(s) of Operations overseeing this district — live
+                              from their accounts (set in Admin → Users), not part of the draft. */}
+                          {dNum > 0 && (users || []).filter(u => u.userType === 'director' && u.active !== false && (u.districts || []).map(Number).includes(dNum)).map(u => (
+                            <span key={u.id} title="Director of Operations — change in Admin → Users" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ca8a04', background: withAlpha('#ca8a04', 0.12), padding: '0.12rem 0.5rem', borderRadius: 999, whiteSpace: 'nowrap' }}>Director: {u.name}</span>
+                          ))}
                           {isTarget && <span style={{ fontSize: '0.75rem', fontWeight: 700, color: th.text }}>· Drop to move {storeByPc[dragPc]?.name || dragPc} here</span>}
                           {/* Add or change (v22.14) the district's DM. Picking a DM account fills
                               name + email exactly as in Admin → Users, which is what Apply to live
@@ -7576,7 +7625,10 @@ function AdminAnalytics({ stores, users, districts, th, salesWeeks, setSalesWeek
   // Enrich parsed stores with portal store metadata
   const enriched = React.useMemo(() => {
     if (!week) return [];
-    return week.stores.map(row => {
+    // v22.34: the uploaded week covers every store; a Director only gets rows for their
+    // own stores (the `stores` prop), so every total below is theirs alone.
+    const mine = user?.userType === 'director' ? new Set((stores || []).map(st => String(st.pc))) : null;
+    return week.stores.filter(row => !mine || mine.has(String(row.pc))).map(row => {
       const s = stores.find(st => String(st.pc) === String(row.pc));
       return { ...row, name: s?.name || row.pc, city: s?.city || '', district: s?.district || null, status: s?.status || '' };
     });
@@ -13874,7 +13926,8 @@ function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearD
   }));
 
   // Store rows
-  const dmPCSet = isDMUser ? new Set(activePCs.map(String)) : null;
+  // v22.34: a Director’s complaints are narrowed to their stores too (activePCs is already theirs).
+  const dmPCSet = (isDMUser || user?.userType === "director") ? new Set(activePCs.map(String)) : null;
   const loaded  = Object.entries(storeData).filter(([pc, d]) => d.status === 'ok' && (!dmPCSet || dmPCSet.has(String(pc)))).map(([,d])=>d);
   const errored = Object.entries(storeData).filter(([pc, d]) => d.status === 'error' && (!dmPCSet || dmPCSet.has(String(pc)))).map(([,d])=>d);
   const totals  = loaded.reduce((a, d) => ({
@@ -17100,7 +17153,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
 
   const editable = canEditProjects(user);
   const isMaintenance = user?.userType === 'maintenance';
-  const isFieldView = isMaintenance || user?.userType === 'dm'; // field crew + DMs: restricted project view
+  const isFieldView = isMaintenance || user?.userType === 'dm' || user?.userType === 'director'; // field crew + DMs (and Directors, v22.34): restricted project view
   const MAINT_PHASES = ['equipment_ordering', 'construction']; // only phases field view can see
   const nextId = () => Math.max(0, ...projects.map(p => p.id)) + 1;
 
@@ -17190,6 +17243,7 @@ function AdminProjects({ projects, setProjects, stores, districts, user, th, sho
   const isDM = user?.userType === "dm";
   const filtered = React.useMemo(() => enrichedProjects.filter(p => {
     if (isDM && String(p.district) !== String(user.district)) return false;
+    if (user?.userType === "director" && !seesDistrict(user, p.district)) return false; // v22.34
     if (filterType !== "All" && p.type !== filterType) return false;
     if (filterPhase !== "All" && rowModel.get(p)?.phase.id !== filterPhase) return false;
     if (search.trim()) {
@@ -22541,7 +22595,7 @@ function MinorTimecardComplianceTab({ user, th, showAlert }) {
 
   // Matches minor-timecard-resolve.mjs's own server-side gate (exec/it/dm); the
   // endpoint re-checks it, this only decides whether to show the button.
-  const canResolve = user?.userType === 'executive' || user?.userType === 'it' || user?.userType === 'dm';
+  const canResolve = user?.userType === 'executive' || user?.userType === 'it' || user?.userType === 'dm' || user?.userType === 'director'; // v22.34: the server checks their district list
 
   // Always called with an array (never the null loading sentinel) so the hook
   // runs identically on every render, loaded or not.
@@ -24767,6 +24821,7 @@ const ROLE_META = {
   it:           { label: 'IT / HR Admin',  admin: true,  scope: 'Full access + user management & this Admin console.' },
   office_staff: { label: 'Office Staff',   admin: false, scope: 'All operational tabs, network-wide. No destructive admin powers.' },
   auditor:      { label: 'Field Operations Auditor', admin: false, scope: 'Field audits (conduct + review), plus Pulse, Map, and Tickets — network-wide read.' },
+  director:     { label: 'Director of Operations', admin: false, scope: 'Oversees several districts at once: every screen shows all their districts\u2019 stores together, like the exec view but limited to them. Gets no DM alerts.' },
   dm:           { label: 'District Manager',admin: false, scope: 'Tabs filtered to their own district only.' },
   manager:      { label: 'Store Manager',  admin: false, scope: 'Their assigned store(s) only; My Store mobile mode.' },
   store_tablet: { label: 'Store Tablet',   admin: false, scope: 'Assigned store only — Tickets + Tasks tablet view (Hexnode kiosk).' },
@@ -26550,6 +26605,8 @@ function AdminTickets({ user, users, stores, th, showAlert, ticketNotifyEmails, 
   const visibleTickets = React.useMemo(() => tickets.filter(t => {
     if (isAdmin || isOffice) return true;
     if (isDM) { const store = stores.find(s => s.pc === t.storePC); return store ? store.district === user?.district : false; }
+    // v22.34: a Director sees tickets for their stores only (the `stores` prop is already theirs).
+    if (user?.userType === "director") return stores.some(s => String(s.pc) === String(t.storePC));
     if (isStoreScoped && managerStore) return t.storePC === managerStore.pc;
     return true;
   }), [tickets, isAdmin, isOffice, isDM, isStoreScoped, managerStore, stores, user]);
@@ -27557,7 +27614,7 @@ async function auditsApi(action, body = {}) {
 // the dashboard, see manager rankings.
 const auditCanAudit = (u) => ["auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
 // canView: reach the Audits tab / CAP board / dashboard at all (read-only floor).
-const auditCanView = (u) => ["auditor", "executive", "it", "office_staff", "dm"].includes(u?.userType) || !!u?.auditsAccess;
+const auditCanView = (u) => ["auditor", "executive", "it", "office_staff", "dm", "director"].includes(u?.userType) || !!u?.auditsAccess;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Safe Audits (cash-count reconciliation) — separate module from Field Ops.
@@ -27585,7 +27642,7 @@ async function safeAuditsApi(action, body = {}) {
 // Mirrors safeCanView in safe-audits.mjs — office_staff gets read-only Safe view
 // (they can't conduct; that's gated by safeCanConduct).
 const safeCanView = (u) =>
-  ["manager", "dm", "auditor", "executive", "it", "office_staff"].includes(u?.userType) || !!u?.auditsAccess;
+  ["manager", "dm", "director", "auditor", "executive", "it", "office_staff"].includes(u?.userType) || !!u?.auditsAccess;
 // Who can conduct/submit a Safe audit — mirrors CONDUCT_ROLES ∪ grant==='full'.
 const safeCanConduct = (u) =>
   ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
@@ -30755,7 +30812,8 @@ const computeRoleTabs = (user) => {
     { id: "map",       label: "Map",          icon: (c) => ICONS.map(c) },
   ];
   // District Managers → base + their locations + their district analytics + projects (view-only)
-  if (ut === "dm") return [
+  // v22.34: a Director of Operations gets the DM tabs, scoped to all their districts at once.
+  if (ut === "dm" || ut === "director") return [
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
@@ -32159,7 +32217,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.33";
+const APP_VERSION = "v22.37";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36152,7 +36210,10 @@ function SimpleDashboard({ user, th, todos, stores, projects, announcements, set
   const isDM = ut === 'dm';
   const isManager = ut === 'manager';
   const isConstruction = ut === 'construction';
-  const opsRole = isExecIT || isOffice || isDM || isManager;
+  // v22.34: a Director gets the ops view of an exec, over only their districts' stores
+  // (the `stores` prop is already cut to them). The single-district DM brief is DM-only.
+  const isDirectorUser = ut === 'director';
+  const opsRole = isExecIT || isOffice || isDM || isManager || isDirectorUser;
   const allowedTabIds = React.useMemo(() => new Set(getTabs(user).map(t => t.id)), [user]);
   const go = (tabId) => (allowedTabIds.has(tabId) ? () => setTab(tabId) : null);
 
@@ -36233,10 +36294,11 @@ function SimpleDashboard({ user, th, todos, stores, projects, announcements, set
     rows.push({ key: 'food_safety', icon: ICON_SHIELD, title: 'Food safety', sev: 'Medium', onClick: go('tasks'),
       sub: `${foodSafety.checks} overdue check${foodSafety.checks !== 1 ? 's' : ''} ${foodSafety.only ? `at ${foodSafety.only}` : `across ${foodSafety.stores} stores`} today` });
   }
-  if (isExecIT || isOffice || isDM || isConstruction) {
+  if (isExecIT || isOffice || isDM || isConstruction || isDirectorUser) {
     const late = (projects || []).filter(p => {
       if (p.completed || !p.dueDate) return false;
       if (isDM && String(p.district) !== String(user?.district)) return false;
+      if (isDirectorUser && !seesDistrict(user, p.district)) return false;
       try { if (getCurrentPhase(p)?.id === 'complete') return false; } catch {}
       return new Date(p.dueDate) < now;
     });
@@ -36273,7 +36335,7 @@ function SimpleDashboard({ user, th, todos, stores, projects, announcements, set
     { label: 'Browse links', icon: ICONS.links, tab: 'links' },
     { label: 'New note', icon: ICONS.notes, tab: 'notes' },
     { label: 'Add task', icon: ICONS.todos, tab: 'todos' },
-    ...((isExecIT || isOffice || isDM || isConstruction) ? [{ label: 'View projects', icon: ICONS.projects, tab: 'projects' }] : []),
+    ...((isExecIT || isOffice || isDM || isConstruction || isDirectorUser) ? [{ label: 'View projects', icon: ICONS.projects, tab: 'projects' }] : []),
   ].filter(a => allowedTabIds.has(a.tab)).slice(0, 4);
 
   const hour = now.getHours();
@@ -41782,7 +41844,10 @@ function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn,
   // Live view vs a picked past day (viewDate) — everything below renders `shownData`.
   const shownData = viewDate ? dayData : laborData;
   const tf = viewDate ? 'today' : timeFilter;
-  const storeEntries = shownData?.stores ? Object.entries(shownData.stores) : [];
+  // v22.34: the labor snapshot covers every store; a Director only ever gets their own
+  // (the `stores` prop is already cut to their districts).
+  const directorPcs = user?.userType === 'director' ? new Set((stores || []).map(s => String(s.pc))) : null;
+  const storeEntries = (shownData?.stores ? Object.entries(shownData.stores) : []).filter(([pc]) => !directorPcs || directorPcs.has(String(pc)));
   const filtered = isManager
     ? storeEntries.filter(([pc]) => managerStorePCs.has(String(pc)))
     : districtFilter === 'all'
@@ -42420,9 +42485,12 @@ function OpsTasks({ stores, th, user }) {
     // Same unvalidated-error-response crash class as loadGps below — a
     // backend error object has no `stores` array, and the render dereferences
     // rollup.stores.length/.map unconditionally.
-    setRollup(r && Array.isArray(r.stores) ? r : { stores: [] });
+    // v22.34: a Director asks for the whole network (they have no single district) and
+    // keeps only their own stores, so the list is all their districts merged.
+    const own = user?.userType === "director" ? new Set(scopeStores.map(st => String(st.pc))) : null;
+    setRollup(r && Array.isArray(r.stores) ? (own ? { ...r, stores: r.stores.filter(st => own.has(String(st.pc))) } : r) : { stores: [] });
     setLoading(false);
-  }, [api, date, isDM, user]);
+  }, [api, date, isDM, user, scopeStores]);
 
   const loadCAs = useCallback(async () => {
     setLoadingCAs(true);
@@ -42430,9 +42498,10 @@ function OpsTasks({ stores, th, user }) {
       store_pc: isManager ? (myStore ? String(myStore.pc) : "") : null,
       district: isDM ? user?.district : null,
     });
-    setCas(r.corrective_actions || []);
+    const own = user?.userType === "director" ? new Set(scopeStores.map(st => String(st.pc))) : null; // v22.34
+    setCas((r.corrective_actions || []).filter(ca => !own || own.has(String(ca.store_pc))));
     setLoadingCAs(false);
-  }, [api, isManager, myStore, isDM, user]);
+  }, [api, isManager, myStore, isDM, user, scopeStores]);
 
   const loadGps = useCallback(async () => {
     setGpsLoading(true);
@@ -46373,7 +46442,8 @@ function AdminFinance({ stores, districts, th, user, users, drillInStore, onClea
   pinnedNavIds, togglePinNav, cashMissingCount }) {
   const isAdmin = isFullAdmin(user);
   const isOfficeStaff = user?.userType === 'office_staff';
-  const isDM = user?.userType === 'dm';
+  // v22.34: access only — a Director gets the DM tiles; `stores` already holds just their districts.
+  const isDM = user?.userType === 'dm' || user?.userType === 'director';
   const isManager = user?.userType === 'manager';
   const canNdcp = isAdmin || isOfficeStaff;
   const canCash = isAdmin || isOfficeStaff || isDM;
@@ -53434,6 +53504,8 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
       const distPCs = new Set(stores.filter(s => String(s.district) === String(user.district)).map(s => String(s.pc)));
       return open.filter(t => distPCs.has(String(t.storePC)));
     }
+    // v22.34: a Director gets their stores only (`stores` is already cut to their districts).
+    if (user?.userType === "director") { const own = new Set(stores.map(s => String(s.pc))); return open.filter(t => own.has(String(t.storePC))); }
     return open;
   }, [tickets, isManager, isDM, stores, user]);
 
@@ -53460,6 +53532,7 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
   const myProjects = React.useMemo(() => {
     if (isManager) return enrichedCalProjects.filter(p => isManagersStore({ pc: p.pc }, user));
     if (isDM)      return enrichedCalProjects.filter(p => String(p.district) === String(user.district));
+    if (user?.userType === "director") return enrichedCalProjects.filter(p => seesDistrict(user, p.district)); // v22.34
     return enrichedCalProjects;
   }, [enrichedCalProjects, isManager, isDM, user]);
 
@@ -53484,6 +53557,10 @@ function PortalCalendar({ th, user, stores, todos, projects }) {
     if (ut === 'dm') {
       const distPCs = new Set(stores.filter(s => String(s.district) === String(user.district)).map(s => String(s.pc)));
       return schedules.filter(s => !s.storePC || distPCs.has(String(s.storePC)));
+    }
+    if (ut === 'director') { // v22.34: their stores only
+      const own = new Set(stores.map(s => String(s.pc)));
+      return schedules.filter(s => !s.storePC || own.has(String(s.storePC)));
     }
     if (ut === 'manager') {
       const myStores = new Set(stores.filter(s => isManagersStore(s, user)).map(s => String(s.pc)));
@@ -54644,7 +54721,16 @@ function ManagerSyncReviewModal({ pc, item, stores, users, setUsers, currentUser
 
 function PCGPortal() {
   // Load persisted data on first render
-  const [user, setUser]         = useState(null);
+  const [rawUser, setUser]      = useState(null);
+  // v22.34 Director of Operations: their own role. Every screen shows them the network
+  // layout an exec sees, but openStores (below) holds only their districts' stores, so the
+  // "network" is just their districts combined. The server limits them the same way
+  // (claimDistricts in auth-lib/require-user.js). A session restored via portalMe carries
+  // the server's view of the claims (userType 'dm', realUserType 'director'): undo that here.
+  const user = React.useMemo(() => {
+    if (!rawUser || !isDirector(rawUser)) return rawUser;
+    return { ...rawUser, userType: 'director', realUserType: 'director', district: null, districts: parseDistricts(rawUser.districts) };
+  }, [rawUser]);
   // Native-app SSO: the PCG Pulse iOS app injects a valid portal token into
   // sessionStorage['pcg_portal_token'] before this SPA boots. If we have that token but no
   // user yet, validate it server-side (portalMe) and restore the session — so the embedded
@@ -54797,8 +54883,12 @@ function PCGPortal() {
   // Permanently Closed (as of today) — one definition, src/store-status.mjs.
   const openStores = React.useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    return (stores || []).filter(s => !isClosedOn(s, today));
-  }, [stores]);
+    const open = (stores || []).filter(s => !isClosedOn(s, today));
+    // v22.34: a Director’s whole portal is their districts’ stores — this is the one list
+    // every screen reads, so cutting it here scopes Pulse, Labor, Map, Locations, etc. at once.
+    if (isDirector(user)) { const ds = new Set((user.districts || []).map(Number)); return open.filter(s => ds.has(Number(s.district))); }
+    return open;
+  }, [stores, user?.realUserType, (user?.districts || []).join(",")]);
   useEffect(() => { LIVE_OPEN_STORES = openStores; }, [openStores]);
   const [districts, setDistricts] = useState(() => { const s=loadFromStorage(); return s?.districts || DISTRICTS_SEED; });
   setDistrictsRef(districts);
@@ -54972,6 +55062,7 @@ function PCGPortal() {
     it:        ['executive', 'pulse', 'finance', 'projects'],
     office_staff: ['pulse', 'reports', 'projects'],
     dm:        ['pulse', 'reports'],
+    director:  ['pulse', 'reports'],
     manager:   ['pulse', 'reports'],
   };
   const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || []))
@@ -55244,6 +55335,7 @@ function PCGPortal() {
       const visible = allReports.filter(r => {
         if (ut === 'executive' || ut === 'it') return true;
         if (ut === 'dm' && dist) return r.scope === 'network' || r.scope === `district:${dist}`;
+        if (ut === 'director') return r.scope === 'network' || (user.districts || []).some(d => r.scope === `district:${d}`); // v22.34
         if (ut === 'manager' && storePC) return r.scope === `store:${storePC}`;
         if (ut === 'office_staff') return r.scope === 'network';
         return r.scope === 'network';
@@ -55285,6 +55377,7 @@ function PCGPortal() {
     const dmDist = isUserDM ? user?.district : null;
     const visible = stores.filter(s => {
       if (isUserDM && s.district !== dmDist) return false;
+      if (isDirector(user) && !seesDistrict(user, s.district)) return false; // v22.34
       return s.status === "Open";
     });
     const today = new Date();
@@ -56685,7 +56778,8 @@ function PCGPortal() {
 
   // Role flags — used in sidebar + content rendering guards
   const isOfficeStaff = user?.userType === "office_staff";
-  const isDM          = user?.userType === "dm";
+  // v22.34: a Director passes every DM page gate here; their store list (openStores) is what scopes them.
+  const isDM          = user?.userType === "dm" || isDirector(user);
   const isManager     = user?.userType === "manager";
   const isConstruction = user?.userType === "construction";
   const isAuditor      = user?.userType === "auditor";
@@ -57044,8 +57138,8 @@ function PCGPortal() {
           );
         })()}
 
-        {/* DM section — grouped accordion */}
-        {user?.userType === "dm" && (() => {
+        {/* DM section — grouped accordion (v22.34: Directors of Operations too) */}
+        {(user?.userType === "dm" || isDirector(user)) && (() => {
           const dmTabs = tabsForUser(user).filter(t => !BASE_TAB_IDS.includes(t.id));
           // Flat single-click rows, same as the exec/office categories — "team-hub" and
           // "ops-hub" are tile-grid landing pages; Finance and Reports are single tools
@@ -57060,7 +57154,7 @@ function PCGPortal() {
           const sectionOpen = collapsed || !!sidebarSectionsOpen['sec_dm'] || sectionHasActive;
           return (
             <>
-              <SectionHeader label="My District" accent="#74c0fc" collapsed={collapsed}
+              <SectionHeader label={isDirector(user) ? "My Districts" : "My District"} accent="#74c0fc" collapsed={collapsed}
                 open={sectionOpen} onToggle={() => toggleSidebarSection('sec_dm')} />
               {sectionOpen && DM_GROUPS.map(grp => {
                 const tabDef = dmTabs.find(t => t.id === grp.id);
@@ -57298,7 +57392,7 @@ function PCGPortal() {
     </>
   );
 
-  if (user && isMobile && !preferFullPortal && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
+  if (user && isMobile && !preferFullPortal && !isDirector(user) && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
     return (
       <Guard name="mobile-shell" fallback={
         <div style={{ minHeight: '100dvh', background: th.bg, color: th.text, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
@@ -57804,14 +57898,14 @@ function PCGPortal() {
           {tab === "contacts" && <ContactsPage contacts={contacts} setContacts={setContacts} vendors={vendors} setVendors={setVendors} isAdmin={isFullAdmin(user)} th={th} />}
           {tab === "notes"    && <Notes allNotes={notes} setAllNotes={setNotes} user={user} th={th} />}
           {tab === "todos"    && <Todos todos={todos} setTodos={setTodos} user={user} users={users} th={th} deepLinkRef={todoDeepLinkRef} />}
-          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <StoreMap stores={openStores.filter(s => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district)} th={th} setTab={setTab} users={users} />}
-          {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff ? openStores : openStores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
+          {tab === "map"       && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && <StoreMap stores={openStores.filter(s => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : (isDirector(user) ? (user.districts || []).map(Number).includes(Number(s.district)) : s.district == user?.district))} th={th} setTab={setTab} users={users} />}
+          {tab === "anomalies"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AnomaliesTab stores={isFullAdmin(user) || isOfficeStaff || isDirector(user) ? openStores : openStores.filter(s => String(s.district) === String(user?.district))} th={th} user={user} setTab={setTab} />}
           {tab === "scorecard"  && isFullAdmin(user) && <DmScorecardTab th={th} users={users} districts={districts} stores={openStores} salesWeeks={salesWeeks} />}
-          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} users={users} onMapModeChange={setLocationsMapMode} />}
+          {tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && <AdminLocations stores={isDirector(user) ? openStores : stores} setStores={setStores} districts={districts} user={user} th={th} setTab={setTab} users={users} onMapModeChange={setLocationsMapMode} />}
           {tab === "districts" && isFullAdmin(user) && <AdminDistricts districts={districts} setDistricts={setDistricts} stores={openStores} setStores={setStores} users={users} th={th} />}
           {tab === "users"     && (isFullAdmin(user) || user?.userType === "office_staff") && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} managerPendingCount={managerPendingCount} districts={districts} setDistricts={setDistricts} setStores={setStores} />}
           {tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminAnalytics stores={openStores} users={users} districts={districts} th={th} salesWeeks={salesWeeks} setSalesWeeks={setSalesWeeks} cloudStatus={cloudStatus} user={user} />}
-          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === 'dm') && <AdminPulse stores={openStores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
+          {tab === "pulse"     && (isFullAdmin(user) || isOfficeStaff || isAuditor || isDM) && <AdminPulse stores={openStores} districts={districts} th={th} user={user} users={users} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} txnDeepLinkRef={txnDeepLinkRef} />}
           {tab === "pulse"     && isManager && <ManagerPulse stores={openStores} th={th} user={user} txnDeepLinkRef={txnDeepLinkRef} initialTab={pulseInitialTab} />}
           {tab === "schedule"  && (isFullAdmin(user) || isOfficeStaff || isDM) && <AdminSchedule stores={openStores} th={th} user={user} />}
           {tab === "schedule"  && isManager && <ManagerSchedule stores={openStores} th={th} user={user} />}
@@ -57862,7 +57956,7 @@ function PCGPortal() {
             const toolsTiles = [
               { id: 'district-alignment', name: 'District Alignment', sub: 'Draft district/DM groupings, sales snapshots, and store spacing — a sandbox that never touches real Locations data.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'district-alignment'), icon: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></> },
               { id: 'incident-reports', name: 'Incident Reports', sub: 'File and review Workplace Incident Reports — case info, witnesses, photo/video evidence, PDF export.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'incident-reports'), icon: <>{ICONS.incident(TOOLS)}</> },
-              { id: 'minor-timecard', name: 'Minor Timecard Compliance', sub: 'Weekly PA minor-labor-law timecard review — who needs a fix, and who\'s already been notified.', show: ['executive','it','office_staff','dm','manager'].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'minor-timecard'), icon: <>{ICONS.minorTimecard(TOOLS)}</> },
+              { id: 'minor-timecard', name: 'Minor Timecard Compliance', sub: 'Weekly PA minor-labor-law timecard review — who needs a fix, and who\'s already been notified.', show: ['executive','it','office_staff','dm','director','manager'].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'minor-timecard'), icon: <>{ICONS.minorTimecard(TOOLS)}</> },
               // No "Office Time Clock" tile here — MobileAppLauncher always
               // promotes it to its own direct tile for a linked office_staff
               // account (not folded into this grid like other tools-hub

@@ -311,7 +311,9 @@ function enforceScope(caller, requested) {
   if (!caller || isExec(caller.role)) return requested;
   if (caller.role === 'manager') return caller.storePC ? [caller.storePC] : [];
   if (caller.role === 'dm' && caller.district != null) {
-    const dp = Object.values(STORE_BY_PC).filter((s) => s.district === caller.district).map((s) => String(s.pc));
+    // v22.34: a Director (resolved as role 'dm') may read stores in any of their own districts.
+    const ds = caller.districts?.length ? caller.districts : [caller.district];
+    const dp = Object.values(STORE_BY_PC).filter((s) => ds.includes(Number(s.district))).map((s) => String(s.pc));
     return requested.length ? requested.filter((p) => dp.includes(p)) : dp;
   }
   return requested;

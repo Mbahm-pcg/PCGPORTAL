@@ -112,6 +112,8 @@ export function filterIssuesForRole(issues, user) {
   const ut = user?.userType;
   if (ut === 'executive' || ut === 'it' || ut === 'office_staff') return issues;
   if (ut === 'dm') return issues.filter(i => String(i.district) === String(user.district));
+  // v22.34: a Director of Operations sees every district they oversee, merged.
+  if (ut === 'director') { const ds = (user.districts || []).map(String); return issues.filter(i => ds.includes(String(i.district))); }
   if (ut === 'manager') return issues.filter(i => String(i.pc) === String(user.storePC));
   return [];
 }

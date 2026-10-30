@@ -1635,7 +1635,7 @@
     });
     const failed = (data?.sync?.stores || []).filter((s) => !s.ok);
     const noDates = isAdmin && data?.syncedAt && (data?.rows || []).length === 0 && (data?.sync?.stores || []).some((s) => s.inactiveNoDate > 0);
-    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + TERM_CSS(th)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 320px", minWidth: 0 } }, onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Terminations"), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: 0 } }, "People who left, by store, from Paycor.", data?.scope === "district" ? " Your district only." : data?.scope === "store" ? " Your store only." : "")), isAdmin && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: syncNow, disabled: syncing, style: { ...S.ghost, display: "inline-flex", alignItems: "center", gap: "0.45rem", opacity: syncing ? 0.7 : 1 } }, /* @__PURE__ */ React.createElement(FinRefreshIcon, { color: th.text, spinning: syncing }), syncing ? "Syncing from Paycor" : "Sync now")), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginBottom: "1rem" } }, "Couldn\u2019t load the report: ", error), !data && !error && /* @__PURE__ */ React.createElement(FinSkeleton, { th, rows: 6, figures: 3 }), data && !data.syncedAt && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "info", style: { marginBottom: "1rem" } }, isAdmin ? "No sync has run yet. Press Sync now to pull every store from Paycor; it takes a minute or two." : "This report has not been synced from Paycor yet. Check back tomorrow morning."), isAdmin && failed.length > 0 && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn", style: { marginBottom: "1rem" } }, failed.length, " store", failed.length === 1 ? "" : "s", " couldn\u2019t be read from Paycor in the last sync, so the previous sync\u2019s people are shown for them: ", failed.map((f) => allStores.find((s) => s.pc === f.pc)?.name || f.pc).join(", "), "."), noDates && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn", style: { marginBottom: "1rem" } }, "Paycor returned former employees but no termination date the report recognises. Fields seen: ", (data.sync.fieldKeys || []).join(", ") || "none", "."), data && data.syncedAt && /* @__PURE__ */ React.createElement("div", { style: { ...S.panel } }, /* @__PURE__ */ React.createElement("div", { style: S.panelHead }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(FinTabs, { th, label: "Report length", options: [["quarter", "Quarter"], ["half", "Half year"]], value: kind, onChange: switchKind }), /* @__PURE__ */ React.createElement("div", { role: "group", "aria-label": "Period", style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", "aria-label": "Previous period", onClick: () => step(-1), style: { ...S.ghost, minHeight: 36, width: 36, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: th.text, strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M15 18l-6-6 6-6" }))), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { minWidth: 150, textAlign: "center", fontFamily: FONTS.head, fontWeight: 800, color: th.text, fontSize: "1rem" } }, periodText), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", "aria-label": "Next period", onClick: () => step(1), disabled: atLatest, style: { ...S.ghost, minHeight: 36, width: 36, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: atLatest ? 0.4 : 1 } }, /* @__PURE__ */ React.createElement("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: th.text, strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M9 18l6-6-6-6" })))), data.scope === "all" && districts.length > 1 && /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", fontSize: "0.84rem", color: th.muted, marginLeft: isMobile ? 0 : "auto" } }, "District", /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: district, onChange: (e) => {
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + TERM_CSS(th)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 320px", minWidth: 0 } }, onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Terminations"), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: 0 } }, "People who left, by store, from Paycor.", data?.scope === "district" ? districts.length > 1 ? " Your districts only." : " Your district only." : data?.scope === "store" ? " Your store only." : "")), isAdmin && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: syncNow, disabled: syncing, style: { ...S.ghost, display: "inline-flex", alignItems: "center", gap: "0.45rem", opacity: syncing ? 0.7 : 1 } }, /* @__PURE__ */ React.createElement(FinRefreshIcon, { color: th.text, spinning: syncing }), syncing ? "Syncing from Paycor" : "Sync now")), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginBottom: "1rem" } }, "Couldn\u2019t load the report: ", error), !data && !error && /* @__PURE__ */ React.createElement(FinSkeleton, { th, rows: 6, figures: 3 }), data && !data.syncedAt && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "info", style: { marginBottom: "1rem" } }, isAdmin ? "No sync has run yet. Press Sync now to pull every store from Paycor; it takes a minute or two." : "This report has not been synced from Paycor yet. Check back tomorrow morning."), isAdmin && failed.length > 0 && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn", style: { marginBottom: "1rem" } }, failed.length, " store", failed.length === 1 ? "" : "s", " couldn\u2019t be read from Paycor in the last sync, so the previous sync\u2019s people are shown for them: ", failed.map((f) => allStores.find((s) => s.pc === f.pc)?.name || f.pc).join(", "), "."), noDates && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn", style: { marginBottom: "1rem" } }, "Paycor returned former employees but no termination date the report recognises. Fields seen: ", (data.sync.fieldKeys || []).join(", ") || "none", "."), data && data.syncedAt && /* @__PURE__ */ React.createElement("div", { style: { ...S.panel } }, /* @__PURE__ */ React.createElement("div", { style: S.panelHead }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(FinTabs, { th, label: "Report length", options: [["quarter", "Quarter"], ["half", "Half year"]], value: kind, onChange: switchKind }), /* @__PURE__ */ React.createElement("div", { role: "group", "aria-label": "Period", style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", "aria-label": "Previous period", onClick: () => step(-1), style: { ...S.ghost, minHeight: 36, width: 36, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: th.text, strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M15 18l-6-6 6-6" }))), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { minWidth: 150, textAlign: "center", fontFamily: FONTS.head, fontWeight: 800, color: th.text, fontSize: "1rem" } }, periodText), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", "aria-label": "Next period", onClick: () => step(1), disabled: atLatest, style: { ...S.ghost, minHeight: 36, width: 36, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: atLatest ? 0.4 : 1 } }, /* @__PURE__ */ React.createElement("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: th.text, strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M9 18l6-6-6-6" })))), data.scope !== "store" && districts.length > 1 && /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", fontSize: "0.84rem", color: th.muted, marginLeft: isMobile ? 0 : "auto" } }, "District", /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: district, onChange: (e) => {
       setDistrict(e.target.value);
       setOpen(/* @__PURE__ */ new Set());
     }, style: { ...S.input, width: "auto", minHeight: 36, padding: "0.35rem 0.6rem" } }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "All districts"), districts.map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: String(d) }, "District ", d))))), /* @__PURE__ */ React.createElement(FinFigures, null, /* @__PURE__ */ React.createElement(FinFigure, { th, label: "People who left", value: total, format: (n) => String(Math.round(n)), note: `${period.start.slice(5).replace("-", "/")} to ${period.end.slice(5).replace("-", "/")}` }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: `Left within ${EARLY_DAYS} days`, value: early, format: (n) => String(Math.round(n)), note: total ? `${Math.round(early / total * 100)}% of everyone who left` : "Nobody this period" }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: `Change from ${shiftPeriod(period, -1).short}`, value: delta2 === 0 ? "No change" : `${delta2 > 0 ? "+" : ""}${delta2}`, tone: delta2 > 0 ? "bad" : delta2 < 0 ? "good" : void 0, note: `${prevTotal} that period` }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Stores affected", value: groups.length, format: (n) => String(Math.round(n)), note: `of ${stores.length}` }))), groups.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { padding: "2.2rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, textAlign: "center", color: th.muted, fontSize: "0.92rem" } }, "Nobody left in ", periodText, district !== "all" ? ` in District ${district}` : "", ".") : /* @__PURE__ */ React.createElement("div", { key: `${period.short}|${district}`, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1.1rem", flexWrap: "wrap", padding: "0.7rem 1.1rem", fontSize: "0.8rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { width: 12, height: 12, borderRadius: 4, background: O } }), "Stayed ", EARLY_DAYS, " days or more"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { width: 12, height: 12, borderRadius: 4, boxShadow: `inset 0 0 0 2px ${O}` } }), "Left within ", EARLY_DAYS, " days")), groups.map((g, ri) => {
@@ -1673,6 +1673,14 @@
       ), /* @__PURE__ */ React.createElement("div", { className: "fin-disclose", "data-open": isOpen ? "true" : "false", "aria-hidden": !isOpen }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: S.headCell }, "Name"), !isMobile && /* @__PURE__ */ React.createElement("th", { style: S.headCell }, "Job title"), !isMobile && /* @__PURE__ */ React.createElement("th", { style: S.headCell }, "Hired"), /* @__PURE__ */ React.createElement("th", { style: S.headCell }, "Left"), /* @__PURE__ */ React.createElement("th", { style: S.headCell }, "Time there"))), /* @__PURE__ */ React.createElement("tbody", null, g.people.map((p) => /* @__PURE__ */ React.createElement("tr", { key: p.id + p.terminationDate, className: "fin-row" }, /* @__PURE__ */ React.createElement("td", { style: { ...S.cell, fontWeight: 600 } }, p.name), !isMobile && /* @__PURE__ */ React.createElement("td", { style: { ...S.cell, color: th.muted } }, p.jobTitle || "Not listed"), !isMobile && /* @__PURE__ */ React.createElement("td", { style: S.cell }, fmtDate(p.hireDate)), /* @__PURE__ */ React.createElement("td", { style: S.cell }, fmtDate(p.terminationDate)), /* @__PURE__ */ React.createElement("td", { style: { ...S.cell, color: isEarly(p) ? O : th.text, fontWeight: isEarly(p) ? 700 : 400 } }, tenureText(p)))))))));
     })), /* @__PURE__ */ React.createElement("div", { style: { ...S.footer, justifyContent: "flex-start", color: th.muted, fontSize: "0.8rem" } }, "Last synced from Paycor ", new Date(data.syncedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }), ". Syncs every morning.")));
   }
+
+  // src/director-scope.mjs
+  function parseDistricts(v) {
+    const list = Array.isArray(v) ? v : String(v ?? "").split(/[,\s]+/);
+    const out = [...new Set(list.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0))];
+    return out.sort((a, b) => a - b);
+  }
+  var isDirector = (user) => (user?.realUserType || user?.userType) === "director";
 
   // src/incident-report.mjs
   var DEFAULT_EVIDENCE_ITEMS = [
@@ -1736,6 +1744,10 @@
     const ut = user?.userType;
     if (ut === "executive" || ut === "it" || ut === "office_staff") return issues;
     if (ut === "dm") return issues.filter((i) => String(i.district) === String(user.district));
+    if (ut === "director") {
+      const ds = (user.districts || []).map(String);
+      return issues.filter((i) => ds.includes(String(i.district)));
+    }
     if (ut === "manager") return issues.filter((i) => String(i.pc) === String(user.storePC));
     return [];
   }
@@ -3338,6 +3350,8 @@
   }
   var canEditProjects = (u) => u && (u.userType === "executive" || u.userType === "it" || u.userType === "office_staff" || u.userType === "construction");
   var canViewProjects = (u) => u && u.userType !== "manager";
+  var userDistricts = (u) => u?.userType === "director" ? (u.districts || []).map(Number) : u?.userType === "dm" && u.district != null && u.district !== "" ? [Number(u.district)] : [];
+  var seesDistrict = (u, d) => userDistricts(u).includes(Number(d));
   var PASSWORD_POLICY_TEXT = "At least 12 characters, including an uppercase letter, a lowercase letter, a number, and a special character.";
   var isSharedDeviceType = (t) => {
     const s = String(t || "");
@@ -3735,7 +3749,7 @@
         return;
       }
       if (res.ok) {
-        found = localAcct ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false } : res.user ? {
+        found = localAcct ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false, districts: res.user?.districts ?? localAcct.districts } : res.user ? {
           id: res.user.id,
           username: res.user.username,
           name: res.user.name,
@@ -3752,6 +3766,7 @@
           twoFactorSecret: res.twoFactorSecret || null,
           mustSetup: res.user.mustSetup || false,
           officeClockLinked: res.user.officeClockLinked || false,
+          districts: res.user.districts,
           active: true
         } : null;
       }
@@ -3783,7 +3798,7 @@
       }
       const uname = res.user?.username || "";
       const localAcct = uname ? users.find((u) => (u.username || "").trim().toLowerCase() === uname.toLowerCase() && u.active !== false) : null;
-      const found = localAcct ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false } : res.user ? {
+      const found = localAcct ? { ...localAcct, officeClockLinked: res.user?.officeClockLinked || false, districts: res.user?.districts ?? localAcct.districts } : res.user ? {
         id: res.user.id,
         username: res.user.username,
         name: res.user.name,
@@ -3800,6 +3815,7 @@
         twoFactorSecret: res.twoFactorSecret || null,
         mustSetup: res.user.mustSetup || false,
         officeClockLinked: res.user.officeClockLinked || false,
+        districts: res.user.districts,
         active: true
       } : null;
       if (!found) return;
@@ -6122,7 +6138,7 @@
     };
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
     const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development", "Field Operations Auditor"] : ["District Manager", "Store Manager", "Construction & Development"];
-    const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
+    const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
     const [roleFilter, setRoleFilter] = useState2("all");
     const [isMobileUsers, setIsMobileUsers] = useState2(() => window.innerWidth < 700);
     React.useEffect(() => {
@@ -6130,8 +6146,8 @@
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
     }, []);
-    const ROLE_COLOR = { executive: "#10b981", it: th.info, office_staff: "#8b5cf6", auditor: "#e11d48", dm: "#f59e0b", manager: "#9ca3af", store_tablet: "#14b8a6", vendor: "#06b6d4", construction: "#fb923c", maintenance: "#0891b2" };
-    const ROLE_LABEL = { executive: "Executive", it: "IT Team", office_staff: "Office", auditor: "Auditor", dm: "District Mgr", manager: "Manager", store_tablet: "Store Tablet", vendor: "Vendor", construction: "Construction", maintenance: "Maintenance" };
+    const ROLE_COLOR = { executive: "#10b981", it: th.info, office_staff: "#8b5cf6", auditor: "#e11d48", director: "#ca8a04", dm: "#f59e0b", manager: "#9ca3af", store_tablet: "#14b8a6", vendor: "#06b6d4", construction: "#fb923c", maintenance: "#0891b2" };
+    const ROLE_LABEL = { executive: "Executive", it: "IT Team", office_staff: "Office", auditor: "Auditor", director: "Director of Ops", dm: "District Mgr", manager: "Manager", store_tablet: "Store Tablet", vendor: "Vendor", construction: "Construction", maintenance: "Maintenance" };
     const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
     const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
     const displayUsers = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username || "").toLowerCase().includes(search.toLowerCase())).filter((u) => roleFilter === "all" || u.userType === roleFilter).filter((u) => statusFilter === "all" || (statusFilter === "active" ? u.active !== false : statusFilter === "inactive" ? u.active === false : !!u.locked)).sort((a, b) => (b.active === false ? 1 : 0) - (a.active === false ? 1 : 0));
@@ -6203,7 +6219,32 @@
             value: form.aliases || "",
             onChange: (e) => setForm((f) => ({ ...f, aliases: e.target.value }))
           }
-        ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.4rem", paddingLeft: "0.2rem" } }, "Other names this DM goes by, separated by commas. District Alignment treats any of them as this person."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.86rem", fontWeight: 700, color: th.text } }, "Contact Info")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1rem" } }, form.userType === "store_tablet" ? (() => {
+        ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.4rem", paddingLeft: "0.2rem" } }, "Other names this DM goes by, separated by commas. District Alignment treats any of them as this person."))), form.userType === "director" && (() => {
+          const chosen = new Set((form.districts || []).map(Number));
+          const toggleD = (n) => setForm((f) => {
+            const cur = new Set((f.districts || []).map(Number));
+            if (cur.has(n)) cur.delete(n);
+            else cur.add(n);
+            return { ...f, districts: [...cur].sort((a, b) => a - b) };
+          });
+          return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.86rem", fontWeight: 700, color: th.text } }, "Districts overseen")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { role: "group", "aria-label": "Districts overseen", style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.45rem" } }, districtOptions.map((d) => {
+            const on = chosen.has(d.num);
+            const dmUser = (users || []).find((u) => u.userType === "dm" && u.active !== false && Number(u.district) === d.num);
+            return /* @__PURE__ */ React.createElement(
+              "button",
+              {
+                type: "button",
+                key: d.num,
+                className: "fin-btn",
+                "aria-pressed": on,
+                onClick: () => toggleD(d.num),
+                style: { textAlign: "left", padding: "0.55rem 0.7rem", borderRadius: "0.6rem", cursor: "pointer", border: `1.5px solid ${on ? rc : th.cardBorder}`, background: on ? withAlpha(rc, 0.12) : th.card2, color: th.text, fontFamily: FONTS.body }
+              },
+              /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontWeight: 700, fontSize: "0.86rem" } }, "District ", d.num),
+              /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontSize: "0.72rem", color: th.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, dmUser ? dmUser.name : d.dmName || "No DM", ", ", d.storeCount, " store", d.storeCount !== 1 ? "s" : "")
+            );
+          })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: chosen.size ? th.info : th.warn, marginTop: "0.45rem", paddingLeft: "0.2rem" } }, chosen.size ? `Oversees ${chosen.size} district${chosen.size === 1 ? "" : "s"}. They switch between them from the sidebar and see what each DM sees. Their DMs stay assigned as they are.` : "Pick at least one district.")));
+        })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 3, height: 14, borderRadius: 2, background: rc } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.86rem", fontWeight: 700, color: th.text } }, "Contact Info")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1rem" } }, form.userType === "store_tablet" ? (() => {
           const mgrEmail = (users || []).find((x) => x.userType === "manager" && String(x.storePC) === String(form.storePC))?.email;
           return /* @__PURE__ */ React.createElement(
             "div",
@@ -7400,7 +7441,7 @@
         value: search,
         onChange: (e) => setSearch(e.target.value)
       }
-    )), (isAdmin || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: th.card2, padding: "0.2rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem" } }, [{ id: "list", label: "\u2630 List" }, { id: "map", label: "\u{1F5FA} Map" }, { id: "directory", label: "\u{1F4CB} Directory" }].map((v) => /* @__PURE__ */ React.createElement("button", { key: v.id, onClick: () => setViewMode(v.id), style: {
+    )), (isAdmin || isOfficeStaff || isDM || user?.userType === "director") && /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: th.card2, padding: "0.2rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem" } }, [{ id: "list", label: "\u2630 List" }, { id: "map", label: "\u{1F5FA} Map" }, { id: "directory", label: "\u{1F4CB} Directory" }].map((v) => /* @__PURE__ */ React.createElement("button", { key: v.id, onClick: () => setViewMode(v.id), style: {
       padding: "0.45rem 0.85rem",
       fontSize: "0.72rem",
       fontWeight: 800,
@@ -8265,7 +8306,7 @@
       const spread = districtSpread(pcs);
       const isTarget = !!dragPc && dragOverDistrict === dNum && draft.stores[dragPc]?.district !== dNum;
       const rowEnterStyle = (extra) => ({ ...extra, animation: `daRowIn 0.35s ease-out both`, animationDelay: `${Math.min(dIdx, 10) * 40}ms` });
-      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: rowEnterStyle({}), ...dropHandlers(dNum) }, /* @__PURE__ */ React.createElement("td", { colSpan: COLS.length, style: { padding: "0.6rem 0.15rem 0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem 1rem", padding: "0.6rem 0.9rem", borderRadius: "0.6rem", background: districtTint(dc.bg, isTarget ? 0.32 : 0.14), outline: isTarget ? `2px dashed ${dc.bg}` : "none", transition: "background 0.15s ease" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: dc.bg, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, dNum ? `District ${dNum}` : "Unassigned"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, dm ? dm.name : dNum ? "No district manager" : ""), isTarget && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text } }, "\xB7 Drop to move ", storeByPc[dragPc]?.name || dragPc, " here"), isAdmin && dNum > 0 && !isTarget && showAddDm === dNum && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap", animation: "daPopIn 0.18s ease-out both" } }, /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: rowEnterStyle({}), ...dropHandlers(dNum) }, /* @__PURE__ */ React.createElement("td", { colSpan: COLS.length, style: { padding: "0.6rem 0.15rem 0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem 1rem", padding: "0.6rem 0.9rem", borderRadius: "0.6rem", background: districtTint(dc.bg, isTarget ? 0.32 : 0.14), outline: isTarget ? `2px dashed ${dc.bg}` : "none", transition: "background 0.15s ease" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: dc.bg, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, dNum ? `District ${dNum}` : "Unassigned"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, dm ? dm.name : dNum ? "No district manager" : ""), dNum > 0 && (users || []).filter((u) => u.userType === "director" && u.active !== false && (u.districts || []).map(Number).includes(dNum)).map((u) => /* @__PURE__ */ React.createElement("span", { key: u.id, title: "Director of Operations \u2014 change in Admin \u2192 Users", style: { fontSize: "0.75rem", fontWeight: 700, color: "#ca8a04", background: withAlpha("#ca8a04", 0.12), padding: "0.12rem 0.5rem", borderRadius: 999, whiteSpace: "nowrap" } }, "Director: ", u.name)), isTarget && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text } }, "\xB7 Drop to move ", storeByPc[dragPc]?.name || dragPc, " here"), isAdmin && dNum > 0 && !isTarget && showAddDm === dNum && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap", animation: "daPopIn 0.18s ease-out both" } }, /* @__PURE__ */ React.createElement(
         "select",
         {
           value: "",
@@ -8883,7 +8924,8 @@
     const week = salesWeeks[selWeek];
     const enriched = React.useMemo(() => {
       if (!week) return [];
-      return week.stores.map((row) => {
+      const mine = user?.userType === "director" ? new Set((stores || []).map((st) => String(st.pc))) : null;
+      return week.stores.filter((row) => !mine || mine.has(String(row.pc))).map((row) => {
         const s = stores.find((st) => String(st.pc) === String(row.pc));
         return { ...row, name: s?.name || row.pc, city: s?.city || "", district: s?.district || null, status: s?.status || "" };
       });
@@ -13462,7 +13504,7 @@ ${t2.slice(0, 300)}`);
       hasData: !!dateCache[date],
       isSelected: date === busDt
     }));
-    const dmPCSet = isDMUser ? new Set(activePCs.map(String)) : null;
+    const dmPCSet = isDMUser || user?.userType === "director" ? new Set(activePCs.map(String)) : null;
     const loaded = Object.entries(storeData).filter(([pc, d]) => d.status === "ok" && (!dmPCSet || dmPCSet.has(String(pc)))).map(([, d]) => d);
     const errored = Object.entries(storeData).filter(([pc, d]) => d.status === "error" && (!dmPCSet || dmPCSet.has(String(pc)))).map(([, d]) => d);
     const totals = loaded.reduce((a, d) => ({
@@ -16041,7 +16083,7 @@ ${t2.slice(0, 300)}`);
     }, []);
     const editable = canEditProjects(user);
     const isMaintenance = user?.userType === "maintenance";
-    const isFieldView = isMaintenance || user?.userType === "dm";
+    const isFieldView = isMaintenance || user?.userType === "dm" || user?.userType === "director";
     const MAINT_PHASES = ["equipment_ordering", "construction"];
     const nextId = () => Math.max(0, ...projects.map((p) => p.id)) + 1;
     const handlePcBlur = () => {
@@ -16123,6 +16165,7 @@ ${t2.slice(0, 300)}`);
     const isDM = user?.userType === "dm";
     const filtered = React.useMemo(() => enrichedProjects.filter((p) => {
       if (isDM && String(p.district) !== String(user.district)) return false;
+      if (user?.userType === "director" && !seesDistrict(user, p.district)) return false;
       if (filterType !== "All" && p.type !== filterType) return false;
       if (filterPhase !== "All" && rowModel.get(p)?.phase.id !== filterPhase) return false;
       if (search.trim()) {
@@ -19915,7 +19958,7 @@ ${t2.slice(0, 300)}`);
         alive = false;
       };
     }, []);
-    const canResolve = user?.userType === "executive" || user?.userType === "it" || user?.userType === "dm";
+    const canResolve = user?.userType === "executive" || user?.userType === "it" || user?.userType === "dm" || user?.userType === "director";
     const scoped = React.useMemo(() => filterIssuesForRole(issues || [], user) || [], [issues, user]);
     const weekAgoISO = React.useMemo(() => new Date(Date.now() - 7 * 864e5).toISOString(), []);
     const recentlyResolved = (i) => mtcDisplayStatus(i) === "resolved" && (i.resolvedAt || "") >= weekAgoISO;
@@ -21234,6 +21277,7 @@ ${t2.slice(0, 300)}`);
     it: { label: "IT / HR Admin", admin: true, scope: "Full access + user management & this Admin console." },
     office_staff: { label: "Office Staff", admin: false, scope: "All operational tabs, network-wide. No destructive admin powers." },
     auditor: { label: "Field Operations Auditor", admin: false, scope: "Field audits (conduct + review), plus Pulse, Map, and Tickets \u2014 network-wide read." },
+    director: { label: "Director of Operations", admin: false, scope: "Oversees several districts at once: every screen shows all their districts\u2019 stores together, like the exec view but limited to them. Gets no DM alerts." },
     dm: { label: "District Manager", admin: false, scope: "Tabs filtered to their own district only." },
     manager: { label: "Store Manager", admin: false, scope: "Their assigned store(s) only; My Store mobile mode." },
     store_tablet: { label: "Store Tablet", admin: false, scope: "Assigned store only \u2014 Tickets + Tasks tablet view (Hexnode kiosk)." },
@@ -22503,6 +22547,7 @@ ${t2.slice(0, 300)}`);
         const store = stores.find((s) => s.pc === t.storePC);
         return store ? store.district === user?.district : false;
       }
+      if (user?.userType === "director") return stores.some((s) => String(s.pc) === String(t.storePC));
       if (isStoreScoped && managerStore) return t.storePC === managerStore.pc;
       return true;
     }), [tickets, isAdmin, isOffice, isDM, isStoreScoped, managerStore, stores, user]);
@@ -23093,7 +23138,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     return json || {};
   }
   var auditCanAudit = (u) => ["auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
-  var auditCanView = (u) => ["auditor", "executive", "it", "office_staff", "dm"].includes(u?.userType) || !!u?.auditsAccess;
+  var auditCanView = (u) => ["auditor", "executive", "it", "office_staff", "dm", "director"].includes(u?.userType) || !!u?.auditsAccess;
   async function safeAuditsApi(action, body = {}) {
     const res = await fetch("/.netlify/functions/safe-audits", {
       method: "POST",
@@ -23111,7 +23156,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     }
     return json || {};
   }
-  var safeCanView = (u) => ["manager", "dm", "auditor", "executive", "it", "office_staff"].includes(u?.userType) || !!u?.auditsAccess;
+  var safeCanView = (u) => ["manager", "dm", "director", "auditor", "executive", "it", "office_staff"].includes(u?.userType) || !!u?.auditsAccess;
   var safeCanConduct = (u) => ["manager", "dm", "auditor", "executive", "it"].includes(u?.userType) || u?.auditsAccess === "full";
   var SAFE_BILLS = [
     { key: "hundreds", label: "$100", value: 100 },
@@ -25542,7 +25587,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "pulse", label: "Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
       { id: "map", label: "Map", icon: (c) => ICONS.map(c) }
     ];
-    if (ut === "dm") return [
+    if (ut === "dm" || ut === "director") return [
       ...BASE_TABS,
       { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
@@ -26528,7 +26573,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.33";
+  var APP_VERSION = "v22.37";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29130,7 +29175,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const isDM = ut === "dm";
     const isManager = ut === "manager";
     const isConstruction = ut === "construction";
-    const opsRole = isExecIT || isOffice || isDM || isManager;
+    const isDirectorUser = ut === "director";
+    const opsRole = isExecIT || isOffice || isDM || isManager || isDirectorUser;
     const allowedTabIds = React.useMemo(() => new Set(getTabs(user).map((t) => t.id)), [user]);
     const go = (tabId) => allowedTabIds.has(tabId) ? () => setTab(tabId) : null;
     const scopedStores = React.useMemo(() => {
@@ -29219,10 +29265,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         sub: `${foodSafety.checks} overdue check${foodSafety.checks !== 1 ? "s" : ""} ${foodSafety.only ? `at ${foodSafety.only}` : `across ${foodSafety.stores} stores`} today`
       });
     }
-    if (isExecIT || isOffice || isDM || isConstruction) {
+    if (isExecIT || isOffice || isDM || isConstruction || isDirectorUser) {
       const late = (projects || []).filter((p) => {
         if (p.completed || !p.dueDate) return false;
         if (isDM && String(p.district) !== String(user?.district)) return false;
+        if (isDirectorUser && !seesDistrict(user, p.district)) return false;
         try {
           if (getCurrentPhase(p)?.id === "complete") return false;
         } catch {
@@ -29272,7 +29319,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { label: "Browse links", icon: ICONS.links, tab: "links" },
       { label: "New note", icon: ICONS.notes, tab: "notes" },
       { label: "Add task", icon: ICONS.todos, tab: "todos" },
-      ...isExecIT || isOffice || isDM || isConstruction ? [{ label: "View projects", icon: ICONS.projects, tab: "projects" }] : []
+      ...isExecIT || isOffice || isDM || isConstruction || isDirectorUser ? [{ label: "View projects", icon: ICONS.projects, tab: "projects" }] : []
     ].filter((a) => allowedTabIds.has(a.tab)).slice(0, 4);
     const hour = now.getHours();
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -31866,7 +31913,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", textAlign: "center", color: th.muted } }, "Loading labor data...");
     const shownData = viewDate ? dayData : laborData;
     const tf = viewDate ? "today" : timeFilter;
-    const storeEntries = shownData?.stores ? Object.entries(shownData.stores) : [];
+    const directorPcs = user?.userType === "director" ? new Set((stores || []).map((s) => String(s.pc))) : null;
+    const storeEntries = (shownData?.stores ? Object.entries(shownData.stores) : []).filter(([pc]) => !directorPcs || directorPcs.has(String(pc)));
     const filtered = isManager ? storeEntries.filter(([pc]) => managerStorePCs.has(String(pc))) : districtFilter === "all" ? storeEntries : storeEntries.filter(([pc, s]) => s && String(s.district) === districtFilter);
     filtered.sort((a, b) => (b[1]?.today?.laborPct || 0) - (a[1]?.today?.laborPct || 0));
     const summary = filtered.reduce((acc, [pc, s]) => {
@@ -32371,18 +32419,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const loadRollup = useCallback(async () => {
       setLoading(true);
       const r = await api("rollup", { date, district: isDM ? user?.district : null });
-      setRollup(r && Array.isArray(r.stores) ? r : { stores: [] });
+      const own = user?.userType === "director" ? new Set(scopeStores.map((st) => String(st.pc))) : null;
+      setRollup(r && Array.isArray(r.stores) ? own ? { ...r, stores: r.stores.filter((st) => own.has(String(st.pc))) } : r : { stores: [] });
       setLoading(false);
-    }, [api, date, isDM, user]);
+    }, [api, date, isDM, user, scopeStores]);
     const loadCAs = useCallback(async () => {
       setLoadingCAs(true);
       const r = await api("list_corrective_actions", {
         store_pc: isManager ? myStore ? String(myStore.pc) : "" : null,
         district: isDM ? user?.district : null
       });
-      setCas(r.corrective_actions || []);
+      const own = user?.userType === "director" ? new Set(scopeStores.map((st) => String(st.pc))) : null;
+      setCas((r.corrective_actions || []).filter((ca) => !own || own.has(String(ca.store_pc))));
       setLoadingCAs(false);
-    }, [api, isManager, myStore, isDM, user]);
+    }, [api, isManager, myStore, isDM, user, scopeStores]);
     const loadGps = useCallback(async () => {
       setGpsLoading(true);
       try {
@@ -35014,7 +35064,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }) {
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
-    const isDM = user?.userType === "dm";
+    const isDM = user?.userType === "dm" || user?.userType === "director";
     const isManager = user?.userType === "manager";
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
@@ -40068,6 +40118,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         const distPCs = new Set(stores.filter((s) => String(s.district) === String(user.district)).map((s) => String(s.pc)));
         return open.filter((t) => distPCs.has(String(t.storePC)));
       }
+      if (user?.userType === "director") {
+        const own = new Set(stores.map((s) => String(s.pc)));
+        return open.filter((t) => own.has(String(t.storePC)));
+      }
       return open;
     }, [tickets, isManager, isDM, stores, user]);
     const myTodos = React.useMemo(() => {
@@ -40085,6 +40139,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const myProjects = React.useMemo(() => {
       if (isManager) return enrichedCalProjects.filter((p) => isManagersStore({ pc: p.pc }, user));
       if (isDM) return enrichedCalProjects.filter((p) => String(p.district) === String(user.district));
+      if (user?.userType === "director") return enrichedCalProjects.filter((p) => seesDistrict(user, p.district));
       return enrichedCalProjects;
     }, [enrichedCalProjects, isManager, isDM, user]);
     const [isMobile, setIsMobile] = React.useState(() => window.innerWidth < 700);
@@ -40105,6 +40160,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ut === "dm") {
         const distPCs = new Set(stores.filter((s) => String(s.district) === String(user.district)).map((s) => String(s.pc)));
         return schedules.filter((s) => !s.storePC || distPCs.has(String(s.storePC)));
+      }
+      if (ut === "director") {
+        const own = new Set(stores.map((s) => String(s.pc)));
+        return schedules.filter((s) => !s.storePC || own.has(String(s.storePC)));
       }
       if (ut === "manager") {
         const myStores = new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
@@ -40783,7 +40842,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 } }, "Dismiss")))))));
   }
   function PCGPortal() {
-    const [user, setUser] = useState2(null);
+    const [rawUser, setUser] = useState2(null);
+    const user = React.useMemo(() => {
+      if (!rawUser || !isDirector(rawUser)) return rawUser;
+      return { ...rawUser, userType: "director", realUserType: "director", district: null, districts: parseDistricts(rawUser.districts) };
+    }, [rawUser]);
     useEffect2(() => {
       if (user || !getSessionToken()) return;
       let cancelled = false;
@@ -40953,8 +41016,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     });
     const openStores = React.useMemo(() => {
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      return (stores || []).filter((s) => !isClosedOn(s, today));
-    }, [stores]);
+      const open = (stores || []).filter((s) => !isClosedOn(s, today));
+      if (isDirector(user)) {
+        const ds = new Set((user.districts || []).map(Number));
+        return open.filter((s) => ds.has(Number(s.district)));
+      }
+      return open;
+    }, [stores, user?.realUserType, (user?.districts || []).join(",")]);
     useEffect2(() => {
       LIVE_OPEN_STORES = openStores;
     }, [openStores]);
@@ -41144,6 +41212,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       it: ["executive", "pulse", "finance", "projects"],
       office_staff: ["pulse", "reports", "projects"],
       dm: ["pulse", "reports"],
+      director: ["pulse", "reports"],
       manager: ["pulse", "reports"]
     };
     const pinnedNavIds = (pinnedTabIds ?? (PINNED_DEFAULTS[user?.userType] || [])).filter((id) => TABS.some((t) => t.id === id));
@@ -41409,6 +41478,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         const visible = allReports.filter((r) => {
           if (ut === "executive" || ut === "it") return true;
           if (ut === "dm" && dist) return r.scope === "network" || r.scope === `district:${dist}`;
+          if (ut === "director") return r.scope === "network" || (user.districts || []).some((d) => r.scope === `district:${d}`);
           if (ut === "manager" && storePC) return r.scope === `store:${storePC}`;
           if (ut === "office_staff") return r.scope === "network";
           return r.scope === "network";
@@ -41440,6 +41510,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const dmDist = isUserDM ? user?.district : null;
       const visible = stores.filter((s) => {
         if (isUserDM && s.district !== dmDist) return false;
+        if (isDirector(user) && !seesDistrict(user, s.district)) return false;
         return s.status === "Open";
       });
       const today = /* @__PURE__ */ new Date();
@@ -42784,7 +42855,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       );
     }
     const isOfficeStaff = user?.userType === "office_staff";
-    const isDM = user?.userType === "dm";
+    const isDM = user?.userType === "dm" || isDirector(user);
     const isManager = user?.userType === "manager";
     const isConstruction = user?.userType === "construction";
     const isAuditor = user?.userType === "auditor";
@@ -43070,7 +43141,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           }
         }
       ));
-    })(), user?.userType === "dm" && (() => {
+    })(), (user?.userType === "dm" || isDirector(user)) && (() => {
       const dmTabs = tabsForUser(user).filter((t) => !BASE_TAB_IDS.includes(t.id));
       const DM_GROUPS = [
         { key: "dm_team", id: "team-hub", label: "Team & Sites", color: "#7C5CD9", icon: (c) => ICONS.locations(c) },
@@ -43083,7 +43154,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
         SectionHeader,
         {
-          label: "My District",
+          label: isDirector(user) ? "My Districts" : "My District",
           accent: "#74c0fc",
           collapsed,
           open: sectionOpen,
@@ -43332,7 +43403,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       },
       /* @__PURE__ */ React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("polyline", { points: collapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6" }))
     )));
-    if (user && isMobile && !preferFullPortal && (user.userType === "dm" || user.userType === "executive" || user.userType === "it")) {
+    if (user && isMobile && !preferFullPortal && !isDirector(user) && (user.userType === "dm" || user.userType === "executive" || user.userType === "it")) {
       return /* @__PURE__ */ React.createElement(Guard, { name: "mobile-shell", fallback: /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100dvh", background: th.bg, color: th.text, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", color: th.muted } }, "The mobile view hit an error."), /* @__PURE__ */ React.createElement("button", { onClick: () => {
         togglePortalMode(true);
         setTab(MOBILE_LAUNCHER_TAB_ID);
@@ -43663,7 +43734,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ), /* @__PURE__ */ React.createElement("div", { className: "main-content-padding", style: { padding: tab === "map" || tab === "locations" && locationsMapMode ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : tab === "district-alignment" || tab === "tools-hub" ? "1.5rem 1.25rem 1rem" : tab === "admin" || tab === "users" ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" } }, /* @__PURE__ */ React.createElement(Guard, { key: tab, name: "tab-content", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "2rem auto", maxWidth: 520, textAlign: "center", color: th.muted } }, "This section hit an error and couldn't load. Pick another tab from the menu, or refresh the page.") }, tab === MOBILE_LAUNCHER_TAB_ID && /* @__PURE__ */ React.createElement(MobileAppLauncher, { user, th, dark, tabs: TABS, onNavigate: setTab, pinnedNavIds, togglePinNav, navBadge, onOpenProfile: () => setShowProfile(true), onToggleTheme: handleToggle, onLogout: handleLogout }), tab === "dashboard" && /* @__PURE__ */ React.createElement(Guard, { name: "dashboard", fallback: /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", margin: "1rem 0", textAlign: "center", color: th.muted } }, "Something went wrong loading the dashboard. Use the menu to open another tab, or refresh.") }, /* @__PURE__ */ React.createElement(SimpleDashboard, { user, th, links, todos, stores: openStores, projects, announcements, setAnnouncements, announcementsDismissed, setAnnouncementsDismissed, setTab, notifications, chatUnreadCount, isMobile, salesWeeks, districts, todoDeepLinkRef, onAskOrion: (q) => {
       setPendingOrionQuestion(q);
       setTab("chat");
-    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: openStores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff ? openStores : openStores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores: openStores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores: openStores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores, managerPendingCount, districts, setDistricts, setStores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores: openStores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || user?.userType === "dm") && /* @__PURE__ */ React.createElement(AdminPulse, { stores: openStores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores: openStores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores: openStores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores: openStores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores: openStores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores: openStores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
+    }, showAlert: showAlert2, users })), tab === "links" && /* @__PURE__ */ React.createElement(LinksHub, { links, setLinks, th, user }), tab === "contacts" && /* @__PURE__ */ React.createElement(ContactsPage, { contacts, setContacts, vendors, setVendors, isAdmin: isFullAdmin(user), th }), tab === "notes" && /* @__PURE__ */ React.createElement(Notes, { allNotes: notes, setAllNotes: setNotes, user, th }), tab === "todos" && /* @__PURE__ */ React.createElement(Todos, { todos, setTodos, user, users, th, deepLinkRef: todoDeepLinkRef }), tab === "map" && (isFullAdmin(user) || isOfficeStaff || isDM || isAuditor) && /* @__PURE__ */ React.createElement(StoreMap, { stores: openStores.filter((s) => isFullAdmin(user) || isOfficeStaff || isAuditor ? true : isDirector(user) ? (user.districts || []).map(Number).includes(Number(s.district)) : s.district == user?.district), th, setTab, users }), tab === "anomalies" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AnomaliesTab, { stores: isFullAdmin(user) || isOfficeStaff || isDirector(user) ? openStores : openStores.filter((s) => String(s.district) === String(user?.district)), th, user, setTab }), tab === "scorecard" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(DmScorecardTab, { th, users, districts, stores: openStores, salesWeeks }), tab === "locations" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager || isConstruction || user?.userType === "maintenance") && /* @__PURE__ */ React.createElement(AdminLocations, { stores: isDirector(user) ? openStores : stores, setStores, districts, user, th, setTab, users, onMapModeChange: setLocationsMapMode }), tab === "districts" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminDistricts, { districts, setDistricts, stores: openStores, setStores, users, th }), tab === "users" && (isFullAdmin(user) || user?.userType === "office_staff") && /* @__PURE__ */ React.createElement(AdminUsers, { users, setUsers, currentUser: user, th, showAlert: showAlert2, stores, managerPendingCount, districts, setDistricts, setStores }), tab === "analytics" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminAnalytics, { stores: openStores, users, districts, th, salesWeeks, setSalesWeeks, cloudStatus, user }), tab === "pulse" && (isFullAdmin(user) || isOfficeStaff || isAuditor || isDM) && /* @__PURE__ */ React.createElement(AdminPulse, { stores: openStores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), txnDeepLinkRef }), tab === "pulse" && isManager && /* @__PURE__ */ React.createElement(ManagerPulse, { stores: openStores, th, user, txnDeepLinkRef, initialTab: pulseInitialTab }), tab === "schedule" && (isFullAdmin(user) || isOfficeStaff || isDM) && /* @__PURE__ */ React.createElement(AdminSchedule, { stores: openStores, th, user }), tab === "schedule" && isManager && /* @__PURE__ */ React.createElement(ManagerSchedule, { stores: openStores, th, user }), tab === "labor" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(AdminLabor, { stores: openStores, districts, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null), users }), tab === "finance" && /* @__PURE__ */ React.createElement(AdminFinance, { stores: openStores, districts, th, user, users, drillInStore, onClearDrillIn: () => setDrillInStore(null), showAlert: showAlert2, isMobile, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, canPnl, accessOverrides, pinnedNavIds, togglePinNav, cashMissingCount }), tab === "ops-hub" && (() => {
       const OPS = "#2F6FA8";
       const opsTiles = [
         { id: "tasks", name: "Tasks", sub: "Checklists, GPS-verified completions, DM escalation.", show: (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && accessSubOn(accessOverrides, user?.userType, "ops-hub", "tasks"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "m9 11 3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" })) },
@@ -43703,7 +43774,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const toolsTiles = [
         { id: "district-alignment", name: "District Alignment", sub: "Draft district/DM groupings, sales snapshots, and store spacing \u2014 a sandbox that never touches real Locations data.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "district-alignment"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "14", width: "7", height: "7", rx: "1" })) },
         { id: "incident-reports", name: "Incident Reports", sub: "File and review Workplace Incident Reports \u2014 case info, witnesses, photo/video evidence, PDF export.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "incident-reports"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.incident(TOOLS)) },
-        { id: "minor-timecard", name: "Minor Timecard Compliance", sub: "Weekly PA minor-labor-law timecard review \u2014 who needs a fix, and who's already been notified.", show: ["executive", "it", "office_staff", "dm", "manager"].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "minor-timecard"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.minorTimecard(TOOLS)) },
+        { id: "minor-timecard", name: "Minor Timecard Compliance", sub: "Weekly PA minor-labor-law timecard review \u2014 who needs a fix, and who's already been notified.", show: ["executive", "it", "office_staff", "dm", "director", "manager"].includes(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "minor-timecard"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.minorTimecard(TOOLS)) },
         // No "Office Time Clock" tile here — MobileAppLauncher always
         // promotes it to its own direct tile for a linked office_staff
         // account (not folded into this grid like other tools-hub

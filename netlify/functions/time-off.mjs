@@ -12,7 +12,7 @@
 //                 Refuses an id already linked to another active account. Audit-logged.
 //   status      — exec/IT: last sync run.
 import { sql } from './_shared/db.mjs';
-import { requireActiveUser } from './auth-lib/require-user.js';
+import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { STORES } from './tips-report-cron-background.mjs';
 import { ensureTables, OFFICE_LE, legalEntityForStorePc } from './time-off-lib/sync.mjs';
 import { syncDistricts } from './_shared/store-status.mjs';
@@ -52,7 +52,8 @@ export default async (request) => {
       if (ADMIN.has(ut) || ut === 'office_staff') {
         users = await db`SELECT id, user_type, store_pc, paycor_employee_id FROM users WHERE active = true`;
       } else if (ut === 'dm') {
-        const pcs = STORES.filter(s => String(s.district) === String(authed.district)).map(s => String(s.pc));
+        const ds = claimDistricts(authed); // v22.34: a Director gets all their districts
+        const pcs = STORES.filter(s => ds.includes(String(s.district))).map(s => String(s.pc));
         users = await db`SELECT id, user_type, store_pc, paycor_employee_id FROM users
           WHERE active = true AND (id = ${authed.sub} OR (user_type = 'manager' AND store_pc = ANY(${pcs})))`;
       } else {

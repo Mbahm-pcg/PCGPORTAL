@@ -78,7 +78,9 @@ function visibleStoresSafe(user) {
   if (ut === 'auditor' || ut === 'executive' || ut === 'it' || ut === 'office_staff' || hasGrant) return 'all';
   if (ut === 'dm') {
     // dm district-scoping (keyed on real userType). See CLAUDE.md "Common Gotchas" #9.
-    const storePCs = AUDIT_STORES.filter((s) => String(s.district) === String(user.district)).map((s) => s.pc);
+    // v22.34: a Director's user carries all their districts.
+    const ds = Array.isArray(user.districts) && user.districts.length ? user.districts.map(String) : [String(user.district)];
+    const storePCs = AUDIT_STORES.filter((s) => ds.includes(String(s.district))).map((s) => s.pc);
     return { storePCs };
   }
   if (ut === 'manager') return { storePCs: [String(user.storePC || '')] };

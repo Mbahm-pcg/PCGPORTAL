@@ -18,6 +18,43 @@ function bearer(event) {
   try { return decodeURIComponent(m[1]); } catch { return m[1]; }
 }
 
+// v22.34 Director of Operations: a Director oversees several districts but always views
+// ONE at a time, chosen in the portal's switcher and sent in the pcg_view_district cookie.
+// While viewing, they are scoped exactly like that district's DM: userType becomes 'dm',
+// district the viewed one, realUserType 'director'. Only a district on their own list is
+// ever honoured (anything else → their first). No districts → no DM scope at all.
+// Same rule as pickViewDistrict in src/director-scope.mjs — keep the two in step.
+function parseDistrictList(v) {
+  const list = Array.isArray(v) ? v : String(v == null ? '' : v).split(/[,\s]+/);
+  return [...new Set(list.map(Number).filter(n => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
+}
+function applyDirectorScope(claims, cookieHeader) {
+  if (!claims) return claims;
+  const real = claims.realUserType || claims.userType;
+  if (real !== 'director') return claims;
+  const districts = parseDistrictList(claims.districts);
+  const m = /(?:^|;\s*)pcg_view_district=(\d+)/.exec(String(cookieHeader || ''));
+  const requested = m ? Number(m[1]) : null;
+  claims.realUserType = 'director';
+  claims.districts = districts;
+  if (!districts.length) { claims.userType = 'director'; claims.district = null; return claims; }
+  claims.userType = 'dm';
+  claims.district = districts.includes(requested) ? requested : districts[0];
+  return claims;
+}
+// Every district this caller may see, as strings: a Director's whole list (their portal
+// page shows all of them at once, stacked), a DM's one district, else []. DM scope checks
+// use this instead of comparing against `district` alone.
+function claimDistricts(claims) {
+  if (!claims) return [];
+  const list = Array.isArray(claims.districts) && claims.districts.length ? claims.districts : (claims.district != null ? [claims.district] : []);
+  return list.map(String);
+}
+function cookieOf(event) {
+  const h = (event && event.headers) || {};
+  return h.cookie || h.Cookie || '';
+}
+
 // Returns the token claims { kind:'portal', username, userType, district, name }
 // or null if missing / invalid / expired / not a portal token.
 function requireUser(event, opts = {}) {
@@ -25,7 +62,7 @@ function requireUser(event, opts = {}) {
   if (!secret) return null;
   const claims = verifyToken(bearer(event), secret);
   if (!claims || claims.kind !== 'portal') return null;
-  return claims;
+  return applyDirectorScope(claims, cookieOf(event));
 }
 
 // True if the user's userType is in the allowed list (string or array).
@@ -63,6 +100,15 @@ async function requireActiveUser(event, db, opts = {}) {
     // Fresh per-request lookup (not baked into the signed token) so a grant/revoke
     // by an executive/it admin takes effect immediately, not just at next login.
     claims.auditsAccess = rows[0].audits_access ?? null;
+    // A Director's district list is read fresh each request (not just from the token), so
+    // adding or removing a district in Admin applies immediately. Own query + catch: the
+    // column is self-ensured by users.mjs and may not exist yet on a fresh deploy.
+    if (claims.realUserType === 'director') {
+      try {
+        const d = await db`SELECT director_districts FROM users WHERE id = ${claims.sub}`;
+        if (d.length) { claims.districts = d[0].director_districts; applyDirectorScope(claims, cookieOf(event)); }
+      } catch { /* keep the token's list */ }
+    }
   } catch {
     // The first query can fail for a reason unrelated to active/session enforcement:
     // audits_access is self-ensured by users.mjs/audits.mjs (idempotent ALTER), so on a
@@ -102,4 +148,4 @@ async function sessionGate(event, db) {
   return 'active';
 }
 
-module.exports = { requireUser, requireRole, bearer, sessionIsValid, requireActiveUser, sessionGate };
+module.exports = { requireUser, requireRole, bearer, sessionIsValid, requireActiveUser, sessionGate, applyDirectorScope, claimDistricts };
