@@ -1,10 +1,10 @@
-# Design: PCG Unified Operations Portal (Finance)
+# Design: PCG Unified Operations Portal (Finance + Admin)
 
-The locked system. Every Hallmark run reads this first and pages share it. Change it on purpose; the file is the rule. Locked 2026-10-27 from the Tips Editor redesign (v22.29) for the Finance section.
+The locked system. Every Hallmark run reads this first and pages share it. Change it on purpose; the file is the rule. Locked 2026-10-27 from the Tips Editor redesign (v22.29) for the Finance section; extended the same day to the Admin console (same kit, same rules).
 
 ## System
 - Genre: modern-minimal
-- Shape of the first page: app screen (every Finance tab)
+- Shape of the first page: app screen (every Finance tab and every Admin section)
 - Theme: brand (PCG orange #FF671F; Raleway + Source Sans 3)
 - Posture: restrained. The accent marks the primary action, the current selection and state, nothing else.
 
@@ -34,6 +34,7 @@ The locked system. Every Hallmark run reads this first and pages share it. Chang
 - Never: tracked capitals, emoji icons, dot-joined meta lines, arrows glued to links, dashes in copy, cards inside cards, glows.
 
 ## Motion
+- Admin adds (user request "more animation", still state-only): section switch (indicator slides, panel fades up), list filtering animates rows in/out, edit drawers slide from the side, toggle knobs slide, removals offer Undo.
 - Character: brisk, state only. Figures tick from the old value; bars grow by `scaleX`; added rows slide in, removed rows fold away; switches slide. No reveal on load. Under reduced motion everything ends at once.
 
 ## Exports

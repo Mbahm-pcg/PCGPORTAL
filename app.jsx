@@ -5,11 +5,12 @@ import { canViewPnl, canManagePnlAccess, DEFAULT_PNL_ALLOWED, normalizeId } from
 import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-negative-shared.mjs';
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { ExecutiveView } from './src/executive-view.jsx';
+import { TerminationsReport } from './src/terminations-ui.jsx';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
 import { filterIssuesForRole } from './src/minor-timecard-lifecycle.mjs';
 import { isClosedOn, PERMANENTLY_CLOSED, districtNumbers } from './src/store-status.mjs';
-import { FIN_CSS, FinFigure, FinFigures, FinTicker, FinBanner, FinSkeleton, FinTabs, FinBar, FinStatusIcon, FinRefreshIcon, finStyles, finMoney, finMoney0, finHours, finInt, finPct } from './src/finance-ui.jsx';
+import { FIN_CSS, FinFigure, FinFigures, FinTicker, FinBanner, FinSkeleton, FinTabs, FinTabStrip, FinBar, FinStatusIcon, FinRefreshIcon, finStyles, finReducedMotion, finMoney, finMoney0, finHours, finInt, finPct } from './src/finance-ui.jsx';
 import { CHART_PALETTE, seriesColor, withAlpha, chartTokens, cleanChartOptions, lineSeries, crosshairPlugin, smoothPath, roundedTopBar } from './src/chart-style.js';
 import { planDistrictApply, applyPlanToStores, applyPlanToDistricts } from './src/district-apply.mjs';
 import { addDays as ocAddDays, weekTotals as ocWeekTotals, weekContaining as ocWeekContaining } from './src/office-clock-weeks.mjs';
@@ -3448,6 +3449,13 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
 
   const [emailAction, setEmailAction] = useState(null); // { userId, type, status }
   const [revokeAction, setRevokeAction] = useState(null); // { userId, status }
+  // v22.32 Hallmark redesign: status filter chips, the row that just saved (flashes),
+  // rows folding away on delete, and which rows were already showing (so only newly
+  // revealed people slide in when filters change, never on first load).
+  const [statusFilter, setStatusFilter] = useState('all'); // all | active | inactive | locked
+  const [flashUserKey, setFlashUserKey] = useState(null);
+  const [leavingUserIds, setLeavingUserIds] = useState([]);
+  const prevUserIdsRef = useRef(new Set());
 
   // Paycor-driven manager-change queue: state lives in PCGPortal now (2026-09-22) so the
   // notification bell can review these from anywhere — this tab just gets the summary
@@ -3632,8 +3640,11 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
       showAlert('error', 'Save failed — ' + e.message);
       return;
     }
+    const savedUsername = form.username;
     setForm({ username:"", password:"", name:"", role:"Store Manager", initials:"", isAdmin:false, userType:"manager", region:"PA", active:true, darkMode:false, email:"", phone:"", twoFactorRequired:false, auditsAccess:null });
     setSaveFlash(true);
+    setFlashUserKey(savedUsername);
+    setTimeout(() => setFlashUserKey(k => (k === savedUsername ? null : k)), 1800);
     setTimeout(() => { setSaveFlash(false); closeEditPage(); }, 450);
   };
 
@@ -3698,7 +3709,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
   const [roleFilter, setRoleFilter] = useState("all");
   const [isMobileUsers, setIsMobileUsers] = useState(() => window.innerWidth < 700);
   React.useEffect(() => { const fn = () => setIsMobileUsers(window.innerWidth < 700); window.addEventListener("resize", fn); return () => window.removeEventListener("resize", fn); }, []);
-  const ROLE_COLOR = { executive:"#10b981", it:"#3b82f6", office_staff:"#8b5cf6", auditor:"#e11d48", dm:"#f59e0b", manager:"#9ca3af", store_tablet:"#14b8a6", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
+  const ROLE_COLOR = { executive:"#10b981", it:th.info, office_staff:"#8b5cf6", auditor:"#e11d48", dm:"#f59e0b", manager:"#9ca3af", store_tablet:"#14b8a6", vendor:"#06b6d4", construction:"#fb923c", maintenance:"#0891b2" };
   const ROLE_LABEL = { executive:"Executive", it:"IT Team", office_staff:"Office", auditor:"Auditor", dm:"District Mgr", manager:"Manager", store_tablet:"Store Tablet", vendor:"Vendor", construction:"Construction", maintenance:"Maintenance" };
   const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
   const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
@@ -3706,7 +3717,10 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
   const displayUsers = users
     .filter(u => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username||"").toLowerCase().includes(search.toLowerCase()))
     .filter(u => roleFilter === "all" || u.userType === roleFilter)
+    .filter(u => statusFilter === "all" || (statusFilter === "active" ? u.active !== false : statusFilter === "inactive" ? u.active === false : !!u.locked))
     .sort((a,b) => (b.active===false ? 1 : 0) - (a.active===false ? 1 : 0));
+  // After each render, remember which rows were showing (drives the slide-in above).
+  useEffect(() => { prevUserIdsRef.current = new Set(displayUsers.map(u => u.id)); });
 
   const rc = roleColor(form.userType || "manager");
   const AHMED_EMAIL = "ahmed@peoplecapitalgroup.com";
@@ -3716,26 +3730,30 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
 
   // ── Edit modal — clean fixed overlay; the real list stays normal behind it ──
   const editModal = () => (
-      <div onClick={closeEditPage} style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.55)", backdropFilter:"blur(3px)", WebkitBackdropFilter:"blur(3px)", display:"flex", alignItems:"flex-start", justifyContent:"center", padding:"5vh 20px", overflowY:"auto" }}>
-        <div onClick={e => e.stopPropagation()} className="fade-in" style={{ position:"relative", width:"100%", maxWidth:520 }}>
-          <div style={{ borderRadius:"1rem", overflow:"hidden", boxShadow:`0 0 0 1px ${rc}33, 0 30px 70px rgba(0,0,0,0.5)`, display:"flex", flexDirection:"column" }}>
-            {/* Header — solid role-color tint (varies per role) */}
-            <div style={{ background:`linear-gradient(135deg,${rc},${rc}cc)`, borderBottom:`1px solid ${rc}55`, padding:"1.35rem 1.6rem", display:"flex", alignItems:"center", gap:"1rem", flexShrink:0 }}>
-                <div style={{ width:54, height:54, borderRadius:"50%", background:"rgba(255,255,255,0.18)", border:"2.5px solid rgba(255,255,255,0.5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.1rem", fontWeight:800, color:"#fff", flexShrink:0, boxShadow:"0 2px 12px rgba(0,0,0,0.2)" }}>
+      // v22.32: the edit form is a drawer that slides in from the right (was a centred modal
+      // with a gradient header). Same form, same handlers.
+      <div onClick={closeEditPage} className="fin-overlay" style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.45)", display:"flex", justifyContent:"flex-end" }}>
+        <div onClick={e => e.stopPropagation()} className="fin-drawer" role="dialog" aria-modal="true" aria-label={form.name || (editId ? "Edit user" : "New user")}
+          style={{ position:"relative", width:"min(560px, 100%)", height:"100%", display:"flex", flexDirection:"column", background:th.card, borderLeft:`1px solid ${th.cardBorder}`, boxShadow:"-24px 0 60px rgba(0,0,0,0.25)" }}>
+          <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0 }}>
+            <div style={{ padding:"1.2rem 1.4rem", display:"flex", alignItems:"center", gap:"0.9rem", flexShrink:0, borderBottom:`1px solid ${th.cardBorder}` }}>
+                <div aria-hidden="true" style={{ width:50, height:50, borderRadius:"50%", background:withAlpha(rc, 0.14), boxShadow:`inset 0 0 0 2px ${withAlpha(rc, 0.6)}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.05rem", fontWeight:800, color:rc, flexShrink:0, fontFamily:FONTS.head }}>
                   {form.name ? form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2) : "?"}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:"1.1rem", fontWeight:800, color:"#fff", lineHeight:1.2, textShadow:"0 1px 4px rgba(0,0,0,0.2)" }}>{form.name || (editId ? "Edit User" : "New User")}</div>
-                  <div style={{ fontSize:"0.7rem", color:"rgba(255,255,255,0.8)", fontWeight:600, marginTop:"0.15rem" }}>{ROLE_LABEL[form.userType] || "User"} · {editId ? "Editing" : "New account"}</div>
+                  <div style={{ fontFamily:FONTS.head, fontSize:"1.2rem", fontWeight:800, color:th.text, lineHeight:1.2, overflowWrap:"break-word" }}>{form.name || (editId ? "Edit user" : "New user")}</div>
+                  <div style={{ fontSize:"0.84rem", color:th.muted, marginTop:"0.15rem" }}><span style={{ color:rc, fontWeight:700 }}>{ROLE_LABEL[form.userType] || "User"}</span>{editId ? ", editing" : ", new account"}</div>
                 </div>
-                <button onClick={closeEditPage} style={{ background:"rgba(255,255,255,0.18)", border:"1.5px solid rgba(255,255,255,0.4)", borderRadius:"50%", width:34, height:34, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:"1.1rem", cursor:"pointer", flexShrink:0, lineHeight:1 }}>×</button>
+                <button type="button" className="fin-btn" onClick={closeEditPage} aria-label="Close" style={{ background:th.card3, border:"none", borderRadius:"0.6rem", width:36, height:36, display:"flex", alignItems:"center", justifyContent:"center", color:th.text, cursor:"pointer", flexShrink:0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={th.text} strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                </button>
               </div>
-              {/* Form body — solid, clean */}
-              <div style={{ ...card(th), borderRadius:0, padding:"1.5rem 1.75rem", overflowY:"auto", flex:1, minHeight:0 }}>
+              {/* Form body */}
+              <div style={{ padding:"1.4rem 1.5rem", overflowY:"auto", flex:1, minHeight:0 }}>
                 {/* Account section */}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                   <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
-                  <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Account</span>
+                  <span style={{ fontSize:"0.86rem", fontWeight:700, color:th.text }}>Account</span>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem", marginBottom:"1.25rem" }}>
                   <input style={inp(th)} placeholder="Full Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
@@ -3744,7 +3762,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                     <input style={inp(th)} placeholder={editId ? "Password (leave blank to keep)" : "Password"} title={isSharedDeviceType(form.userType) ? "" : PASSWORD_POLICY_TEXT} type={showPw?"text":"password"} autoComplete="new-password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} />
                     <button type="button" onClick={()=>setShowPw(s=>!s)} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:th.muted, cursor:"pointer", fontSize:"0.72rem" }}>{showPw?"Hide":"Show"}</button>
                     {(() => { const pwHint = form.password && !isSharedDeviceType(form.userType) ? validatePasswordClient(form.password) : null; return pwHint ? (
-                      <div style={{ fontSize:"0.6rem", color:"#f59e0b", marginTop:"0.2rem", lineHeight:1.3 }}>{pwHint}</div>
+                      <div style={{ fontSize:"0.6rem", color:th.warn, marginTop:"0.2rem", lineHeight:1.3 }}>{pwHint}</div>
                     ) : null; })()}
                   </div>
                   <select style={inp(th)} value={form.region} onChange={e=>setForm(f=>({...f,region:e.target.value}))}>
@@ -3756,7 +3774,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                 {/* Role section */}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                   <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
-                  <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Access & Role</span>
+                  <span style={{ fontSize:"0.86rem", fontWeight:700, color:th.text }}>Access & Role</span>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem", marginBottom:"1.25rem" }}>
                   <select style={{ ...inp(th), ...(form.userType === "store_tablet" ? { gridColumn: "1 / -1" } : {}) }} value={form.userType||"manager"} onChange={e=>setForm(f=>({...f, userType:e.target.value, ...(e.target.value === "store_tablet" ? { role: "Store Tablet" } : {}) }))}>
@@ -3767,7 +3785,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                     <input style={inp(th)} placeholder="Job title (e.g. Store Manager)" value={form.role||""} onChange={e=>setForm(f=>({...f,role:e.target.value}))} />
                   )}
                   <label title={formTwoFactorLocked ? formTwoFactorLockedReason : "Require this user to use an authenticator code at login"} style={{ display:"flex", alignItems:"center", gap:"0.5rem", cursor:formTwoFactorLocked?"not-allowed":"pointer", fontSize:"0.8rem", color:th.text, padding:"0.6rem 0.875rem", background:th.inputBg, border:`1px solid ${th.inputBorder}`, borderRadius:"0.5rem", gridColumn:"1 / -1", opacity:formTwoFactorLocked?0.82:1 }}>
-                    <input type="checkbox" checked={formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired} disabled={formTwoFactorLocked} onChange={e=>setForm(f=>({...f,twoFactorRequired:e.target.checked}))} style={{ accentColor:"#FF671F", width:15, height:15 }} /> Require 2FA{formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : ""}
+                    <input type="checkbox" checked={formTwoFactorLocked && isAhmed(form) ? true : !!form.twoFactorRequired} disabled={formTwoFactorLocked} onChange={e=>setForm(f=>({...f,twoFactorRequired:e.target.checked}))} style={{ accentColor:O, width:15, height:15 }} /> Require 2FA{formTwoFactorLocked ? ` (${isAhmed(form) ? "always on" : "IT admin only"})` : ""}
                   </label>
                 </div>
                 {/* Audits module grant — executive/it only; widens (never narrows) this
@@ -3776,7 +3794,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                   <>
                     <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                       <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
-                      <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Audits Module</span>
+                      <span style={{ fontSize:"0.86rem", fontWeight:700, color:th.text }}>Audits Module</span>
                     </div>
                     <div style={{ marginBottom:"1.25rem" }}>
                       <select style={{ ...inp(th), width:"100%" }} value={form.auditsAccess || ""} onChange={e=>setForm(f=>({...f, auditsAccess: e.target.value || null}))}>
@@ -3794,7 +3812,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                 {(form.userType === "manager" || form.userType === "store_tablet") && (<>
                   <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                     <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
-                    <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Store Assignment</span>
+                    <span style={{ fontSize:"0.86rem", fontWeight:700, color:th.text }}>Store Assignment</span>
                   </div>
                   <div style={{ marginBottom:"1.25rem" }}>
                     <select
@@ -3814,7 +3832,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                         });
                       }}
                     >
-                      <option value="">— Unassigned —</option>
+                      <option value="">Unassigned</option>
                       {(stores || [])
                         .filter(s => s.status !== PERMANENTLY_CLOSED || String(s.pc) === String(form.storePC || ''))
                         .slice()
@@ -3826,7 +3844,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                         ))
                       }
                     </select>
-                    <div style={{ fontSize:"0.68rem", color: form.storePC ? "#3b82f6" : th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
+                    <div style={{ fontSize:"0.68rem", color: form.storePC ? th.info : th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
                       {form.storePC
                         ? (form.userType === "store_tablet"
                             ? `Assigned — login set to PC# ${form.storePC}${form.name ? `, under ${form.name}` : ""}.`
@@ -3839,7 +3857,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                 {form.userType === "dm" && (<>
                   <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                     <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
-                    <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>District Assignment</span>
+                    <span style={{ fontSize:"0.86rem", fontWeight:700, color:th.text }}>District Assignment</span>
                   </div>
                   <div style={{ marginBottom:"1.25rem" }}>
                     <select
@@ -3847,7 +3865,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                       value={form.district != null && form.district !== '' ? String(form.district) : ""}
                       onChange={e => { const v = e.target.value; setForm(f => ({ ...f, district: v === '' ? null : Number(v) })); }}
                     >
-                      <option value="">— Unassigned —</option>
+                      <option value="">Unassigned</option>
                       {districtOptions.map(d => {
                         const takenBy = (users || []).find(u => u.id !== editId && u.userType === 'dm' && u.active !== false && Number(u.district) === d.num);
                         return (
@@ -3857,14 +3875,14 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                         );
                       })}
                     </select>
-                    <div style={{ fontSize:"0.68rem", color: form.district ? "#3b82f6" : th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
+                    <div style={{ fontSize:"0.68rem", color: form.district ? th.info : th.muted, marginTop:"0.4rem", paddingLeft:"0.2rem" }}>
                       {form.district
                         ? `Assigned — this DM will see District ${form.district}'s stores on login, and Locations → Districts will show them as its DM.`
                         : "No district selected. This DM will see no stores on login."}
                     </div>
                     {(() => {
                       const takenBy = form.district ? (users || []).find(u => u.id !== editId && u.userType === 'dm' && u.active !== false && Number(u.district) === Number(form.district)) : null;
-                      return takenBy ? <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.3rem", paddingLeft:"0.2rem" }}>{takenBy.name} is also assigned to District {form.district}. Both will see it until one is unassigned.</div> : null;
+                      return takenBy ? <div style={{ fontSize:"0.68rem", color:th.warn, fontWeight:600, marginTop:"0.3rem", paddingLeft:"0.2rem" }}>{takenBy.name} is also assigned to District {form.district}. Both will see it until one is unassigned.</div> : null;
                     })()}
                   </div>
                   {/* v22.16: other names this DM appears under (e.g. in Locations), so District
@@ -3881,7 +3899,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                 {/* Contact section */}
                 <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.75rem" }}>
                   <div style={{ width:3, height:14, borderRadius:2, background:rc }} />
-                  <span style={{ fontSize:"0.63rem", fontWeight:800, color:th.muted, textTransform:"uppercase", letterSpacing:1 }}>Contact Info</span>
+                  <span style={{ fontSize:"0.86rem", fontWeight:700, color:th.text }}>Contact Info</span>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem", marginBottom:"1rem" }}>
                   {form.userType === "store_tablet" ? (() => {
@@ -3889,7 +3907,7 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                     return (
                       <div style={{ ...inp(th), display:"flex", alignItems:"center", gap:"0.5rem", color: mgrEmail ? th.text : th.muted, cursor:"default" }}
                         title="A store tablet has no email of its own — it always uses the assigned store manager's email, and updates automatically if that changes.">
-                        <span style={{ fontSize:"0.85rem" }}>🔗</span>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" /><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" /></svg>
                         <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                           {mgrEmail || (form.storePC ? "No manager email on file for this store" : "Synced to store manager's email")}
                         </span>
@@ -3901,13 +3919,13 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
                   <input style={inp(th)} placeholder="Phone number" value={form.phone||""} onChange={e=>handlePhoneChange(e.target.value, setForm, "phone")} />
                 </div>
                 {welcomeSent && (
-                  <div style={{ padding:"0.5rem 0.75rem", borderRadius:"0.375rem", marginBottom:"0.75rem", fontSize:"0.8rem", fontWeight:600, background:welcomeSent==="success"?"#00d08418":"#ff444418", color:welcomeSent==="success"?"#00d084":"#ff6666" }}>
+                  <div style={{ padding:"0.5rem 0.75rem", borderRadius:"0.375rem", marginBottom:"0.75rem", fontSize:"0.8rem", fontWeight:600, background:withAlpha(welcomeSent==="success"?th.success:th.danger, 0.1), color:welcomeSent==="success"?th.success:th.danger }}>
                     {welcomeSent==="success" ? "✅ Welcome email sent!" : "⚠️ Welcome email failed — user was still created."}
                   </div>
                 )}
                 <div style={{ display:"flex", gap:"0.5rem", justifyContent:"flex-end", paddingTop:"1rem", borderTop:`1px solid ${th.cardBorder}` }}>
                   <button style={btn(th, { background:"transparent", color:th.muted, padding:"0.65rem 1.4rem", border:`1px solid ${th.cardBorder}` })} onClick={closeEditPage}>Cancel</button>
-                  <button disabled={saveFlash} style={btn(th, { padding:"0.65rem 1.75rem", background: saveFlash ? "#22c55e" : `linear-gradient(135deg,${rc},${rc}bb)`, color:"#fff", boxShadow: saveFlash ? "0 4px 16px #22c55e55" : `0 4px 16px ${rc}55`, fontWeight:700, transition:"background 0.2s, box-shadow 0.2s" })} onClick={save}>{saveFlash ? "✓ Saved!" : (editId ? "Save Changes" : "Create User")}</button>
+                  <button disabled={saveFlash} style={btn(th, { padding:"0.65rem 1.75rem", background: saveFlash ? th.success : O, color:W, boxShadow:"none", fontWeight:700, transition:"background 0.2s, box-shadow 0.2s" })} onClick={save}>{saveFlash ? "✓ Saved!" : (editId ? "Save Changes" : "Create User")}</button>
                 </div>
               </div>
             </div>
@@ -3917,221 +3935,202 @@ function AdminUsers({ users, setUsers, currentUser, th, showAlert, stores, manag
 
   // ── List view ─────────────────────────────────────────────────────────────
   return (
-    <div className="fade-in" ref={frameRef} style={{ display:"flex", flexDirection:"column", height: frameH || "calc(100vh - 200px)", minHeight:360 }}>
+    <div className="fade-in fin-root" ref={frameRef} style={{ display:"flex", flexDirection:"column", height: frameH || "calc(100vh - 200px)", minHeight:360 }}>
+      <style>{FIN_CSS(th) + `
+/* waive 30a: the one emoji sloplint finds in AdminUsers is inside the welcome-EMAIL HTML template (sendWelcomeEmail), not portal UI */
+.ua-row { transition: background-color 160ms ease; }
+.ua-row:hover { background: var(--fin-row); }
+.ua-act .ua-tip { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%) translateY(4px); opacity: 0; pointer-events: none; transition: opacity 140ms ease, transform 140ms ease; background: var(--fin-text); color: ${th.card}; font-size: 0.74rem; font-weight: 700; padding: 0.28rem 0.55rem; border-radius: 0.4rem; white-space: nowrap; z-index: 30; }
+.ua-act:hover .ua-tip, .ua-act:focus-visible .ua-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+@media (prefers-reduced-motion: reduce) { .ua-act .ua-tip { transition: none; } }`}</style>
       {linkTarget && (
         <TimeOffLinkPicker th={th} target={linkTarget} showAlert={showAlert}
           onClose={() => setLinkTarget(null)} onSaved={() => { setLinkTarget(null); loadTimeOff(); }} />
       )}
-      {/* ─── Section 1 — controls (fixed, non-scrolling) ─────────── */}
-      <div style={{ flexShrink:0 }}>
-      {/* Top bar */}
-      <div style={{ display:"flex", gap:"0.6rem", marginBottom:"1rem", alignItems:"center", flexWrap:"wrap" }}>
-        <div style={{ position:"relative", flex:"1 1 240px", maxWidth:340 }}>
-          <span style={{ position:"absolute", left:"0.85rem", top:"50%", transform:"translateY(-50%)", fontSize:"0.82rem", color:th.muted, pointerEvents:"none" }}>🔍</span>
-          <input style={{ ...inp(th), padding:"0.65rem 0.85rem 0.65rem 2.4rem", fontSize:"0.85rem", width:"100%" }} placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <select style={{ ...inp(th), width:"auto", fontSize:"0.8rem", padding:"0.65rem 0.75rem" }} value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
-          <option value="all">All Roles</option>
-          {USERTYPE_OPTIONS.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <div style={{ display:"inline-flex", alignItems:"center", gap:"0.45rem", padding:"0.5rem 0.85rem", background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:999, fontSize:"0.68rem", color:th.muted, fontWeight:800, textTransform:"uppercase", letterSpacing:0.7 }}>
-          <span style={{ width:6, height:6, borderRadius:"50%", background:"#22c55e" }} />
-          {users.filter(u => u.active !== false).length} Active
-        </div>
-        {managerPendingCount > 0 && (
-          <div style={{ display:"inline-flex", alignItems:"center", gap:"0.45rem", padding:"0.5rem 0.85rem", background:"#f59e0b22", border:"1px solid #f59e0b55", borderRadius:999, fontSize:"0.68rem", color:"#f59e0b", fontWeight:800, textTransform:"uppercase", letterSpacing:0.7 }}>
-            <span style={{ width:6, height:6, borderRadius:"50%", background:"#f59e0b" }} />
-            {managerPendingCount} Pending
+      {/* ─── Section 1 — controls (fixed, non-scrolling) — v22.32 Hallmark redesign ─── */}
+      <div style={{ flexShrink:0, marginBottom:"0.85rem", display:"grid", gap:"0.7rem" }}>
+        <div style={{ display:"flex", gap:"0.6rem", alignItems:"center", flexWrap:"wrap" }}>
+          <div style={{ position:"relative", flex:"1 1 240px", maxWidth:360 }}>
+            <span aria-hidden="true" style={{ position:"absolute", left:"0.8rem", top:"50%", transform:"translateY(-50%)", display:"flex", pointerEvents:"none" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            </span>
+            <input className="fin-input" aria-label="Search users" style={{ ...inp(th), padding:"0.6rem 0.85rem 0.6rem 2.3rem", fontSize:"0.9rem", width:"100%" }} placeholder="Search by name or username…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-        )}
-        {canLinkTimeOff && (
-          <button onClick={syncTimeOffNow} disabled={timeOffSyncing}
-            aria-label="Time-off balances status — click to refresh now" title={timeOffSync?.finished_at ? `Refreshes automatically. Click to refresh now. Last synced ${new Date(timeOffSync.finished_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}` : 'Time-off balances have not been synced yet'}
-            style={{ display:"inline-flex", alignItems:"center", gap:"0.45rem", padding:"0.5rem 0.85rem", background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:999, fontSize:"0.72rem", fontWeight:700, color:th.muted, cursor: timeOffSyncing ? "default" : "pointer", fontFamily:"'Source Sans 3'" }}>
-            <span style={{ width:6, height:6, borderRadius:"50%", background: timeOffSyncing ? "#f59e0b" : (timeOffSync?.finished_at ? "#22c55e" : th.muted), animation: timeOffSyncing ? "pulse 1.2s ease-in-out infinite" : "none" }} />
-            {timeOffSyncing ? 'Updating time off…' : (timeOffSync?.finished_at ? `Time off updated ${new Date(timeOffSync.finished_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}` : 'Time off not synced yet')}
-          </button>
-        )}
-        <div style={{ flex:1 }} />
-        {canManageUser(currentUser, { userType: "manager" }) && (
-          <button onClick={() => openEditPage(null)} style={{
-            padding:"0.7rem 1.25rem", fontSize:"0.74rem", fontWeight:800, textTransform:"uppercase", letterSpacing:0.7, fontFamily:"'Source Sans 3'",
-            color: "#fff",
-            background: `linear-gradient(135deg, ${O} 0%, #ff8040 100%)`,
-            border: "none",
-            borderRadius: "0.625rem",
-            cursor: "pointer",
-            boxShadow: `0 6px 18px ${O}55`,
-            transition: "all .2s",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = `0 10px 24px ${O}77`; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = `0 6px 18px ${O}55`; }}>
-            + Add User
-          </button>
-        )}
-      </div>
+          {canLinkTimeOff && (
+            <button type="button" className="fin-btn" onClick={syncTimeOffNow} disabled={timeOffSyncing}
+              aria-label="Time-off balances status, click to refresh now" title={timeOffSync?.finished_at ? `Refreshes automatically. Click to refresh now. Last synced ${new Date(timeOffSync.finished_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}` : 'Time-off balances have not been synced yet'}
+              style={{ display:"inline-flex", alignItems:"center", gap:"0.45rem", padding:"0.5rem 0.85rem", minHeight:38, background:th.card, border:`1px solid ${th.cardBorder}`, borderRadius:999, fontSize:"0.82rem", fontWeight:600, color:th.muted, cursor: timeOffSyncing ? "default" : "pointer", fontFamily:FONTS.body }}>
+              <FinRefreshIcon color={timeOffSyncing ? O : th.muted} spinning={timeOffSyncing} />
+              {timeOffSyncing ? 'Updating time off…' : (timeOffSync?.finished_at ? `Time off updated ${new Date(timeOffSync.finished_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}` : 'Time off not synced yet')}
+            </button>
+          )}
+          <div style={{ flex:1 }} />
+          {canManageUser(currentUser, { userType: "manager" }) && (
+            <button type="button" className="fin-btn fin-lift" onClick={() => openEditPage(null)}
+              style={{ ...btn(th, { padding:"0.6rem 1.15rem", fontSize:"0.9rem", minHeight:40 }), display:"inline-flex", alignItems:"center", gap:"0.4rem" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={W} strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              Add user
+            </button>
+          )}
+        </div>
+
+        {/* Filter chips with live counts — role, then status */}
+        {(() => {
+          const live = users.filter(u => statusFilter === 'all' || (statusFilter === 'active' ? u.active !== false : statusFilter === 'inactive' ? u.active === false : !!u.locked));
+          const roleCount = (v) => live.filter(u => v === 'all' || u.userType === v).length;
+          const roleChips = [['all', 'Everyone'], ...USERTYPE_OPTIONS.map(([v, l]) => [v, ROLE_LABEL[v] || l])].filter(([v]) => v === 'all' || roleCount(v) > 0 || roleFilter === v);
+          const statusChips = [
+            ['all', 'Any status', users.length],
+            ['active', 'Active', users.filter(u => u.active !== false).length],
+            ['inactive', 'Inactive', users.filter(u => u.active === false).length],
+            ['locked', 'Locked', users.filter(u => u.locked).length],
+          ];
+          const chip = (on, color) => ({ display:"inline-flex", alignItems:"center", gap:"0.4rem", padding:"0.35rem 0.8rem", minHeight:34, borderRadius:999, cursor:"pointer", fontFamily:FONTS.body, fontSize:"0.84rem", fontWeight:600, border:`1px solid ${on ? withAlpha(color || O, 0.5) : th.cardBorder}`, background: on ? withAlpha(color || O, 0.1) : th.card, color: on ? (color || O) : th.text, whiteSpace:"nowrap" });
+          return (
+            <div style={{ display:"grid", gap:"0.45rem" }}>
+              <div role="group" aria-label="Filter by role" style={{ display:"flex", gap:"0.35rem", flexWrap:"wrap" }}>
+                {roleChips.map(([v, l]) => (
+                  <button key={v} type="button" className="fin-btn" aria-pressed={roleFilter === v} onClick={() => setRoleFilter(v)} style={chip(roleFilter === v, v === 'all' ? O : roleColor(v))}>
+                    {v !== 'all' && <span aria-hidden="true" style={{ width:8, height:8, borderRadius:3, background:roleColor(v) }} />}
+                    {l}<FinTicker value={roleCount(v)} format={n => Math.round(n)} style={{ color:th.muted, fontWeight:500 }} />
+                  </button>
+                ))}
+              </div>
+              <div role="group" aria-label="Filter by status" style={{ display:"flex", gap:"0.35rem", flexWrap:"wrap", alignItems:"center" }}>
+                {statusChips.map(([v, l, n]) => (
+                  <button key={v} type="button" className="fin-btn" aria-pressed={statusFilter === v} onClick={() => setStatusFilter(v)} style={chip(statusFilter === v, v === 'locked' ? th.danger : v === 'inactive' ? th.muted : O)}>
+                    {l}<span className="fin-num" style={{ color:th.muted, fontWeight:500 }}>{n}</span>
+                  </button>
+                ))}
+                {managerPendingCount > 0 && (
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:"0.4rem", fontSize:"0.84rem", fontWeight:600, color:th.warn, marginLeft:"0.25rem" }}>
+                    <FinStatusIcon th={th} status="warn" size={15} />{managerPendingCount} manager change{managerPendingCount === 1 ? '' : 's'} to review (in the notification bell)
+                  </span>
+                )}
+                <span aria-live="polite" style={{ marginLeft:"auto", fontSize:"0.84rem", color:th.muted }}>Showing <FinTicker value={displayUsers.length} format={n => Math.round(n)} style={{ fontWeight:700, color:th.text }} /></span>
+              </div>
+            </div>
+          );
+        })()}
       </div>{/* ── /Section 1 ── */}
 
-      {/* ─── Section 2 — user cards (scrollable) ──────────────────── */}
-      <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:4 }}>
-      {/* Pending manager-sync items moved to the notification bell (2026-09-22) — see the
-          "Review" action there, which opens ManagerSyncReviewModal. This tab only shows the
-          summary count (Section 1's Pending pill) now, not the individual cards. */}
+      {/* ─── Section 2 — the people list (scrollable) ──────────────────── */}
+      <div style={{ flex:1, minHeight:0, overflowY:"auto", border:`1px solid ${th.cardBorder}`, borderRadius:"1rem", background:th.card }}>
+      {/* Pending manager-sync items live in the notification bell (2026-09-22); this tab
+          only shows their count (Section 1). */}
       {displayUsers.length === 0 && (
-        <div style={{ ...card(th), padding:"3rem", textAlign:"center", color:th.muted, fontSize:"0.875rem" }}>No users found.</div>
+        <div style={{ padding:"3rem 1rem", textAlign:"center", color:th.muted, fontSize:"0.9rem" }}>
+          No users match these filters.{' '}
+          <button type="button" className="fin-btn" onClick={() => { setSearch(''); setRoleFilter('all'); setStatusFilter('all'); }} style={{ background:"none", border:"none", padding:0, color:O, fontWeight:700, cursor:"pointer", fontSize:"inherit", fontFamily:FONTS.body }}>Clear filters</button>
+        </div>
       )}
-      <div style={{ display:"grid", gridTemplateColumns: isMobileUsers ? "1fr" : "repeat(2,1fr)", gap:"1rem" }}>
-        {displayUsers.map(u => {
+      <div role="list" aria-label="Users">
+        {displayUsers.map((u, i) => {
           const rc = roleColor(u.userType);
           const isInactive = u.active === false;
-          // Icon-only action button: circular, lifts + glows on hover, reveals an animated
-          // tooltip naming the action (accessible via aria-label too). Pure DOM-mutation on
-          // hover (matches this file's existing hover convention) — no per-card React state,
-          // since these buttons live inside a .map() and can't own hooks.
-          const IconAction = ({ icon, label, onClick, color, disabled, badge, size = 36 }) => (
-            <button onClick={onClick} disabled={disabled} aria-label={label}
-              style={{
-                position:"relative", width:size, height:size, minWidth:size, borderRadius:"50%",
-                display:"inline-flex", alignItems:"center", justifyContent:"center",
-                background:`${color}18`, border:`1px solid ${color}40`,
-                cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1,
-                transition:"transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease",
-                flexShrink:0,
-              }}
-              onMouseEnter={e => {
-                if (disabled) return;
-                e.currentTarget.style.transform = "translateY(-2px) scale(1.1)";
-                e.currentTarget.style.boxShadow = `0 6px 16px ${color}66`;
-                e.currentTarget.style.background = `${color}2a`;
-                const tip = e.currentTarget.querySelector(".act-tip");
-                if (tip) { tip.style.opacity = "1"; tip.style.transform = "translateX(-50%) translateY(0)"; }
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = "none";
-                e.currentTarget.style.boxShadow = "none";
-                e.currentTarget.style.background = `${color}18`;
-                const tip = e.currentTarget.querySelector(".act-tip");
-                if (tip) { tip.style.opacity = "0"; tip.style.transform = "translateX(-50%) translateY(4px)"; }
-              }}>
+          const entering = prevUserIdsRef.current.size > 0 && !prevUserIdsRef.current.has(u.id);
+          const leaving = leavingUserIds.includes(u.id);
+          // Icon-only action: tooltip on hover AND keyboard focus (CSS, no per-row state).
+          const IconAction = ({ icon, label, onClick, color, disabled, badge, size = 34 }) => (
+            <button type="button" onClick={onClick} disabled={disabled} aria-label={label} className="fin-btn fin-lift ua-act"
+              style={{ position:"relative", width:size, height:size, minWidth:size, borderRadius:"0.6rem", display:"inline-flex", alignItems:"center", justifyContent:"center",
+                background:withAlpha(color, 0.1), border:`1px solid ${withAlpha(color, 0.28)}`, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.4 : 1, flexShrink:0 }}>
               <Icon d={icon} size={14} color={color} />
-              {badge && <span style={{ position:"absolute", top:-2, right:-2, width:9, height:9, borderRadius:"50%", background:badge, border:`1.5px solid ${th.card2}` }} />}
-              <span className="act-tip" style={{
-                position:"absolute", bottom:"125%", left:"50%", transform:"translateX(-50%) translateY(4px)",
-                opacity:0, transition:"opacity 0.16s ease, transform 0.16s ease", pointerEvents:"none",
-                background:"#1f2937", color:"#fff", fontSize:"0.62rem", fontWeight:700, padding:"0.28rem 0.55rem",
-                borderRadius:"0.35rem", whiteSpace:"nowrap", boxShadow:"0 4px 10px rgba(0,0,0,0.3)", zIndex:30,
-              }}>{label}</span>
+              {badge && <span aria-hidden="true" style={{ position:"absolute", top:-3, right:-3, width:9, height:9, borderRadius:"50%", background:badge, border:`1.5px solid ${th.card}` }} />}
+              <span className="ua-tip" role="tooltip">{label}</span>
             </button>
           );
+          const assigned = u.userType === "manager" ? (u.storePC ? (stores || []).find(s => String(s.pc) === String(u.storePC)) : (stores || []).find(s => isManagersStore(s, u))) : null;
+          const eml = resolveUserEmail(u, users);
           return (
-            <div key={u.id} style={{ ...card(th), padding:0, overflow:"hidden", opacity: isInactive ? 0.6 : 1, border:`1px solid ${th.cardBorder}`, display:"flex", flexDirection:"column" }}>
-              {/* Card header */}
-              <div style={{ background:`${rc}14`, borderBottom:`1px solid ${rc}22`, padding:"1rem 1.25rem", display:"flex", alignItems:"center", gap:"0.875rem" }}>
-                <div style={{ width:46, height:46, borderRadius:"50%", background:`${rc}22`, border:`2px solid ${rc}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1rem", fontWeight:800, color:rc, flexShrink:0, letterSpacing:0.5 }}>
+            <div key={u.id} role="listitem"
+              className={[leaving ? 'fin-row-leaving' : entering ? 'fin-row' : '', flashUserKey && flashUserKey === u.username ? 'fin-flash' : '', 'ua-row'].filter(Boolean).join(' ')}
+              onClick={(e) => { if (canManageUser(currentUser, u) && !e.target.closest('button, a, input, select')) startEdit(u); }}
+              style={{ display:"grid", gridTemplateColumns: isMobileUsers ? "minmax(0,1fr)" : "minmax(0,2.2fr) minmax(0,1.4fr) minmax(0,1.7fr) minmax(0,1fr) auto", gap:"0.5rem 1rem", alignItems:"center",
+                padding:"0.8rem 1.1rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none", opacity: isInactive ? 0.6 : 1, cursor: canManageUser(currentUser, u) ? "pointer" : "default" }}>
+              {/* Who */}
+              <div style={{ display:"flex", alignItems:"center", gap:"0.75rem", minWidth:0 }}>
+                <div aria-hidden="true" style={{ width:40, height:40, borderRadius:"50%", background:withAlpha(rc, 0.14), boxShadow:`inset 0 0 0 2px ${withAlpha(rc, 0.55)}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.9rem", fontWeight:800, color:rc, flexShrink:0, fontFamily:FONTS.head }}>
                   {u.initials || (u.name||"?").split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}
                 </div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:"0.9rem", fontWeight:700, color:th.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{u.name}</div>
-                  <div style={{ fontSize:"0.72rem", color:th.muted }}>@{u.username}</div>
-                </div>
-                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"0.3rem", flexShrink:0 }}>
-                  <span style={{ fontSize:"0.62rem", fontWeight:700, color:rc, background:`${rc}20`, border:`1px solid ${rc}44`, borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>{roleLabel(u.userType)}</span>
-                  <span style={{ fontSize:"0.62rem", fontWeight:700, color: isInactive?"#f87171":"#4ade80", background: isInactive?"#f8717118":"#4ade8018", border:`1px solid ${isInactive?"#f8717144":"#4ade8044"}`, borderRadius:999, padding:"0.15rem 0.55rem" }}>{isInactive?"Inactive":"Active"}</span>
-                  {u.locked && <span title={`Locked after ${u.failedAttempts || 5} failed login attempts`} style={{ fontSize:"0.62rem", fontWeight:700, color:"#f87171", background:"#f8717118", border:"1px solid #f8717155", borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:"0.25rem" }}><Icon d={BTN.lock} size={10} color="#f87171" />Locked</span>}
-                  {(u.auditsAccess === "view" || u.auditsAccess === "full") && <span title="Granted access to the Audits module beyond this user's role" style={{ fontSize:"0.62rem", fontWeight:700, color:O, background:`${O}18`, border:`1px solid ${O}44`, borderRadius:999, padding:"0.15rem 0.55rem", whiteSpace:"nowrap" }}>Audits: {u.auditsAccess}</span>}
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:"0.95rem", fontWeight:700, color:th.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{u.name}</div>
+                  <div style={{ fontSize:"0.8rem", color:th.muted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>@{u.username}{u.role ? `, ${u.role}` : ''}</div>
                 </div>
               </div>
-
-              {/* Card body */}
-              <div style={{ padding:"0.875rem 1.25rem", flex:1, display:"flex", flexDirection:"column", gap:"0.45rem" }}>
-                <div style={{ fontSize:"0.72rem", color:th.text, fontWeight:500 }}>{u.role || "—"}</div>
-                {(() => {
-                  const eml = resolveUserEmail(u, users);
-                  if (!eml) return null;
-                  const synced = u.userType === "store_tablet";
-                  return (
-                    <div title={synced ? "Synced to this store's manager email — updates automatically." : undefined}
-                      style={{ fontSize:"0.7rem", color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem", overflow:"hidden" }}>
-                      <Icon d={BTN.mail} size={12} color={th.muted} />
-                      <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{eml}</span>
-                      {synced && <span style={{ fontSize:"0.6rem", fontWeight:700, color:"#3b82f6", background:"#3b82f618", border:"1px solid #3b82f644", borderRadius:999, padding:"0.05rem 0.4rem", flexShrink:0 }}>synced</span>}
-                    </div>
-                  );
-                })()}
-                {u.phone && <div style={{ fontSize:"0.7rem", color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.phone} size={12} color={th.muted} />{u.phone}</div>}
-                <div style={{ fontSize:"0.68rem", color:th.muted, marginTop:"0.25rem", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <span style={{ display:"inline-flex", alignItems:"center", gap:"0.35rem" }}><Icon d={u.darkMode ? BTN.moon : BTN.sun} size={12} color={th.muted} />{u.darkMode ? "Dark" : "Light"} · {u.region||"PA"}</span>
-                  <span>{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "Never logged in"}</span>
-                </div>
-                {isTwoFactorRequired(u) && (
-                  <div style={{ fontSize:"0.68rem", color:"#FF671F", fontWeight:800, marginTop:"0.15rem" }}>
-                    2FA required{u.twoFactorSecret ? " and set up" : " - setup pending"}
-                  </div>
-                )}
+              {/* Role + status */}
+              <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap", alignItems:"center" }}>
+                <span style={{ fontSize:"0.78rem", fontWeight:700, color:rc, background:withAlpha(rc, 0.12), borderRadius:999, padding:"0.15rem 0.6rem", whiteSpace:"nowrap" }}>{roleLabel(u.userType)}</span>
+                {isInactive && <span style={{ fontSize:"0.78rem", fontWeight:700, color:th.muted, background:th.card3, borderRadius:999, padding:"0.15rem 0.6rem" }}>Inactive</span>}
+                {u.locked && <span title={`Locked after ${u.failedAttempts || 5} failed login attempts`} style={{ fontSize:"0.78rem", fontWeight:700, color:th.danger, background:withAlpha(th.danger, 0.1), borderRadius:999, padding:"0.15rem 0.6rem", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:"0.25rem" }}><Icon d={BTN.lock} size={11} color={th.danger} />Locked</span>}
+                {(u.auditsAccess === "view" || u.auditsAccess === "full") && <span title="Granted access to the Audits module beyond this user's role" style={{ fontSize:"0.78rem", fontWeight:700, color:O, background:withAlpha(O, 0.1), borderRadius:999, padding:"0.15rem 0.6rem", whiteSpace:"nowrap" }}>Audits: {u.auditsAccess}</span>}
+                {isTwoFactorRequired(u) && <span title={u.twoFactorSecret ? "2FA required and set up" : "2FA required, setup pending"} style={{ fontSize:"0.78rem", fontWeight:700, color: u.twoFactorSecret ? th.success : th.warn, background:withAlpha(u.twoFactorSecret ? th.success : th.warn, 0.1), borderRadius:999, padding:"0.15rem 0.6rem", whiteSpace:"nowrap" }}>2FA{u.twoFactorSecret ? '' : ' pending'}</span>}
+              </div>
+              {/* Where + time off */}
+              <div style={{ minWidth:0, display:"grid", gap:"0.2rem", fontSize:"0.84rem" }}>
                 {u.userType === "dm" && (u.district
-                  ? <div style={{ fontSize:"0.68rem", color:"#3b82f6", fontWeight:700, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.pin} size={12} color="#3b82f6" />District {u.district} · {(districtOptions.find(d => d.num === Number(u.district)) || {}).storeCount || 0} stores</div>
-                  : <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.alert} size={12} color="#f59e0b" />No district assigned</div>)}
-                {u.userType === "manager" && (() => {
-                  const assigned = u.storePC
-                    ? (stores || []).find(s => String(s.pc) === String(u.storePC))
-                    : (stores || []).find(s => isManagersStore(s, u));
-                  return assigned
-                    ? <div style={{ fontSize:"0.68rem", color:"#3b82f6", fontWeight:700, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.pin} size={12} color="#3b82f6" />{assigned.name} · D{assigned.district}</div>
-                    : <div style={{ fontSize:"0.68rem", color:"#f59e0b", fontWeight:600, marginTop:"0.15rem", display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.alert} size={12} color="#f59e0b" />No store assigned</div>;
-                })()}
+                  ? <span style={{ color:th.text, display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.pin} size={13} color={th.muted} />District {u.district}, {(districtOptions.find(d => d.num === Number(u.district)) || {}).storeCount || 0} stores</span>
+                  : <span style={{ color:th.warn, display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.alert} size={13} color={th.warn} />No district assigned</span>)}
+                {u.userType === "manager" && (assigned
+                  ? <span style={{ color:th.text, display:"flex", alignItems:"center", gap:"0.35rem", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}><Icon d={BTN.pin} size={13} color={th.muted} />{assigned.name}, District {assigned.district}</span>
+                  : <span style={{ color:th.warn, display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.alert} size={13} color={th.warn} />No store assigned</span>)}
                 <UserTimeOffLine th={th} info={timeOff[u.id]} userType={u.userType} canLink={canLinkTimeOff}
                   onLink={() => setLinkTarget({ id: u.id, name: u.name, linked: !!timeOff[u.id]?.linked })} />
+                {eml && (
+                  <span title={u.userType === "store_tablet" ? "Synced to this store's manager email; updates automatically." : undefined} style={{ color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem", overflow:"hidden" }}>
+                    <Icon d={BTN.mail} size={13} color={th.muted} /><span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{eml}</span>
+                  </span>
+                )}
+                {u.phone && <span style={{ color:th.muted, display:"flex", alignItems:"center", gap:"0.35rem" }}><Icon d={BTN.phone} size={13} color={th.muted} />{u.phone}</span>}
               </div>
-
-              {/* Card actions — icon-only, animated tooltip on hover. Routine actions left,
-                  destructive group (sign-out / delete) divided to the right. */}
-              <div style={{ padding:"0.625rem 1rem", borderTop:`1px solid ${th.cardBorder}`, display:"flex", gap:"0.5rem", flexWrap:"wrap", alignItems:"center", background:th.card2 }}>
+              {/* Last login */}
+              <div style={{ fontSize:"0.84rem", color: u.lastLogin ? th.muted : th.warn }}>
+                {u.lastLogin ? <>Last in {new Date(u.lastLogin).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</> : "Never logged in"}
+              </div>
+              {/* Actions — routine left, destructive set apart */}
+              <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap", alignItems:"center", justifyContent: isMobileUsers ? "flex-start" : "flex-end" }}>
                 {canManageUser(currentUser, u) && (
-                  <IconAction icon={BTN.edit} label="Edit" color="#FF671F" onClick={() => startEdit(u)} />
+                  <IconAction icon={BTN.edit} label="Edit" color={O} onClick={() => startEdit(u)} />
                 )}
                 {canManageUser(currentUser, u) && (
                   <IconAction icon={isInactive ? BTN.check : BTN.power} label={isInactive ? "Enable" : "Disable"} color={th.muted} onClick={() => toggleActive(u.id)} />
                 )}
                 {u.locked && currentUser?.userType === "it" && (
-                  <IconAction icon={BTN.unlock} label="Unlock (clear failed-attempt lockout)" color="#f87171" onClick={() => unlockUser(u.id)} />
+                  <IconAction icon={BTN.unlock} label="Unlock (clear failed-attempt lockout)" color={th.danger} onClick={() => unlockUser(u.id)} />
                 )}
                 {isFullAdmin(currentUser) && (() => {
-                  const eml = resolveUserEmail(u, users);
                   const busy = emailAction?.userId===u.id && emailAction?.type==="reset" && emailAction?.status==="sending";
                   const label = !eml ? (u.userType === "store_tablet" ? "No manager email on file" : "No email on file")
                     : emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"Reset email sent":"Failed to send") : "Reset password";
-                  const badge = emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="ok"?"#10b981":emailAction.status==="failed"?"#ef4444":null) : null;
-                  return <IconAction icon={BTN.key} label={label} color="#3b82f6" disabled={!eml || busy} badge={badge} onClick={() => sendPasswordReset(u)} />;
+                  const badge = emailAction?.userId===u.id && emailAction?.type==="reset" ? (emailAction.status==="ok"?th.success:emailAction.status==="failed"?th.danger:null) : null;
+                  return <IconAction icon={BTN.key} label={label} color={th.info} disabled={!eml || busy} badge={badge} onClick={() => sendPasswordReset(u)} />;
                 })()}
                 {isFullAdmin(currentUser) && !u.lastLogin && (() => {
-                  const eml = resolveUserEmail(u, users);
                   const busy = emailAction?.userId===u.id && emailAction?.type==="welcome" && emailAction?.status==="sending";
                   const label = !eml ? (u.userType === "store_tablet" ? "No manager email on file" : "No email on file")
                     : emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="sending"?"Sending…":emailAction.status==="ok"?"Welcome email sent":"Failed to send") : "Resend welcome email";
-                  const badge = emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="ok"?"#10b981":emailAction.status==="failed"?"#ef4444":null) : null;
-                  return <IconAction icon={BTN.mail} label={label} color="#10b981" disabled={!eml || busy} badge={badge} onClick={() => resendWelcome(u)} />;
+                  const badge = emailAction?.userId===u.id && emailAction?.type==="welcome" ? (emailAction.status==="ok"?th.success:emailAction.status==="failed"?th.danger:null) : null;
+                  return <IconAction icon={BTN.mail} label={label} color={th.success} disabled={!eml || busy} badge={badge} onClick={() => resendWelcome(u)} />;
                 })()}
                 {isFullAdmin(currentUser) && isTwoFactorRequired(u) && (() => {
                   const busy = revokeAction?.userId === u.id && revokeAction?.status === "revoking";
                   const label = revokeAction?.userId === u.id ? (revokeAction.status === "revoking" ? "Revoking…" : revokeAction.status === "ok" ? "2FA revoked" : "Failed") : "Revoke 2FA (force re-verification)";
-                  const badge = revokeAction?.userId === u.id && revokeAction.status === "ok" ? "#10b981" : null;
-                  return <IconAction icon={BTN.shield} label={label} color="#f97316" disabled={busy} badge={badge} onClick={() => revokeTrustedDevices(u)} />;
+                  const badge = revokeAction?.userId === u.id && revokeAction.status === "ok" ? th.success : null;
+                  return <IconAction icon={BTN.shield} label={label} color={th.warn} disabled={busy} badge={badge} onClick={() => revokeTrustedDevices(u)} />;
                 })()}
-
-                {/* Destructive group — set apart by a divider, but kept in the natural left-aligned flow */}
                 {(currentUser?.userType === "it" || isFullAdmin(currentUser)) && (
-                  <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap", alignItems:"center", paddingLeft:"0.7rem", borderLeft:`1px solid ${th.cardBorder}` }}>
+                  <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", paddingLeft:"0.5rem", borderLeft:`1px solid ${th.cardBorder}` }}>
                     {currentUser?.userType === "it" && (
-                      <IconAction icon={BTN.logout} label="Sign out of all devices (lost/stolen)" color="#ef4444" onClick={() => signOutAllSessions(u)} />
+                      <IconAction icon={BTN.logout} label="Sign out of all devices (lost/stolen)" color={th.danger} onClick={() => signOutAllSessions(u)} />
                     )}
                     {isFullAdmin(currentUser) && (
                       confirmDeleteId === u.id
                         ? <div style={{ display:"flex", gap:"0.3rem", alignItems:"center" }}>
-                            <span style={{ fontSize:"0.7rem", color:"#ef4444", fontWeight:600 }}>Delete?</span>
-                            <button onClick={() => { del(u.id); setConfirmDeleteId(null); }} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.72rem", background:"#ef4444", color:"#fff", border:"none" }) }}>Yes</button>
-                            <button onClick={() => setConfirmDeleteId(null)} style={{ ...btn(th, { padding:"0.35rem 0.6rem", fontSize:"0.72rem", background:th.card3, color:th.muted, border:`1px solid ${th.cardBorder}` }) }}>No</button>
+                            <span style={{ fontSize:"0.82rem", color:th.danger, fontWeight:700 }}>Delete?</span>
+                            <button type="button" className="fin-btn" onClick={() => { setConfirmDeleteId(null); setLeavingUserIds(p => [...p, u.id]); setTimeout(() => { del(u.id); setLeavingUserIds(p => p.filter(x => x !== u.id)); }, finReducedMotion() ? 0 : 150); }} style={{ ...btn(th, { padding:"0.35rem 0.7rem", fontSize:"0.8rem", background:th.danger, color:W, minHeight:32 }) }}>Yes</button>
+                            <button type="button" className="fin-btn" onClick={() => setConfirmDeleteId(null)} style={{ ...btn(th, { padding:"0.35rem 0.7rem", fontSize:"0.8rem", background:th.card3, color:th.text, minHeight:32 }) }}>No</button>
                           </div>
-                        : <IconAction icon={BTN.trash} label="Delete user" color="#ef4444" onClick={() => setConfirmDeleteId(u.id)} />
+                        : <IconAction icon={BTN.trash} label="Delete user" color={th.danger} onClick={() => setConfirmDeleteId(u.id)} />
                     )}
                   </div>
                 )}
@@ -24821,6 +24820,7 @@ const HUB_SUBITEMS = {
     { id: 'office-clock-admin', label: 'Office Time Clock — Link Accounts' },
     { id: 'office-clock-review', label: 'Office Time Clock — Pay Period Review' },
     { id: 'hours-report', label: 'Hours Report' },
+    { id: 'terminations', label: 'Terminations' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -24856,6 +24856,8 @@ const ADMIN_TAB_ICONS = {
   vendors: <><path d="M4 21V5h10l4 4v12"/><path d="M4 9h14M9 21v-6h4v6M2 21h20"/></>,
   sensors: <><circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></>,
   system: <><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5M9 13h6M9 17h6"/></>,
+  // v22.32: Orion gets a real icon (was a purple radial-gradient dot).
+  orion: <><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><path d="m12 8 1.4 2.6L16 12l-2.6 1.4L12 16l-1.4-2.6L8 12l2.6-1.4Z"/></>,
 };
 const ADMIN_CONSOLE_SUBS = [
   { id: 'notifications', label: 'Notification Access Panel', icon: '📬', accent: '#FF671F' },
@@ -25567,31 +25569,19 @@ function AdminConsole(props) {
     return () => { alive = false; };
   }, [sub]);
 
+  // v22.32 Hallmark redesign (design.md): one underline tab strip that scrolls instead
+  // of wrapping, the underline slides to the active section, the section fades up in.
+  const tabs = SUBS.map(s => ({
+    id: s.id, label: s.label,
+    icon: (c) => <HubIcon d={ADMIN_TAB_ICONS[s.id]} color={c} size={17} />,
+    badge: s.id === 'orion' ? orionGapCount : null,
+    badgeTitle: `${orionGapCount} unreviewed knowledge gap${orionGapCount !== 1 ? 's' : ''}`,
+  }));
   return (
-    <div>
-      {/* Single flat tab bar */}
-      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.85rem', borderBottom: `1px solid ${th.cardBorder}`, paddingBottom: '0.55rem' }}>
-        {SUBS.map(s => {
-          const on = sub === s.id;
-          const badge = s.id === 'orion' && orionGapCount > 0 ? orionGapCount : null;
-          return (
-            <button key={s.id} onClick={() => go(s.id)} style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.6rem 1.05rem', fontSize: '0.84rem', fontWeight: 600,
-              fontFamily: "'Source Sans 3'", cursor: 'pointer',
-              borderRadius: '0.65rem',
-              border: `1px solid ${on ? '#FF671F66' : th.cardBorder}`,
-              background: on ? '#FF671F14' : th.card,
-              color: on ? '#FF671F' : th.text, transition: 'all .15s',
-            }}>
-              <span style={{ display: 'flex' }}>{s.id === 'orion'
-                ? <span style={{ width: 13, height: 13, borderRadius: '50%', background: 'radial-gradient(circle at 35% 35%, #a78bfa, #6d28d9)', display: 'inline-block' }} />
-                : <HubIcon d={ADMIN_TAB_ICONS[s.id]} color={on ? '#FF671F' : th.muted} size={16} />}</span>{s.label}
-              {badge != null && <span title={`${badge} unreviewed knowledge gap${badge !== 1 ? 's' : ''}`} style={{ minWidth: 16, height: 16, padding: '0 5px', borderRadius: 999, background: '#ef4444', color: '#fff', fontSize: '0.6rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{badge}</span>}
-            </button>
-          );
-        })}
-      </div>
+    <div className="fin-root">
+      <style>{FIN_CSS(th)}</style>
+      <FinTabStrip th={th} tabs={tabs} value={sub} onChange={go} label="Admin sections" />
+      <div key={sub} className="fin-panel-in" role="tabpanel" aria-label={(SUBS.find(x => x.id === sub) || {}).label}>
 
       {sub === 'tasks' && <AdminTaskManager th={th} user={user} stores={stores} showAlert={showAlert} />}
       {sub === 'users' && <AdminUsers users={users} setUsers={setUsers} currentUser={user} th={th} showAlert={showAlert} stores={stores} districts={districts} setDistricts={props.setDistricts} setStores={props.setStores} />}
@@ -25608,6 +25598,7 @@ function AdminConsole(props) {
           <AdminSettings {...props} embedSection="admin" />
         </div>
       </>}
+      </div>
     </div>
   );
 }
@@ -30680,6 +30671,7 @@ const computeRoleTabs = (user) => {
     { id: "executive", label: "Executive",    icon: (c) => ICONS.analytics(c) },
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
+    { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
@@ -30723,6 +30715,7 @@ const computeRoleTabs = (user) => {
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools",     icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
+    { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -30755,6 +30748,7 @@ const computeRoleTabs = (user) => {
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
+    { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "audits",    label: "Audits",       icon: (c) => ICONS.audits(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -30765,6 +30759,7 @@ const computeRoleTabs = (user) => {
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
+    { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
@@ -30789,6 +30784,7 @@ const computeRoleTabs = (user) => {
     ...BASE_TABS.filter(t => t.id !== "expenses"),
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
+    { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -30813,6 +30809,7 @@ const computeRoleTabs = (user) => {
     ...BASE_TABS,
     { id: "tools-hub", label: "Tools", icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
+    { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "projects",  label: "Projects",  icon: (c) => ICONS.projects(c) },
     { id: "project-gallery", label: "Project Gallery", icon: (c) => ICONS.projectGallery(c) },
@@ -30823,6 +30820,7 @@ const computeRoleTabs = (user) => {
     { id: "dashboard", label: "Dashboard", icon: (c) => ICONS.dashboard(c) },
     { id: "tools-hub", label: "Tools",    icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
+    { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "projects", label: "Projects", icon: (c) => ICONS.projects(c) },
     { id: "chat",     label: "Chat",     icon: (c) => ICONS.chat(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
@@ -30835,6 +30833,7 @@ const computeRoleTabs = (user) => {
     ...BASE_TABS,
     { id: "tools-hub",  label: "Tools",      icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
+    { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "locations",  label: "Locations",  icon: (c) => ICONS.locations(c) },
     { id: "projects",   label: "Projects",   icon: (c) => ICONS.projects(c) },
     { id: "incident-reports", label: "Incident Reports", icon: (c) => ICONS.incident(c) },
@@ -32160,7 +32159,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.31";
+const APP_VERSION = "v22.33";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -57876,6 +57875,9 @@ function PCGPortal() {
               // Moved here from Finance 2026-10-08 per explicit request — not
               // a financial report, just a Paycor hours lookup tool.
               { id: 'hours-report', name: 'Hours Report', sub: 'Any store, any date range — per-employee hours broken into weekly columns + total, exportable.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'hours-report'), icon: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></> },
+              // v22.33: on for every role by default; switch it off per role in Admin · Access.
+              // What each person sees inside is scoped server-side (DM → district, manager → store).
+              { id: 'terminations', name: 'Terminations', sub: 'Who left, by store — quarter and half-year views from Paycor.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations'), icon: <><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6"/><path d="M16 18h6"/><path d="M19 15l3 3-3 3"/></> },
             ].filter(t => t.show);
             return (
               <div>
@@ -57890,6 +57892,7 @@ function PCGPortal() {
           })()}
           {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={openStores} users={users} onBack={() => setTab('tools-hub')} setStores={setStores} districts={districts} setDistricts={setDistricts} setUsers={setUsers} />}
           {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={openStores} user={user} />}
+          {tab === "terminations" && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations') && <TerminationsReport th={th} user={user} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={openStores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
           {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={openStores} th={th} user={user} />}

@@ -9,7 +9,7 @@ import { O, W, FONTS, btn, inp, card } from './theme.js';
 export const FIN_CSS = (th) => `/* Hallmark · redesign: full · shape: app screen · scope: app · theme: brand (PCG orange, Raleway + Source Sans 3) · motion: brisk · system: design.md (Finance) */
 /* critique: Finance screens were plain forms and grey tables with tracked-caps labels and repeated figures; the system gives each tab one object, ticking figures and quiet state-only motion */
 /* answered: tokens live in src/theme.js (th.*, FONTS, O) — the portal styles inline, so this block holds only states, motion and focus */
-:root { --fin-accent: ${O}; --fin-text: ${th.text}; --fin-hover: ${th.card3}; --fin-row: ${th.card2}; --fin-font: ${FONTS.body}; }
+:root { --fin-accent: ${O}; --fin-text: ${th.text}; --fin-hover: ${th.card3}; --fin-row: ${th.card2}; --fin-font: ${FONTS.body}; --fin-flash: ${th.success}22; }
 .fin-root { font-family: var(--fin-font); color: var(--fin-text); }
 .fin-root * { box-sizing: border-box; }
 .fin-focus:focus-visible, .fin-btn:focus-visible, .fin-tab:focus-visible, .fin-pick:focus-visible, .fin-rowbtn:focus-visible { outline: 2px solid var(--fin-accent) !important; outline-offset: 2px; }
@@ -34,12 +34,31 @@ export const FIN_CSS = (th) => `/* Hallmark · redesign: full · shape: app scre
 .fin-spin { animation: finSpin 0.9s linear infinite; transform-origin: 50% 50%; }
 .fin-col { transition: transform 420ms cubic-bezier(.2,.8,.2,1); transform-origin: bottom center; }
 @keyframes finSpin { to { transform: rotate(360deg); } }
+.fin-panel-in { animation: finPanelIn 260ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes finPanelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.fin-uline { transition: transform 260ms cubic-bezier(.2,.8,.2,1); transform-origin: left center; }
+.fin-overlay { animation: finFade 220ms ease-out both; }
+.fin-drawer { animation: finDrawerIn 300ms cubic-bezier(.2,.8,.2,1) both; }
+.fin-flash { position: relative; }
+.fin-flash::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: var(--fin-flash); animation: finFlash 1.6s ease-out forwards; border-radius: inherit; }
+.fin-lift { transition: transform 160ms cubic-bezier(.2,.8,.2,1), background-color 160ms ease; }
+.fin-lift:hover:not(:disabled) { transform: translateY(-1px); }
+@keyframes finFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes finDrawerIn { from { opacity: 0; transform: translateX(32px); } to { opacity: 1; transform: none; } }
+@keyframes finFlash { 0% { opacity: 1; } 100% { opacity: 0; } }
+.fin-tabstrip { scrollbar-width: none; }
+.fin-tabstrip::-webkit-scrollbar { display: none; }
+.fin-tabbtn { transition: color 160ms ease, background-color 160ms ease; }
+.fin-tabbtn:hover { background: var(--fin-hover); }
+.fin-tabbtn:focus-visible { outline: 2px solid var(--fin-accent) !important; outline-offset: -2px; }
 @keyframes finRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 @keyframes finRowOut { to { opacity: 0; transform: translateX(14px); } }
 @keyframes finBreathe { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .fin-row, .fin-row-leaving, .fin-skel, .fin-spin { animation: none; }
-  .fin-bar, .fin-tab-ind, .fin-disclose, .fin-col { transition: opacity 150ms linear; }
+  .fin-row, .fin-row-leaving, .fin-skel, .fin-spin, .fin-panel-in, .fin-overlay, .fin-drawer { animation: none; }
+  .fin-flash::after { animation: finFlash 150ms linear forwards; }
+  .fin-lift:hover:not(:disabled) { transform: none; }
+  .fin-bar, .fin-tab-ind, .fin-disclose, .fin-col, .fin-uline { transition: opacity 150ms linear; }
 }`;
 
 export const finReducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -131,6 +150,54 @@ export function FinTabs({ th, options, value, onChange, label }) {
           {l}
         </button>
       ))}
+    </div>
+  );
+}
+
+// Underline tab strip (v22.32, Admin shell): one row that scrolls sideways, an accent
+// underline that slides + resizes to the active tab by transform only (a 100px bar
+// scaled), arrow keys move between tabs. tabs: [{ id, label, icon, badge }].
+export function FinTabStrip({ th, tabs, value, onChange, label }) {
+  const refs = React.useRef({});
+  const [geo, setGeo] = React.useState(null); // { x, w }
+  const measure = React.useCallback(() => {
+    const el = refs.current[value];
+    if (el) setGeo({ x: el.offsetLeft, w: el.offsetWidth });
+  }, [value]);
+  React.useLayoutEffect(() => { measure(); }, [measure, tabs.length]);
+  React.useEffect(() => {
+    window.addEventListener('resize', measure);
+    const el = refs.current[value];
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    return () => window.removeEventListener('resize', measure);
+  }, [measure, value]);
+  const onKey = (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const i = tabs.findIndex(t => t.id === value);
+    const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    e.preventDefault(); onChange(next.id); refs.current[next.id]?.focus();
+  };
+  return (
+    <div style={{ position: 'relative', borderBottom: `1px solid ${th.cardBorder}`, marginBottom: '1.1rem' }}>
+      <div role="tablist" aria-label={label} onKeyDown={onKey} className="fin-tabstrip" style={{ display: 'flex', gap: '0.15rem', overflowX: 'auto', position: 'relative' }}>
+        {tabs.map(t => {
+          const on = t.id === value;
+          return (
+            <button key={t.id} ref={el => { refs.current[t.id] = el; }} type="button" role="tab" aria-selected={on} tabIndex={on ? 0 : -1}
+              onClick={() => onChange(t.id)} className="fin-tabbtn"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.7rem 0.95rem 0.8rem', minHeight: 44, border: 'none', borderRadius: '0.55rem 0.55rem 0 0', background: 'transparent', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', fontWeight: on ? 700 : 600, color: on ? th.text : th.muted, whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {t.icon && <span style={{ display: 'flex' }}>{t.icon(on ? O : th.muted)}</span>}
+              {t.label}
+              {t.badge != null && t.badge > 0 && (
+                <span title={t.badgeTitle || ''} style={{ minWidth: 18, height: 18, padding: '0 6px', borderRadius: 999, background: th.danger, color: W, fontSize: '0.7rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FinTicker value={t.badge} format={v => Math.round(v)} />
+                </span>
+              )}
+            </button>
+          );
+        })}
+        {geo && <span aria-hidden="true" className="fin-uline" style={{ position: 'absolute', left: 0, bottom: 0, height: 3, width: 100, borderRadius: 3, background: O, transform: `translateX(${geo.x}px) scaleX(${(geo.w / 100).toFixed(4)})` }} />}
+      </div>
     </div>
   );
 }

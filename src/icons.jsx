@@ -91,6 +91,9 @@ const ICONS = {
   // this one reads as "reviewing a checklist against time", not "my badge".
   officeClockReview: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="12" height="18" rx="1.5"/><path d="M8.5 1.5h3a1 1 0 0 1 1 1V4h-5V2.5a1 1 0 0 1 1-1z"/><polyline points="7 10 8.3 11.3 11 8.6"/><polyline points="7 14.5 8.3 15.8 11 13.1"/><circle cx="18.5" cy="18.5" r="4"/><polyline points="18.5 16.3 18.5 18.5 20 19.5"/></svg>,
 
+  // Terminations report (v22.33): a person with an arrow leaving to the right — "left the
+  // company". Distinct from `users` (two people) and `logout` (door + arrow, no person).
+  terminations: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6"/><path d="M16 18h6"/><path d="M19 15l3 3-3 3"/></svg>,
 };
 
 // Button-sized icon node definitions (pass as <Icon d={BTN.edit} size={14} />). Used for
