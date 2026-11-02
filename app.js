@@ -2433,6 +2433,37 @@
     return toDateStr(prev);
   }
 
+  // src/office-clock-day-math.mjs
+  function dayWorkedMinutes(dayPunches) {
+    const sorted = [...dayPunches || []].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
+    if (!sorted.length) return null;
+    let state = "out";
+    let inMs = 0, mealMs = 0, totalMs = 0;
+    for (const p of sorted) {
+      const t = new Date(p.capturedAt).getTime();
+      if (!Number.isFinite(t)) return null;
+      if (state === "out" && p.punchType === "clock_in") {
+        state = "in";
+        inMs = t;
+      } else if (state === "in" && p.punchType === "meal_start") {
+        state = "meal";
+        mealMs = t;
+      } else if (state === "meal" && p.punchType === "meal_end") {
+        state = "in";
+        totalMs -= t - mealMs;
+      } else if (state === "in" && p.punchType === "clock_out") {
+        if (t <= inMs) return null;
+        state = "out";
+        totalMs += t - inMs;
+      } else return null;
+    }
+    if (state !== "out" || totalMs <= 0) return null;
+    return Math.round(totalMs / 6e4);
+  }
+  function dayShiftCount(dayPunches) {
+    return (dayPunches || []).filter((p) => p.punchType === "clock_out").length;
+  }
+
   // app.jsx
   var { useState: useState2, useRef: useRef2, useCallback, useEffect: useEffect2 } = React;
   var Guard = class extends React.Component {
@@ -20119,35 +20150,10 @@ ${t2.slice(0, 300)}`);
     }
     const rows = [];
     for (const [day, dayPunches] of byDay) {
-      const byType = (t) => dayPunches.filter((p) => p.punchType === t);
-      const clockIns = byType("clock_in");
-      const clockOuts = byType("clock_out");
-      const mealStarts = byType("meal_start");
-      const mealEnds = byType("meal_end");
-      const clockIn = clockIns[0] || null;
-      const clockOut = clockOuts[0] || null;
-      const mealStart = mealStarts[0] || null;
-      const mealEnd = mealEnds[0] || null;
-      let totalMinutes = null;
-      const regularShape = clockIns.length === 1 && clockOuts.length === 1 && mealStarts.length === mealEnds.length && mealStarts.length <= 1;
-      if (regularShape) {
-        const inMs = new Date(clockIn.capturedAt).getTime();
-        const outMs = new Date(clockOut.capturedAt).getTime();
-        let grossMs = outMs - inMs;
-        let sane = Number.isFinite(grossMs) && grossMs > 0;
-        if (sane && mealStart && mealEnd) {
-          const mealInMs = new Date(mealStart.capturedAt).getTime();
-          const mealOutMs = new Date(mealEnd.capturedAt).getTime();
-          const mealMs = mealOutMs - mealInMs;
-          if (!Number.isFinite(mealMs) || mealMs < 0 || mealInMs < inMs || mealOutMs > outMs) {
-            sane = false;
-          } else {
-            grossMs -= mealMs;
-          }
-        }
-        if (sane) totalMinutes = Math.round(grossMs / 6e4);
-      }
-      rows.push({ day, clockIn, clockOut, mealStart, mealEnd, totalMinutes });
+      const clockIn = dayPunches.find((p) => p.punchType === "clock_in") || null;
+      const clockOut = [...dayPunches].reverse().find((p) => p.punchType === "clock_out") || null;
+      const totalMinutes = dayWorkedMinutes(dayPunches);
+      rows.push({ day, clockIn, clockOut, shifts: dayShiftCount(dayPunches), totalMinutes });
     }
     return rows.sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
   }
@@ -20158,20 +20164,25 @@ ${t2.slice(0, 300)}`);
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   }
   function officeClockInProgressMinutes(todaysPunches) {
-    const clockIn = todaysPunches.find((p) => p.punchType === "clock_in");
-    if (!clockIn) return null;
+    if (!todaysPunches.some((p) => p.punchType === "clock_in")) return null;
     const now = Date.now();
-    let totalMs = now - new Date(clockIn.capturedAt).getTime();
     const sorted = [...todaysPunches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
-    let mealStart = null;
+    let totalMs = 0, inAt = null, mealStart = null;
     for (const p of sorted) {
-      if (p.punchType === "meal_start") mealStart = p;
-      if (p.punchType === "meal_end" && mealStart) {
-        totalMs -= new Date(p.capturedAt).getTime() - new Date(mealStart.capturedAt).getTime();
+      const t = new Date(p.capturedAt).getTime();
+      if (p.punchType === "clock_in" && inAt == null) inAt = t;
+      if (p.punchType === "meal_start" && inAt != null) mealStart = t;
+      if (p.punchType === "meal_end" && mealStart != null) {
+        totalMs -= t - mealStart;
         mealStart = null;
       }
+      if (p.punchType === "clock_out" && inAt != null) {
+        totalMs += t - inAt;
+        inAt = null;
+      }
     }
-    if (mealStart) totalMs -= now - new Date(mealStart.capturedAt).getTime();
+    if (inAt != null) totalMs += now - inAt;
+    if (mealStart != null) totalMs -= now - mealStart;
     return Math.max(0, Math.round(totalMs / 6e4));
   }
   function OfficeClockTab({ user, th, showAlert: showAlert2 }) {
@@ -20729,7 +20740,7 @@ ${t2.slice(0, 300)}`);
       const dailyHours = officeClockDailyHours(emp.punches);
       return /* @__PURE__ */ React.createElement("div", { key: emp.userId, style: { ...card(th), padding: "0.9rem 1rem", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, color: th.text, fontSize: "0.88rem" } }, emp.userName), !data.locked && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => startAdd(emp.userId), style: btn(th, { padding: "0.25rem 0.6rem", fontSize: "0.72rem" }) }, "+ Add punch")), dailyHours.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", fontWeight: 700, color: th.muted, marginBottom: "0.2rem", textTransform: "uppercase", letterSpacing: "0.02em" } }, "Daily Hours"), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Date", "Clock In", "Clock Out", "Total Hours"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, dailyHours.map((d) => {
         const label = officeClockFmtHours(d.totalMinutes);
-        return /* @__PURE__ */ React.createElement("tr", { key: d.day, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, officeClockParseDate(d.day).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, d.clockIn ? officeClockTime(d.clockIn.capturedAt) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, d.clockOut ? officeClockTime(d.clockOut.capturedAt) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: label ? th.text : th.muted, fontStyle: label ? "normal" : "italic" } }, label || "Incomplete"));
+        return /* @__PURE__ */ React.createElement("tr", { key: d.day, style: { borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, officeClockParseDate(d.day).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, d.clockIn ? officeClockTime(d.clockIn.capturedAt) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, d.clockOut ? officeClockTime(d.clockOut.capturedAt) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: label ? th.text : th.muted, fontStyle: label ? "normal" : "italic" } }, label || "Incomplete", label && d.shifts > 1 ? /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 500, color: th.muted } }, " (", d.shifts, " shifts)") : null));
       })))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Type", "Time", "Paycor Status", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, emp.punches.length === 0 && editingId !== `new:${emp.userId}` && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 4, style: { ...tdCell(th), textAlign: "center", color: th.muted, fontStyle: "italic" } }, "No punches yet")), emp.punches.map((p) => {
         const day = new Date(p.capturedAt).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
         const flagged = incompleteByDay.has(`${emp.userId}:${day}`);
@@ -26573,7 +26584,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.41";
+  var APP_VERSION = "v22.42";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

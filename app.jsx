@@ -21,6 +21,7 @@ import { LY_OFFSET_DAYS, LW_OFFSET_DAYS, shiftDate, dowFor, comparisonDates, del
 import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid.mjs';
 import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
 import { parseDateOnly, toDateStr, defaultClosedPeriodEnd, payPeriodEndFor } from './src/office-clock-period-math.mjs';
+import { dayWorkedMinutes as ocDayWorkedMinutes, dayShiftCount as ocDayShiftCount } from './src/office-clock-day-math.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -22888,41 +22889,13 @@ function officeClockDailyHours(punches) {
   }
   const rows = [];
   for (const [day, dayPunches] of byDay) {
-    const byType = (t) => dayPunches.filter(p => p.punchType === t);
-    const clockIns = byType('clock_in');
-    const clockOuts = byType('clock_out');
-    const mealStarts = byType('meal_start');
-    const mealEnds = byType('meal_end');
-    const clockIn = clockIns[0] || null;
-    const clockOut = clockOuts[0] || null;
-    const mealStart = mealStarts[0] || null;
-    const mealEnd = mealEnds[0] || null;
-
-    // Normal shape: exactly one clock_in, exactly one clock_out, and meal
-    // punches (if any) exactly one pair. Anything else (missing punch,
-    // duplicate punch, an orphaned meal_start/meal_end) can't be totaled
-    // exactly, so it's left incomplete rather than guessed at.
-    let totalMinutes = null;
-    const regularShape = clockIns.length === 1 && clockOuts.length === 1
-      && mealStarts.length === mealEnds.length && mealStarts.length <= 1;
-    if (regularShape) {
-      const inMs = new Date(clockIn.capturedAt).getTime();
-      const outMs = new Date(clockOut.capturedAt).getTime();
-      let grossMs = outMs - inMs;
-      let sane = Number.isFinite(grossMs) && grossMs > 0;
-      if (sane && mealStart && mealEnd) {
-        const mealInMs = new Date(mealStart.capturedAt).getTime();
-        const mealOutMs = new Date(mealEnd.capturedAt).getTime();
-        const mealMs = mealOutMs - mealInMs;
-        if (!Number.isFinite(mealMs) || mealMs < 0 || mealInMs < inMs || mealOutMs > outMs) {
-          sane = false; // meal punches out of order or outside the shift — don't guess
-        } else {
-          grossMs -= mealMs;
-        }
-      }
-      if (sane) totalMinutes = Math.round(grossMs / 60000);
-    }
-    rows.push({ day, clockIn, clockOut, mealStart, mealEnd, totalMinutes });
+    // v22.42: a day may hold several shifts (two locations) — every clean in/out pair
+    // counts, minus meals (src/office-clock-day-math.mjs, shared with the Paycor send).
+    // Clock In/Out shown are the day's first in and last out.
+    const clockIn = dayPunches.find(p => p.punchType === 'clock_in') || null;
+    const clockOut = [...dayPunches].reverse().find(p => p.punchType === 'clock_out') || null;
+    const totalMinutes = ocDayWorkedMinutes(dayPunches);
+    rows.push({ day, clockIn, clockOut, shifts: ocDayShiftCount(dayPunches), totalMinutes });
   }
   return rows.sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
 }
@@ -22944,20 +22917,21 @@ function officeClockFmtHours(totalMinutes) {
 // per-second timer — this feature's own "exact, no estimates" principle is
 // about the FINAL number, not about simulating a stopwatch.
 function officeClockInProgressMinutes(todaysPunches) {
-  const clockIn = todaysPunches.find(p => p.punchType === 'clock_in');
-  if (!clockIn) return null;
+  if (!todaysPunches.some(p => p.punchType === 'clock_in')) return null;
   const now = Date.now();
-  let totalMs = now - new Date(clockIn.capturedAt).getTime();
   const sorted = [...todaysPunches].sort((a, b) => new Date(a.capturedAt) - new Date(b.capturedAt));
-  let mealStart = null;
+  // v22.42: sum each shift separately — the gap between two shifts (two locations) is
+  // not worked time. An open shift / open break runs to `now`.
+  let totalMs = 0, inAt = null, mealStart = null;
   for (const p of sorted) {
-    if (p.punchType === 'meal_start') mealStart = p;
-    if (p.punchType === 'meal_end' && mealStart) {
-      totalMs -= (new Date(p.capturedAt).getTime() - new Date(mealStart.capturedAt).getTime());
-      mealStart = null;
-    }
+    const t = new Date(p.capturedAt).getTime();
+    if (p.punchType === 'clock_in' && inAt == null) inAt = t;
+    if (p.punchType === 'meal_start' && inAt != null) mealStart = t;
+    if (p.punchType === 'meal_end' && mealStart != null) { totalMs -= (t - mealStart); mealStart = null; }
+    if (p.punchType === 'clock_out' && inAt != null) { totalMs += (t - inAt); inAt = null; }
   }
-  if (mealStart) totalMs -= (now - new Date(mealStart.capturedAt).getTime());
+  if (inAt != null) totalMs += now - inAt;
+  if (mealStart != null) totalMs -= (now - mealStart);
   return Math.max(0, Math.round(totalMs / 60000));
 }
 
@@ -23838,7 +23812,7 @@ function OfficeClockReview({ user, th, showAlert }) {
                             <td style={tdCell(th)}>{officeClockParseDate(d.day).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' })}</td>
                             <td style={tdCell(th)}>{d.clockIn ? officeClockTime(d.clockIn.capturedAt) : '—'}</td>
                             <td style={tdCell(th)}>{d.clockOut ? officeClockTime(d.clockOut.capturedAt) : '—'}</td>
-                            <td style={{ ...tdCell(th), fontWeight: 700, color: label ? th.text : th.muted, fontStyle: label ? 'normal' : 'italic' }}>{label || 'Incomplete'}</td>
+                            <td style={{ ...tdCell(th), fontWeight: 700, color: label ? th.text : th.muted, fontStyle: label ? 'normal' : 'italic' }}>{label || 'Incomplete'}{label && d.shifts > 1 ? <span style={{ fontWeight: 500, color: th.muted }}> ({d.shifts} shifts)</span> : null}</td>
                           </tr>
                         );
                       })}
@@ -32217,7 +32191,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.41";
+const APP_VERSION = "v22.42";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

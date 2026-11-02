@@ -10,6 +10,7 @@ import {
 // its own duplicated literal copy of that same anchor date. See that file's
 // OFFICE_CLOCK_BIWEEKLY_ANCHOR_END for the one place that duplication lives.
 import { payPeriodEndFor as pmPayPeriodEndFor, parseDateOnly, toDateStr } from './office-clock-period-math.mjs';
+import { dayWorkedMinutes } from './office-clock-day-math.mjs';
 
 const BUTTON_MAP = {
   clock_in: { status: 'In', activity: 'Work' },
@@ -89,37 +90,8 @@ export function dailyHoursFromPunches(punches) {
   }
   const rows = [];
   for (const [day, dayPunches] of byDay) {
-    const byType = (t) => dayPunches.filter(p => p.punchType === t);
-    const clockIns = byType('clock_in');
-    const clockOuts = byType('clock_out');
-    const mealStarts = byType('meal_start');
-    const mealEnds = byType('meal_end');
-    const clockIn = clockIns[0] || null;
-    const clockOut = clockOuts[0] || null;
-    const mealStart = mealStarts[0] || null;
-    const mealEnd = mealEnds[0] || null;
-
-    let totalMinutes = null;
-    const regularShape = clockIns.length === 1 && clockOuts.length === 1
-      && mealStarts.length === mealEnds.length && mealStarts.length <= 1;
-    if (regularShape) {
-      const inMs = new Date(clockIn.capturedAt).getTime();
-      const outMs = new Date(clockOut.capturedAt).getTime();
-      let grossMs = outMs - inMs;
-      let sane = Number.isFinite(grossMs) && grossMs > 0;
-      if (sane && mealStart && mealEnd) {
-        const mealInMs = new Date(mealStart.capturedAt).getTime();
-        const mealOutMs = new Date(mealEnd.capturedAt).getTime();
-        const mealMs = mealOutMs - mealInMs;
-        if (!Number.isFinite(mealMs) || mealMs < 0 || mealInMs < inMs || mealOutMs > outMs) {
-          sane = false;
-        } else {
-          grossMs -= mealMs;
-        }
-      }
-      if (sane) totalMinutes = Math.round(grossMs / 60000);
-    }
-    rows.push({ day, totalMinutes });
+    // v22.42: several clean in/out shifts in one day now total (src/office-clock-day-math.mjs)
+    rows.push({ day, totalMinutes: dayWorkedMinutes(dayPunches) });
   }
   return rows.sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
 }

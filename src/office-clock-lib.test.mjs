@@ -75,6 +75,54 @@ test('dailyHoursFromPunches totals an exact in/out pair, minus an exact meal', (
   assert.equal(rows[0].totalMinutes, 8 * 60); // 8.5 hrs gross - 30 min meal = 8h exact
 });
 
+test('dailyHoursFromPunches totals two shifts in one day (two locations), gap not counted', () => {
+  // Azra, Oct 28: 5:03 AM–2:28 PM, then 2:40 PM–6:41 PM ET (EDT, UTC-4).
+  const punches = [
+    { punchType: 'clock_in', capturedAt: '2026-10-28T09:03:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-10-28T18:28:00Z' },
+    { punchType: 'clock_in', capturedAt: '2026-10-28T18:40:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-10-28T22:41:00Z' },
+  ];
+  assert.equal(dailyHoursFromPunches(punches)[0].totalMinutes, 565 + 241); // 9h25m + 4h01m
+});
+
+test('dailyHoursFromPunches: second shift still open stays incomplete', () => {
+  const punches = [
+    { punchType: 'clock_in', capturedAt: '2026-10-28T09:00:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-10-28T13:00:00Z' },
+    { punchType: 'clock_in', capturedAt: '2026-10-28T14:00:00Z' },
+  ];
+  assert.equal(dailyHoursFromPunches(punches)[0].totalMinutes, null);
+});
+
+test('dailyHoursFromPunches: meals subtracted inside each shift; meal across shifts is incomplete', () => {
+  const ok = [
+    { punchType: 'clock_in', capturedAt: '2026-10-28T09:00:00Z' },
+    { punchType: 'meal_start', capturedAt: '2026-10-28T11:00:00Z' },
+    { punchType: 'meal_end', capturedAt: '2026-10-28T11:30:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-10-28T13:00:00Z' },
+    { punchType: 'clock_in', capturedAt: '2026-10-28T14:00:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-10-28T16:00:00Z' },
+  ];
+  assert.equal(dailyHoursFromPunches(ok)[0].totalMinutes, 210 + 120);
+  const bad = [
+    { punchType: 'clock_in', capturedAt: '2026-10-28T09:00:00Z' },
+    { punchType: 'meal_start', capturedAt: '2026-10-28T11:00:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-10-28T13:00:00Z' },
+  ];
+  assert.equal(dailyHoursFromPunches(bad)[0].totalMinutes, null);
+});
+
+test('weeklyRegOtFromPunches counts a two-shift day in full (not incomplete)', () => {
+  const punches = [
+    { punchType: 'clock_in', capturedAt: '2026-08-18T13:00:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-08-18T17:00:00Z' },
+    { punchType: 'clock_in', capturedAt: '2026-08-18T18:00:00Z' },
+    { punchType: 'clock_out', capturedAt: '2026-08-18T22:00:00Z' },
+  ];
+  assert.deepEqual(weeklyRegOtFromPunches(punches, '2026-08-29')[0], { weekStart: '2026-08-16', weekEnd: '2026-08-22', regHours: 8, otHours: 0, incomplete: false });
+});
+
 test('dailyHoursFromPunches leaves a malformed day (no clock-out) as null, not a guess', () => {
   const punches = [{ punchType: 'clock_in', capturedAt: '2026-08-18T13:00:00Z' }];
   const rows = dailyHoursFromPunches(punches);
