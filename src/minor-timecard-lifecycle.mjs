@@ -112,8 +112,10 @@ export function resolveNotificationRecipients(issue, users, notifyEmails = []) {
     // only ever their own store, with NO code path that can widen that,
     // rather than relying on whoever edits this list to never add one by
     // hand again. Hard-excluded here at the source, not just by convention.
+    // v22.41: Directors of Operations too — they oversee several districts, not the
+    // network, and get no alerts at all (their choice when the role was added).
     const managerOrDmEmails = new Set(
-      list.filter(u => u.active !== false && (u.userType === 'manager' || u.userType === 'dm') && u.email)
+      list.filter(u => u.active !== false && (u.userType === 'manager' || u.userType === 'dm' || u.userType === 'director') && u.email)
         .map(u => u.email.toLowerCase())
     );
     (notifyEmails || []).forEach((email) => {

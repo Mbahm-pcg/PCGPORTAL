@@ -197,3 +197,14 @@ test('isPastFollowUpWindow: open issues stop after Day 7', async () => {
   assert.equal(isPastFollowUpWindow({ ...open('2026-09-01'), status: 'resolved' }, '2026-10-30'), false);
   assert.equal(isPastFollowUpWindow({ status: 'open', firstFlaggedAt: null }, '2026-10-30'), false);
 });
+
+test('resolveNotificationRecipients: a Director on the curated list is skipped like a DM', () => {
+  const users = [
+    { userType: 'manager', storePC: '1', email: 'mgr@x.com' },
+    { userType: 'dm', district: 2, email: 'dm@x.com' },
+    { userType: 'director', districts: [2, 7], email: 'dir@x.com' },
+  ];
+  const issue = { pc: '1', district: 2, escalatedAt: '2026-11-02T00:00:00Z' };
+  const out = resolveNotificationRecipients(issue, users, ['dir@x.com', 'dm@x.com', 'office@x.com']);
+  assert.deepEqual(out.map(r => r.email), ['mgr@x.com', 'dm@x.com', 'office@x.com']);
+});

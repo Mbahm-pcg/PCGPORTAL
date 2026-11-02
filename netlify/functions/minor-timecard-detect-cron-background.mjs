@@ -39,6 +39,7 @@ import { weekRangeEndingYesterday, groupPunchesByDate, analyzeDayForViolation, a
 import { buildIssueRecord, resolveNotificationRecipients } from '../../src/minor-timecard-lifecycle.mjs';
 import { buildEmailSubject, buildDigestEmailHtml } from '../../src/minor-timecard-email.mjs';
 import { refreshStoreList } from './_shared/store-status.mjs';
+import { loadPortalUsers } from './_shared/portal-users.mjs';
 import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './tips-report-cron-background.mjs';
 
 export const config = { schedule: '0 10 * * 0' }; // 6:00 AM ET, Sundays
@@ -218,14 +219,21 @@ export default async (request) => {
   const now = new Date();
   const { weekStart, weekEnd } = weekRangeEndingYesterday(now);
 
-  const [rosterCache, existingIssuesRaw, usersRaw, notifyListRaw] = await Promise.all([
+  const [rosterCache, existingIssuesRaw, notifyListRaw] = await Promise.all([
     blobLoad('pcg_minor_roster_v1'),
     blobLoad(ISSUES_KEY),
-    blobLoad('pcg_users_v1'),
     blobLoad('pcg_minor_timecard_notify_v1'),
   ]);
   const existingIssues = Array.isArray(existingIssuesRaw) ? existingIssuesRaw : [];
-  const users = Array.isArray(usersRaw) ? usersRaw : [];
+  // v22.41: recipients come from the live users table, never the retired pcg_users_v1 blob
+  // (frozen June 2026 — stale managers/DMs). If the table can't be read, stop: emailing
+  // the wrong people is worse than retrying on the next run.
+  let users;
+  try { users = await loadPortalUsers(); }
+  catch (err) {
+    console.error('[minor-timecard-detect] users table read failed — aborting, nothing sent:', err.message);
+    return new Response(JSON.stringify({ ok: false, error: `users read failed: ${err.message}` }), { status: 503, headers });
+  }
   // Manually-curated recipient list (Admin · Notifications · Minor Timecard
   // tab, ManualNotifyListPanel) — replaces the old blanket "every active
   // office_staff user" query once an issue escalates. Empty until IT adds

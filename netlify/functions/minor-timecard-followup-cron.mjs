@@ -46,6 +46,7 @@
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
 import { loadStoreDistricts } from './_shared/store-status.mjs';
+import { loadPortalUsers } from './_shared/portal-users.mjs';
 import { analyzeDayForViolation } from '../../src/minor-timecard-detect.mjs';
 import { shouldEscalateToday, execBackstopDue, resolveNotificationRecipients, applyResolutionCheck, isPastFollowUpWindow, MAX_OPEN_DAYS } from '../../src/minor-timecard-lifecycle.mjs';
 import { buildEmailSubject, buildDigestEmailHtml } from '../../src/minor-timecard-email.mjs';
@@ -197,9 +198,17 @@ export default async (request) => {
   const now = new Date();
   const todayDateStr = now.toISOString().slice(0, 10);
 
-  const [issuesRaw, usersRaw, notifyListRaw] = await Promise.all([blobLoad(ISSUES_KEY), blobLoad('pcg_users_v1'), blobLoad('pcg_minor_timecard_notify_v1')]);
+  const [issuesRaw, notifyListRaw] = await Promise.all([blobLoad(ISSUES_KEY), blobLoad('pcg_minor_timecard_notify_v1')]);
   const issues = Array.isArray(issuesRaw) ? issuesRaw : [];
-  const users = Array.isArray(usersRaw) ? usersRaw : [];
+  // v22.41: recipients come from the live users table, never the retired pcg_users_v1 blob
+  // (frozen June 2026 — stale managers/DMs). If the table can't be read, stop: emailing
+  // the wrong people is worse than retrying on the next run.
+  let users;
+  try { users = await loadPortalUsers(); }
+  catch (err) {
+    console.error('[minor-timecard-followup] users table read failed — aborting, nothing sent:', err.message);
+    return new Response(JSON.stringify({ ok: false, error: `users read failed: ${err.message}` }), { status: 503, headers });
+  }
   // Manually-curated recipient list (Admin · Notifications · Minor Timecard
   // tab, ManualNotifyListPanel) — replaces the old blanket "every active
   // office_staff user" query on escalation. See resolveNotificationRecipients.
