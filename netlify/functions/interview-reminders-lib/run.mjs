@@ -27,22 +27,28 @@ import { parseIcs, candidateFromSummary, meetingLink } from '../../../src/interv
 import { dueReminder, reminderText } from '../../../src/interview-reminders.mjs';
 import { parseHireSubject, isRecentHire, htmlToText, extractDetails, buildHireEmail, buildHireText, cleanHireRecipients } from '../../../src/ally-hires.mjs';
 import { hireSource } from '../../../src/paradox-hires.mjs';
+import { interviewSource, PX_UID_PREFIX } from '../../../src/paradox-interviews.mjs';
+import { syncParadoxInterviews } from '../paradox-lib/interviews.mjs';
 
 const DOMAIN = process.env.INTERVIEW_MAILBOX_DOMAIN || 'peoplecapitalgroup.com';
 const STATUS_KEY = 'pcg_interview_reminders_status';
-// { mutedUsers: [user id] } — set in Admin: managers/DMs who have reminders switched off
-// (they're skipped; a muted manager does NOT hand off to the DM).
+// { mutedUsers: [user id], source } — set in Admin: managers/DMs who have reminders switched off
+// (they're skipped; a muted manager does NOT hand off to the DM). v22.45: source = where the
+// interview list comes from — 'paradox' (the Paradox API) or 'email' (store Gmail invites).
 const CONFIG_KEY = 'pcg_interview_reminders_config';
 const ids = (v) => (Array.isArray(v) ? v : []).map(String).filter(x => /^\d+$/.test(x));
 export async function loadConfig() {
   try {
     const w = await blobs().get(CONFIG_KEY, { type: 'json' });
-    return { mutedUsers: ids(w?.data?.mutedUsers) };
-  } catch { return { mutedUsers: [] }; }
+    return { mutedUsers: ids(w?.data?.mutedUsers), source: interviewSource(w?.data) };
+  } catch { return { mutedUsers: [], source: 'email' }; }
 }
 export async function saveConfig(patch) {
   const cur = await loadConfig();
-  const data = { mutedUsers: patch.mutedUsers !== undefined ? [...new Set(ids(patch.mutedUsers))] : cur.mutedUsers };
+  const data = {
+    mutedUsers: patch.mutedUsers !== undefined ? [...new Set(ids(patch.mutedUsers))] : cur.mutedUsers,
+    source: interviewSource({ source: patch.source !== undefined ? patch.source : cur.source }),
+  };
   await blobs().setJSON(CONFIG_KEY, { savedAt: new Date().toISOString(), data });
   return data;
 }
@@ -205,7 +211,8 @@ function bodyText(msg) {
 }
 
 // hires: collector — "<Name> is Officially Hired!" emails found in this mailbox.
-async function scanMailbox(db, store, hires = []) {
+// invites=false (Paradox is the interview source): hires only, calendar invites ignored.
+async function scanMailbox(db, store, hires = [], { invites = true } = {}) {
   const mailbox = `${store.pc}@${DOMAIN}`;
   const gmail = gmailFor(mailbox);
   const list = await gmail.users.messages.list({ userId: 'me', q: 'newer_than:14d {from:paradox.ai filename:ics subject:interview subject:"officially hired"}', maxResults: 50 });
@@ -222,7 +229,7 @@ async function scanMailbox(db, store, hires = []) {
       await db`INSERT INTO interview_seen_messages (store_pc, msg_id) VALUES (${store.pc}, ${id}) ON CONFLICT DO NOTHING`;
       continue;
     }
-    const ics = await calendarText(gmail, msg);
+    const ics = invites ? await calendarText(gmail, msg) : null;
     if (ics) for (const e of parseIcs(ics)) { if (await upsertEvent(db, store.pc, e, id)) updated++; }
     await db`INSERT INTO interview_seen_messages (store_pc, msg_id) VALUES (${store.pc}, ${id}) ON CONFLICT DO NOTHING`;
   }
@@ -325,11 +332,20 @@ export async function runInterviewReminders({ trigger = 'cron' } = {}) {
   await ensureTables(db);
   await refreshStoreList(STORES, ALL_STORES);
 
-  // 1) mailboxes
+  // 0) v22.45: interviews straight from Paradox when that's the chosen source
+  const remCfg = await loadConfig();
+  const ivSource = remCfg.source;
+  let paradoxSync = null;
+  if (ivSource === 'paradox' && mode !== 'off') {
+    try { paradoxSync = await syncParadoxInterviews(db, STORES); }
+    catch (e) { paradoxSync = { ok: false, error: String(e.message || e).slice(0, 300) }; console.warn('[interview-reminders] paradox sync failed:', e.message); }
+  }
+
+  // 1) mailboxes (hires always; calendar invites only when the store emails are the source)
   const mailboxes = {};
   const hires = [];
   await pool(STORES, 6, async (store) => {
-    try { mailboxes[store.pc] = { ok: true, ...(await scanMailbox(db, store, hires)) }; }
+    try { mailboxes[store.pc] = { ok: true, ...(await scanMailbox(db, store, hires, { invites: ivSource !== 'paradox' })) }; }
     catch (e) { mailboxes[store.pc] = { ok: false, error: String(e?.response?.data?.error_description || e?.response?.data?.error?.message || e.message || e).slice(0, 200) }; }
   });
 
@@ -340,11 +356,15 @@ export async function runInterviewReminders({ trigger = 'cron' } = {}) {
   // 2) reminders
   const now = Date.now();
   const etHour = etHourNow();
-  const rows = mode === 'off' ? [] : await db`SELECT * FROM interview_invites WHERE status = 'active' AND start_at > now() AND start_at < now() + interval '25 hours'`;
+  // Only the chosen source's rows, so a Gmail invite and its Paradox twin never both remind.
+  const pxLike = PX_UID_PREFIX + '%';
+  const rows = mode === 'off' ? [] : ivSource === 'paradox'
+    ? await db`SELECT * FROM interview_invites WHERE status = 'active' AND start_at > now() AND start_at < now() + interval '25 hours' AND uid LIKE ${pxLike}`
+    : await db`SELECT * FROM interview_invites WHERE status = 'active' AND start_at > now() AND start_at < now() + interval '25 hours' AND uid NOT LIKE ${pxLike}`;
   const storeByPc = Object.fromEntries(ALL_STORES.map(s => [String(s.pc), s]));
   let shadowPerson = null;
   if (mode === 'shadow') shadowPerson = (await db`SELECT name, phone, email FROM users WHERE lower(email) = ${shadowEmail()} LIMIT 1`)[0] || null;
-  const muted = new Set((await loadConfig()).mutedUsers);
+  const muted = new Set(remCfg.mutedUsers);
   const sent = [];
   for (const r of rows) {
     const iv = { start: new Date(r.start_at).toISOString(), status: r.status, sentDayAt: r.sent_day_at, sentHourAt: r.sent_hour_at, candidate: r.candidate, summary: r.summary, link: r.link };
@@ -379,6 +399,7 @@ export async function runInterviewReminders({ trigger = 'cron' } = {}) {
   const summary = {
     at: new Date().toISOString(), trigger, mode, durationMs: Date.now() - startedAt,
     shadowTo: mode === 'shadow' ? (shadowPerson ? `${shadowPerson.name}${shadowPerson.phone ? '' : ' (no phone on file)'}` : `no portal user with email ${shadowEmail()}`) : null,
+    source: ivSource, paradox: paradoxSync,
     mailboxes, sent: [...sent, ...prevSent].slice(0, 40), hires: hireRun,
   };
   try { await blobs().setJSON(STATUS_KEY, { savedAt: summary.at, data: summary }); } catch (e) { console.warn('[interview-reminders] status save failed:', e.message); }

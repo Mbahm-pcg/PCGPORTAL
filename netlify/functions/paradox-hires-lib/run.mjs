@@ -18,6 +18,7 @@
 // Read-only against Paradox; credentials are the Paradox_ID / Paradox_API env vars.
 import { getStore } from '@netlify/blobs';
 import { sql } from '../_shared/db.mjs';
+import { px, pxCandidates, pool } from '../paradox-lib/client.mjs';
 import { sendSms, sendHtmlEmail } from '../_shared/channels.mjs';
 import { refreshStoreList } from '../_shared/store-status.mjs';
 import { STORES, ALL_STORES } from '../labor-cron.mjs';
@@ -25,28 +26,8 @@ import { loadHiresConfig, hiresModeNow, hireAudience, loadLocations } from '../i
 import { buildHireEmail, buildHireText } from '../../../src/ally-hires.mjs';
 import { HIRED_STATUS, readHiredRow, newHires, hireSource } from '../../../src/paradox-hires.mjs';
 
-const BASE = 'https://api.paradox.ai/api/v1/public';
 const STATUS_KEY = 'pcg_paradox_hires_status';
 const blobs = () => getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
-
-// ── Paradox auth: token lasts 24h; reuse it while the function stays warm ──
-let _token = null, _tokenExp = 0;
-async function token() {
-  if (_token && Date.now() < _tokenExp - 300000) return _token;
-  const id = (process.env.Paradox_ID || '').trim(), secret = (process.env.Paradox_API || '').trim();
-  if (!id || !secret) throw new Error('Paradox_ID / Paradox_API not set');
-  const r = await fetch(`${BASE}/auth/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: id, client_secret: secret, grant_type: 'client_credentials' }) });
-  const j = await r.json().catch(() => ({}));
-  if (!j.access_token) throw new Error(`Paradox auth failed (HTTP ${r.status})`);
-  _token = j.access_token; _tokenExp = Date.now() + (Number(j.expires_in) || 3600) * 1000;
-  return _token;
-}
-async function px(path) {
-  const r = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${await token()}` } });
-  if (r.status === 401) { _token = null; }
-  if (!r.ok) throw new Error(`Paradox ${path.split('?')[0]} HTTP ${r.status}`);
-  return r.json();
-}
 
 let _ready = false;
 async function ensureTables(db) {
@@ -66,21 +47,8 @@ async function ensureTables(db) {
 
 // Every currently-hired candidate (paged; the hired list is small — 35 on 2026-11-03).
 async function fetchHired() {
-  const out = [];
-  for (let offset = 0; offset < 2000; offset += 50) {
-    const j = await px(`/candidates?limit=50&offset=${offset}&candidate_journey_status=${encodeURIComponent(HIRED_STATUS)}`);
-    const rows = Array.isArray(j?.candidates) ? j.candidates : [];
-    rows.forEach(r => { const h = readHiredRow(r); if (h) out.push(h); });
-    if (rows.length < 50) break;
-  }
-  return out;
-}
-
-async function pool(items, size, fn) {
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
-    while (i < items.length) { const it = items[i++]; await fn(it); }
-  }));
+  const rows = await pxCandidates(`candidate_journey_status=${encodeURIComponent(HIRED_STATUS)}`);
+  return rows.map(r => readHiredRow(r)).filter(Boolean);
 }
 
 // Which of our stores is this hire at? Same job req → same store, so reuse a past answer.

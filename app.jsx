@@ -19712,6 +19712,9 @@ function InterviewRemindersPanel({ th, showAlert, users }) {
   const [peopleRole, setPeopleRole] = useState('all');
   const [picked, setPicked] = useState([]);
   const [savingMuted, setSavingMuted] = useState(false);
+  // v22.45: where interviews come from (Paradox API vs store Gmail invites) + a read-only check.
+  const [savingSource, setSavingSource] = useState(false);
+  const [pxCheck, setPxCheck] = useState(null);      // { busy } | { result } | { error }
 
   const load = useCallback(async () => {
     try {
@@ -19723,13 +19726,39 @@ function InterviewRemindersPanel({ th, showAlert, users }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  const ivSourceNow = data?.config?.source === 'paradox' ? 'paradox' : 'email';
+  const saveSource = async (next) => {
+    if (next === ivSourceNow) return;
+    if (!window.confirm(next === 'paradox'
+      ? 'Switch to Paradox? Interviews will come straight from Paradox (checked every 5 min), and the store Gmail invites will no longer be used for reminders. Reminders already sent are not sent again.'
+      : 'Switch back to the store Gmail invites? Reminders will use the calendar invites in each store mailbox again.')) return;
+    setSavingSource(true);
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'saveInterviewSource', source: next }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      showAlert && showAlert('success', next === 'paradox' ? 'Interviews now come from Paradox — run "Check now" to load them.' : 'Interviews come from the store Gmail invites again.');
+      await load();
+    } catch (e) { showAlert && showAlert('error', `Couldn't switch: ${e.message}`); }
+    setSavingSource(false);
+  };
+  const checkParadox = async () => {
+    setPxCheck({ busy: true });
+    try {
+      const res = await fetch('/.netlify/functions/interview-reminders', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'checkParadoxInterviews' }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setPxCheck({ result: j.check });
+    } catch (e) { setPxCheck({ error: e.message }); }
+  };
+
   const runNow = async () => {
     setRunning(true);
     const before = data?.status?.at || null;
     try {
       const res = await fetch('/.netlify/functions/interview-reminders-run-background', { method: 'POST', credentials: 'include', headers: { ...authHeader() } });
       if (res.status !== 202 && !res.ok) throw new Error(res.status === 403 ? 'Only exec/IT can run this.' : `HTTP ${res.status}`);
-      showAlert && showAlert('success', 'Checking every store mailbox — results show here in a minute or two.');
+      showAlert && showAlert('success', ivSourceNow === 'paradox' ? 'Checking Paradox — results show here in a minute or two.' : 'Checking every store mailbox — results show here in a minute or two.');
       for (let i = 0; i < 36; i++) {
         await new Promise(r => setTimeout(r, 5000));
         const r2 = await fetch('/.netlify/functions/interview-reminders', { credentials: 'include', headers: { ...authHeader() } });
@@ -19845,7 +19874,9 @@ function InterviewRemindersPanel({ th, showAlert, users }) {
 
       {/* KPIs */}
       <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        {kpi('mail', st ? `${okCount}/${boxes.length}` : '—', 'Mailboxes checked', failed.length > 0)}
+        {ivSourceNow === 'paradox'
+          ? kpi('calendar', st?.paradox ? (st.paradox.ok === false ? 'Failed' : st.paradox.booked ?? '—') : '—', 'Booked in Paradox', st?.paradox?.ok === false || Object.keys(st?.paradox?.failed || {}).length > 0)
+          : kpi('mail', st ? `${okCount}/${boxes.length}` : '—', 'Mailboxes checked', failed.length > 0)}
         {kpi('calendar', data ? todayCount : '—', 'Interviews today')}
         {kpi('users', users ? onCount : '—', 'Recipients enabled')}
       </div>
@@ -19858,11 +19889,52 @@ function InterviewRemindersPanel({ th, showAlert, users }) {
         </div>
         <button onClick={runNow} disabled={running || mode === 'off'}
           style={{ padding: '0.55rem 1.1rem', borderRadius: '0.55rem', border: 'none', background: O, color: '#fff', fontWeight: 700, fontSize: '0.84rem', fontFamily: "'Source Sans 3'", cursor: running ? 'default' : 'pointer', opacity: running || mode === 'off' ? 0.6 : 1 }}>
-          {running ? 'Checking…' : 'Check mailboxes now'}
+          {running ? 'Checking…' : ivSourceNow === 'paradox' ? 'Check now' : 'Check mailboxes now'}
         </button>
       </div>
 
-      {failed.length > 0 && (
+      {/* v22.45: where interviews come from */}
+      <div style={box}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 300px' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: th.text, fontFamily: "'Raleway'" }}>Where interviews come from</div>
+            <div style={{ fontSize: '0.8rem', color: th.muted, marginTop: 2 }}>
+              {ivSourceNow === 'paradox'
+                ? <>Straight from <strong style={{ color: th.text }}>Paradox</strong>: booked interviews for every store (by PC#), every 5 min. Reschedules and cancellations are picked up on the next check. Times are US Eastern.</>
+                : <>From the <strong style={{ color: th.text }}>calendar invites Paradox emails to each store mailbox</strong>. Use "Compare with Gmail" to check Paradox's times match before switching.</>}
+              {ivSourceNow === 'paradox' && st?.paradox?.ok === false && <span style={{ color: '#dc2626' }}> Last Paradox check failed: {st.paradox.error}</span>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="button" onClick={checkParadox} disabled={pxCheck?.busy} style={{ ...pillBtn(false), opacity: pxCheck?.busy ? 0.6 : 1 }}>{pxCheck?.busy ? 'Comparing…' : 'Compare with Gmail'}</button>
+            <div role="radiogroup" aria-label="Interview source" style={{ display: 'inline-flex', padding: 3, borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card2 }}>
+              {[['email', 'Store emails'], ['paradox', 'Paradox']].map(([v, l]) => (
+                <button key={v} type="button" role="radio" aria-checked={ivSourceNow === v} disabled={savingSource || !data} onClick={() => saveSource(v)}
+                  style={{ padding: '0.35rem 1rem', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, fontFamily: "'Source Sans 3'", background: ivSourceNow === v ? O : 'transparent', color: ivSourceNow === v ? '#fff' : th.muted }}>{l}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {pxCheck?.error && <div style={{ marginTop: '0.7rem', fontSize: '0.82rem', color: '#dc2626' }}>Compare failed: {pxCheck.error}</div>}
+        {pxCheck?.result && (() => {
+          const c = pxCheck.result;
+          const offs = Object.entries(c.minuteOffsets || {}).sort((a, b) => b[1] - a[1]);
+          const good = c.matched > 0 && c.exactTimeMatch === c.matched;
+          return (
+            <div style={{ marginTop: '0.75rem', padding: '0.7rem 0.85rem', borderRadius: '0.6rem', background: good ? '#16a34a0f' : th.card2, border: `1px solid ${good ? '#16a34a40' : th.cardBorder}`, fontSize: '0.82rem', color: th.text }}>
+              <div><strong>{c.paradoxBooked}</strong> booked in Paradox · <strong>{c.gmailUpcoming}</strong> upcoming from Gmail · <strong>{c.matched}</strong> found in both</div>
+              <div style={{ marginTop: 3, color: good ? '#16a34a' : c.matched ? '#b45309' : th.muted, fontWeight: 600 }}>
+                {c.matched === 0 ? 'No interview appears in both yet — nothing to compare times on.'
+                  : good ? `All ${c.matched} times match exactly.`
+                  : `${c.exactTimeMatch} of ${c.matched} times match. Differences: ${offs.map(([m, n]) => `${n}× ${m > 0 ? '+' : ''}${m} min`).join(', ')}`}
+              </div>
+              {Object.keys(c.failed || {}).length > 0 && <div style={{ marginTop: 3, color: '#dc2626' }}>Couldn't read {Object.keys(c.failed).length} store(s) from Paradox.</div>}
+            </div>
+          );
+        })()}
+      </div>
+
+      {failed.length > 0 && ivSourceNow !== 'paradox' && (
         <div style={{ padding: '0.75rem 1rem', borderRadius: '0.85rem', border: '1px solid #dc262655', background: '#dc262610', marginBottom: '1rem', fontSize: '0.82rem' }}>
           <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: '0.35rem' }}>{failed.length} mailbox{failed.length === 1 ? '' : 'es'} couldn't be read</div>
           {failed.slice(0, 8).map(([pc, m]) => <div key={pc} style={{ color: th.muted }}>{storeName(pc)} ({pc}@peoplecapitalgroup.com): {m.error}</div>)}
@@ -32244,7 +32316,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.44";
+const APP_VERSION = "v22.45";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
