@@ -26,6 +26,7 @@ import { STORES, ALL_STORES } from '../labor-cron.mjs';
 import { parseIcs, candidateFromSummary, meetingLink } from '../../../src/interview-ics.mjs';
 import { dueReminder, reminderText } from '../../../src/interview-reminders.mjs';
 import { parseHireSubject, isRecentHire, htmlToText, extractDetails, buildHireEmail, buildHireText, cleanHireRecipients } from '../../../src/ally-hires.mjs';
+import { hireSource } from '../../../src/paradox-hires.mjs';
 
 const DOMAIN = process.env.INTERVIEW_MAILBOX_DOMAIN || 'peoplecapitalgroup.com';
 const STATUS_KEY = 'pcg_interview_reminders_status';
@@ -61,11 +62,14 @@ export async function loadHiresConfig() {
   try {
     const w = await blobs().get(HIRES_CONFIG_KEY, { type: 'json' });
     const d = (w && w.data) || {};
-    return { live: d.live === true, recipients: cleanHireRecipients(d.recipients), updatedAt: d.updatedAt || null, updatedBy: d.updatedBy || null };
-  } catch { return { live: false, recipients: [], updatedAt: null, updatedBy: null }; }
+    return { live: d.live === true, recipients: cleanHireRecipients(d.recipients), source: hireSource(d), updatedAt: d.updatedAt || null, updatedBy: d.updatedBy || null };
+  } catch { return { live: false, recipients: [], source: 'email', updatedAt: null, updatedBy: null }; }
 }
-export async function saveHiresConfig({ live, recipients }, by) {
-  const data = { live: live === true, recipients: cleanHireRecipients(recipients), updatedAt: new Date().toISOString(), updatedBy: by || null };
+// v22.43: `source` — 'email' (this mailbox scan sends hire alerts) or 'paradox' (the
+// every-minute Paradox API job sends them; this scan only records). Kept when omitted.
+export async function saveHiresConfig({ live, recipients, source }, by) {
+  const cur = source === undefined ? await loadHiresConfig() : null;
+  const data = { live: live === true, recipients: cleanHireRecipients(recipients), source: hireSource({ source: source === undefined ? cur.source : source }), updatedAt: new Date().toISOString(), updatedBy: by || null };
   await blobs().setJSON(HIRES_CONFIG_KEY, { savedAt: data.updatedAt, data });
   return data;
 }
@@ -75,7 +79,30 @@ export async function hiresModeNow(cfg) {
   if (hiresKilled()) return 'off';
   return (cfg || await loadHiresConfig()).live ? 'live' : 'shadow';
 }
-const shadowEmail = () => (process.env.INTERVIEW_REMINDERS_SHADOW_EMAIL || 'ahmed@peoplecapitalgroup.com').toLowerCase();
+export const shadowEmail = () => (process.env.INTERVIEW_REMINDERS_SHADOW_EMAIL || 'ahmed@peoplecapitalgroup.com').toLowerCase();
+
+// The people a hire alert goes to right now: the chosen recipients when Live, or only the
+// test account (email, never text) in Test. Shared by the mailbox scan and the Paradox job.
+export async function hireAudience(db, cfg, hm) {
+  const ids = cfg.recipients.map(r => r.userId);
+  const people = ids.length ? await db`SELECT id, name, email, phone FROM users WHERE id = ANY(${ids}) AND active = true` : [];
+  const byId = new Map(people.map(p => [Number(p.id), p]));
+  let emails = [], phones = [], testLabel = null;
+  for (const r of cfg.recipients) {
+    const p = byId.get(r.userId);
+    if (!p) continue;
+    if (r.email && p.email) emails.push(p.email);
+    if (r.sms && p.phone) phones.push(p.phone);
+  }
+  if (hm === 'shadow') {
+    const n = cfg.recipients.filter(r => byId.has(r.userId)).length;
+    testLabel = n ? `${n} chosen ${n === 1 ? 'person' : 'people'}` : 'nobody chosen yet';
+    const me = (await db`SELECT email, phone FROM users WHERE lower(email) = ${shadowEmail()} LIMIT 1`)[0];
+    emails = [me?.email || shadowEmail()];
+    phones = []; // test mode: email only, so testing never texts anyone
+  }
+  return { emails, phones, testLabel };
+}
 
 let _ready = false;
 export async function ensureTables(db) {
@@ -230,7 +257,7 @@ async function deliver(people, text, subject) {
 }
 
 // Locations records (pcg_stores_v1) by pc — property name, address, legal entity, DM.
-async function loadLocations() {
+export async function loadLocations() {
   try {
     const raw = await blobs().get('pcg_stores_v1', { type: 'json' });
     const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
@@ -255,24 +282,13 @@ async function processHires(db, hires) {
   const cfg = await loadHiresConfig();
   const hm = await hiresModeNow(cfg);
   if (!pending.length || hm === 'off') return { mode: hm, sent: 0, pending: pending.length };
-  // The chosen people (active accounts only), each by email and/or text.
-  const ids = cfg.recipients.map(r => r.userId);
-  const people = ids.length ? await db`SELECT id, name, email, phone FROM users WHERE id = ANY(${ids}) AND active = true` : [];
-  const byId = new Map(people.map(p => [Number(p.id), p]));
-  let emails = [], phones = [], testLabel = null;
-  for (const r of cfg.recipients) {
-    const p = byId.get(r.userId);
-    if (!p) continue;
-    if (r.email && p.email) emails.push(p.email);
-    if (r.sms && p.phone) phones.push(p.phone);
+  // v22.43: Paradox API is the source → this scan records hires but never sends them.
+  if (hireSource(cfg) === 'paradox') {
+    const ids = pending.map(r => r.msg_id);
+    await db`UPDATE ally_hires SET notify_note = 'recorded — alerts come from Paradox' WHERE msg_id = ANY(${ids}) AND notified_at IS NULL`;
+    return { mode: hm, source: 'paradox', sent: 0, pending: pending.length };
   }
-  if (hm === 'shadow') {
-    const n = cfg.recipients.filter(r => byId.has(r.userId)).length;
-    testLabel = n ? `${n} chosen ${n === 1 ? 'person' : 'people'}` : 'nobody chosen yet';
-    const me = (await db`SELECT email, phone FROM users WHERE lower(email) = ${shadowEmail()} LIMIT 1`)[0];
-    emails = [me?.email || shadowEmail()];
-    phones = []; // test mode: email only, so testing never texts anyone
-  }
+  const { emails, phones, testLabel } = await hireAudience(db, cfg, hm);
   if (!emails.length && !phones.length) return { mode: hm, sent: 0, pending: pending.length, note: 'no recipients chosen' };
   const locs = await loadLocations();
   let sent = 0;

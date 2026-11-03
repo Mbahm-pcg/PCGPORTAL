@@ -43,6 +43,13 @@ test('buildHireText: one short line for SMS, with the test label when shadowing'
   assert.match(buildHireText({ candidate: 'X', store, testLabel: '3 people' }), /^\[TEST: would go to 3 people\] PCG new hire: X/);
 });
 
+test('hire email + text carry the Paycor legal # when the store has one', () => {
+  const store = { pc: '343352', name: 'Hatboro', legal: '256 Hatboro Hospitality LLC', paycor: 200540, district: 4 };
+  const e = buildHireEmail({ candidate: 'John Doe', store });
+  assert.match(e.text, /Paycor legal #: 200540/);
+  assert.match(buildHireText({ candidate: 'John Doe', store }), /Paycor legal # 200540\./);
+});
+
 test('cleanHireRecipients: valid ids only, no duplicates, at least one channel', () => {
   assert.deepEqual(cleanHireRecipients([
     { userId: 5, email: true }, { userId: '7', sms: true, email: true }, { userId: 5, sms: true },

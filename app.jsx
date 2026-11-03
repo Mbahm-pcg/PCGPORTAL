@@ -20037,10 +20037,11 @@ function NewHiresPanel({ th, showAlert, users }) {
   };
 
   useEffect(() => {
-    if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [] });
+    if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [], source: data.hiresConfig.source || 'email' });
   }, [data, draft]);
-  const savedCfg = data?.hiresConfig || { live: false, recipients: [] };
-  const dirty = !!draft && JSON.stringify({ live: draft.live, recipients: draft.recipients }) !== JSON.stringify({ live: !!savedCfg.live, recipients: savedCfg.recipients || [] });
+  const savedCfg = data?.hiresConfig || { live: false, recipients: [], source: 'email' };
+  const cfgKey = (c) => JSON.stringify({ live: !!c.live, recipients: c.recipients || [], source: c.source || 'email' });
+  const dirty = !!draft && cfgKey(draft) !== cfgKey(savedCfg);
   const recOf = (id) => (draft?.recipients || []).find(r => r.userId === id);
   const setChannel = (u, channel, on) => setDraft(d => {
     const cur = (d.recipients || []).find(r => r.userId === u.id) || { userId: u.id, email: false, sms: false };
@@ -20058,13 +20059,16 @@ function NewHiresPanel({ th, showAlert, users }) {
     if (!draft) return;
     const chosen = (draft.recipients || []).length;
     if (draft.live && !savedCfg.live && !window.confirm(`Go live? Every new hire from now on is sent to the ${chosen} ${chosen === 1 ? 'person' : 'people'} chosen below.`)) return;
+    if (draft.source !== (savedCfg.source || 'email') && !window.confirm(draft.source === 'paradox'
+      ? 'Switch to Paradox? Hire alerts will come straight from Paradox every minute, and the store-email check will stop sending them.'
+      : 'Switch back to store emails? Hire alerts will come from the store-mailbox check again (every 5 min); Paradox goes back to a trial that only emails you.')) return;
     setSavingCfg(true);
     try {
-      const res = await fetch('/.netlify/functions/interview-reminders', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'saveHiresConfig', live: draft.live, recipients: draft.recipients }) });
+      const res = await fetch('/.netlify/functions/interview-reminders', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'saveHiresConfig', live: draft.live, recipients: draft.recipients, source: draft.source || 'email' }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
       setData(d => ({ ...(d || {}), hiresConfig: j.hiresConfig, hiresMode: j.hiresMode }));
-      setDraft({ live: !!j.hiresConfig.live, recipients: j.hiresConfig.recipients || [] });
+      setDraft({ live: !!j.hiresConfig.live, recipients: j.hiresConfig.recipients || [], source: j.hiresConfig.source || 'email' });
       showAlert && showAlert('success', j.hiresConfig.live ? `Live: hire alerts now go to ${j.hiresConfig.recipients.length} chosen ${j.hiresConfig.recipients.length === 1 ? 'person' : 'people'}.` : 'Saved. Still in test mode.');
     } catch (e) { showAlert && showAlert('error', `Couldn't save: ${e.message}`); }
     setSavingCfg(false);
@@ -20099,11 +20103,60 @@ function NewHiresPanel({ th, showAlert, users }) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap', padding: '0.8rem 1rem', borderRadius: '0.85rem', border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: '1rem' }}>
         <span style={{ padding: '0.22rem 0.6rem', borderRadius: '0.35rem', background: modeInfo[1], color: '#fff', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.04em' }}>{modeInfo[0]}</span>
-        <div style={{ flex: '1 1 260px', fontSize: '0.84rem', color: th.muted }}>{modeInfo[2]} <span style={{ whiteSpace: 'nowrap' }}>Mailboxes checked every 5 min.</span></div>
+        <div style={{ flex: '1 1 260px', fontSize: '0.84rem', color: th.muted }}>{modeInfo[2]} <span style={{ whiteSpace: 'nowrap' }}>{savedCfg.source === 'paradox' ? 'Paradox checked every minute.' : 'Mailboxes checked every 5 min.'}</span></div>
         <button onClick={runNow} disabled={running}
           style={{ padding: '0.55rem 1.1rem', borderRadius: '0.55rem', border: 'none', background: O, color: '#fff', fontWeight: 700, fontSize: '0.84rem', fontFamily: "'Source Sans 3'", cursor: running ? 'default' : 'pointer', opacity: running ? 0.6 : 1 }}>
           {running ? 'Checking…' : 'Check mailboxes now'}
         </button>
+      </div>
+
+      {/* v22.43: where hire alerts come from — the store-mailbox check, or straight from Paradox */}
+      <div style={box}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 280px' }}>
+            <div style={h3}>Where hires come from</div>
+            <div style={{ ...sub, marginBottom: 0 }}>
+              {(draft?.source || savedCfg.source) === 'paradox'
+                ? <>Straight from <strong style={{ color: th.text }}>Paradox, checked every minute</strong> — sent as soon as a candidate is marked Hired, with the store found by its PC#. The store-email check still records hires but doesn't send them.</>
+                : <>From the <strong style={{ color: th.text }}>"Officially Hired!" store emails</strong>, checked every 5 min. Paradox is running as a <strong style={{ color: th.text }}>trial</strong> alongside: each hire it catches is emailed only to you, marked "Paradox trial", so you can compare which arrives first.</>}
+            </div>
+          </div>
+          {draft && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div role="radiogroup" aria-label="Hire source" style={{ display: 'inline-flex', padding: 3, borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card2 }}>
+                {[['email', 'Store emails'], ['paradox', 'Paradox']].map(([v, l]) => (
+                  <button key={v} type="button" role="radio" aria-checked={(draft.source || 'email') === v} onClick={() => setDraft(d => ({ ...d, source: v }))}
+                    style={{ padding: '0.35rem 1rem', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, fontFamily: "'Source Sans 3'", background: (draft.source || 'email') === v ? O : 'transparent', color: (draft.source || 'email') === v ? '#fff' : th.muted }}>{l}</button>
+                ))}
+              </div>
+              {(draft.source || 'email') !== (savedCfg.source || 'email') && (
+                <button type="button" onClick={saveCfg} disabled={savingCfg}
+                  style={{ padding: '0.45rem 0.95rem', borderRadius: '0.55rem', border: 'none', background: O, color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', fontFamily: "'Source Sans 3'", opacity: savingCfg ? 0.6 : 1 }}>{savingCfg ? 'Saving…' : 'Save'}</button>
+              )}
+            </div>
+          )}
+        </div>
+        {(() => {
+          const ph = data?.paradoxHires;
+          const st = ph?.status;
+          return (
+            <div style={{ marginTop: '0.85rem' }}>
+              <div style={{ fontSize: '0.78rem', color: st && st.ok === false ? '#dc2626' : th.muted, marginBottom: '0.35rem' }}>
+                {!st ? 'Paradox: waiting for the first check…'
+                  : st.ok === false ? `Paradox check failed ${fmtWhen(st.at)}: ${st.error || 'unknown error'}`
+                  : `Paradox last checked ${fmtWhen(st.at)} · ${st.hiredInParadox ?? '—'} marked Hired in Paradox`}
+              </div>
+              {(ph?.rows || []).slice(0, 8).map((h, i) => (
+                <div key={h.oid || i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'baseline', padding: '0.45rem 0', borderTop: `1px solid ${th.cardBorder}`, fontSize: '0.82rem' }}>
+                  <span><strong style={{ color: th.text }}>{h.candidate}</strong> <span style={{ color: th.muted }}>· {h.store_pc ? `${storeName(h.store_pc)} (PC# ${h.store_pc})` : 'store not found'}</span></span>
+                  <span style={{ color: th.muted, fontSize: '0.76rem' }}>
+                    {fmtWhen(h.first_seen_at)} · <span style={{ color: h.notified_at ? '#16a34a' : h.notify_note === 'email failed' ? '#dc2626' : th.muted }}>{h.notify_note || (h.notified_at ? 'sent' : 'pending')}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       <div style={box}>
@@ -20165,7 +20218,7 @@ function NewHiresPanel({ th, showAlert, users }) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.75rem', flexWrap: 'wrap' }}>
             {dirty && <span style={{ fontSize: '0.8rem', color: O, fontWeight: 600, marginRight: 'auto' }}>Unsaved changes</span>}
-            {dirty && <button type="button" onClick={() => setDraft({ live: !!savedCfg.live, recipients: savedCfg.recipients || [] })} disabled={savingCfg}
+            {dirty && <button type="button" onClick={() => setDraft({ live: !!savedCfg.live, recipients: savedCfg.recipients || [], source: savedCfg.source || 'email' })} disabled={savingCfg}
               style={{ padding: '0.5rem 1rem', borderRadius: '0.55rem', border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontWeight: 600, fontSize: '0.84rem', cursor: 'pointer', fontFamily: "'Source Sans 3'" }}>Cancel</button>}
             <button type="button" onClick={saveCfg} disabled={!dirty || savingCfg}
               style={{ padding: '0.55rem 1.2rem', borderRadius: '0.55rem', border: 'none', background: draft.live ? '#16a34a' : O, color: '#fff', fontWeight: 700, fontSize: '0.86rem', cursor: dirty ? 'pointer' : 'default', opacity: !dirty || savingCfg ? 0.5 : 1, fontFamily: "'Source Sans 3'" }}>
@@ -32191,7 +32244,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.42";
+const APP_VERSION = "v22.44";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

@@ -2,10 +2,12 @@
 // GET: mode, muted managers/DMs, last run (per-mailbox read result, recent sends) and the upcoming interviews.
 // POST { mutedUsers: [user id] }: which managers/DMs have interview reminders switched off.
 // POST { action: 'testHire', msgId }: email that recorded hire to the caller only.
-// POST { action: 'saveHiresConfig', live, recipients: [{ userId, email, sms }] }: New Hires settings.
+// POST { action: 'saveHiresConfig', live, recipients: [{ userId, email, sms }], source }: New Hires settings.
+// v22.43: GET also returns paradoxHires (rows + last run) from the every-minute Paradox API job.
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
+import { loadParadoxHires } from './paradox-hires-lib/run.mjs';
 import { ensureTables, reminderMode, hiresModeNow, loadHiresConfig, saveHiresConfig, loadConfig, saveConfig, sendHireTest } from './interview-reminders-lib/run.mjs';
 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } });
@@ -19,7 +21,7 @@ export default async (request) => {
       const body = await request.json().catch(() => ({}));
       // v22.31: who gets hire alerts (and how), and Test vs Live — chosen in the New Hires tab.
       if (body.action === 'saveHiresConfig') {
-        const saved = await saveHiresConfig({ live: body.live, recipients: body.recipients }, caller.username || String(caller.sub));
+        const saved = await saveHiresConfig({ live: body.live, recipients: body.recipients, source: body.source }, caller.username || String(caller.sub));
         return json({ ok: true, hiresConfig: saved, hiresMode: await hiresModeNow(saved) });
       }
       if (body.action === 'testHire') {
@@ -43,7 +45,9 @@ export default async (request) => {
     // v22.24: the latest "Officially Hired" emails found in the store mailboxes.
     const hires = await db`SELECT msg_id, candidate, store_pc, received_at, notified_at, notify_note FROM ally_hires ORDER BY received_at DESC NULLS LAST LIMIT 15`;
     const hiresConfig = await loadHiresConfig();
-    return json({ mode: reminderMode(), hiresMode: await hiresModeNow(hiresConfig), hiresConfig, status, upcoming, hires, config: await loadConfig() });
+    let paradoxHires = null;
+    try { paradoxHires = await loadParadoxHires(db); } catch (e) { paradoxHires = { rows: [], status: { ok: false, error: e.message } }; }
+    return json({ mode: reminderMode(), hiresMode: await hiresModeNow(hiresConfig), hiresConfig, status, upcoming, hires, paradoxHires, config: await loadConfig() });
   } catch (e) {
     return json({ error: e.message }, 500);
   }

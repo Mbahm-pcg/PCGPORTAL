@@ -45,7 +45,8 @@ export function buildHireText({ candidate, store, receivedAt, testLabel = null }
   const prop = store?.name || (pc ? `PC# ${pc}` : 'a store');
   const dist = store?.district ? `, District ${store.district}${store.dmName ? ` (DM ${store.dmName})` : ''}` : '';
   const when = receivedAt ? new Date(receivedAt).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-  return `${testLabel ? `[TEST: would go to ${testLabel}] ` : ''}PCG new hire: ${candidate} at ${prop}${pc && store?.name ? ` (PC# ${pc})` : ''}${dist}.${when ? ` Hired ${when} ET.` : ''}`;
+  const legal = store?.paycor ? ` Paycor legal # ${store.paycor}.` : '';
+  return `${testLabel ? `[TEST: would go to ${testLabel}] ` : ''}PCG new hire: ${candidate} at ${prop}${pc && store?.name ? ` (PC# ${pc})` : ''}${dist}.${legal}${when ? ` Hired ${when} ET.` : ''}`;
 }
 
 // Who gets hire alerts (set in Admin → Notification Access Panel → New Hires).
@@ -78,6 +79,8 @@ export function buildHireEmail({ candidate, store, receivedAt, details = [], tes
     ['Store', `${prop}${pc ? ` · PC# ${pc}` : ''}`],
     ...(addr ? [['Address', addr]] : []),
     ...(store?.legal ? [['Legal entity', store.legal]] : []),
+    // v22.43: the Paycor legal entity # — what the office actually needs to set the hire up in payroll
+    ...(store?.paycor ? [['Paycor legal #', String(store.paycor)]] : []),
     ...(store?.district ? [['District', `District ${store.district}${store.dmName ? ` · DM ${store.dmName}` : ''}`]] : []),
     ...details.map(d => [d.label, d.value]),
     ...(when ? [['Hired (Ally)', `${when} ET`]] : []),

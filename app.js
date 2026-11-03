@@ -18213,10 +18213,11 @@ ${t2.slice(0, 300)}`);
       setTesting(null);
     };
     useEffect2(() => {
-      if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [] });
+      if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [], source: data.hiresConfig.source || "email" });
     }, [data, draft]);
-    const savedCfg = data?.hiresConfig || { live: false, recipients: [] };
-    const dirty = !!draft && JSON.stringify({ live: draft.live, recipients: draft.recipients }) !== JSON.stringify({ live: !!savedCfg.live, recipients: savedCfg.recipients || [] });
+    const savedCfg = data?.hiresConfig || { live: false, recipients: [], source: "email" };
+    const cfgKey = (c) => JSON.stringify({ live: !!c.live, recipients: c.recipients || [], source: c.source || "email" });
+    const dirty = !!draft && cfgKey(draft) !== cfgKey(savedCfg);
     const recOf = (id) => (draft?.recipients || []).find((r) => r.userId === id);
     const setChannel = (u, channel, on) => setDraft((d) => {
       const cur = (d.recipients || []).find((r) => r.userId === u.id) || { userId: u.id, email: false, sms: false };
@@ -18233,13 +18234,14 @@ ${t2.slice(0, 300)}`);
       if (!draft) return;
       const chosen = (draft.recipients || []).length;
       if (draft.live && !savedCfg.live && !window.confirm(`Go live? Every new hire from now on is sent to the ${chosen} ${chosen === 1 ? "person" : "people"} chosen below.`)) return;
+      if (draft.source !== (savedCfg.source || "email") && !window.confirm(draft.source === "paradox" ? "Switch to Paradox? Hire alerts will come straight from Paradox every minute, and the store-email check will stop sending them." : "Switch back to store emails? Hire alerts will come from the store-mailbox check again (every 5 min); Paradox goes back to a trial that only emails you.")) return;
       setSavingCfg(true);
       try {
-        const res = await fetch("/.netlify/functions/interview-reminders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ action: "saveHiresConfig", live: draft.live, recipients: draft.recipients }) });
+        const res = await fetch("/.netlify/functions/interview-reminders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ action: "saveHiresConfig", live: draft.live, recipients: draft.recipients, source: draft.source || "email" }) });
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
         setData((d) => ({ ...d || {}, hiresConfig: j.hiresConfig, hiresMode: j.hiresMode }));
-        setDraft({ live: !!j.hiresConfig.live, recipients: j.hiresConfig.recipients || [] });
+        setDraft({ live: !!j.hiresConfig.live, recipients: j.hiresConfig.recipients || [], source: j.hiresConfig.source || "email" });
         showAlert2 && showAlert2("success", j.hiresConfig.live ? `Live: hire alerts now go to ${j.hiresConfig.recipients.length} chosen ${j.hiresConfig.recipients.length === 1 ? "person" : "people"}.` : "Saved. Still in test mode.");
       } catch (e) {
         showAlert2 && showAlert2("error", `Couldn't save: ${e.message}`);
@@ -18261,7 +18263,7 @@ ${t2.slice(0, 300)}`);
     const box = { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.85rem", padding: "1rem 1.15rem", marginBottom: "1rem" };
     const h3 = { fontWeight: 700, fontSize: "0.95rem", color: th.text, fontFamily: "'Raleway'", marginBottom: "0.2rem" };
     const sub = { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: "1.35rem", fontWeight: 800, color: th.text, fontFamily: "'Raleway'" } }, "New hires"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: 4 } }, 'When Ally emails a store that someone is "Officially Hired!", the people you choose below get an email and/or a text with who, which store (PC# and property name) and where. Nobody else is sent these.')), err && /* @__PURE__ */ React.createElement("div", { style: { color: "#dc2626", fontSize: "0.85rem", marginBottom: "1rem" } }, "Couldn't load: ", err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.85rem", flexWrap: "wrap", padding: "0.8rem 1rem", borderRadius: "0.85rem", border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { padding: "0.22rem 0.6rem", borderRadius: "0.35rem", background: modeInfo[1], color: "#fff", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.04em" } }, modeInfo[0]), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px", fontSize: "0.84rem", color: th.muted } }, modeInfo[2], " ", /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, "Mailboxes checked every 5 min.")), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: "1.35rem", fontWeight: 800, color: th.text, fontFamily: "'Raleway'" } }, "New hires"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: 4 } }, 'When Ally emails a store that someone is "Officially Hired!", the people you choose below get an email and/or a text with who, which store (PC# and property name) and where. Nobody else is sent these.')), err && /* @__PURE__ */ React.createElement("div", { style: { color: "#dc2626", fontSize: "0.85rem", marginBottom: "1rem" } }, "Couldn't load: ", err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.85rem", flexWrap: "wrap", padding: "0.8rem 1rem", borderRadius: "0.85rem", border: `1px solid ${modeInfo[1]}40`, background: `${modeInfo[1]}0d`, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { padding: "0.22rem 0.6rem", borderRadius: "0.35rem", background: modeInfo[1], color: "#fff", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.04em" } }, modeInfo[0]), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px", fontSize: "0.84rem", color: th.muted } }, modeInfo[2], " ", /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "nowrap" } }, savedCfg.source === "paradox" ? "Paradox checked every minute." : "Mailboxes checked every 5 min.")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: runNow,
@@ -18269,7 +18271,31 @@ ${t2.slice(0, 300)}`);
         style: { padding: "0.55rem 1.1rem", borderRadius: "0.55rem", border: "none", background: O, color: "#fff", fontWeight: 700, fontSize: "0.84rem", fontFamily: "'Source Sans 3'", cursor: running ? "default" : "pointer", opacity: running ? 0.6 : 1 }
       },
       running ? "Checking\u2026" : "Check mailboxes now"
-    )), /* @__PURE__ */ React.createElement("div", { style: box }, /* @__PURE__ */ React.createElement("div", { style: h3 }, "Recent hires"), /* @__PURE__ */ React.createElement("div", { style: sub }, 'The latest "Officially Hired!" emails found in the store mailboxes. Hires already older than 48 hours when first found are recorded but not emailed \u2014 use "Send me a test" to see the email.'), (data?.hires || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, data ? "No hires found yet." : "Loading\u2026"), (data?.hires || []).map((h, i, arr) => /* @__PURE__ */ React.createElement("div", { key: h.msg_id || i, style: { display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", alignItems: "baseline", padding: "0.55rem 0", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.84rem" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, h.candidate), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 ", storeName(h.store_pc), " (PC# ", h.store_pc, ")")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, fmtWhen(h.received_at), " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: h.notified_at ? "#16a34a" : h.notify_note === "email failed" ? "#dc2626" : th.muted } }, h.notified_at ? h.notify_note || "emailed" : h.notify_note || "pending"), " \xB7 ", /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { style: box }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 280px" } }, /* @__PURE__ */ React.createElement("div", { style: h3 }, "Where hires come from"), /* @__PURE__ */ React.createElement("div", { style: { ...sub, marginBottom: 0 } }, (draft?.source || savedCfg.source) === "paradox" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Straight from ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "Paradox, checked every minute"), " \u2014 sent as soon as a candidate is marked Hired, with the store found by its PC#. The store-email check still records hires but doesn't send them.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "From the ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, '"Officially Hired!" store emails'), ", checked every 5 min. Paradox is running as a ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, "trial"), ' alongside: each hire it catches is emailed only to you, marked "Paradox trial", so you can compare which arrives first.'))), draft && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { role: "radiogroup", "aria-label": "Hire source", style: { display: "inline-flex", padding: 3, borderRadius: 999, border: `1px solid ${th.cardBorder}`, background: th.card2 } }, [["email", "Store emails"], ["paradox", "Paradox"]].map(([v, l]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: v,
+        type: "button",
+        role: "radio",
+        "aria-checked": (draft.source || "email") === v,
+        onClick: () => setDraft((d) => ({ ...d, source: v })),
+        style: { padding: "0.35rem 1rem", borderRadius: 999, border: "none", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700, fontFamily: "'Source Sans 3'", background: (draft.source || "email") === v ? O : "transparent", color: (draft.source || "email") === v ? "#fff" : th.muted }
+      },
+      l
+    ))), (draft.source || "email") !== (savedCfg.source || "email") && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: saveCfg,
+        disabled: savingCfg,
+        style: { padding: "0.45rem 0.95rem", borderRadius: "0.55rem", border: "none", background: O, color: "#fff", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", fontFamily: "'Source Sans 3'", opacity: savingCfg ? 0.6 : 1 }
+      },
+      savingCfg ? "Saving\u2026" : "Save"
+    ))), (() => {
+      const ph = data?.paradoxHires;
+      const st = ph?.status;
+      return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: st && st.ok === false ? "#dc2626" : th.muted, marginBottom: "0.35rem" } }, !st ? "Paradox: waiting for the first check\u2026" : st.ok === false ? `Paradox check failed ${fmtWhen(st.at)}: ${st.error || "unknown error"}` : `Paradox last checked ${fmtWhen(st.at)} \xB7 ${st.hiredInParadox ?? "\u2014"} marked Hired in Paradox`), (ph?.rows || []).slice(0, 8).map((h, i) => /* @__PURE__ */ React.createElement("div", { key: h.oid || i, style: { display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", alignItems: "baseline", padding: "0.45rem 0", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, h.candidate), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 ", h.store_pc ? `${storeName(h.store_pc)} (PC# ${h.store_pc})` : "store not found")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.76rem" } }, fmtWhen(h.first_seen_at), " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: h.notified_at ? "#16a34a" : h.notify_note === "email failed" ? "#dc2626" : th.muted } }, h.notify_note || (h.notified_at ? "sent" : "pending"))))));
+    })()), /* @__PURE__ */ React.createElement("div", { style: box }, /* @__PURE__ */ React.createElement("div", { style: h3 }, "Recent hires"), /* @__PURE__ */ React.createElement("div", { style: sub }, 'The latest "Officially Hired!" emails found in the store mailboxes. Hires already older than 48 hours when first found are recorded but not emailed \u2014 use "Send me a test" to see the email.'), (data?.hires || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, data ? "No hires found yet." : "Loading\u2026"), (data?.hires || []).map((h, i, arr) => /* @__PURE__ */ React.createElement("div", { key: h.msg_id || i, style: { display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", alignItems: "baseline", padding: "0.55rem 0", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.84rem" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, h.candidate), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\xB7 ", storeName(h.store_pc), " (PC# ", h.store_pc, ")")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, fmtWhen(h.received_at), " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: h.notified_at ? "#16a34a" : h.notify_note === "email failed" ? "#dc2626" : th.muted } }, h.notified_at ? h.notify_note || "emailed" : h.notify_note || "pending"), " \xB7 ", /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => sendTest(h.msg_id),
@@ -18304,7 +18330,7 @@ ${t2.slice(0, 300)}`);
       "button",
       {
         type: "button",
-        onClick: () => setDraft({ live: !!savedCfg.live, recipients: savedCfg.recipients || [] }),
+        onClick: () => setDraft({ live: !!savedCfg.live, recipients: savedCfg.recipients || [], source: savedCfg.source || "email" }),
         disabled: savingCfg,
         style: { padding: "0.5rem 1rem", borderRadius: "0.55rem", border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontWeight: 600, fontSize: "0.84rem", cursor: "pointer", fontFamily: "'Source Sans 3'" }
       },
@@ -26584,7 +26610,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.42";
+  var APP_VERSION = "v22.44";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
