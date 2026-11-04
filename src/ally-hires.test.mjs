@@ -47,6 +47,8 @@ test('hire email + text carry the Paycor legal # when the store has one', () => 
   const store = { pc: '343352', name: 'Hatboro', legal: '256 Hatboro Hospitality LLC', paycor: 200540, district: 4 };
   const e = buildHireEmail({ candidate: 'John Doe', store });
   assert.match(e.text, /Paycor legal #: 200540/);
+  assert.match(e.html, /from the store mailbox 343352@/);
+  assert.match(buildHireEmail({ candidate: 'John Doe', store, via: 'paradox' }).html, /from Paradox./);
   assert.match(buildHireText({ candidate: 'John Doe', store }), /Paycor legal # 200540\./);
 });
 

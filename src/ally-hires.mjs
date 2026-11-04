@@ -69,7 +69,8 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 
 // store: Locations record ({ pc, name, legal, address, city, state, district, dmName }).
 // testLabel: in test mode, who it would have gone to.
-export function buildHireEmail({ candidate, store, receivedAt, details = [], testLabel = null }) {
+// via: 'paradox' (v22.46) when the alert came from the Paradox API rather than a store mailbox.
+export function buildHireEmail({ candidate, store, receivedAt, details = [], testLabel = null, via = 'mailbox' }) {
   const pc = store?.pc ? String(store.pc) : '';
   const prop = store?.name || (pc ? `PC# ${pc}` : 'Unknown store');
   const addr = [store?.address, store?.city, store?.state].filter(Boolean).join(', ');
@@ -92,7 +93,7 @@ ${testLabel ? `<p style="background:#fff4ec;border:1px solid #ffd2b8;border-radi
 <table style="border-collapse:collapse;font-size:14px;width:100%">
 ${rows.map(([k, v]) => `<tr><td style="padding:7px 12px 7px 0;color:#6b6560;white-space:nowrap;vertical-align:top;border-top:1px solid #eee">${esc(k)}</td><td style="padding:7px 0;border-top:1px solid #eee"><strong>${esc(v)}</strong></td></tr>`).join('\n')}
 </table>
-<p style="font-size:12px;color:#8a847e;margin:16px 0 0">Sent automatically by the PCG Portal from the store mailbox ${esc(pc ? `${pc}@peoplecapitalgroup.com` : '')}.</p>
+<p style="font-size:12px;color:#8a847e;margin:16px 0 0">${via === 'paradox' ? 'Sent automatically by the PCG Portal from Paradox.' : `Sent automatically by the PCG Portal from the store mailbox ${esc(pc ? `${pc}@peoplecapitalgroup.com` : '')}.`}</p>
 </div>`;
   const text = `${testLabel ? `[TEST — would go to: ${testLabel}]\n` : ''}New hire: ${candidate}\n${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}`;
   return { subject, html, text };

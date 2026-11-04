@@ -124,7 +124,7 @@ export async function runParadoxHires({ trigger = 'cron' } = {}) {
         if (!claimed.length) continue;
         const store = (r.store_pc && (locs.get(String(r.store_pc)) || ALL_STORES.find(x => String(x.pc) === String(r.store_pc)))) || (r.store_pc ? { pc: r.store_pc } : { name: 'Store not found in Paradox' });
         const details = [{ label: 'Source', value: 'Paradox (checked every minute)' }];
-        const e = buildHireEmail({ candidate: r.candidate, store, receivedAt: r.hired_at, details, testLabel });
+        const e = buildHireEmail({ candidate: r.candidate, store, receivedAt: r.hired_at, details, testLabel, via: 'paradox' });
         const mailed = aud.emails.length ? await sendHtmlEmail(aud.emails, e.subject, e.html) : false;
         let texted = 0;
         if (aud.phones.length) { try { texted = (await sendSms(aud.phones, buildHireText({ candidate: r.candidate, store, receivedAt: r.hired_at }))).sent || 0; } catch {} }
