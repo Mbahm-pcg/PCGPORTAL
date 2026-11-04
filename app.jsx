@@ -10029,6 +10029,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
   const [txnFilters, setTxnFilters] = React.useState({ otCat: 'all', voids: false, refunds: false, discounts: false, timeStart: '', timeEnd: '', search: '' });
   const [txnDate, setTxnDate] = React.useState(localDate);
   const [txnMenuMap, setTxnMenuMap] = React.useState(null);
+  // svcChgNum -> { name, tip } per store (getServiceChargeDimensions). Only charged-tip
+  // service charges are tips — donations (e.g. #1010 "$1 JICF Donation") are not.
+  const [txnSvcMap, setTxnSvcMap] = React.useState(null);
   const [dtSchedule, setDtSchedule] = React.useState(null);
   const [dtHoveredHr, setDtHoveredHr] = React.useState(null);
   const [upsellHistory, setUpsellHistory] = React.useState(null);
@@ -10540,7 +10543,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
     setTxnModalLoading(true);
     setTxnModal(null);
     try {
-      const [detailRes, journalRes, menuRes] = await Promise.all([
+      const [detailRes, journalRes, menuRes, svcRes] = await Promise.all([
         fetch('/.netlify/functions/pulse', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ api: pulseApi, endpoint: 'getGuestChecks', locRef: String(pc), opnBusDt: txnDate, searchCriteria: `where equals(guestChecks.chkNum,${chk.chkNum})`, include: 'guestChecks' })
@@ -10549,12 +10552,26 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ api: pulseApi, endpoint: 'getPOSJournalLogDetails', locRef: String(pc), busDt: txnDate, searchCriteria: `where equals(revenueCenters.logDetails.guestCheckId,${chk.guestCheckId})`, include: 'locRef,busDt,revenueCenters.logDetails.type,revenueCenters.logDetails.journalTxt,revenueCenters.logDetails.guestCheckId' })
         }),
-        txnMenuMap ? Promise.resolve(null) : fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_menu_v1' }) })
+        txnMenuMap ? Promise.resolve(null) : fetch('/.netlify/functions/storage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', key: 'pcg_menu_v1' }) }),
+        txnSvcMap?.pc === String(pc) ? Promise.resolve(null) : fetch('/.netlify/functions/pulse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api: pulseApi, endpoint: 'getServiceChargeDimensions', locRef: String(pc) })
+        }).catch(() => null)
       ]);
       const detailData = await detailRes.json();
       const journalData = await journalRes.json();
       let menuMap = txnMenuMap;
       if (menuRes) { const md = await menuRes.json(); menuMap = md.data || {}; setTxnMenuMap(menuMap); }
+      let svcMap = txnSvcMap?.pc === String(pc) ? txnSvcMap.map : null;
+      if (svcRes) {
+        try {
+          const sd = await svcRes.json();
+          if (Array.isArray(sd.serviceCharges)) {
+            svcMap = Object.fromEntries(sd.serviceCharges.map(s => [s.num, { name: String(s.name || '').trim(), tip: !!s.chrgTipsFlag }]));
+            setTxnSvcMap({ pc: String(pc), map: svcMap });
+          }
+        } catch {}
+      }
       const fullCheck = (detailData.guestChecks || [])[0] || chk;
       // Pick best journal log — must have items (prices + subtotal), skip card slips and promo-only inserts
       const isBad = t => !t || t.includes('Entry Mode') || t.includes('AID:') || t.includes('No Signature Required') || t.includes('agree to pay');
@@ -10564,7 +10581,7 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
       const allLogs = (journalData.revenueCenters || []).flatMap(rc => rc.logDetails || []).filter(l => l.journalTxt && !isBad(l.journalTxt) && !isPromo(l.journalTxt));
       const ranked = allLogs.sort((a, b) => score(b.journalTxt) - score(a.journalTxt));
       let journalTxt = (ranked[0])?.journalTxt || '';
-      setTxnModal({ check: fullCheck, journalTxt, menuMap: menuMap || {} });
+      setTxnModal({ check: fullCheck, journalTxt, menuMap: menuMap || {}, svcMap });
     } catch(e) { console.error('[txn-detail]', e); }
     setTxnModalLoading(false);
   }
@@ -11872,10 +11889,18 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
         const recItems = [];
         { const seenR = new Set(); mainItems.forEach(l => { if (seenR.has(l.guestCheckLineItemId)) return; seenR.add(l.guestCheckLineItemId); recItems.push({ qty: Math.abs(l.dspQty || 1), name: menuMap[l.menuItem.miNum]?.name || ('Item #' + l.menuItem.miNum), price: l.dspTtl || 0 }); }); }
         const recDisc = discLines.map(l => ({ name: menuMap[l.discount?.dscNum]?.name || 'Discount', price: l.dspTtl || 0 }));
-        // Tip lines are recorded as a serviceCharge detail line (refInfo1 "Charged Tip"),
-        // not a menuItem — separate mechanism from tenderMedia/discount lines. The
-        // check-level tipTotal field mirrors this line's amount exactly.
-        const tipLines = allLines.filter(l => l.serviceCharge && !l.vdFlag && (l.dspTtl || 0) !== 0);
+        // Tips and donations are both serviceCharge detail lines. Only a service charge
+        // flagged chrgTipsFlag in getServiceChargeDimensions (#100 "Charged Tips") is a
+        // tip — the check-level tipTotal mirrors those lines only. Everything else
+        // (#1010 "$1 JICF Donation", bag deposits, gift card loads…) shows by its name.
+        // Dimensions unavailable → a line is a tip only if the check itself has a tip.
+        const svcMap = txnModal?.svcMap || null;
+        const svcLines = allLines.filter(l => l.serviceCharge && !l.vdFlag && (l.dspTtl || 0) !== 0).map(l => {
+          const dim = svcMap?.[l.serviceCharge.svcChgNum];
+          const tip = dim ? dim.tip : (chk.tipTotal || 0) !== 0;
+          return { ...l, tip, label: tip ? (l.refInfo1 || 'Charged Tip') : (dim?.name || 'Service Charge') };
+        });
+        const tipLines = svcLines.filter(l => l.tip);
         const recTenders = tenderLines.map(l => ({ name: menuMap[l.tenderMedia?.tmedNum]?.name || (l.tenderMedia?.tmedNum === 1 ? 'Cash' : 'Payment'), amt: l.dspTtl || 0 })).filter(t => t.amt !== 0);
         const termNum = allLines[0]?.wsNum;
         const metaRow = { display: 'flex', justifyContent: 'space-between', gap: '1rem', margin: '0.14em 0', color: '#1a1a1a' };
@@ -11921,9 +11946,9 @@ function StoreDetail({ pc, stores, storeData, busDt, th, G, setPulseView, user, 
                         <span>{d.name}</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(d.price)}</span>
                       </div>
                     ))}
-                    {tipLines.map((l, i) => (
-                      <div key={'tip' + i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', margin: '0.2em 0', color: '#0d9488' }}>
-                        <span>{l.refInfo1 || 'Charged Tip'}</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(l.dspTtl)}</span>
+                    {svcLines.map((l, i) => (
+                      <div key={'svc' + i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', margin: '0.2em 0', ...(l.tip ? { color: '#0d9488' } : {}) }}>
+                        <span>{l.label}</span><span style={{ whiteSpace: 'nowrap' }}>{fmtP(l.dspTtl)}</span>
                       </div>
                     ))}
                     {orphanLines.map((l, i) => (
@@ -32316,7 +32341,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.46";
+const APP_VERSION = "v22.47";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
