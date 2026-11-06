@@ -716,8 +716,13 @@ const shouldPromptTwoFactor = async (u) => isTwoFactorRequired(u) && !(await isT
 
 const normalizePersonName = (v) => (v || "").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 const isManagersStore = (store, user) => {
+  if (user?.userType !== "manager") return false;
+  // v22.48: the account's assigned store (users.store_pc) decides. Matching the user's
+  // name against store.mgr left a newly assigned manager with no store at all whenever
+  // the store record still named the previous manager (Allegheny, 2026-11-06).
+  if (user.storePC) return String(store?.pc) === String(user.storePC);
   const managerName = normalizePersonName(store?.mgr);
-  if (!managerName || user?.userType !== "manager") return false;
+  if (!managerName) return false;
   return [user.name, user.username, (user.email || "").split("@")[0]]
     .map(normalizePersonName)
     .filter(Boolean)
@@ -32341,7 +32346,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.47";
+const APP_VERSION = "v22.48";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

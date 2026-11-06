@@ -3525,8 +3525,10 @@
   var shouldPromptTwoFactor = async (u) => isTwoFactorRequired(u) && !await isTwoFactorDeviceTrusted(u);
   var normalizePersonName = (v) => (v || "").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   var isManagersStore = (store, user) => {
+    if (user?.userType !== "manager") return false;
+    if (user.storePC) return String(store?.pc) === String(user.storePC);
     const managerName = normalizePersonName(store?.mgr);
-    if (!managerName || user?.userType !== "manager") return false;
+    if (!managerName) return false;
     return [user.name, user.username, (user.email || "").split("@")[0]].map(normalizePersonName).filter(Boolean).includes(managerName);
   };
   var getManagerStore = (stores, user) => {
@@ -26679,7 +26681,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.47";
+  var APP_VERSION = "v22.48";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
