@@ -6,6 +6,7 @@ import { isGenuineRefund, isNegativeDefect, getOrphanLines } from './src/pos-neg
 import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } from './src/deal-api.mjs';
 import { ExecutiveView } from './src/executive-view.jsx';
 import { TerminationsReport } from './src/terminations-ui.jsx';
+import { TransferNotice } from './src/transfer-notice-ui.jsx';
 import { isDirector, parseDistricts } from './src/director-scope.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
@@ -25005,6 +25006,7 @@ const HUB_SUBITEMS = {
     { id: 'office-clock-review', label: 'Office Time Clock — Pay Period Review' },
     { id: 'hours-report', label: 'Hours Report' },
     { id: 'terminations', label: 'Terminations' },
+    { id: 'transfer-notice', label: 'Transfer Notice' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -25057,6 +25059,9 @@ const ADMIN_CONSOLE_SUBS = [
 // to visible (matches the top-level toggle's own default-on semantics) unless
 // explicitly turned off for that role via a compound "hubId:subId" key in the
 // same accessOverrides object the top-level toggles already use.
+// v22.49: roles that can make a Transfer Notice at all (pay rates — what each sees is
+// also scoped server-side); the per-role on/off switch is Admin · Access.
+const TRANSFER_NOTICE_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
 const accessSubOn = (overrides, rt, hubId, subId) => (overrides?.[rt]?.[`${hubId}:${subId}`]) !== false;
 
 
@@ -30858,6 +30863,7 @@ const computeRoleTabs = (user) => {
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
+    { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics",    icon: (c) => ICONS.analytics(c) },
@@ -30902,6 +30908,7 @@ const computeRoleTabs = (user) => {
     { id: "tools-hub", label: "Tools",     icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
+    { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -30947,6 +30954,7 @@ const computeRoleTabs = (user) => {
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
+    { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "Pulse",        icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c) },
@@ -30972,6 +30980,7 @@ const computeRoleTabs = (user) => {
     { id: "tools-hub", label: "Tools",        icon: (c) => ICONS.tools(c), noPinToggle: true },
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
+    { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -32346,7 +32355,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.48";
+const APP_VERSION = "v22.49";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -58101,6 +58110,8 @@ function PCGPortal() {
               // v22.33: on for every role by default; switch it off per role in Admin · Access.
               // What each person sees inside is scoped server-side (DM → district, manager → store).
               { id: 'terminations', name: 'Terminations', sub: 'Who left, by store — quarter and half-year views from Paycor.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations'), icon: <><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6"/><path d="M16 18h6"/><path d="M19 15l3 3-3 3"/></> },
+              // v22.49: HR's Employee Transfer letter, filled from Paycor (name, position, PC#, wage locked).
+              { id: 'transfer-notice', name: 'Transfer Notice', sub: 'Fill HR’s Employee Transfer letter from Paycor and download it as a PDF, ready to sign.', show: TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'transfer-notice'), icon: <>{ICONS.transferNotice(TOOLS)}</> },
             ].filter(t => t.show);
             return (
               <div>
@@ -58116,6 +58127,7 @@ function PCGPortal() {
           {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={openStores} users={users} onBack={() => setTab('tools-hub')} setStores={setStores} districts={districts} setDistricts={setDistricts} setUsers={setUsers} />}
           {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={openStores} user={user} />}
           {tab === "terminations" && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations') && <TerminationsReport th={th} user={user} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
+          {tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'transfer-notice') && <TransferNotice th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={openStores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}
           {tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && <OpsTasks stores={openStores} th={th} user={user} />}

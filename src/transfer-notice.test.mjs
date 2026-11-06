@@ -1,0 +1,42 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { pickCurrentPayRate, readEmploymentType, transferLetterValues, missingTransferFields } from './transfer-notice.mjs';
+import { transferBlanks, formatWage, formatLetterDate, TRANSFER_BLANK_FIELDS } from './transfer-notice-pdf.mjs';
+
+test('pickCurrentPayRate: newest rate already in force, ended and future rates skipped', () => {
+  const rates = [
+    { payRate: 12, effectiveDate: '2025-01-01', endDate: '2026-03-31' },
+    { payRate: 15, effectiveDate: '2026-04-01' },
+    { payRate: 16, effectiveDate: '2027-01-01' },
+  ];
+  assert.equal(pickCurrentPayRate(rates, '2026-11-06').payRate, 15);
+  assert.equal(pickCurrentPayRate([{ payRate: 14 }], '2026-11-06').payRate, 14);
+  assert.equal(pickCurrentPayRate([], '2026-11-06'), null);
+});
+
+test('readEmploymentType: finds full/part time in Paycor status/position data, else blank', () => {
+  assert.equal(readEmploymentType({ statusData: { employmentType: 'Part-Time' } }), 'Part time');
+  assert.equal(readEmploymentType({ positionData: { type: { name: 'Full Time' } } }), 'Full time');
+  assert.equal(readEmploymentType({ statusData: { status: 'Active' } }), '');
+});
+
+test('transferLetterValues: name, current title and wage come from the Paycor employee', () => {
+  const v = transferLetterValues({ employee: { name: 'Ahmed Bhuiyan', jobTitle: 'Crew Member', payRate: 15 }, fromPC: '332941', toPC: '351050', toTitle: 'Shift Leader', employmentType: 'Full time', effectiveDate: '2026-11-16', supervisorName: 'Katiuska Torres', supervisorTitle: 'Store Manager', dmName: 'Tejal', date: '2026-11-06' });
+  assert.equal(v.employeeName, 'Ahmed Bhuiyan');
+  assert.equal(v.fromTitle, 'Crew Member');
+  assert.equal(v.hourlyWage, 15);
+  assert.deepEqual(missingTransferFields(v), []);
+  assert.deepEqual(missingTransferFields({ ...v, toPC: '', dmName: ' ' }), ['New store', 'District Manager']);
+});
+
+test('PDF layout: 17 blanks in reading order, signatures left for a pen', () => {
+  const b = transferBlanks();
+  assert.equal(b.length, 17);
+  assert.equal(TRANSFER_BLANK_FIELDS.length, 17);
+  assert.deepEqual(b.map(x => x.field).filter(f => f === null).length, 4);
+  assert.equal(b[0].field, 'date');
+  assert.equal(b[10].field, 'hourlyWage');
+  assert.equal(formatWage(15), '$15.00');
+  assert.equal(formatWage(''), '');
+  assert.equal(formatLetterDate('2026-11-16'), '11/16/2026');
+});
