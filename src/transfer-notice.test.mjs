@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickCurrentPayRate, readEmploymentType, transferLetterValues, missingTransferFields } from './transfer-notice.mjs';
+import { pickCurrentPayRate, readEmploymentType, transferLetterValues, missingTransferFields, letterFingerprint } from './transfer-notice.mjs';
 import { transferBlanks, formatWage, formatLetterDate, TRANSFER_BLANK_FIELDS } from './transfer-notice-pdf.mjs';
 
 test('pickCurrentPayRate: newest rate already in force, ended and future rates skipped', () => {
@@ -21,19 +21,24 @@ test('readEmploymentType: finds full/part time in Paycor status/position data, e
 });
 
 test('transferLetterValues: name, current title and wage come from the Paycor employee', () => {
-  const v = transferLetterValues({ employee: { name: 'Ahmed Bhuiyan', jobTitle: 'Crew Member', payRate: 15 }, fromPC: '332941', toPC: '351050', toTitle: 'Shift Leader', employmentType: 'Full time', effectiveDate: '2026-11-16', supervisorName: 'Katiuska Torres', supervisorTitle: 'Store Manager', dmName: 'Tejal', date: '2026-11-06' });
+  const v = transferLetterValues({ employee: { name: 'Ahmed Bhuiyan', jobTitle: 'Crew Member', payRate: 15 }, fromPC: '332941', toPC: '351050', toTitle: 'Shift Leader', employmentType: 'Full time', effectiveDate: '2026-11-16', supervisorName: 'Katiuska Torres', supervisorTitle: 'Store Manager', dmName: 'Tejal', date: '2026-11-06', employeeSig: { image: 'data:e', date: '2026-11-06' }, dmSig: { image: 'data:d', date: '2026-11-06' } });
   assert.equal(v.employeeName, 'Ahmed Bhuiyan');
   assert.equal(v.fromTitle, 'Crew Member');
   assert.equal(v.hourlyWage, 15);
   assert.deepEqual(missingTransferFields(v), []);
   assert.deepEqual(missingTransferFields({ ...v, toPC: '', dmName: ' ' }), ['New store', 'District Manager']);
+  assert.deepEqual(missingTransferFields({ ...v, dmSignature: '' }), ['District Manager signature']);
+  assert.equal(v.employeeSignedDate, '2026-11-06');
+  // a signature vouches for the text: changing any letter field changes the fingerprint, signing does not
+  assert.notEqual(letterFingerprint(v), letterFingerprint({ ...v, hourlyWage: 16 }));
+  assert.equal(letterFingerprint(v), letterFingerprint({ ...v, dmSignature: 'data:x' }));
 });
 
-test('PDF layout: 17 blanks in reading order, signatures left for a pen', () => {
+test('PDF layout: 17 blanks in reading order, two of them drawn signatures', () => {
   const b = transferBlanks();
   assert.equal(b.length, 17);
   assert.equal(TRANSFER_BLANK_FIELDS.length, 17);
-  assert.deepEqual(b.map(x => x.field).filter(f => f === null).length, 4);
+  assert.deepEqual(b.map(x => x.field).filter(f => /Signature$/.test(f)), ['employeeSignature', 'dmSignature']);
   assert.equal(b[0].field, 'date');
   assert.equal(b[10].field, 'hourlyWage');
   assert.equal(formatWage(15), '$15.00');

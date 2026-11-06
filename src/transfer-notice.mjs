@@ -33,7 +33,7 @@ export function readEmploymentType(emp) {
 
 // Everything the letter needs, from the picked employee + destination + form inputs.
 // Name, current title, current PC# and wage come only from Paycor (locked on the form).
-export function transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date }) {
+export function transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig }) {
   return {
     date,
     employeeName: employee?.name || '',
@@ -47,13 +47,25 @@ export function transferLetterValues({ employee, fromPC, toPC, toTitle, employme
     supervisorTitle: supervisorTitle || '',
     hourlyWage: employee?.payRate ?? '',
     dmName: dmName || '',
+    employeeSignature: employeeSig?.image || '',
+    employeeSignedDate: employeeSig?.date || '',
+    dmSignature: dmSig?.image || '',
+    dmSignedDate: dmSig?.date || '',
   };
+}
+
+// The letter's text (everything a signature vouches for). A signature captured on one
+// version is void once any of this changes — no signing one letter and printing another.
+export function letterFingerprint(v) {
+  return ['date', 'employeeName', 'fromTitle', 'fromPC', 'toPC', 'toTitle', 'employmentType', 'effectiveDate',
+    'supervisorName', 'supervisorTitle', 'hourlyWage', 'dmName'].map(k => String(v?.[k] ?? '').trim()).join('|');
 }
 
 // What still has to be filled before the PDF can be made ([] = ready).
 export function missingTransferFields(v) {
   const need = [['employeeName', 'Employee'], ['fromPC', 'Current store'], ['toPC', 'New store'], ['toTitle', 'New position'],
     ['employmentType', 'Full/part time'], ['effectiveDate', 'Effective date'], ['supervisorName', 'Supervisor name'],
-    ['supervisorTitle', 'Supervisor title'], ['dmName', 'District Manager']];
+    ['supervisorTitle', 'Supervisor title'], ['dmName', 'District Manager'],
+    ['employeeSignature', 'Employee signature'], ['dmSignature', 'District Manager signature']];
   return need.filter(([k]) => !String(v?.[k] ?? '').trim()).map(([, label]) => label);
 }

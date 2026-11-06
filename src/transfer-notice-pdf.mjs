@@ -1,11 +1,13 @@
 // src/transfer-notice-pdf.mjs — PCG Employee Transfer letter, drawn to match HR's
-// "PCG TRANSFER LETTER TEMPLATE.pdf" (Google Docs, Cambria 12pt, US Letter) exactly.
+// "PCG_Transfer_Letter_Template.pdf" exactly: the Google Docs letter body (Cambria 12pt, US
+// Letter) moved down 40pt under a company header, the PCG seal watermark, and a footer.
 // Every word sits at the x / baseline the template uses (measured from the template
 // itself), in Caladea — the open font with Cambria's exact letter widths — so the
 // lines break and justify identically. Filled-in values are written on the blanks;
 // the blanks stay underlined, like a typed-in form. Pure: no DOM, no fetch.
 
-// [baseline from top (pt), [[x (pt), text, italic?], ...]] — the template, word by word.
+// [baseline from top (pt), [[x (pt), text, italic?], ...]] — the letter body, word by word, as
+// measured on the plain template; drawn BODY_OFFSET lower under the header.
 export const TRANSFER_LAYOUT = [
   [83.4, [[72, "Date:"], [101.41, "_______________________"]]],
   [115.76, [[72, "People"], [109.24, "Capital"], [147.68, "Group"], [182.11, "LLC"]]],
@@ -31,11 +33,11 @@ export const TRANSFER_LAYOUT = [
 ];
 
 // The template's 17 blanks (underscore runs), in reading order → the field written on
-// each. null = left for a pen (signatures and their dates).
+// each. The two signature blanks take a drawn signature (PNG data URL), not text.
 export const TRANSFER_BLANK_FIELDS = [
   'date', 'employeeName', 'fromTitle', 'fromPC', 'toPC', 'toTitle', 'employmentType',
   'effectiveDate', 'supervisorName', 'supervisorTitle', 'hourlyWage',
-  'employeeName', null, null, 'dmName', null, null,
+  'employeeName', 'employeeSignature', 'employeeSignedDate', 'dmName', 'dmSignature', 'dmSignedDate',
 ];
 
 // [{ field, y, x, raw }] for every underscore run in TRANSFER_LAYOUT, in reading order.
@@ -46,6 +48,24 @@ export function transferBlanks() {
   }
   return out;
 }
+
+export const BODY_OFFSET = 40;
+
+// Header, rule and footer of the branded template — standard Times, measured from it.
+const INK = [17, 17, 17];
+export const TRANSFER_CHROME = {
+  header: [
+    { text: 'PEOPLE CAPITAL GROUP LLC', x: 201.574, y: 62, font: 'bold', size: 14, color: INK },
+    { text: 'CONFIDENTIAL — INTERNAL USE ONLY', x: 216.545, y: 76, font: 'italic', size: 10, color: [107, 114, 128] },
+  ],
+  rule: { x1: 64, x2: 548, y: 90, width: 0.8, color: [154, 165, 177] },
+  footer: ['People Capital Group LLC', 'Human Resources Department', String(new Date().getFullYear()), 'Page 1 of 1']
+    .map((text, i) => ({ text, right: 548, y: 734 + i * 11, size: 9 })),
+  // The PCG seal, 470pt square, behind the body (its transparency is in the PNG).
+  watermark: { x: 71, y: 171, size: 470, src: 'pcg-watermark.png' },
+};
+
+export const SIGNATURE_FIELDS = new Set(['employeeSignature', 'dmSignature']);
 
 export const TRANSFER_FONT = { family: 'Caladea', regular: 'Caladea-Regular.ttf', italic: 'Caladea-Italic.ttf' };
 
@@ -63,8 +83,11 @@ export function formatLetterDate(v) {
 
 // jsPDF: the jsPDF constructor. fonts: { regular, italic } as base64 TTF strings.
 // values: { date, employeeName, fromTitle, fromPC, toPC, toTitle, employmentType,
-//           effectiveDate, supervisorName, supervisorTitle, hourlyWage, dmName }.
-export function buildTransferNoticePdf(jsPDF, fonts, values = {}) {
+//           effectiveDate, supervisorName, supervisorTitle, hourlyWage, dmName,
+//           employeeSignature, employeeSignedDate, dmSignature, dmSignedDate } — signatures
+//           as PNG data URLs, drawn standing on their signature line.
+// opts.watermark: the seal as a PNG data URL (omit for no watermark).
+export function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   doc.addFileToVFS(TRANSFER_FONT.regular, fonts.regular);
   doc.addFont(TRANSFER_FONT.regular, TRANSFER_FONT.family, 'normal');
@@ -77,13 +100,28 @@ export function buildTransferNoticePdf(jsPDF, fonts, values = {}) {
   for (const [y, words] of TRANSFER_LAYOUT) {
     for (const [x, text, italic] of words) {
       doc.setFont(TRANSFER_FONT.family, italic ? 'italic' : 'normal');
-      doc.text(text, x, y);
+      doc.text(text, x, y + BODY_OFFSET);
     }
   }
 
-  const v = { ...values, date: formatLetterDate(values.date), effectiveDate: formatLetterDate(values.effectiveDate), hourlyWage: formatWage(values.hourlyWage) };
+  // Same drawing order as the template: body, then the seal over it, then header/footer.
+  const C = TRANSFER_CHROME;
+  if (opts.watermark) doc.addImage(opts.watermark, 'PNG', C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size);
+  for (const h of C.header) {
+    doc.setFont('times', h.font); doc.setFontSize(h.size); doc.setTextColor(...h.color);
+    doc.text(h.text, h.x, h.y);
+  }
+  doc.setDrawColor(...C.rule.color); doc.setLineWidth(C.rule.width);
+  doc.line(C.rule.x1, C.rule.y, C.rule.x2, C.rule.y);
+  doc.setFont('times', 'normal'); doc.setTextColor(...INK);
+  for (const f of C.footer) { doc.setFontSize(f.size); doc.text(f.text, f.right, f.y, { align: 'right' }); }
+  doc.setTextColor(0, 0, 0); doc.setFontSize(12);
+
+  const v = { ...values, date: formatLetterDate(values.date), effectiveDate: formatLetterDate(values.effectiveDate), hourlyWage: formatWage(values.hourlyWage),
+    employeeSignedDate: formatLetterDate(values.employeeSignedDate), dmSignedDate: formatLetterDate(values.dmSignedDate) };
   doc.setFont(TRANSFER_FONT.family, 'normal');
-  for (const { field, y, x, raw } of transferBlanks()) {
+  for (const { field, y: y0, x, raw } of transferBlanks()) {
+    const y = y0 + BODY_OFFSET;
     const text = field ? String(v[field] ?? '').trim() : '';
     if (!text) continue;
     const lead = raw.indexOf('_');
@@ -91,6 +129,15 @@ export function buildTransferNoticePdf(jsPDF, fonts, values = {}) {
     doc.setFontSize(12);
     const x0 = x + doc.getTextWidth(raw.slice(0, lead));
     const width = doc.getTextWidth(run);
+    if (SIGNATURE_FIELDS.has(field)) {
+      // Fit the drawing inside the blank, max 28pt tall (the lines are ~32pt apart),
+      // its bottom just above the underline.
+      const props = doc.getImageProperties(text);
+      const scale = Math.min((width - 4) / props.width, 28 / props.height);
+      const w = props.width * scale, h = props.height * scale;
+      doc.addImage(text, 'PNG', x0 + 4, y + 1 - h, w, h);
+      continue;
+    }
     // Shrink a long value to fit its blank (never below 7pt), centered on the line.
     let size = 12;
     while (size > 7 && (doc.setFontSize(size), doc.getTextWidth(text)) > width - 2) size -= 0.5;

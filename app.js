@@ -1713,11 +1713,11 @@
     "supervisorTitle",
     "hourlyWage",
     "employeeName",
-    null,
-    null,
+    "employeeSignature",
+    "employeeSignedDate",
     "dmName",
-    null,
-    null
+    "dmSignature",
+    "dmSignedDate"
   ];
   function transferBlanks() {
     const out = [];
@@ -1726,6 +1726,19 @@
     }
     return out;
   }
+  var BODY_OFFSET = 40;
+  var INK = [17, 17, 17];
+  var TRANSFER_CHROME = {
+    header: [
+      { text: "PEOPLE CAPITAL GROUP LLC", x: 201.574, y: 62, font: "bold", size: 14, color: INK },
+      { text: "CONFIDENTIAL \u2014 INTERNAL USE ONLY", x: 216.545, y: 76, font: "italic", size: 10, color: [107, 114, 128] }
+    ],
+    rule: { x1: 64, x2: 548, y: 90, width: 0.8, color: [154, 165, 177] },
+    footer: ["People Capital Group LLC", "Human Resources Department", String((/* @__PURE__ */ new Date()).getFullYear()), "Page 1 of 1"].map((text, i) => ({ text, right: 548, y: 734 + i * 11, size: 9 })),
+    // The PCG seal, 470pt square, behind the body (its transparency is in the PNG).
+    watermark: { x: 71, y: 171, size: 470, src: "pcg-watermark.png" }
+  };
+  var SIGNATURE_FIELDS = /* @__PURE__ */ new Set(["employeeSignature", "dmSignature"]);
   var TRANSFER_FONT = { family: "Caladea", regular: "Caladea-Regular.ttf", italic: "Caladea-Italic.ttf" };
   function formatWage(v) {
     const n = Number(String(v ?? "").replace(/[^0-9.]/g, ""));
@@ -1735,7 +1748,7 @@
     const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
     return m ? `${m[2]}/${m[3]}/${m[1]}` : String(v || "");
   }
-  function buildTransferNoticePdf(jsPDF, fonts, values = {}) {
+  function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
     const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
     doc.addFileToVFS(TRANSFER_FONT.regular, fonts.regular);
     doc.addFont(TRANSFER_FONT.regular, TRANSFER_FONT.family, "normal");
@@ -1747,12 +1760,39 @@
     for (const [y, words] of TRANSFER_LAYOUT) {
       for (const [x, text, italic] of words) {
         doc.setFont(TRANSFER_FONT.family, italic ? "italic" : "normal");
-        doc.text(text, x, y);
+        doc.text(text, x, y + BODY_OFFSET);
       }
     }
-    const v = { ...values, date: formatLetterDate(values.date), effectiveDate: formatLetterDate(values.effectiveDate), hourlyWage: formatWage(values.hourlyWage) };
+    const C = TRANSFER_CHROME;
+    if (opts.watermark) doc.addImage(opts.watermark, "PNG", C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size);
+    for (const h of C.header) {
+      doc.setFont("times", h.font);
+      doc.setFontSize(h.size);
+      doc.setTextColor(...h.color);
+      doc.text(h.text, h.x, h.y);
+    }
+    doc.setDrawColor(...C.rule.color);
+    doc.setLineWidth(C.rule.width);
+    doc.line(C.rule.x1, C.rule.y, C.rule.x2, C.rule.y);
+    doc.setFont("times", "normal");
+    doc.setTextColor(...INK);
+    for (const f of C.footer) {
+      doc.setFontSize(f.size);
+      doc.text(f.text, f.right, f.y, { align: "right" });
+    }
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(12);
+    const v = {
+      ...values,
+      date: formatLetterDate(values.date),
+      effectiveDate: formatLetterDate(values.effectiveDate),
+      hourlyWage: formatWage(values.hourlyWage),
+      employeeSignedDate: formatLetterDate(values.employeeSignedDate),
+      dmSignedDate: formatLetterDate(values.dmSignedDate)
+    };
     doc.setFont(TRANSFER_FONT.family, "normal");
-    for (const { field, y, x, raw } of transferBlanks()) {
+    for (const { field, y: y0, x, raw } of transferBlanks()) {
+      const y = y0 + BODY_OFFSET;
       const text = field ? String(v[field] ?? "").trim() : "";
       if (!text) continue;
       const lead = raw.indexOf("_");
@@ -1760,6 +1800,13 @@
       doc.setFontSize(12);
       const x0 = x + doc.getTextWidth(raw.slice(0, lead));
       const width = doc.getTextWidth(run);
+      if (SIGNATURE_FIELDS.has(field)) {
+        const props = doc.getImageProperties(text);
+        const scale = Math.min((width - 4) / props.width, 28 / props.height);
+        const w = props.width * scale, h = props.height * scale;
+        doc.addImage(text, "PNG", x0 + 4, y + 1 - h, w, h);
+        continue;
+      }
       let size = 12;
       while (size > 7 && (doc.setFontSize(size), doc.getTextWidth(text)) > width - 2) size -= 0.5;
       doc.setFontSize(size);
@@ -1770,7 +1817,7 @@
   }
 
   // src/transfer-notice.mjs
-  function transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date }) {
+  function transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig }) {
     return {
       date,
       employeeName: employee?.name || "",
@@ -1783,8 +1830,28 @@
       supervisorName: supervisorName || "",
       supervisorTitle: supervisorTitle || "",
       hourlyWage: employee?.payRate ?? "",
-      dmName: dmName || ""
+      dmName: dmName || "",
+      employeeSignature: employeeSig?.image || "",
+      employeeSignedDate: employeeSig?.date || "",
+      dmSignature: dmSig?.image || "",
+      dmSignedDate: dmSig?.date || ""
     };
+  }
+  function letterFingerprint(v) {
+    return [
+      "date",
+      "employeeName",
+      "fromTitle",
+      "fromPC",
+      "toPC",
+      "toTitle",
+      "employmentType",
+      "effectiveDate",
+      "supervisorName",
+      "supervisorTitle",
+      "hourlyWage",
+      "dmName"
+    ].map((k) => String(v?.[k] ?? "").trim()).join("|");
   }
   function missingTransferFields(v) {
     const need = [
@@ -1796,13 +1863,15 @@
       ["effectiveDate", "Effective date"],
       ["supervisorName", "Supervisor name"],
       ["supervisorTitle", "Supervisor title"],
-      ["dmName", "District Manager"]
+      ["dmName", "District Manager"],
+      ["employeeSignature", "Employee signature"],
+      ["dmSignature", "District Manager signature"]
     ];
     return need.filter(([k]) => !String(v?.[k] ?? "").trim()).map(([, label]) => label);
   }
 
   // src/transfer-notice-ui.jsx
-  var { useState: useState2, useEffect: useEffect2 } = React;
+  var { useState: useState2, useEffect: useEffect2, useRef: useRef2 } = React;
   var todayIso2 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   var POSITIONS = ["Crew Member", "Shift Leader", "Assistant Manager", "Store Manager"];
   var api = async (qs = "") => {
@@ -1825,6 +1894,135 @@
     fontsPromise = null;
     throw e;
   }));
+  var sealPromise = null;
+  var loadSeal = () => sealPromise || (sealPromise = fetch("/" + TRANSFER_CHROME.watermark.src).then((r) => {
+    if (!r.ok) throw new Error("watermark");
+    return r.arrayBuffer();
+  }).then((b) => "data:image/png;base64," + toB64(b)).catch((e) => {
+    sealPromise = null;
+    throw e;
+  }));
+  var INK2 = "#111";
+  var FILL = "#fdf3ea";
+  var LETTER_CSS = `
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Regular.ttf') format('truetype'); font-style: normal; font-display: swap; }
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Italic.ttf') format('truetype'); font-style: italic; font-display: swap; }
+.tn-paper { font-family: 'Caladea', Cambria, Georgia, serif; color: ${INK2}; background: #fff; }
+.tn-paper p { margin: 0; }
+.tn-blank { font: inherit; color: ${INK2}; border: none; border-bottom: 1px solid ${INK2}; border-radius: 0; background: ${FILL}; padding: 0 0.25em; margin: 0 0.1em; min-height: 1.35em; line-height: 1.35; vertical-align: baseline; text-align: center; -webkit-appearance: none; appearance: none; }
+.tn-blank:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
+.tn-blank::placeholder { color: #9a8f86; font-style: italic; }
+.tn-locked { display: inline-block; border-bottom: 1px solid ${INK2}; padding: 0 0.3em; margin: 0 0.1em; text-align: center; line-height: 1.35; }
+.tn-locked.tn-empty { color: #9a8f86; font-style: italic; }
+select.tn-blank { cursor: pointer; text-align-last: center; }
+.tn-sigline { display: inline-flex; align-items: flex-end; justify-content: flex-start; border-bottom: 1px solid ${INK2}; height: 3.2em; vertical-align: bottom; margin-left: 0.3em; }
+.tn-sigbtn { font: inherit; font-family: ${FONTS.body}; font-size: 0.85rem; color: ${O}; font-weight: 700; background: ${FILL}; border: 1px dashed ${O}; border-radius: 6px; padding: 0.35rem 0.8rem; margin: 0 0 0.3rem 0.2rem; cursor: pointer; }
+.tn-sigbtn:focus-visible, .tn-sigimg:focus-visible { outline: 2px solid ${O}; outline-offset: 2px; }
+.tn-sigimg { background: none; border: none; padding: 0; cursor: pointer; height: 100%; display: flex; align-items: flex-end; }
+@media (prefers-reduced-motion: reduce) { .tn-blank, .tn-sigbtn { transition: none; } }`;
+  function SignatureModal({ th, title, onDone, onCancel }) {
+    const S = finStyles(th);
+    const ref = useRef2(null);
+    const drawing = useRef2(false);
+    const last = useRef2(null);
+    const [inked, setInked] = useState2(false);
+    useEffect2(() => {
+      const c = ref.current;
+      const dpr = window.devicePixelRatio || 1;
+      const r = c.getBoundingClientRect();
+      c.width = Math.round(r.width * dpr);
+      c.height = Math.round(r.height * dpr);
+      const g = c.getContext("2d");
+      g.scale(dpr, dpr);
+      g.lineCap = "round";
+      g.lineJoin = "round";
+      g.strokeStyle = INK2;
+      g.lineWidth = 2.4;
+      const onKey = (e) => {
+        if (e.key === "Escape") onCancel();
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, []);
+    const pt = (e) => {
+      const r = ref.current.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    const down = (e) => {
+      ref.current.setPointerCapture(e.pointerId);
+      drawing.current = true;
+      last.current = pt(e);
+      const g = ref.current.getContext("2d");
+      g.beginPath();
+      g.arc(last.current.x, last.current.y, 1.1, 0, Math.PI * 2);
+      g.fillStyle = INK2;
+      g.fill();
+      setInked(true);
+    };
+    const move = (e) => {
+      if (!drawing.current) return;
+      const g = ref.current.getContext("2d");
+      const p = pt(e);
+      g.beginPath();
+      g.moveTo(last.current.x, last.current.y);
+      g.lineTo(p.x, p.y);
+      g.stroke();
+      last.current = p;
+    };
+    const up = () => {
+      drawing.current = false;
+    };
+    const clear = () => {
+      const c = ref.current;
+      c.getContext("2d").clearRect(0, 0, c.width, c.height);
+      setInked(false);
+    };
+    const done = () => {
+      const c = ref.current;
+      const g = c.getContext("2d");
+      const { data, width, height } = g.getImageData(0, 0, c.width, c.height);
+      let x0 = width, y0 = height, x1 = -1, y1 = -1;
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (data[(y * width + x) * 4 + 3] > 10) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+      if (x1 < 0) return;
+      const pad = 6, out = document.createElement("canvas");
+      x0 = Math.max(0, x0 - pad);
+      y0 = Math.max(0, y0 - pad);
+      x1 = Math.min(width - 1, x1 + pad);
+      y1 = Math.min(height - 1, y1 + pad);
+      out.width = x1 - x0 + 1;
+      out.height = y1 - y0 + 1;
+      out.getContext("2d").drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+      onDone(out.toDataURL("image/png"));
+    };
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": title,
+        onClick: (e) => {
+          if (e.target === e.currentTarget) onCancel();
+        },
+        style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(20,16,12,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, width: "min(640px, 100%)", padding: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, marginBottom: "0.3rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "0.8rem" } }, "Sign in the box with your finger, a stylus or the mouse."), /* @__PURE__ */ React.createElement(
+        "canvas",
+        {
+          ref,
+          onPointerDown: down,
+          onPointerMove: move,
+          onPointerUp: up,
+          onPointerCancel: up,
+          style: { width: "100%", height: 200, display: "block", background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 10, touchAction: "none", cursor: "crosshair", backgroundImage: `linear-gradient(transparent 150px, #d9d2cb 150px, #d9d2cb 151px, transparent 151px)` }
+        }
+      ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.9rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: clear, disabled: !inked }, "Clear"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: onCancel }, "Cancel"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: inked ? 1 : 0.5 }, onClick: done, disabled: !inked }, "Use this signature"))))
+    );
+  }
   function TransferNotice({ th, isMobile, onBack }) {
     const S = finStyles(th);
     const [stores, setStores] = useState2([]);
@@ -1843,6 +2041,9 @@
     const [supervisorTitle, setSupervisorTitle] = useState2("Store Manager");
     const [dmName, setDmName] = useState2("");
     const [date, setDate] = useState2(todayIso2());
+    const [employeeSig, setEmployeeSig] = useState2(null);
+    const [dmSig, setDmSig] = useState2(null);
+    const [signing, setSigning] = useState2(null);
     const [busy, setBusy] = useState2(false);
     useEffect2(() => {
       api().then((b) => {
@@ -1884,9 +2085,16 @@
     const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
     const fromPC = picked?.pc || "";
     const hourly = employee && /hour/i.test(employee.payType || "Hourly") && employee.payRate > 0;
-    const values = transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date });
+    const base = transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date });
+    const fp = letterFingerprint(base);
+    const empSigOk = employeeSig && employeeSig.fp === fp ? employeeSig : null;
+    const dmSigOk = dmSig && dmSig.fp === fp ? dmSig : null;
+    const voided = employeeSig && !empSigOk || dmSig && !dmSigOk;
+    const values = transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig: empSigOk, dmSig: dmSigOk });
     const missing = missingTransferFields(values);
     const sameStore = fromPC && toPC && fromPC === toPC;
+    const letterMissing = missingTransferFields(base).filter((m) => !/signature/i.test(m));
+    const canSign = !letterMissing.length && hourly && !sameStore && !loadingEmp;
     const ready = !missing.length && hourly && !sameStore && !busy && !loadingEmp;
     const q = query.trim().toLowerCase();
     const matches = q && employees ? employees.filter((e) => e.name.toLowerCase().includes(q) || storeName(e.pc).toLowerCase().includes(q) || e.pc.includes(q)).slice(0, 40) : [];
@@ -1903,48 +2111,50 @@
       try {
         const JsPDF = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
         if (!JsPDF) throw new Error("PDF library did not load \u2014 refresh the page.");
-        const doc = buildTransferNoticePdf(JsPDF, await loadFonts(), values);
+        const [fonts, watermark] = await Promise.all([loadFonts(), loadSeal()]);
+        const doc = buildTransferNoticePdf(JsPDF, fonts, values, { watermark });
         doc.save(`Transfer-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`);
       } catch (e) {
         setError(e.message);
       }
       setBusy(false);
     };
-    const field = (label, control, note) => /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, /* @__PURE__ */ React.createElement("span", null, label), control, note && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, note));
-    const locked = (label, value) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem", fontSize: "0.8rem", color: th.muted, minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", null, label), /* @__PURE__ */ React.createElement("div", { style: { ...S.input, background: th.card2, color: value ? th.text : th.muted, cursor: "default", overflowWrap: "anywhere" }, "aria-readonly": "true" }, value || (loadingEmp ? "Reading Paycor\u2026" : "From Paycor")));
-    const grid2 = { display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))", gap: "0.9rem" };
-    const section = (title, children) => /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, marginBottom: "1rem", overflow: "visible" } }, /* @__PURE__ */ React.createElement("div", { style: S.panelHead }, /* @__PURE__ */ React.createElement("div", { style: S.panelTitle }, title), children));
-    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 860, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Transfer Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Find the employee, then fill in where they're going. Their name, current position, store and hourly wage come straight from Paycor; the PDF matches HR's Employee Transfer letter, ready to sign."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginBottom: "1rem" } }, error), section("Employee", /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, field(
-      "Employee",
-      /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          className: "fin-input",
-          style: S.input,
-          value: query,
-          role: "combobox",
-          "aria-expanded": listOpen && matches.length > 0,
-          "aria-controls": "tn-emp-list",
-          autoComplete: "off",
-          placeholder: employees ? "Type a name or store\u2026" : "Loading employees from Paycor\u2026",
-          disabled: !employees,
-          onChange: (e) => {
-            setQuery(e.target.value);
-            setListOpen(true);
-            if (picked) setPicked(null);
-          },
-          onFocus: () => setListOpen(true),
-          onBlur: () => setTimeout(() => setListOpen(false), 150),
-          onKeyDown: (e) => {
-            if (e.key === "Enter" && matches[0]) {
-              e.preventDefault();
-              pick(matches[0]);
-            }
-            if (e.key === "Escape") setListOpen(false);
+    const w = (ch) => ({ width: `${ch}ch`, maxWidth: "100%" });
+    const locked = (value, placeholder, ch) => /* @__PURE__ */ React.createElement("span", { className: `tn-locked${value ? "" : " tn-empty"}`, style: { minWidth: `${ch}ch` }, title: "From Paycor \u2014 can't be changed here" }, value || (loadingEmp ? "\u2026" : placeholder));
+    const text = (value, set, ch, placeholder, extra = {}) => /* @__PURE__ */ React.createElement("input", { className: "tn-blank", style: w(ch), value, onChange: (e) => set(e.target.value), placeholder, "aria-label": placeholder, ...extra });
+    const dateBlank = (value, set, label) => /* @__PURE__ */ React.createElement("input", { type: "date", className: "tn-blank", style: { width: "11.5ch" }, value, onChange: (e) => set(e.target.value), "aria-label": label });
+    const sigLine = (who, sig, label) => /* @__PURE__ */ React.createElement("span", { className: "tn-sigline", style: { width: isMobile ? "60%" : "22em" } }, sig ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "tn-sigimg", onClick: () => setSigning(who), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: sig.image, alt: `${label} signature`, style: { maxHeight: "2.9em", maxWidth: "100%", objectFit: "contain" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "tn-sigbtn", onClick: () => setSigning(who), disabled: !canSign, style: { opacity: canSign ? 1 : 0.45, cursor: canSign ? "pointer" : "not-allowed" } }, canSign ? `Tap to sign \u2014 ${label}` : "Fill in the letter first"));
+    const signedDate = (sig) => /* @__PURE__ */ React.createElement("span", { className: `tn-locked${sig ? "" : " tn-empty"}`, style: { minWidth: "10ch" } }, sig ? formatLetterDate(sig.date) : "on signing");
+    const row = { marginTop: "1.15em" };
+    const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "tn-blank",
+        style: w(isMobile ? 18 : 26),
+        value: query,
+        role: "combobox",
+        "aria-expanded": listOpen && matches.length > 0,
+        "aria-controls": "tn-emp-list",
+        autoComplete: "off",
+        "aria-label": "Employee name",
+        placeholder: employees ? "Search employee name" : "Loading from Paycor\u2026",
+        disabled: !employees,
+        onChange: (e) => {
+          setQuery(e.target.value);
+          setListOpen(true);
+          if (picked) setPicked(null);
+        },
+        onFocus: () => setListOpen(true),
+        onBlur: () => setTimeout(() => setListOpen(false), 150),
+        onKeyDown: (e) => {
+          if (e.key === "Enter" && matches[0]) {
+            e.preventDefault();
+            pick(matches[0]);
           }
+          if (e.key === "Escape") setListOpen(false);
         }
-      )
-    ), listOpen && matches.length > 0 && /* @__PURE__ */ React.createElement("div", { id: "tn-emp-list", role: "listbox", style: { position: "absolute", zIndex: 20, left: 0, right: 0, top: "100%", marginTop: 4, maxHeight: 300, overflowY: "auto", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.12)" } }, matches.map((e) => /* @__PURE__ */ React.createElement(
+      }
+    ), listOpen && matches.length > 0 && /* @__PURE__ */ React.createElement("span", { id: "tn-emp-list", role: "listbox", style: { position: "absolute", zIndex: 30, left: 0, top: "100%", marginTop: 4, width: "min(420px, 82vw)", maxHeight: 300, overflowY: "auto", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.15)", textAlign: "left" } }, matches.map((e) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: e.pc + e.id,
@@ -1954,21 +2164,35 @@
         className: "fin-btn",
         onMouseDown: (ev) => ev.preventDefault(),
         onClick: () => pick(e),
-        style: { display: "flex", width: "100%", justifyContent: "space-between", gap: "0.8rem", padding: "0.6rem 0.9rem", background: "none", border: "none", borderBottom: `1px solid ${th.cardBorder}`, color: th.text, textAlign: "left", cursor: "pointer", fontFamily: FONTS.body, fontSize: "0.9rem" }
+        style: { display: "flex", width: "100%", justifyContent: "space-between", gap: "0.8rem", padding: "0.6rem 0.9rem", background: "none", border: "none", borderBottom: `1px solid ${th.cardBorder}`, color: th.text, textAlign: "left", cursor: "pointer", fontFamily: FONTS.body, fontSize: "0.88rem" }
       },
       /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, e.name, e.jobTitle && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \u2014 ", e.jobTitle)),
       /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, whiteSpace: "nowrap" } }, storeName(e.pc), " \xB7 ", e.pc)
-    ))), listOpen && q && employees && !picked && matches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.3rem" } }, "No active employee matches \u201C", query.trim(), "\u201D.")), /* @__PURE__ */ React.createElement("div", { style: grid2 }, locked("Employee name", employee?.name), locked("Current position", employee?.jobTitle), locked("Current PC#", employee ? `${fromPC}${storeName(fromPC) ? ` \xB7 ${storeName(fromPC)}` : ""}` : ""), locked("Hourly wage", hourly ? finMoney.format(employee.payRate) : "")), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn", style: { marginBottom: 0 } }, "Paycor has no hourly rate for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this letter can't be made. Fix the rate in Paycor first."))), section("Transfer", /* @__PURE__ */ React.createElement("div", { style: grid2 }, field(
-      "New store",
-      /* @__PURE__ */ React.createElement("select", { className: "fin-input", style: S.input, value: toPC, onChange: (e) => setToPC(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Choose a store\u2026"), stores.filter((s) => s.pc !== fromPC).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " \xB7 PC# ", s.pc)))
-    ), field(
-      "New position",
-      /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { className: "fin-input", style: S.input, list: "tn-positions", value: toTitle, onChange: (e) => setToTitle(e.target.value), placeholder: "e.g. Shift Leader" }), /* @__PURE__ */ React.createElement("datalist", { id: "tn-positions" }, POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))))
-    ), field(
-      "Full or part time",
-      /* @__PURE__ */ React.createElement("select", { className: "fin-input", style: S.input, value: employmentType, onChange: (e) => setEmploymentType(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Choose\u2026"), /* @__PURE__ */ React.createElement("option", null, "Full time"), /* @__PURE__ */ React.createElement("option", null, "Part time")),
-      employee?.employmentType ? "From Paycor" : null
-    ), field("Effective date", /* @__PURE__ */ React.createElement("input", { type: "date", className: "fin-input", style: S.input, value: effectiveDate, onChange: (e) => setEffectiveDate(e.target.value) })), field("Reports to (supervisor name)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", style: S.input, value: supervisorName, onChange: (e) => setSupervisorName(e.target.value) }), toPC ? "The new store's manager in the portal" : null), field("Supervisor title", /* @__PURE__ */ React.createElement("input", { className: "fin-input", style: S.input, value: supervisorTitle, onChange: (e) => setSupervisorTitle(e.target.value) })), field("District Manager", /* @__PURE__ */ React.createElement("input", { className: "fin-input", style: S.input, value: dmName, onChange: (e) => setDmName(e.target.value) }), toPC ? "The new store's district DM" : null), field("Letter date", /* @__PURE__ */ React.createElement("input", { type: "date", className: "fin-input", style: S.input, value: date, onChange: (e) => setDate(e.target.value) })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap" } }, (missing.length > 0 || sameStore || employee && !hourly) && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, sameStore ? "The new store must be different." : missing.length ? `Still needed: ${missing.join(", ")}` : "No hourly wage in Paycor."), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: download }, busy ? "Making PDF\u2026" : "Download PDF")));
+    ))));
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + LETTER_CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Transfer Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the letter with the employee. The tinted blanks are yours; the employee's name, current position, store and hourly wage come straight from Paycor. Then the employee and the DM each sign on their line."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no hourly rate for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this letter can't be made. Fix the rate in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The letter changed after it was signed, so that signature no longer counts. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "tn-paper", style: {
+      borderRadius: 6,
+      boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
+      padding: isMobile ? "1.4rem 1.1rem" : "2.6rem 4.5rem 2rem",
+      fontSize: isMobile ? "15px" : "16.5px",
+      lineHeight: 1.85,
+      marginBottom: "1.2rem",
+      backgroundImage: `url('/${TRANSFER_CHROME.watermark.src}')`,
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "center 58%",
+      backgroundSize: "77%"
+    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: "Times New Roman, Times, serif", lineHeight: 1.25 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1.17em", color: "#111" } }, "PEOPLE CAPITAL GROUP LLC"), /* @__PURE__ */ React.createElement("div", { style: { fontStyle: "italic", fontSize: "0.83em", color: "#6b7280" } }, "CONFIDENTIAL \u2014 INTERNAL USE ONLY")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #9aa5b1", margin: "0.9em -0.6em 2em" } }), /* @__PURE__ */ React.createElement("p", null, "Date: ", dateBlank(date, setDate, "Letter date")), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "People Capital Group LLC", /* @__PURE__ */ React.createElement("br", null), "ATTN: Human Resources Department", /* @__PURE__ */ React.createElement("br", null), "Subject: Employee Transfer"), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.4em", textAlign: isMobile ? "left" : "justify" } }, "I, ", empSearch, "(", /* @__PURE__ */ React.createElement("i", null, "Employee Name"), "), am requesting to resign from my current position as a ", locked(employee?.jobTitle, "from Paycor", 14), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "), located at PC# ", locked(employee ? fromPC : "", "from Paycor", 8), ", in order to voluntarily transfer to a better opportunity within the company located at PC#", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: isMobile ? "14ch" : "9.5ch" }, value: toPC, onChange: (e) => setToPC(e.target.value), "aria-label": "New store PC#", title: toPC ? storeName(toPC) : "New store" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), stores.filter((s) => s.pc !== fromPC).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.pc, " \xB7 ", s.name))), " ", "as a ", text(toTitle, setToTitle, 14, "new position", { list: "tn-positions" }), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "). I request that my", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: "10ch" }, value: employmentType, onChange: (e) => setEmploymentType(e.target.value), "aria-label": "Full or part time" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), /* @__PURE__ */ React.createElement("option", null, "Full time"), /* @__PURE__ */ React.createElement("option", null, "Part time")), " ", "(", /* @__PURE__ */ React.createElement("i", null, "full/part time"), ") employment is effective starting ", dateBlank(effectiveDate, setEffectiveDate, "Effective date"), "(", /* @__PURE__ */ React.createElement("i", null, "effective date"), ")."), /* @__PURE__ */ React.createElement("datalist", { id: "tn-positions" }, POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", textAlign: isMobile ? "left" : "justify" } }, "I acknowledge that I will now report to ", text(supervisorName, setSupervisorName, 16, "supervisor name"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor name"), ")/ ", text(supervisorTitle, setSupervisorTitle, 14, "supervisor title"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor title"), "). I also acknowledge that I will be compensated at an hourly wage of ", locked(hourly ? finMoney.format(employee.payRate) : "", "from Paycor", 8), " per hour and paid on a biweekly basis."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "I ACCEPT THE ABOVE CONDITIONS AND AM INDICATING MY ACCEPTANCE BY SIGNING THIS LETTER AND RETURNING IT VIA EMAIL TO THE HUMAN RESOURCES DEPARTMENT."), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Name: ", locked(employee?.name, "from Paycor", 22)), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Signature:", sigLine("employee", empSigOk, "employee")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(empSigOk)), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.2em" } }, "ACCEPTED AND APPROVED BY:"), /* @__PURE__ */ React.createElement("p", { style: row }, "District Manager Name: ", text(dmName, setDmName, 22, "District Manager name")), /* @__PURE__ */ React.createElement("p", { style: row }, "District Manager Signature:", sigLine("dm", dmSigOk, "District Manager")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(dmSigOk)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontFamily: "Times New Roman, Times, serif", fontSize: "0.75em", lineHeight: 1.3, color: "#111", marginTop: "2.4em" } }, TRANSFER_CHROME.footer.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.text }, f.text)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "2rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, sameStore ? "The new store must be different." : missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: download }, busy ? "Making PDF\u2026" : "Download signed PDF")), signing && /* @__PURE__ */ React.createElement(
+      SignatureModal,
+      {
+        th,
+        title: signing === "employee" ? `Employee signature \u2014 ${employee?.name || ""}` : `District Manager signature \u2014 ${dmName}`,
+        onCancel: () => setSigning(null),
+        onDone: (image) => {
+          const sig = { image, date: todayIso2(), fp };
+          (signing === "employee" ? setEmployeeSig : setDmSig)(sig);
+          setSigning(null);
+        }
+      }
+    ));
   }
 
   // src/director-scope.mjs
@@ -2762,7 +2986,7 @@
   }
 
   // app.jsx
-  var { useState: useState3, useRef: useRef2, useCallback, useEffect: useEffect3 } = React;
+  var { useState: useState3, useRef: useRef3, useCallback, useEffect: useEffect3 } = React;
   var Guard = class extends React.Component {
     constructor(props) {
       super(props);
@@ -3938,14 +4162,14 @@
     const [showItModal, setShowItModal] = useState3(false);
     const [narrow, setNarrow] = useState3(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
     const [tinyScreen, setTinyScreen] = useState3(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
-    const toggleBtnRef = useRef2(null);
-    const logoRef = useRef2(null);
-    const googleBtnRef = useRef2(null);
-    const tokenClientRef = useRef2(null);
+    const toggleBtnRef = useRef3(null);
+    const logoRef = useRef3(null);
+    const googleBtnRef = useRef3(null);
+    const tokenClientRef = useRef3(null);
     const [bioAvailable, setBioAvailable] = useState3(false);
     const [bioLoading, setBioLoading] = useState3(false);
     const [bioAutoPrompting, setBioAutoPrompting] = useState3(false);
-    const bioAutoTriedRef = useRef2(false);
+    const bioAutoTriedRef = useRef3(false);
     useEffect3(() => {
       webauthnAvailable().then(setBioAvailable);
     }, []);
@@ -5324,9 +5548,9 @@
     const [recording, setRecording] = useState3(false);
     const [interimText, setInterimText] = useState3("");
     const [recordError, setRecordError] = useState3("");
-    const recognitionRef = useRef2(null);
-    const baseBodyRef = useRef2("");
-    const finalChunksRef = useRef2("");
+    const recognitionRef = useRef3(null);
+    const baseBodyRef = useRef3("");
+    const finalChunksRef = useRef3("");
     const SpeechRecognition = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
     const recordingSupported = !!SpeechRecognition;
     const nextId = () => Date.now();
@@ -5394,7 +5618,7 @@
         setForm((f) => ({ ...f, title: firstLine || "Voice Note " + (/* @__PURE__ */ new Date()).toLocaleDateString() }));
       }
     };
-    const recordingRef = useRef2(false);
+    const recordingRef = useRef3(false);
     useEffect3(() => {
       return () => {
         recordingRef.current = false;
@@ -6231,7 +6455,7 @@
     const [statusFilter, setStatusFilter] = useState3("all");
     const [flashUserKey, setFlashUserKey] = useState3(null);
     const [leavingUserIds, setLeavingUserIds] = useState3([]);
-    const prevUserIdsRef = useRef2(/* @__PURE__ */ new Set());
+    const prevUserIdsRef = useRef3(/* @__PURE__ */ new Set());
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
       if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
@@ -7297,10 +7521,10 @@
     const [showSuggestions, setShowSuggestions] = useState3(false);
     const [suggestLoading, setSuggestLoading] = useState3(false);
     const [activeSugIdx, setActiveSugIdx] = useState3(-1);
-    const suggestTimer = useRef2(null);
-    const mapDiv = useRef2(null);
-    const mapRef = useRef2(null);
-    const markersRef = useRef2({});
+    const suggestTimer = useRef3(null);
+    const mapDiv = useRef3(null);
+    const mapRef = useRef3(null);
+    const markersRef = useRef3({});
     function handleAddrChange(val) {
       setAddr(val);
       setActiveSugIdx(-1);
@@ -7547,7 +7771,7 @@
       return () => onMapModeChange?.(false);
     }, [viewMode]);
     const [isNarrow, setIsNarrow] = useState3(() => typeof window !== "undefined" && window.innerWidth < 760);
-    const frameRef = useRef2(null);
+    const frameRef = useRef3(null);
     const frameH = useFrameHeight(frameRef, 340, 16);
     useEffect3(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
@@ -9208,8 +9432,8 @@
     const [distFilter, setDistFilter] = useState3(isDMViewer ? dmDistrict || 0 : 0);
     const [debugLines, setDebugLines] = useState3(null);
     const [showDebug, setShowDebug] = useState3(false);
-    const fileRef = useRef2(null);
-    const detailTableRef = useRef2(null);
+    const fileRef = useRef3(null);
+    const detailTableRef = useRef3(null);
     const fmtSales = (n) => {
       if (!n) return "\u2014";
       if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
@@ -13532,7 +13756,7 @@ ${pendingEmail.emails.join("\n")}`,
     const [pulseView, setPulseView] = useState3(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState3(null);
     const [networkReviews, setNetworkReviews] = useState3(null);
-    const cdRef = useRef2(null);
+    const cdRef = useRef3(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
@@ -13745,8 +13969,8 @@ ${t2.slice(0, 300)}`);
     const handleManualRefresh = () => {
       loadAll();
     };
-    const wtdAutoLoaded = useRef2(false);
-    const lastWtdWeek = useRef2("");
+    const wtdAutoLoaded = useRef3(false);
+    const lastWtdWeek = useRef3("");
     useEffect3(() => {
       loadAll();
       if (!drillInStore) setPulseView("network");
@@ -14869,7 +15093,7 @@ ${t2.slice(0, 300)}`);
     const [editReport, setEditReport] = useState3(null);
     const [rForm, setRForm] = useState3({ ...EMPTY_DAILY_REPORT });
     const [wxLoading, setWxLoading] = useState3(false);
-    const fileInputRefs = useRef2({});
+    const fileInputRefs = useRef3({});
     const projReports = dailyReports.filter((r) => r.projectId === project.id).sort((a, b) => b.date.localeCompare(a.date));
     const nextId = () => {
       const ts = Date.now();
@@ -14995,7 +15219,7 @@ ${t2.slice(0, 300)}`);
     const totalPhotos = (r) => (r.workLogs || []).reduce((s, w) => s + (w.photos?.length || 0), 0);
     const totalWorkers = (r) => (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
     const totalHrs = (r) => (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
-    const pdfImportRef = useRef2(null);
+    const pdfImportRef = useRef3(null);
     const [pdfImporting, setPdfImporting] = useState3(false);
     const [forceSyncState, setForceSyncState] = useState3("idle");
     const [forceSyncMsg, setForceSyncMsg] = useState3("");
@@ -16374,7 +16598,7 @@ ${t2.slice(0, 300)}`);
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
     const [view, setView] = useState3("table");
-    const tableFrameRef = useRef2(null);
+    const tableFrameRef = useRef3(null);
     const isMobile = useIsMobile();
     const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
     const [selectedProject, setSelectedProject] = useState3(null);
@@ -21806,7 +22030,7 @@ ${t2.slice(0, 300)}`);
     useEffect3(() => {
       load();
     }, [load]);
-    const frameRef = useRef2(null);
+    const frameRef = useRef3(null);
     const frameH = useFrameHeight(frameRef);
     const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
     const filtered = (templates || []).filter((t) => {
@@ -22224,7 +22448,7 @@ ${t2.slice(0, 300)}`);
     const [acks, setAcks] = React.useState(null);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
-    const reqRef = useRef2(0);
+    const reqRef = useRef3(0);
     const list = [...announcements || []].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const selected = list.find((a) => a.id === selId) || list[0] || null;
     const loadAcks = async (annId) => {
@@ -23643,8 +23867,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     } }, SAFE_VAR_LABEL[st] || st, variance != null ? ` ${fmtSafeMoney(variance)}` : "");
   }
   function SignaturePad({ th, onCapture, label }) {
-    const ref = useRef2(null);
-    const drawing = useRef2(false);
+    const ref = useRef3(null);
+    const drawing = useRef3(false);
     const pos = (e) => {
       const r = ref.current.getBoundingClientRect();
       const t = e.touches ? e.touches[0] : e;
@@ -23839,7 +24063,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [savingExpected, setSavingExpected] = useState3(false);
     const [submitting, setSubmitting] = useState3(false);
     const [submitted, setSubmitted] = useState3(null);
-    const didHydrate = useRef2(false);
+    const didHydrate = useRef3(false);
     const [f, setF] = useState3({
       reason: "",
       safeCode: "",
@@ -24781,7 +25005,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [err, setErr] = useState3(false);
     const [lightbox, setLightbox] = useState3(null);
     const [exporting, setExporting] = useState3(false);
-    const printRef = useRef2(null);
+    const printRef = useRef3(null);
     useEffect3(() => {
       let cancelled = false;
       setAudit(null);
@@ -25087,7 +25311,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [submitting, setSubmitting] = useState3(false);
     const [submitted, setSubmitted] = useState3(null);
     const [gpsStatus, setGpsStatus] = useState3("");
-    const didHydrate = useRef2(false);
+    const didHydrate = useRef3(false);
     const localKey = "pcg_audit_draft_" + auditId;
     const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
     useEffect3(() => {
@@ -25446,7 +25670,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [err, setErr] = useState3(false);
     const [lightbox, setLightbox] = useState3(null);
     const [exporting, setExporting] = useState3(false);
-    const printRef = useRef2(null);
+    const printRef = useRef3(null);
     const load = useCallback(() => {
       setLoading(true);
       setErr(false);
@@ -26392,9 +26616,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [workers, setWorkers] = useState3([]);
     const [lwDaySales, setLwDaySales] = useState3(null);
     const [carouselPage, setCarouselPage] = useState3(0);
-    const touchStartX = useRef2(null);
-    const carouselInnerRef = useRef2(null);
-    const fetchTokenRef = useRef2(0);
+    const touchStartX = useRef3(null);
+    const carouselInnerRef = useRef3(null);
+    const fetchTokenRef = useRef3(0);
     const [loading, setLoading] = useState3(true);
     const [refreshing, setRefreshing] = useState3(false);
     const [lastRefresh, setLastRefresh] = useState3(null);
@@ -26410,11 +26634,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [mgrCaps, setMgrCaps] = useState3(null);
     const [mgrCapsErr, setMgrCapsErr] = useState3(false);
     const [expandedCap, setExpandedCap] = useState3(null);
-    const toggleBtnRef = useRef2(null);
+    const toggleBtnRef = useRef3(null);
     const [voiceState, setVoiceState] = useState3("idle");
     const [voiceTranscript, setVoiceTranscript] = useState3("");
     const [voiceReply, setVoiceReply] = useState3("");
-    const recogRef = useRef2(null);
+    const recogRef = useRef3(null);
     const handleToggle = useCallback(() => {
       const btn2 = toggleBtnRef.current;
       if (btn2) {
@@ -26984,7 +27208,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.49";
+  var APP_VERSION = "v22.51";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -27132,7 +27356,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return [{ id: personalAnalystId, type: "analyst", name: "Orion \u2014 My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" }, ...prev];
       });
     }, [user?.id]);
-    const sanitizedRef = useRef2(false);
+    const sanitizedRef = useRef3(false);
     useEffect3(() => {
       if (sanitizedRef.current || !channels || channels.length === 0) return;
       if (!users || users.length === 0) return;
@@ -27305,9 +27529,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setOrionThinking(false);
     };
     const [logFilters, setLogFilters] = useState3({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
-    const messagesEndRef = useRef2(null);
-    const inputRef = useRef2(null);
-    const fileRef = useRef2(null);
+    const messagesEndRef = useRef3(null);
+    const inputRef = useRef3(null);
+    const fileRef = useRef3(null);
     const isAdmin = isChatAdmin(user);
     const activeUsers = users.filter((u) => u.active);
     const resolveMention = (mention) => {
@@ -28090,7 +28314,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
     const [uploading, setUploading] = useState3(false);
     const [uploadMsg, setUploadMsg] = useState3(null);
-    const fileRef = useRef2(null);
+    const fileRef = useRef3(null);
     const handleUpload = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -29234,8 +29458,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     const [weather, setWeather] = useState3(null);
     const [showWeekWeather, setShowWeekWeather] = useState3(false);
-    const weatherRectRef = useRef2(null);
-    const weatherCloseTimer = useRef2(null);
+    const weatherRectRef = useRef3(null);
+    const weatherCloseTimer = useRef3(null);
     const openWeekWeather = (e) => {
       if (weatherCloseTimer.current) {
         clearTimeout(weatherCloseTimer.current);
@@ -30042,7 +30266,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [editForm, setEditForm] = useState3({ depositDate: "", amount: "" });
     const [posLoading, setPosLoading] = useState3(false);
     const [posProgress, setPosProgress] = useState3(0);
-    const fileRef = useRef2(null);
+    const fileRef = useRef3(null);
     const [uploading, setUploading] = useState3(false);
     const [uploadErr, setUploadErr] = useState3(null);
     const [view, setView] = useState3("alerts");
@@ -30301,7 +30525,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setPosLoading(false);
       if (!silent) showAlert2 && showAlert2("success", `POS cash totals loaded (${targets.length} fetched)`);
     };
-    const posAutoLoadedRef = useRef2("");
+    const posAutoLoadedRef = useRef3("");
     useEffect3(() => {
       if (view !== "recon") return;
       const key = `${weekOffset}|${distFilter}|${view}`;
@@ -32636,9 +32860,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [gpsLoading, setGpsLoading] = useState3(false);
     const [gpsDays, setGpsDays] = useState3(7);
     const [gpsTab, setGpsTab] = useState3("list");
-    const gpsMapDiv = useRef2(null);
-    const gpsMapRef = useRef2(null);
-    const gpsLayerRef = useRef2(null);
+    const gpsMapDiv = useRef3(null);
+    const gpsMapRef = useRef3(null);
+    const gpsLayerRef = useRef3(null);
     const [auditData, setAuditData] = useState3(null);
     const [auditLoading, setAuditLoading] = useState3(false);
     const [auditStore, setAuditStore] = useState3("");
@@ -32647,7 +32871,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [auditPhotos, setAuditPhotos] = useState3(false);
     const [auditPhotoUrls, setAuditPhotoUrls] = useState3({});
     const [auditExporting, setAuditExporting] = useState3(false);
-    const auditRef = useRef2(null);
+    const auditRef = useRef3(null);
     const [photoLightbox, setPhotoLightbox] = useState3(null);
     const [photoUrls, setPhotoUrls] = useState3({});
     const [merch, setMerch] = useState3(null);
@@ -32691,7 +32915,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
       return r.json();
     }, []);
-    const geoRef = useRef2(null);
+    const geoRef = useRef3(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
     const locDefaultOn = user?.userType === "store_tablet";
     const [shareLoc, setShareLoc] = useState3(() => {
@@ -33608,12 +33832,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [status, setStatus] = useState3("");
     const [busy, setBusy] = useState3(false);
     const [results, setResults] = useState3(null);
-    const chartCanvas = useRef2(null);
-    const chartRef = useRef2(null);
-    const mapDiv = useRef2(null);
-    const mapRef = useRef2(null);
+    const chartCanvas = useRef3(null);
+    const chartRef = useRef3(null);
+    const mapDiv = useRef3(null);
+    const mapRef = useRef3(null);
     const [radiusMi, setRadiusMi] = useState3(1);
-    const histCache = useRef2(/* @__PURE__ */ new Map());
+    const histCache = useRef3(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
       setBusy(true);
@@ -36196,7 +36420,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
     const [shown, setShown] = useState3(target);
-    const fromRef = useRef2(target);
+    const fromRef = useRef3(target);
     useEffect3(() => {
       const from = fromRef.current;
       if (teReducedMotion() || Math.abs(from - target) < 5e-3) {
@@ -36681,7 +36905,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [step, setStep] = useState3("");
     const [error, setError] = useState3(null);
     const [result, setResult] = useState3(null);
-    const pollRef = useRef2(null);
+    const pollRef = useRef3(null);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     React.useEffect(() => () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -36876,7 +37100,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [answer, setAnswer] = useState3(null);
     const [loading, setLoading] = useState3(false);
     const [feedback, setFeedback] = useState3(null);
-    const inputRef = useRef2(null);
+    const inputRef = useRef3(null);
     useEffect3(() => {
       const handler = (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -37523,7 +37747,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setReportsReadIds(allIds);
       setReportsUnreadCount(0);
     };
-    const selectReportTokenRef = useRef2(0);
+    const selectReportTokenRef = useRef3(0);
     const handleSelectReport = async (rpt) => {
       const myToken = ++selectReportTokenRef.current;
       setSelectedReport(rpt);
@@ -38159,7 +38383,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [selectedArticle, setSelectedArticle] = useState3(null);
     const [articleContent, setArticleContent] = useState3(null);
     const [loading, setLoading] = useState3(true);
-    const kbContentRef = useRef2(null);
+    const kbContentRef = useRef3(null);
     const [search, setSearch] = useState3("");
     const [catFilter, setCatFilter] = useState3("All");
     const [showForm, setShowForm] = useState3(false);
@@ -40834,7 +41058,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: form.storePC, onChange: (e) => setForm((p) => ({ ...p, storePC: e.target.value })), style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.9rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: form.category, onChange: (e) => setForm((p) => ({ ...p, category: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, MAINT_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: form.freq, onChange: (e) => setForm((p) => ({ ...p, freq: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, Object.entries(FREQ_LABELS).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Notes (optional)"), /* @__PURE__ */ React.createElement("textarea", { value: form.notes, onChange: (e) => setForm((p) => ({ ...p, notes: e.target.value })), rows: 2, style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem", resize: "vertical", boxSizing: "border-box" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: handleAdd, disabled: !form.title.trim() || saving, style: { flex: 1, background: O2, border: "none", borderRadius: 8, color: "#fff", padding: "0.65rem", cursor: "pointer", fontWeight: 700, fontFamily: "'Source Sans 3'", opacity: !form.title.trim() ? 0.5 : 1 } }, "Save Schedule"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAdd(false), style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.65rem 1rem", cursor: "pointer" } }, "Cancel")))));
   }
   function DunkinRunnerScene({ dark }) {
-    const hostRef = useRef2(null);
+    const hostRef = useRef3(null);
     useEffect3(() => {
       const host = hostRef.current;
       if (!host) return;
@@ -41160,7 +41384,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     });
     const [showPw, setShowPw] = useState3(false);
     const [saving, setSaving] = useState3(false);
-    const prevCandidateName = useRef2(candidate?.name || null);
+    const prevCandidateName = useRef3(candidate?.name || null);
     useEffect3(() => {
       if (!candidate || candidate.name === prevCandidateName.current) return;
       prevCandidateName.current = candidate.name;
@@ -41335,10 +41559,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDrillInStore(storePC);
       setTab(targetTab);
     };
-    const tabHistoryRef = useRef2(["dashboard"]);
-    const isGoingBackRef = useRef2(false);
-    const sidebarNavRef = useRef2(null);
-    const sidebarScrollPos = useRef2(0);
+    const tabHistoryRef = useRef3(["dashboard"]);
+    const isGoingBackRef = useRef3(false);
+    const sidebarNavRef = useRef3(null);
+    const sidebarScrollPos = useRef3(0);
     const [sidebarCollapsed, setSidebarCollapsed] = useState3(() => {
       try {
         const v = localStorage.getItem("pcg_sidebar_collapsed");
@@ -41514,28 +41738,28 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       });
     }, [user?.id]);
     const [accessOverrides, setAccessOverrides] = useState3({});
-    const cloudAccessLoaded = useRef2(false);
-    const cloudProjectsLoaded = useRef2(false);
-    const cloudDailyReportsLoaded = useRef2(false);
-    const cloudChatLoaded = useRef2(false);
-    const cloudAnnouncementsLoaded = useRef2(false);
-    const cloudStoresLoaded = useRef2(false);
-    const cloudDistrictsLoaded = useRef2(false);
-    const cloudContactsLoaded = useRef2(false);
-    const cloudVendorsLoaded = useRef2(false);
-    const cloudLinksLoaded = useRef2(false);
-    const cloudNotesLoaded = useRef2(false);
-    const cloudTodosLoaded = useRef2(false);
-    const cloudNotificationsLoaded = useRef2(false);
-    const cloudGlobalNotifyLoaded = useRef2(false);
-    const cloudTicketNotifyLoaded = useRef2(false);
-    const cloudTicketNotifyPhonesLoaded = useRef2(false);
-    const skipNextTicketNotifyPhonesSave = useRef2(false);
-    const cloudTicketNotifyOwnersLoaded = useRef2(false);
-    const cloudTicketNotifyPhoneOwnersLoaded = useRef2(false);
-    const projectsUserEdited = useRef2(false);
-    const dailyReportsUserEdited = useRef2(false);
-    const prevDailyReportsRef = useRef2([]);
+    const cloudAccessLoaded = useRef3(false);
+    const cloudProjectsLoaded = useRef3(false);
+    const cloudDailyReportsLoaded = useRef3(false);
+    const cloudChatLoaded = useRef3(false);
+    const cloudAnnouncementsLoaded = useRef3(false);
+    const cloudStoresLoaded = useRef3(false);
+    const cloudDistrictsLoaded = useRef3(false);
+    const cloudContactsLoaded = useRef3(false);
+    const cloudVendorsLoaded = useRef3(false);
+    const cloudLinksLoaded = useRef3(false);
+    const cloudNotesLoaded = useRef3(false);
+    const cloudTodosLoaded = useRef3(false);
+    const cloudNotificationsLoaded = useRef3(false);
+    const cloudGlobalNotifyLoaded = useRef3(false);
+    const cloudTicketNotifyLoaded = useRef3(false);
+    const cloudTicketNotifyPhonesLoaded = useRef3(false);
+    const skipNextTicketNotifyPhonesSave = useRef3(false);
+    const cloudTicketNotifyOwnersLoaded = useRef3(false);
+    const cloudTicketNotifyPhoneOwnersLoaded = useRef3(false);
+    const projectsUserEdited = useRef3(false);
+    const dailyReportsUserEdited = useRef3(false);
+    const prevDailyReportsRef = useRef3([]);
     const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState3({});
     useEffect3(() => {
       const handler = (e) => {
@@ -41559,8 +41783,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
     const [showNotifs, setShowNotifs] = useState3(false);
-    const notifRef = useRef2(null);
-    const chatPanelRef = useRef2(null);
+    const notifRef = useRef3(null);
+    const chatPanelRef = useRef3(null);
     const [showChatPanel, setShowChatPanel] = useState3(false);
     const [chatQuickReply, setChatQuickReply] = useState3({ channelId: null, text: "" });
     const [salesWeeks, setSalesWeeks] = useState3([]);
@@ -41568,24 +41792,24 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [cashUploads, setCashUploads] = useState3([]);
     const [cashNotes, setCashNotes] = useState3([]);
     const [cashPOS, setCashPOS] = useState3({});
-    const cloudCashLoaded = useRef2(false);
+    const cloudCashLoaded = useRef3(false);
     const [professionals, setProfessionals] = useState3(DEFAULT_PROFESSIONALS);
-    const cloudProfessionalsLoaded = useRef2(false);
+    const cloudProfessionalsLoaded = useRef3(false);
     const [showProfile, setShowProfile] = useState3(false);
     const [cloudStatus, setCloudStatus] = useState3("idle");
     const [logoAnim, setLogoAnim] = useState3(false);
     const [showTimeoutWarning, setShowTimeoutWarning] = useState3(false);
     const [timeoutCountdown, setTimeoutCountdown] = useState3(60);
-    const lastActivityRef = useRef2(Date.now());
-    const warningActiveRef = useRef2(false);
+    const lastActivityRef = useRef3(Date.now());
+    const warningActiveRef = useRef3(false);
     const [dataAlert, setDataAlert] = useState3(null);
-    const importRef = useRef2(null);
-    const logoRef = useRef2(null);
-    const toggleBtnRef = useRef2(null);
-    const deepLinkRef = useRef2(null);
-    const todoDeepLinkRef = useRef2(null);
-    const ticketDeepLinkRef = useRef2(null);
-    const txnDeepLinkRef = useRef2(null);
+    const importRef = useRef3(null);
+    const logoRef = useRef3(null);
+    const toggleBtnRef = useRef3(null);
+    const deepLinkRef = useRef3(null);
+    const todoDeepLinkRef = useRef3(null);
+    const ticketDeepLinkRef = useRef3(null);
+    const txnDeepLinkRef = useRef3(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
     const [pnlAllowed, setPnlAllowed] = useState3(DEFAULT_PNL_ALLOWED);
@@ -42333,7 +42557,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, [dailyReports]);
-    const storesSyncedRef = useRef2(null);
+    const storesSyncedRef = useRef3(null);
     const storeKey = (s) => String(s?.pc || s?.id || "");
     const storeSig = (s) => {
       if (!s) return "";
@@ -42565,8 +42789,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_phone_owners_v1", ticketNotifyPhoneOwners);
     }, [ticketNotifyPhoneOwners]);
-    const chatPollRef = useRef2(null);
-    const chatPollActive = useRef2(false);
+    const chatPollRef = useRef3(null);
+    const chatPollActive = useRef3(false);
     useEffect3(() => {
       Promise.all([
         cloudLoad("pcg_chat_channels_v1"),
@@ -42666,7 +42890,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 12e3);
       return () => clearInterval(chatPollRef.current);
     }, [user]);
-    const mentionAlertRef = useRef2({});
+    const mentionAlertRef = useRef3({});
     useEffect3(() => {
       if (!user) return;
       const interval = setInterval(() => {
@@ -42774,7 +42998,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const interval = setInterval(checkDeadlines, 864e5);
       return () => clearInterval(interval);
     }, [projects.map((p) => `${p.id}:${p.dueDate || ""}:${p.completed ? 1 : 0}`).join("|")]);
-    const prevProjectsRef = useRef2(projects);
+    const prevProjectsRef = useRef3(projects);
     const getNotifyRecipients = (p) => {
       const perProject = p.notifyEmails ? p.notifyEmails.split(",").map((e) => e.trim()).filter(Boolean) : [];
       const all = [...globalNotifyEmails, ...perProject];
@@ -42995,7 +43219,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setAnnGateQueue(queue);
       setAnnGateIdx(0);
     }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
-    const annBackfillRef = useRef2(false);
+    const annBackfillRef = useRef3(false);
     useEffect3(() => {
       if (!user || annBackfillRef.current || user.userType?.startsWith("kiosk")) return;
       if (!announcements || announcements.length === 0) return;
