@@ -52,3 +52,13 @@ test('PDF layout: 17 blanks in reading order, two of them drawn signatures', () 
   assert.equal(formatWage(''), '');
   assert.equal(formatLetterDate('2026-11-16'), '11/16/2026');
 });
+
+test('Drive file name + alert text (v22.54): readable, no wage in SMS/push, safe file name', async () => {
+  const { transferFileName, transferAlertText, transferEmailHtml } = await import('./transfer-notice.mjs');
+  const v = { employeeName: 'Jane O/Doe', fromTitle: 'Crew Member', fromPC: '332941', toPC: '351050', toTitle: 'Shift Leader', employmentType: 'Full time', effectiveDate: '2026-11-16', hourlyWage: 15, supervisorName: 'K T', supervisorTitle: 'Store Manager', dmName: 'Tejal' };
+  assert.equal(transferFileName(v, 'Bustleton', 'Cottman'), 'Transfer - Jane O-Doe - Bustleton to Cottman - eff 11-16-2026.pdf');
+  const t = transferAlertText(v, 'Bustleton', 'Cottman', 'Ahmed');
+  assert.match(t.line, /from Bustleton to Cottman as Shift Leader, full time, effective 11\/16\/2026/);
+  assert.doesNotMatch(t.sms, /\$/);
+  assert.match(transferEmailHtml({ ...v, employeeName: '<b>x</b>' }, 'A', 'B', 'Ahmed', ''), /&lt;b&gt;x&lt;\/b&gt;.*\$15\.00/s);
+});

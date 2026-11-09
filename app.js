@@ -2047,6 +2047,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [dmSig, setDmSig] = useState2(null);
     const [signing, setSigning] = useState2(null);
     const [busy, setBusy] = useState2(false);
+    const [saved, setSaved] = useState2(null);
     useEffect2(() => {
       api().then((b) => {
         setStores(b.stores || []);
@@ -2089,6 +2090,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const hourly = employee && /hour/i.test(employee.payType || "Hourly") && employee.payRate > 0;
     const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date });
     const fp = letterFingerprint(base);
+    useEffect2(() => {
+      setSaved(null);
+    }, [fp]);
     const empSigOk = employeeSig && employeeSig.fp === fp ? employeeSig : null;
     const dmSigOk = dmSig && dmSig.fp === fp ? dmSig : null;
     const voided = employeeSig && !empSigOk || dmSig && !dmSigOk;
@@ -2117,10 +2121,31 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const [fonts, watermark] = await Promise.all([loadFonts(), loadSeal()]);
         const doc = buildTransferNoticePdf(JsPDF, fonts, values, { watermark });
         doc.save(`Transfer-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`);
+        setSaved({ state: "saving" });
+        try {
+          const res = await fetch("/.netlify/functions/transfer-notice", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ values, employeeId: employee?.id, pdf: doc.output("datauristring") })
+          });
+          const b = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+          setSaved({ state: "done", ...b });
+        } catch (e) {
+          setSaved({ state: "failed", error: e.message });
+        }
       } catch (e) {
         setError(e.message);
       }
       setBusy(false);
+    };
+    const savedLine = () => {
+      if (!saved) return null;
+      if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Saving to Google Drive and sending the alert\u2026");
+      if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Downloaded, but not saved to Drive: ", saved.error, ". Press the button again to retry.");
+      const d = saved.drive || {}, a = saved.alert || {};
+      return /* @__PURE__ */ React.createElement("span", { style: { color: d.saved && !a.error ? "#16a34a" : "#d97706" } }, d.saved ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Saved to Google Drive", d.link ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", /* @__PURE__ */ React.createElement("a", { href: d.link, target: "_blank", rel: "noreferrer", style: { color: "inherit" } }, "open")) : "", ".") : `Not saved to Drive: ${d.error || "unknown error"}. Press the button again to retry.`, " ", a.error ? `Alert failed: ${a.error}.` : a.recipients ? `Alert sent to ${a.recipients} recipient${a.recipients === 1 ? "" : "s"}.` : a.recipients === 0 ? "No one is on the Transfer Notice alert list yet." : "");
     };
     const w = (ch) => ({ width: `${ch}ch`, maxWidth: "100%" });
     const locked = (value, placeholder, ch) => /* @__PURE__ */ React.createElement("span", { className: `tn-locked${value ? "" : " tn-empty"}`, style: { minWidth: `${ch}ch` }, title: "From Paycor \u2014 can't be changed here" }, value || (loadingEmp ? "\u2026" : placeholder));
@@ -2183,7 +2208,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       backgroundRepeat: "no-repeat",
       backgroundPosition: "center 58%",
       backgroundSize: "77%"
-    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: "Times New Roman, Times, serif", lineHeight: 1.25 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1.17em", color: "#111" } }, "PEOPLE CAPITAL GROUP LLC"), /* @__PURE__ */ React.createElement("div", { style: { fontStyle: "italic", fontSize: "0.83em", color: "#6b7280" } }, "CONFIDENTIAL \u2014 INTERNAL USE ONLY")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #9aa5b1", margin: "0.9em -0.6em 2em" } }), /* @__PURE__ */ React.createElement("p", null, "Date: ", dateBlank(date, setDate, "Letter date")), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "People Capital Group LLC", /* @__PURE__ */ React.createElement("br", null), "ATTN: Human Resources Department", /* @__PURE__ */ React.createElement("br", null), "Subject: Employee Transfer"), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.4em", textAlign: isMobile ? "left" : "justify" } }, "I, ", empSearch, "(", /* @__PURE__ */ React.createElement("i", null, "Employee Name"), "), am requesting to resign from my current position as a ", employee && !employee.jobTitle ? text(fromTitle, setFromTitle, 14, "current position", { list: "tn-positions", title: "Paycor has no job title for this employee \u2014 fill it in" }) : locked(employee?.jobTitle, "from Paycor", 14), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "), located at PC# ", locked(employee ? fromPC : "", "from Paycor", 8), ", in order to voluntarily transfer to a better opportunity within the company located at PC#", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: isMobile ? "14ch" : "9.5ch" }, value: toPC, onChange: (e) => setToPC(e.target.value), "aria-label": "New store PC#", title: toPC ? storeName(toPC) : "New store" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), stores.filter((s) => s.pc !== fromPC).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.pc, " \xB7 ", s.name))), " ", "as a ", text(toTitle, setToTitle, 14, "new position", { list: "tn-positions" }), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "). I request that my", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: "10ch" }, value: employmentType, onChange: (e) => setEmploymentType(e.target.value), "aria-label": "Full or part time" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), /* @__PURE__ */ React.createElement("option", null, "Full time"), /* @__PURE__ */ React.createElement("option", null, "Part time")), " ", "(", /* @__PURE__ */ React.createElement("i", null, "full/part time"), ") employment is effective starting ", dateBlank(effectiveDate, setEffectiveDate, "Effective date"), "(", /* @__PURE__ */ React.createElement("i", null, "effective date"), ")."), /* @__PURE__ */ React.createElement("datalist", { id: "tn-positions" }, POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", textAlign: isMobile ? "left" : "justify" } }, "I acknowledge that I will now report to ", text(supervisorName, setSupervisorName, 16, "supervisor name"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor name"), ")/ ", text(supervisorTitle, setSupervisorTitle, 14, "supervisor title"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor title"), "). I also acknowledge that I will be compensated at an hourly wage of ", locked(hourly ? finMoney.format(employee.payRate) : "", "from Paycor", 8), " per hour and paid on a biweekly basis."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "I ACCEPT THE ABOVE CONDITIONS AND AM INDICATING MY ACCEPTANCE BY SIGNING THIS LETTER AND RETURNING IT VIA EMAIL TO THE HUMAN RESOURCES DEPARTMENT."), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Name: ", locked(employee?.name, "from Paycor", 22)), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Signature:", sigLine("employee", empSigOk, "employee")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(empSigOk)), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.2em" } }, "ACCEPTED AND APPROVED BY:"), /* @__PURE__ */ React.createElement("p", { style: row }, "District Manager Name: ", text(dmName, setDmName, 22, "District Manager name")), /* @__PURE__ */ React.createElement("p", { style: row }, "District Manager Signature:", sigLine("dm", dmSigOk, "District Manager")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(dmSigOk)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontFamily: "Times New Roman, Times, serif", fontSize: "0.75em", lineHeight: 1.3, color: "#111", marginTop: "2.4em" } }, TRANSFER_CHROME.footer.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.text }, f.text)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "2rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, sameStore ? "The new store must be different." : missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: download }, busy ? "Making PDF\u2026" : "Download signed PDF")), signing && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: "Times New Roman, Times, serif", lineHeight: 1.25 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1.17em", color: "#111" } }, "PEOPLE CAPITAL GROUP LLC"), /* @__PURE__ */ React.createElement("div", { style: { fontStyle: "italic", fontSize: "0.83em", color: "#6b7280" } }, "CONFIDENTIAL \u2014 INTERNAL USE ONLY")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #9aa5b1", margin: "0.9em -0.6em 2em" } }), /* @__PURE__ */ React.createElement("p", null, "Date: ", dateBlank(date, setDate, "Letter date")), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "People Capital Group LLC", /* @__PURE__ */ React.createElement("br", null), "ATTN: Human Resources Department", /* @__PURE__ */ React.createElement("br", null), "Subject: Employee Transfer"), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.4em", textAlign: isMobile ? "left" : "justify" } }, "I, ", empSearch, "(", /* @__PURE__ */ React.createElement("i", null, "Employee Name"), "), am requesting to resign from my current position as a ", employee && !employee.jobTitle ? text(fromTitle, setFromTitle, 14, "current position", { list: "tn-positions", title: "Paycor has no job title for this employee \u2014 fill it in" }) : locked(employee?.jobTitle, "from Paycor", 14), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "), located at PC# ", locked(employee ? fromPC : "", "from Paycor", 8), ", in order to voluntarily transfer to a better opportunity within the company located at PC#", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: isMobile ? "14ch" : "9.5ch" }, value: toPC, onChange: (e) => setToPC(e.target.value), "aria-label": "New store PC#", title: toPC ? storeName(toPC) : "New store" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), stores.filter((s) => s.pc !== fromPC).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.pc, " \xB7 ", s.name))), " ", "as a ", text(toTitle, setToTitle, 14, "new position", { list: "tn-positions" }), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "). I request that my", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: "10ch" }, value: employmentType, onChange: (e) => setEmploymentType(e.target.value), "aria-label": "Full or part time" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), /* @__PURE__ */ React.createElement("option", null, "Full time"), /* @__PURE__ */ React.createElement("option", null, "Part time")), " ", "(", /* @__PURE__ */ React.createElement("i", null, "full/part time"), ") employment is effective starting ", dateBlank(effectiveDate, setEffectiveDate, "Effective date"), "(", /* @__PURE__ */ React.createElement("i", null, "effective date"), ")."), /* @__PURE__ */ React.createElement("datalist", { id: "tn-positions" }, POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", textAlign: isMobile ? "left" : "justify" } }, "I acknowledge that I will now report to ", text(supervisorName, setSupervisorName, 16, "supervisor name"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor name"), ")/ ", text(supervisorTitle, setSupervisorTitle, 14, "supervisor title"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor title"), "). I also acknowledge that I will be compensated at an hourly wage of ", locked(hourly ? finMoney.format(employee.payRate) : "", "from Paycor", 8), " per hour and paid on a biweekly basis."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "I ACCEPT THE ABOVE CONDITIONS AND AM INDICATING MY ACCEPTANCE BY SIGNING THIS LETTER AND RETURNING IT VIA EMAIL TO THE HUMAN RESOURCES DEPARTMENT."), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Name: ", locked(employee?.name, "from Paycor", 22)), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Signature:", sigLine("employee", empSigOk, "employee")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(empSigOk)), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.2em" } }, "ACCEPTED AND APPROVED BY:"), /* @__PURE__ */ React.createElement("p", { style: row }, "District Manager Name: ", text(dmName, setDmName, 22, "District Manager name")), /* @__PURE__ */ React.createElement("p", { style: row }, "District Manager Signature:", sigLine("dm", dmSigOk, "District Manager")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(dmSigOk)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontFamily: "Times New Roman, Times, serif", fontSize: "0.75em", lineHeight: 1.3, color: "#111", marginTop: "2.4em" } }, TRANSFER_CHROME.footer.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.text }, f.text)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "2rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, sameStore ? "The new store must be different." : missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: download }, busy ? "Saving\u2026" : "Save & download signed PDF")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginTop: "-1.4rem", marginBottom: "2rem" } }, savedLine()), signing && /* @__PURE__ */ React.createElement(
       SignatureModal,
       {
         th,
@@ -18950,6 +18975,7 @@ ${t2.slice(0, 300)}`);
     minorTimecard: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "13", r: "7" }), /* @__PURE__ */ React.createElement("path", { d: "M12 10v3l2 1.5M5 5 3 7M19 5l2 2" })),
     weeklyHoursSchedule: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01" })),
     newHires: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M19 8v6M16 11h6" })),
+    transferNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 8h13M13 4l4 4-4 4" }), /* @__PURE__ */ React.createElement("path", { d: "M20 16H7M11 12l-4 4 4 4" })),
     interviewReminders: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 5h16v11H8l-4 4Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10.5", r: "2.2" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 14.2a4 4 0 0 1 7 0" })),
     mail: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "5", width: "18", height: "14", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "m3 7 9 6 9-6" })),
     phone: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "7", y: "2.5", width: "10", height: "19", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M11 18h2" })),
@@ -18965,7 +18991,8 @@ ${t2.slice(0, 300)}`);
     foodLicense: "Food license reminders",
     systemHealth: "System health alerts",
     minorTimecard: "Minor timecard escalations",
-    weeklyHoursSchedule: "Weekly hours report"
+    weeklyHoursSchedule: "Weekly hours report",
+    transferNotice: "Transfer notices"
   };
   var nIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: NOTIFY_ICONS[k], color: c, size: s });
   var recipientInitials = (value, users) => {
@@ -19228,7 +19255,7 @@ ${t2.slice(0, 300)}`);
     const [pushSubs, setPushSubs] = useState3(null);
     const [notifyInfoOpen, setNotifyInfoOpen] = useState3(false);
     const [notifSubTab, setNotifSubTab] = useState3("project");
-    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1" };
+    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1" };
     const [notifCounts, setNotifCounts] = useState3({});
     useEffect3(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -19430,6 +19457,7 @@ ${t2.slice(0, 300)}`);
         { id: "systemHealth", label: "System Health", count: notifCounts.systemHealth },
         { id: "minorTimecard", label: "Minor Timecard", count: notifCounts.minorTimecard },
         { id: "weeklyHoursSchedule", label: "Weekly Hours + Schedule", count: notifCounts.weeklyHoursSchedule },
+        { id: "transferNotice", label: "Transfer Notice", count: notifCounts.transferNotice },
         { id: "interviewReminders", label: "Interview Reminders" },
         { id: "newHires", label: "New Hires" }
       ] : []
@@ -19534,7 +19562,20 @@ ${t2.slice(0, 300)}`);
         onCountChange: setNotifCount("weeklyHoursSchedule"),
         description: "These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun\u2013Sat week \u2014 one Excel file and one PDF per store). There's no other fallback recipient \u2014 this list is the entire send list. Empty until you add someone."
       }
-    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 })), notifSubTab === "interviewReminders" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(InterviewRemindersPanel, { th, showAlert: showAlert2, users }), notifSubTab === "newHires" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(NewHiresPanel, { th, showAlert: showAlert2, users })), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 })), notifSubTab === "transferNotice" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_transfer_notice_notify_v1",
+        tagKey: "transferNotice",
+        onCountChange: setNotifCount("transferNotice"),
+        description: "These people are alerted every time a signed Transfer Notice is saved (Tools \xB7 Transfer Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone.",
+        smsLabel: "Transfer Notice SMS Numbers"
+      }
+    ), notifSubTab === "interviewReminders" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(InterviewRemindersPanel, { th, showAlert: showAlert2, users }), notifSubTab === "newHires" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(NewHiresPanel, { th, showAlert: showAlert2, users })), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => {
@@ -26305,7 +26346,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   };
   var isFullAdmin = (u) => u && (u.userType === "executive" || u.userType === "it");
   var ADMIN_ONLY_NOTIF_TYPES = /* @__PURE__ */ new Set(["manager_change_pending", "incident_report_drive_backup_failed"]);
-  var filterNotifsByRole = (notifs, user) => {
+  var filterNotifsByRole = (allNotifs, user) => {
+    const notifs = (allNotifs || []).filter((n) => !Array.isArray(n.onlyFor) || user && n.onlyFor.map(String).includes(String(user.id)));
     if (!user || user.userType === "executive" || user.userType === "it" || user.userType === "office_staff") return notifs;
     const visible = notifs.filter((n) => !ADMIN_ONLY_NOTIF_TYPES.has(n.type));
     if (user.userType === "dm") return visible.filter((n) => !n.district || Number(n.district) === Number(user.district));
@@ -27211,7 +27253,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.53";
+  var APP_VERSION = "v22.54";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

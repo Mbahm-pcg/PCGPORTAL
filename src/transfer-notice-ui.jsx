@@ -145,6 +145,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
   const [dmSig, setDmSig] = useState(null);
   const [signing, setSigning] = useState(null); // 'employee' | 'dm'
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(null); // v22.54: Drive save + alert result for the last download
 
   useEffect(() => {
     api().then(b => { setStores(b.stores || []); setEmployees(b.employees || []); })
@@ -175,6 +176,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
   const hourly = employee && /hour/i.test(employee.payType || 'Hourly') && employee.payRate > 0;
   const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date });
   const fp = letterFingerprint(base);
+  useEffect(() => { setSaved(null); }, [fp]); // a different letter → the last save status no longer applies
   // A signature only counts for the exact letter it was given on.
   const empSigOk = employeeSig && employeeSig.fp === fp ? employeeSig : null;
   const dmSigOk = dmSig && dmSig.fp === fp ? dmSig : null;
@@ -199,8 +201,32 @@ export function TransferNotice({ th, isMobile, onBack }) {
       const [fonts, watermark] = await Promise.all([loadFonts(), loadSeal()]);
       const doc = buildTransferNoticePdf(JsPDF, fonts, values, { watermark });
       doc.save(`Transfer-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`);
+      // v22.54: file it in Google Drive + alert the Admin · Notifications list. The download
+      // above already happened, so a failed save never costs the DM the signed letter.
+      setSaved({ state: 'saving' });
+      try {
+        const res = await fetch('/.netlify/functions/transfer-notice', {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ values, employeeId: employee?.id, pdf: doc.output('datauristring') }),
+        });
+        const b = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+        setSaved({ state: 'done', ...b });
+      } catch (e) { setSaved({ state: 'failed', error: e.message }); }
     } catch (e) { setError(e.message); }
     setBusy(false);
+  };
+  const savedLine = () => {
+    if (!saved) return null;
+    if (saved.state === 'saving') return <span style={{ color: th.muted }}>Saving to Google Drive and sending the alert…</span>;
+    if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Downloaded, but not saved to Drive: {saved.error}. Press the button again to retry.</span>;
+    const d = saved.drive || {}, a = saved.alert || {};
+    return (
+      <span style={{ color: d.saved && !a.error ? '#16a34a' : '#d97706' }}>
+        {d.saved ? <>Saved to Google Drive{d.link ? <> — <a href={d.link} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>open</a></> : ''}.</> : `Not saved to Drive: ${d.error || 'unknown error'}. Press the button again to retry.`}
+        {' '}{a.error ? `Alert failed: ${a.error}.` : a.recipients ? `Alert sent to ${a.recipients} recipient${a.recipients === 1 ? '' : 's'}.` : a.recipients === 0 ? 'No one is on the Transfer Notice alert list yet.' : ''}
+      </span>
+    );
   };
 
   // ── letter pieces ──
@@ -311,9 +337,10 @@ export function TransferNotice({ th, isMobile, onBack }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.9rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
         {!ready && <span style={{ color: th.muted, fontSize: '0.82rem' }}>{sameStore ? 'The new store must be different.' : missing.length ? `Still needed: ${missing.join(', ')}` : ''}</span>}
         <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? 'pointer' : 'not-allowed' }} disabled={!ready} onClick={download}>
-          {busy ? 'Making PDF…' : 'Download signed PDF'}
+          {busy ? 'Saving…' : 'Save & download signed PDF'}
         </button>
       </div>
+      {saved && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginTop: '-1.4rem', marginBottom: '2rem' }}>{savedLine()}</div>}
 
       {signing && (
         <SignatureModal th={th} title={signing === 'employee' ? `Employee signature — ${employee?.name || ''}` : `District Manager signature — ${dmName}`}

@@ -20348,6 +20348,7 @@ const NOTIFY_ICONS = {
   minorTimecard: <><circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 1.5M5 5 3 7M19 5l2 2"/></>,
   weeklyHoursSchedule: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></>,
   newHires: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6M16 11h6"/></>,
+  transferNotice: <><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/></>,
   interviewReminders: <><path d="M4 5h16v11H8l-4 4Z"/><circle cx="12" cy="10.5" r="2.2"/><path d="M8.5 14.2a4 4 0 0 1 7 0"/></>,
   mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></>,
   phone:<><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></>,
@@ -20360,6 +20361,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
+  transferNotice: 'Transfer notices',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -20664,7 +20666,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [notifSubTab, setNotifSubTab] = useState('project');
   // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
   // here, then kept live by each ManualNotifyListPanel's onCountChange.
-  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1' };
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1' };
   const [notifCounts, setNotifCounts] = useState({});
   useEffect(() => {
     Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -20893,6 +20895,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               { id: 'systemHealth', label: 'System Health', count: notifCounts.systemHealth },
               { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
               { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
+              { id: 'transferNotice', label: 'Transfer Notice', count: notifCounts.transferNotice },
               { id: 'interviewReminders', label: 'Interview Reminders' },
               { id: 'newHires', label: 'New Hires' },
             ] : []),
@@ -21025,6 +21028,14 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
             description="These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun–Sat week — one Excel file and one PDF per store). There's no other fallback recipient — this list is the entire send list. Empty until you add someone." />
           <WeeklyReportSendNow th={th} showAlert={showAlert} />
         </>
+      )}
+      {/* Transfer Notice — full admins only. Read by transfer-notice.mjs (POST) each time a
+          signed notice is saved: email (PDF attached) + text to this list; push + bell to
+          anyone added by name. This list is the whole recipient set. v22.54 */}
+      {notifSubTab === 'transferNotice' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_transfer_notice_notify_v1" tagKey="transferNotice" onCountChange={setNotifCount('transferNotice')}
+          description="These people are alerted every time a signed Transfer Notice is saved (Tools · Transfer Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
+          smsLabel="Transfer Notice SMS Numbers" />
       )}
       {notifSubTab === 'interviewReminders' && isFullAdmin(user) && <InterviewRemindersPanel th={th} showAlert={showAlert} users={users} />}
       {notifSubTab === 'newHires' && isFullAdmin(user) && <NewHiresPanel th={th} showAlert={showAlert} users={users} />}
@@ -31048,8 +31059,10 @@ const ADMIN_ONLY_NOTIF_TYPES = new Set(['manager_change_pending', 'incident_repo
 
 // Filter notifications to only those relevant to the current user's role.
 // Notifications without storePC metadata are shown to everyone (backward compat).
-const filterNotifsByRole = (notifs, user) => {
-  if (!user || user.userType === 'executive' || user.userType === 'it' || user.userType === 'office_staff') return notifs;
+const filterNotifsByRole = (allNotifs, user) => {
+  // v22.54: a notification addressed to named people (onlyFor = user ids) shows only to them.
+  const notifs = (allNotifs || []).filter(n => !Array.isArray(n.onlyFor) || (user && n.onlyFor.map(String).includes(String(user.id))));
+  if (!user ||user.userType === 'executive' || user.userType === 'it' || user.userType === 'office_staff') return notifs;
   const visible = notifs.filter(n => !ADMIN_ONLY_NOTIF_TYPES.has(n.type));
   if (user.userType === 'dm') return visible.filter(n => !n.district || Number(n.district) === Number(user.district));
   if (user.userType === 'manager') return visible.filter(n => !n.storePC || String(n.storePC) === String(user.storePC));
@@ -32355,7 +32368,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.53";
+const APP_VERSION = "v22.54";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
