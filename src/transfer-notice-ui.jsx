@@ -27,7 +27,7 @@ const api = async (qs = '') => {
 
 // The letter's font, fetched once per page load (for the PDF; the page uses @font-face).
 let fontsPromise = null;
-const toB64 = (buf) => { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+export const toB64 = (buf) => { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
 const loadFonts = () => fontsPromise || (fontsPromise = Promise.all([TRANSFER_FONT.regular, TRANSFER_FONT.italic].map(f =>
   fetch('/fonts/' + f).then(r => { if (!r.ok) throw new Error('font ' + f); return r.arrayBuffer(); }).then(toB64)))
   .then(([regular, italic]) => ({ regular, italic }))
@@ -60,7 +60,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 
 // Signature capture: high-DPI canvas, pointer events (finger, stylus, mouse). Returns a
 // cropped PNG data URL of just the ink.
-function SignatureModal({ th, title, onDone, onCancel }) {
+export function SignatureModal({ th, title, onDone, onCancel }) {
   const S = finStyles(th);
   const ref = useRef(null);
   const drawing = useRef(false);

@@ -106,7 +106,7 @@ export function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
 
   // Same drawing order as the template: body, then the seal over it, then header/footer.
   const C = TRANSFER_CHROME;
-  if (opts.watermark) doc.addImage(opts.watermark, 'PNG', C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size);
+  if (opts.watermark) doc.addImage(opts.watermark, 'PNG', C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size, 'seal', 'FAST');
   for (const h of C.header) {
     doc.setFont('times', h.font); doc.setFontSize(h.size); doc.setTextColor(...h.color);
     doc.text(h.text, h.x, h.y);
@@ -135,7 +135,7 @@ export function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
       const props = doc.getImageProperties(text);
       const scale = Math.min((width - 4) / props.width, 28 / props.height);
       const w = props.width * scale, h = props.height * scale;
-      doc.addImage(text, 'PNG', x0 + 4, y + 1 - h, w, h);
+      doc.addImage(text, 'PNG', x0 + 4, y + 1 - h, w, h, undefined, 'FAST');
       continue;
     }
     // Shrink a long value to fit its blank (never below 7pt), centered on the line.

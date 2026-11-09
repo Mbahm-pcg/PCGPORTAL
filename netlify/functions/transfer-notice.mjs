@@ -34,7 +34,7 @@ const blobs = () => getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_
 const ROSTER_KEY = 'pcg_transfer_roster_v1';
 const ROSTER_TTL = 4 * 3600 * 1000;
 
-async function storeRoster(legalEntityId) {
+export async function storeRoster(legalEntityId) {
   const out = [];
   let token = null, pages = 0;
   do {
@@ -46,11 +46,11 @@ async function storeRoster(legalEntityId) {
   return out.filter(e => (e.statusData?.status || e.status) === 'Active');
 }
 
-const fullName = (e) => [e.firstName, e.lastName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+export const fullName = (e) => [e.firstName, e.lastName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 
 // { savedAt, stores: { [pc]: [{ id, name, jobTitle }] } } — rebuilt when stale. A store whose
 // read fails keeps its previous list rather than vanishing from the search.
-async function loadRoster() {
+export async function loadRoster() {
   const b = blobs();
   const cached = await b.get(ROSTER_KEY, { type: 'json' }).catch(() => null);
   if (cached?.savedAt && Date.now() - Date.parse(cached.savedAt) < ROSTER_TTL) return cached;
@@ -73,6 +73,24 @@ async function loadRoster() {
   return fresh;
 }
 
+// One active employee of a store, read live from Paycor with today's pay rate; null when
+// they're not on that store's active roster. Shared with pay-increase.mjs.
+export async function liveEmployee(store, employeeId) {
+  const emp = (await storeRoster(store.paycor)).find(e => e.id === employeeId);
+  if (!emp) return null;
+  const rateRes = await callPaycor(`/employees/${emp.id}/payrates`);
+  if (rateRes.status !== 200) throw new Error(`Paycor payrates ${rateRes.status}`);
+  const rate = pickCurrentPayRate(rateRes.data?.records || rateRes.data || []);
+  return {
+    id: emp.id,
+    name: fullName(emp),
+    jobTitle: emp.positionData?.jobTitle || '',
+    employmentType: readEmploymentType(emp),
+    payRate: rate ? Number(rate.payRate ?? rate.rate ?? 0) || null : null,
+    payType: rate ? (rate.payType || rate.type || null) : null,
+  };
+}
+
 // ── v22.54: POST = a signed notice → Google Drive + alert ─────────────────────
 // The client builds the PDF (fonts/seal live there) and sends it with the letter's values.
 // One row per signed letter in transfer_notices (key = letter text + both signatures), so
@@ -88,9 +106,9 @@ function driveClient() {
   return google.drive({ version: 'v3', auth });
 }
 
-async function saveToDrive(pdf, folderName, fileName, pcgKey) {
-  const root = DRIVE_FOLDER_ID();
-  if (!root) throw new Error('Transfer Notices Drive folder is not set up yet (TRANSFER_DRIVE_FOLDER_ID).');
+export async function saveToDrive(pdf, folderName, fileName, pcgKey, rootId = DRIVE_FOLDER_ID()) {
+  const root = rootId;
+  if (!root) throw new Error('The Google Drive folder for this form is not set up yet.');
   const drive = driveClient();
   const found = await drive.files.list(buildFolderFindQuery(folderName, root));
   const folderId = found.data.files?.[0]?.id || (await drive.files.create(buildFolderCreateParams(folderName, root))).data.id;
@@ -102,7 +120,7 @@ async function saveToDrive(pdf, folderName, fileName, pcgKey) {
   return (await drive.files.create(params)).data;
 }
 
-function emailWithPdf(to, subject, html, fileName, pdf) {
+export function emailWithPdf(to, subject, html, fileName, pdf) {
   return new Promise((resolve) => {
     const key = process.env.RESEND_API_KEY;
     if (!key || !to.length) return resolve(false);
@@ -246,22 +264,9 @@ export default async (request) => {
     const store = STORES.find(s => String(s.pc) === String(pc));
     if (!store) return json(404, { error: 'unknown store' });
     if (allowed && !allowed.has(String(store.pc))) return json(403, { error: 'forbidden' });
-    const emp = (await storeRoster(store.paycor)).find(e => e.id === employeeId);
-    if (!emp) return json(404, { error: 'This employee is no longer active at that store in Paycor.' });
-    const rateRes = await callPaycor(`/employees/${emp.id}/payrates`);
-    if (rateRes.status !== 200) throw new Error(`Paycor payrates ${rateRes.status}`);
-    const rate = pickCurrentPayRate(rateRes.data?.records || rateRes.data || []);
-    return json(200, {
-      store: { pc: String(store.pc), name: store.name },
-      employee: {
-        id: emp.id,
-        name: fullName(emp),
-        jobTitle: emp.positionData?.jobTitle || '',
-        employmentType: readEmploymentType(emp),
-        payRate: rate ? Number(rate.payRate ?? rate.rate ?? 0) || null : null,
-        payType: rate ? (rate.payType || rate.type || null) : null,
-      },
-    });
+    const employee = await liveEmployee(store, employeeId);
+    if (!employee) return json(404, { error: 'This employee is no longer active at that store in Paycor.' });
+    return json(200, { store: { pc: String(store.pc), name: store.name }, employee });
   } catch (e) {
     console.error('[transfer-notice]', e.message);
     return json(502, { error: 'Paycor is not responding — try again in a minute.' });

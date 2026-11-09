@@ -95,6 +95,7 @@ const ICONS = {
   // company". Distinct from `users` (two people) and `logout` (door + arrow, no person).
   // v22.49: Tools · Transfer Notice — a letter with a sideways move arrow
   transferNotice: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5"/><path d="M8 8h6"/><path d="M8 12h4"/><path d="M14 17h7"/><path d="M18 14l3 3-3 3"/></svg>,
+  payIncrease: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><path d="M8 8h6"/><path d="M8 12h3"/><path d="M18 21v-8"/><path d="M15 16l3-3 3 3"/></svg>,
   terminations: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6"/><path d="M16 18h6"/><path d="M19 15l3 3-3 3"/></svg>,
 };
 
