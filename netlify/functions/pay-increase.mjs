@@ -7,7 +7,7 @@
 //   POST { values, employeeId, pdf } → checks the form against Paycor, files the signed PDF in the
 //                               "Pay Changes" Shared Drive (PAY_DRIVE_FOLDER_ID, folder per store) and
 //                               alerts Admin · Notifications · Pay Increase (email with the PDF, text,
-//                               push, bell). One row per signed form in pay_increases — sending the
+//                               push, bell). One row per signed form in pay_increase_forms — sending the
 //                               same signed form twice never files or alerts twice.
 //
 // Who: DMs / Directors (their districts) and exec / IT (every store). Scope is decided here.
@@ -105,17 +105,20 @@ export default async (request) => {
     const pdf = Buffer.from(String(body.pdf || '').replace(/^data:[^,]*,/, ''), 'base64');
     if (pdf.length < 1000 || pdf.length > 8e6 || pdf.subarray(0, 5).toString() !== '%PDF-') return json(400, { error: 'The PDF did not come through — try again.' });
 
-    await db`CREATE TABLE IF NOT EXISTS pay_increases (
+    // v22.58: pay_increase_forms, not pay_increases — the first (routed) design's preview created a
+    // pay_increases table with different columns in the live DB, so CREATE IF NOT EXISTS skipped
+    // and every insert failed on form_key. That old table is unused (and was empty).
+    await db`CREATE TABLE IF NOT EXISTS pay_increase_forms (
       id serial PRIMARY KEY, form_key text UNIQUE NOT NULL, pc text, employee_id text, employee_name text, position text,
       current_rate numeric, new_rate numeric, reason text, form_date text, submitted_by integer, submitted_by_name text,
       created_at timestamptz DEFAULT now(), drive_file_id text, drive_link text, drive_error text, alerted_at timestamptz, alert_summary jsonb)`;
     const key = createHash('sha256').update(payFingerprint(v) + '|' + v.smSignature + '|' + v.dmSignature + '|' + v.directorSignature).digest('hex').slice(0, 32);
     const me = (await db`SELECT name FROM users WHERE id = ${authed.sub}`)[0];
     const submittedBy = me?.name || authed.name || authed.username || '';
-    await db`INSERT INTO pay_increases (form_key, pc, employee_id, employee_name, position, current_rate, new_rate, reason, form_date, submitted_by, submitted_by_name)
+    await db`INSERT INTO pay_increase_forms (form_key, pc, employee_id, employee_name, position, current_rate, new_rate, reason, form_date, submitted_by, submitted_by_name)
       VALUES (${key}, ${String(store.pc)}, ${emp.id}, ${emp.name}, ${v.position}, ${emp.payRate}, ${Number(Number(v.newRate).toFixed(2))}, ${String(v.reason).slice(0, 600)}, ${v.date}, ${Number(authed.sub) || null}, ${submittedBy})
       ON CONFLICT (form_key) DO NOTHING`;
-    const row = (await db`SELECT * FROM pay_increases WHERE form_key = ${key}`)[0];
+    const row = (await db`SELECT * FROM pay_increase_forms WHERE form_key = ${key}`)[0];
 
     const fileName = payFileName(v, store.name);
     let drive = { saved: !!row.drive_file_id, link: row.drive_link || '', error: null };
@@ -123,23 +126,23 @@ export default async (request) => {
       try {
         const f = await saveToDrive(pdf, store.name, fileName, `payinc:${key}`, process.env.PAY_DRIVE_FOLDER_ID || '');
         drive = { saved: true, link: f.webViewLink || '', error: null };
-        await db`UPDATE pay_increases SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${row.id}`;
+        await db`UPDATE pay_increase_forms SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${row.id}`;
       } catch (e) {
         drive = { saved: false, link: '', error: e.message };
         console.error('[pay-increase] drive', e.message);
-        await db`UPDATE pay_increases SET drive_error = ${String(e.message).slice(0, 500)} WHERE id = ${row.id}`;
+        await db`UPDATE pay_increase_forms SET drive_error = ${String(e.message).slice(0, 500)} WHERE id = ${row.id}`;
       }
     }
     let alert = row.alert_summary || null;
     if (!row.alerted_at) {
-      const claimed = await db`UPDATE pay_increases SET alerted_at = now() WHERE id = ${row.id} AND alerted_at IS NULL RETURNING id`;
+      const claimed = await db`UPDATE pay_increase_forms SET alerted_at = now() WHERE id = ${row.id} AND alerted_at IS NULL RETURNING id`;
       if (claimed.length) {
         try {
           alert = await sendAlerts(v, store.name, submittedBy, drive.link, fileName, pdf, store.paycor);
-          await db`UPDATE pay_increases SET alert_summary = ${JSON.stringify(alert)} WHERE id = ${row.id}`;
+          await db`UPDATE pay_increase_forms SET alert_summary = ${JSON.stringify(alert)} WHERE id = ${row.id}`;
         } catch (e) {
           console.error('[pay-increase] alert', e.message);
-          await db`UPDATE pay_increases SET alerted_at = NULL WHERE id = ${row.id}`;
+          await db`UPDATE pay_increase_forms SET alerted_at = NULL WHERE id = ${row.id}`;
           alert = { error: e.message };
         }
       }
