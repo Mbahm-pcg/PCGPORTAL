@@ -81,10 +81,11 @@ export function transferAlertText(v, fromName, toName, submittedBy) {
 }
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-export function transferEmailHtml(v, fromName, toName, submittedBy, driveLink) {
+// clients: { from, to } — each store's Paycor Client ID (legal entity), for the office.
+export function transferEmailHtml(v, fromName, toName, submittedBy, driveLink, clients = {}) {
   const rows = [
-    ['Employee', v.employeeName], ['Current position', v.fromTitle], ['From', `${fromName} (PC ${v.fromPC})`],
-    ['To', `${toName} (PC ${v.toPC})`], ['New position', v.toTitle], ['Full / part time', v.employmentType],
+    ['Employee', v.employeeName], ['Current position', v.fromTitle], ['From', `${fromName} (PC ${v.fromPC})${clients.from ? ` (Client ID ${clients.from})` : ''}`],
+    ['To', `${toName} (PC ${v.toPC})${clients.to ? ` (Client ID ${clients.to})` : ''}`], ['New position', v.toTitle], ['Full / part time', v.employmentType],
     ['Effective', usDate(v.effectiveDate)], ['Hourly wage', money(v.hourlyWage)], ['New supervisor', `${v.supervisorName} — ${v.supervisorTitle}`],
     ['District Manager', v.dmName], ['Submitted by', submittedBy || ''],
   ];

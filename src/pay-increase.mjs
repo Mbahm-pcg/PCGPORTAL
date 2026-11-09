@@ -64,8 +64,9 @@ export function payAlertText(v, storeName, submittedBy) {
   return { title, line: line + by, sms: `PCG ${title}\n${line}${by}` };
 }
 
-export function payEmailHtml(v, storeName, submittedBy, driveLink) {
-  const rows = [['Employee', v.employeeName], ['Store', `${storeName} (PC ${v.pc})`], ['Position', v.position],
+// clientId: the store's Paycor Client ID (legal entity), for the office.
+export function payEmailHtml(v, storeName, submittedBy, driveLink, clientId) {
+  const rows = [['Employee', v.employeeName], ['Store', `${storeName} (PC ${v.pc})${clientId ? ` (Client ID ${clientId})` : ''}`], ['Position', v.position],
     ['Current rate', money(v.currentRate)], ['New rate', money(v.newRate)], ['Reason', v.reason], ['Form date', usDate(v.date)], ['Sent by', submittedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
 <p>A pay increase was signed by the Store Manager and the ${v.directorSignature && !v.dmSignature ? 'Director of Operations' : 'District Manager'}. The signed form is attached — please enter it in Paycor.</p>

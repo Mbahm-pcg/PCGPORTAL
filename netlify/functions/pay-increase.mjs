@@ -27,7 +27,7 @@ const NOTIFY_KEY = 'pcg_pay_increase_notify_v1';
 const storeOf = (pc) => STORES.find(s => String(s.pc) === String(pc));
 const isSig = (s) => typeof s === 'string' && /^data:image\/png;base64,/.test(s) && s.length > 200 && s.length < 600000;
 
-async function sendAlerts(v, storeName, submittedBy, driveLink, fileName, pdf) {
+async function sendAlerts(v, storeName, submittedBy, driveLink, fileName, pdf, clientId) {
   const b = blobs();
   const raw = await b.get(NOTIFY_KEY, { type: 'json' }).catch(() => null);
   const list = raw?.data ?? raw ?? {};
@@ -36,7 +36,7 @@ async function sendAlerts(v, storeName, submittedBy, driveLink, fileName, pdf) {
   const userIds = [...new Set([...(list.emailOwners || []), ...(list.phoneOwners || [])].filter(id => id != null).map(String))];
   const t = payAlertText(v, storeName, submittedBy);
   const [emailed, sms, push] = await Promise.all([
-    emails.length ? emailWithPdf(emails, t.title, payEmailHtml(v, storeName, submittedBy, driveLink), fileName, pdf) : false,
+    emails.length ? emailWithPdf(emails, t.title, payEmailHtml(v, storeName, submittedBy, driveLink, clientId), fileName, pdf) : false,
     phones.length ? sendSms(phones, t.sms) : { sent: 0 },
     userIds.length ? sendPush(b, userIds, t.title, t.line, 'pay-increase') : { sent: 0 },
   ]);
@@ -135,7 +135,7 @@ export default async (request) => {
       const claimed = await db`UPDATE pay_increases SET alerted_at = now() WHERE id = ${row.id} AND alerted_at IS NULL RETURNING id`;
       if (claimed.length) {
         try {
-          alert = await sendAlerts(v, store.name, submittedBy, drive.link, fileName, pdf);
+          alert = await sendAlerts(v, store.name, submittedBy, drive.link, fileName, pdf, store.paycor);
           await db`UPDATE pay_increases SET alert_summary = ${JSON.stringify(alert)} WHERE id = ${row.id}`;
         } catch (e) {
           console.error('[pay-increase] alert', e.message);

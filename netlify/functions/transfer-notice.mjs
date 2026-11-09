@@ -132,7 +132,7 @@ export function emailWithPdf(to, subject, html, fileName, pdf) {
   });
 }
 
-async function sendAlerts(v, fromName, toName, submittedBy, driveLink, fileName, pdf) {
+async function sendAlerts(v, fromName, toName, submittedBy, driveLink, fileName, pdf, clients = {}) {
   const b = blobs();
   const raw = await b.get(NOTIFY_KEY, { type: 'json' }).catch(() => null);
   const list = raw?.data ?? raw ?? {};
@@ -141,7 +141,7 @@ async function sendAlerts(v, fromName, toName, submittedBy, driveLink, fileName,
   const userIds = [...new Set([...(list.emailOwners || []), ...(list.phoneOwners || [])].filter(id => id != null).map(String))];
   const t = transferAlertText(v, fromName, toName, submittedBy);
   const [emailed, sms, push] = await Promise.all([
-    emails.length ? emailWithPdf(emails, t.title, transferEmailHtml(v, fromName, toName, submittedBy, driveLink), fileName, pdf) : false,
+    emails.length ? emailWithPdf(emails, t.title, transferEmailHtml(v, fromName, toName, submittedBy, driveLink, clients), fileName, pdf) : false,
     phones.length ? sendSms(phones, t.sms) : { sent: 0 },
     userIds.length ? sendPush(b, userIds, t.title, t.line, 'transfer-notice') : { sent: 0 },
   ]);
@@ -201,7 +201,7 @@ async function submitNotice(request, db, authed, allowed) {
     const claimed = await db`UPDATE transfer_notices SET alerted_at = now() WHERE id = ${row.id} AND alerted_at IS NULL RETURNING id`;
     if (claimed.length) {
       try {
-        alert = await sendAlerts(v, from.name, to.name, submittedBy, drive.link, fileName, pdf);
+        alert = await sendAlerts(v, from.name, to.name, submittedBy, drive.link, fileName, pdf, { from: from.paycor, to: to.paycor });
         await db`UPDATE transfer_notices SET alert_summary = ${JSON.stringify(alert)} WHERE id = ${row.id}`;
       } catch (e) {
         console.error('[transfer-notice] alert', e.message);
