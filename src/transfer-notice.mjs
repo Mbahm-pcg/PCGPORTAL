@@ -32,12 +32,13 @@ export function readEmploymentType(emp) {
 }
 
 // Everything the letter needs, from the picked employee + destination + form inputs.
-// Name, current title, current PC# and wage come only from Paycor (locked on the form).
-export function transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig }) {
+// Name, current PC# and wage come only from Paycor (locked on the form). The current title
+// is Paycor's too; only when Paycor has none on file (fromTitle) may the form supply it.
+export function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig }) {
   return {
     date,
     employeeName: employee?.name || '',
-    fromTitle: employee?.jobTitle || '',
+    fromTitle: employee?.jobTitle || (employee ? String(fromTitle || '').trim() : ''),
     fromPC: fromPC || '',
     toPC: toPC || '',
     toTitle: toTitle || '',
@@ -63,7 +64,7 @@ export function letterFingerprint(v) {
 
 // What still has to be filled before the PDF can be made ([] = ready).
 export function missingTransferFields(v) {
-  const need = [['employeeName', 'Employee'], ['fromPC', 'Current store'], ['toPC', 'New store'], ['toTitle', 'New position'],
+  const need = [['employeeName', 'Employee'], ['fromTitle', 'Current position'], ['fromPC', 'Current store'], ['toPC', 'New store'], ['toTitle', 'New position'],
     ['employmentType', 'Full/part time'], ['effectiveDate', 'Effective date'], ['supervisorName', 'Supervisor name'],
     ['supervisorTitle', 'Supervisor title'], ['dmName', 'District Manager'],
     ['employeeSignature', 'Employee signature'], ['dmSignature', 'District Manager signature']];

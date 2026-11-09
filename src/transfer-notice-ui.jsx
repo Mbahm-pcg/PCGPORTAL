@@ -135,6 +135,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
   const [toPC, setToPC] = useState('');
   const [toTitle, setToTitle] = useState('');
   const [employmentType, setEmploymentType] = useState('');
+  const [fromTitle, setFromTitle] = useState(''); // only used when Paycor has no job title
   const [effectiveDate, setEffectiveDate] = useState('');
   const [supervisorName, setSupervisorName] = useState('');
   const [supervisorTitle, setSupervisorTitle] = useState('Store Manager');
@@ -172,13 +173,13 @@ export function TransferNotice({ th, isMobile, onBack }) {
   const storeName = (pc) => stores.find(s => s.pc === String(pc))?.name || '';
   const fromPC = picked?.pc || '';
   const hourly = employee && /hour/i.test(employee.payType || 'Hourly') && employee.payRate > 0;
-  const base = transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date });
+  const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date });
   const fp = letterFingerprint(base);
   // A signature only counts for the exact letter it was given on.
   const empSigOk = employeeSig && employeeSig.fp === fp ? employeeSig : null;
   const dmSigOk = dmSig && dmSig.fp === fp ? dmSig : null;
   const voided = (employeeSig && !empSigOk) || (dmSig && !dmSigOk);
-  const values = transferLetterValues({ employee, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig: empSigOk, dmSig: dmSigOk });
+  const values = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig: empSigOk, dmSig: dmSigOk });
   const missing = missingTransferFields(values);
   const sameStore = fromPC && toPC && fromPC === toPC;
   const letterMissing = missingTransferFields(base).filter(m => !/signature/i.test(m));
@@ -187,7 +188,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
 
   const q = query.trim().toLowerCase();
   const matches = q && employees ? employees.filter(e => e.name.toLowerCase().includes(q) || storeName(e.pc).toLowerCase().includes(q) || e.pc.includes(q)).slice(0, 40) : [];
-  const pick = (e) => { setPicked(e); setQuery(e.name); setListOpen(false); if (toPC === e.pc) setToPC(''); };
+  const pick = (e) => { setPicked(e); setFromTitle(''); setQuery(e.name); setListOpen(false); if (toPC === e.pc) setToPC(''); };
 
   const download = async () => {
     if (!ready) return;
@@ -211,7 +212,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
     <input className="tn-blank" style={w(ch)} value={value} onChange={e => set(e.target.value)} placeholder={placeholder} aria-label={placeholder} {...extra} />
   );
   const dateBlank = (value, set, label) => (
-    <input type="date" className="tn-blank" style={{ width: '11.5ch' }} value={value} onChange={e => set(e.target.value)} aria-label={label} />
+    <input type="date" className="tn-blank" style={{ width: isMobile ? '14ch' : '13.5ch' }} value={value} onChange={e => set(e.target.value)} aria-label={label} />
   );
   const sigLine = (who, sig, label) => (
     <span className="tn-sigline" style={{ width: isMobile ? '60%' : '22em' }}>
@@ -273,7 +274,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
         <p style={{ marginTop: '1.6em', lineHeight: 1.4 }}>People Capital Group LLC<br />ATTN: Human Resources Department<br />Subject: Employee Transfer</p>
 
         <p style={{ marginTop: '2.4em', textAlign: isMobile ? 'left' : 'justify' }}>
-          I, {empSearch}(<i>Employee Name</i>), am requesting to resign from my current position as a {locked(employee?.jobTitle, 'from Paycor', 14)}(<i>position title</i>), located at PC# {locked(employee ? fromPC : '', 'from Paycor', 8)}, in order to voluntarily transfer to a better opportunity within the company located at PC#{' '}
+          I, {empSearch}(<i>Employee Name</i>), am requesting to resign from my current position as a {employee && !employee.jobTitle ? text(fromTitle, setFromTitle, 14, 'current position', { list: 'tn-positions', title: 'Paycor has no job title for this employee — fill it in' }) : locked(employee?.jobTitle, 'from Paycor', 14)}(<i>position title</i>), located at PC# {locked(employee ? fromPC : '', 'from Paycor', 8)}, in order to voluntarily transfer to a better opportunity within the company located at PC#{' '}
           <select className="tn-blank" style={{ width: isMobile ? '14ch' : '9.5ch' }} value={toPC} onChange={e => setToPC(e.target.value)} aria-label="New store PC#" title={toPC ? storeName(toPC) : 'New store'}>
             <option value="">choose</option>
             {stores.filter(s => s.pc !== fromPC).map(s => <option key={s.pc} value={s.pc}>{s.pc} · {s.name}</option>)}

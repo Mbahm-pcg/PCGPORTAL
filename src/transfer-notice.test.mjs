@@ -34,6 +34,13 @@ test('transferLetterValues: name, current title and wage come from the Paycor em
   assert.equal(letterFingerprint(v), letterFingerprint({ ...v, dmSignature: 'data:x' }));
 });
 
+test('transferLetterValues: a typed current title only counts when Paycor has none', () => {
+  const base = { fromPC: '302642', toPC: '351050', date: '2026-11-06' };
+  assert.equal(transferLetterValues({ ...base, employee: { name: 'A', jobTitle: 'Crew Member', payRate: 15 }, fromTitle: 'Store Manager' }).fromTitle, 'Crew Member');
+  assert.equal(transferLetterValues({ ...base, employee: { name: 'Tanzid Ahmed', jobTitle: '', payRate: 15 }, fromTitle: ' Shift Leader ' }).fromTitle, 'Shift Leader');
+  assert.equal(transferLetterValues({ ...base, employee: null, fromTitle: 'Shift Leader' }).fromTitle, '');
+});
+
 test('PDF layout: 17 blanks in reading order, two of them drawn signatures', () => {
   const b = transferBlanks();
   assert.equal(b.length, 17);
