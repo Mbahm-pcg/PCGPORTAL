@@ -41,7 +41,7 @@
 // underlying data gap, not a bug in this file.
 
 import https from 'node:https';
-import XLSX from 'xlsx';
+import * as XLSX from 'xlsx'; // SheetJS 0.20+ (CDN tarball) has no default export
 import { getStore } from '@netlify/blobs';
 import { runReconcileForDates } from './tips-reconcile-cron.mjs';
 import { retryErrorDays } from './tips-report-morning-sweep-background.mjs';
