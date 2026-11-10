@@ -146,6 +146,9 @@ export function PayIncrease({ th, isMobile, onBack }) {
   const [complete, setComplete] = useState([]);
   const [view, setView] = useState('list');
   const [listTab, setListTab] = useState('pending');
+  // v22.68: nothing until the first load says which screen this person gets — otherwise an exec
+  // saw the form flash up for a second before the Pending / Complete list replaced it.
+  const [loaded, setLoaded] = useState(false);
 
   const loadMain = () => call().then(b => {
     setStores(b.stores || []); setEmployees(b.employees || []); setRole(b.role || null);
@@ -159,7 +162,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
     let open = null; try { open = sessionStorage.getItem('pi_open'); sessionStorage.removeItem('pi_open'); } catch {}
     const hit = open && (b.pending || []).find(x => String(x.id) === String(open));
     if (hit) { setView('list'); setListTab('pending'); setReviewing(hit); }
-  }).catch(e => { setError(e.message); setEmployees([]); });
+  }).catch(e => { setError(e.message); setEmployees([]); }).finally(() => setLoaded(true));
   useEffect(() => { loadMain(); }, []);
   useEffect(() => {
     setEmployee(null);
@@ -268,7 +271,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
         : onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
       <h2 style={S.title}>Pay Increase</h2>
 
-      {listView && view === 'list' ? (<>
+      {!loaded ? <p style={{ color: th.muted }}>Loading…</p> : listView && view === 'list' ? (<>
         <p style={S.lede}>Pay increases sent by Store Managers and DMs. Pending ones wait for approval; once approved they go to the office and show under Complete.</p>
         {saved && saved.state === 'decided' && <FinBanner th={th} tone="success">{saved.msg}</FinBanner>}
         {error && <FinBanner th={th} tone="error">{error}</FinBanner>}

@@ -2566,6 +2566,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [complete, setComplete] = useState3([]);
     const [view, setView] = useState3("list");
     const [listTab, setListTab] = useState3("pending");
+    const [loaded, setLoaded] = useState3(false);
     const loadMain = () => call().then((b) => {
       setStores(b.stores || []);
       setEmployees(b.employees || []);
@@ -2596,7 +2597,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }).catch((e) => {
       setError(e.message);
       setEmployees([]);
-    });
+    }).finally(() => setLoaded(true));
     useEffect3(() => {
       loadMain();
     }, []);
@@ -2722,7 +2723,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + PAPER_CSS), listView && view === "form" ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
       setView("list");
       loadMain();
-    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Pay Increases") : onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Pay Increase"), listView && view === "list" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Pay increases sent by Store Managers and DMs. Pending ones wait for approval; once approved they go to the office and show under Complete."), saved && saved.state === "decided" && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, saved.msg), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), reviewing ? /* @__PURE__ */ React.createElement(Review, { th, isMobile, form: reviewing, canApprove, onClose: (msg) => {
+    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Pay Increases") : onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Pay Increase"), !loaded ? /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026") : listView && view === "list" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Pay increases sent by Store Managers and DMs. Pending ones wait for approval; once approved they go to the office and show under Complete."), saved && saved.state === "decided" && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, saved.msg), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), reviewing ? /* @__PURE__ */ React.createElement(Review, { th, isMobile, form: reviewing, canApprove, onClose: (msg) => {
       setReviewing(null);
       loadMain();
       if (msg) setSaved({ state: "decided", msg });
@@ -27860,7 +27861,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.67";
+  var APP_VERSION = "v22.68";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
