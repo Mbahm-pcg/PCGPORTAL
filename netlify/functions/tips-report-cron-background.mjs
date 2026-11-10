@@ -150,6 +150,12 @@ export function callUpstream(cfg, endpoint, body) {
 // every extra second a hung store burns is a store later in the list that
 // never gets attempted at all. A shorter timeout means more stores get a shot
 // within the same budget when Paycor is having a bad night.
+// v22.67: manual retries (tips-report-refresh-background) may wait longer than the nightly run.
+// Confirmed 2026-11-10: Paycor took ~18s to answer a single store's punches for 11/5–11/6, so
+// every Retry timed out at 15s even one store at a time. The nightly run keeps 15s on purpose
+// (see above); a manual retry of one day can afford to wait.
+let paycorProxyTimeoutMs = 15000;
+export function setPaycorProxyTimeout(ms) { paycorProxyTimeoutMs = Math.max(5000, Math.min(25000, Number(ms) || 15000)); }
 function callPaycorProxyOnce(action, payload) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ action, ...payload });
@@ -162,7 +168,7 @@ function callPaycorProxyOnce(action, payload) {
       res.on('end', () => resolve({ status: res.statusCode, raw }));
     });
     req.on('error', reject);
-    req.setTimeout(15000, () => {
+    req.setTimeout(paycorProxyTimeoutMs, () => {
       const err = new Error('paycor proxy request timed out');
       err.isTimeout = true;
       req.destroy(err);

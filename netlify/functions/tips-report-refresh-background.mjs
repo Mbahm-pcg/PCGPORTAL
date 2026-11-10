@@ -9,7 +9,7 @@
 // does NOT send the daily/weekly/biweekly email — this only rebuilds and
 // saves the one day's pcg_tips_snapshot_{busDt} blob so it's available to the
 // nightly cron's own weekly/biweekly rollups and to the in-app Tips Report.
-import { STORES, APIS, callUpstream, callPaycorProxy, fetchStoreCrew, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt } from './tips-report-cron-background.mjs';
+import { STORES, APIS, callUpstream, callPaycorProxy, fetchStoreCrew, toET, saveDaySnapshot, getBlobStore, dateRangeEndingAt, setPaycorProxyTimeout } from './tips-report-cron-background.mjs';
 import { refreshStoreList } from './_shared/store-status.mjs';
 import { STORES as __STORE_LIST, ALL_STORES as __STORE_ALL } from './tips-report-cron-background.mjs';
 
@@ -54,6 +54,9 @@ export default async (request) => {
   // every time risks a fresh Paycor hiccup corrupting stores that were already
   // fine in the last saved snapshot — merging one store's fresh result into
   // the existing snapshot leaves every other store untouched.
+  // v22.67: a manual retry can wait up to 24s per Paycor call (the paycor proxy's own limit is
+  // 26s); the nightly run stays at 15s. Paycor took ~18s per store on 11/5–11/6 2026.
+  setPaycorProxyTimeout(24000);
   const targetPc = body?.storePc ? String(body.storePc) : null;
   const targetStores = targetPc ? STORES.filter(s => String(s.pc) === targetPc) : STORES;
   if (targetPc && targetStores.length === 0) {
