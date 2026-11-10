@@ -15,7 +15,7 @@ import { SignatureModal, toB64 } from './transfer-notice-ui.jsx';
 import { buildPayIncreasePdf, PAY_FONT, PAY_CHROME, formatFormDate } from './pay-increase-pdf.mjs';
 import { rateProblem, payFormValues, payFingerprint, missingPayFields, REASON_MIN } from './pay-increase.mjs';
 
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 const todayIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 const POSITIONS = ['Crew Member', 'Shift Leader', 'Assistant Manager', 'Store Manager'];
 
@@ -65,6 +65,74 @@ const PAPER_CSS = `
 .pi-office td + td { border-left: 1px solid #b7b7b7; color: #9a8f86; font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .pi-blank, .pi-sigbtn { transition: none; } }`;
 
+// v22.69: the signed form drawn with pdf.js (already on the page) instead of the browser's own PDF
+// viewer in an <iframe>, which showed nothing for Mike. A small preview; click it for the full page.
+const pdfCache = new Map();
+function loadPayPdf(id) {
+  if (!pdfCache.has(id)) {
+    pdfCache.set(id, (async () => {
+      const lib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+      if (!lib) throw new Error('The PDF viewer did not load — refresh the page.');
+      lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const res = await fetch(`/.netlify/functions/pay-increase?pdf=${id}`, { credentials: 'include', headers: { ...authHeader() } });
+      if (!res.ok) throw new Error(`Could not load the form (${res.status}).`);
+      const doc = await lib.getDocument({ data: new Uint8Array(await res.arrayBuffer()) }).promise;
+      return doc.getPage(1);
+    })().catch(e => { pdfCache.delete(id); throw e; }));
+  }
+  return pdfCache.get(id);
+}
+function PdfPage({ id, width, onError }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    let live = true;
+    loadPayPdf(id).then(page => {
+      if (!live || !ref.current) return;
+      const base = page.getViewport({ scale: 1 });
+      const dpr = window.devicePixelRatio || 1;
+      const vp = page.getViewport({ scale: (width / base.width) * dpr });
+      const c = ref.current;
+      c.width = vp.width; c.height = vp.height;
+      c.style.width = `${width}px`; c.style.height = `${(vp.height / dpr)}px`;
+      page.render({ canvasContext: c.getContext('2d'), viewport: vp });
+    }).catch(e => live && onError && onError(e.message));
+    return () => { live = false; };
+  }, [id, width]);
+  return <canvas ref={ref} style={{ display: 'block', background: '#fff' }} />;
+}
+function FormModal({ th, id, title, onClose }) {
+  const [err, setErr] = useState(null);
+  const bigWidth = Math.min(860, (typeof window !== 'undefined' ? window.innerWidth : 900) - 48);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(20,16,12,0.7)', overflowY: 'auto', padding: '56px 16px 24px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+      <button type="button" className="fin-btn" onClick={onClose} aria-label="Close"
+        style={{ position: 'fixed', top: 12, right: 16, width: 40, height: 40, borderRadius: 20, border: 'none', background: '#fff', color: '#111', fontSize: '1.3rem', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}>✕</button>
+      {err ? <p style={{ color: '#fff' }}>{err} <a href={`/.netlify/functions/pay-increase?pdf=${id}`} target="_blank" rel="noreferrer" style={{ color: '#ffb48a' }}>Open the PDF</a></p>
+        : <div style={{ borderRadius: 6, overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.35)' }}><PdfPage id={id} width={bigWidth} onError={setErr} /></div>}
+    </div>
+  );
+}
+function FormPreview({ th, id, title, thumbWidth = 230 }) {
+  const [open, setOpen] = useState(false);
+  const [err, setErr] = useState(null);
+  if (err) return <p style={{ color: th.muted, fontSize: '0.85rem' }}>{err} <a href={`/.netlify/functions/pay-increase?pdf=${id}`} target="_blank" rel="noreferrer" style={{ color: O }}>Open the PDF</a></p>;
+  return (
+    <>
+      <button type="button" className="fin-btn" onClick={() => setOpen(true)} aria-label={`Open ${title} full size`} title="Click to open the full form"
+        style={{ padding: 0, border: `1px solid ${th.cardBorder}`, borderRadius: 8, overflow: 'hidden', cursor: 'zoom-in', background: '#fff', boxShadow: '0 2px 10px rgba(0,0,0,0.08)', display: 'inline-block' }}>
+        <PdfPage id={id} width={thumbWidth} onError={setErr} />
+      </button>
+      {open && <FormModal th={th} id={id} title={title} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
 // Approver's view of one waiting form: the signed PDF, then Approve or Send back.
 function Review({ th, isMobile, form, onClose, canApprove = true }) {
   const S = finStyles(th);
@@ -88,8 +156,10 @@ function Review({ th, isMobile, form, onClose, canApprove = true }) {
         <span style={{ color: th.muted, fontSize: '0.88rem' }}>{finMoney.format(form.currentRate)} to {finMoney.format(form.newRate)}, sent by {form.submittedBy}</span>
       </div>
       <p style={{ color: th.text, fontSize: '0.9rem', margin: '0.4rem 0 0.8rem' }}>{form.reason}</p>
-      <iframe title={`Pay increase for ${form.employeeName}`} src={`/.netlify/functions/pay-increase?pdf=${form.id}`} style={{ width: '100%', height: isMobile ? 420 : 640, border: `1px solid ${th.cardBorder}`, borderRadius: 8, background: '#fff' }} />
-      <p style={{ fontSize: '0.82rem', color: th.muted, margin: '0.4rem 0 0' }}>Form not showing? <a href={`/.netlify/functions/pay-increase?pdf=${form.id}`} target="_blank" rel="noreferrer" style={{ color: O }}>Open the PDF</a>.</p>
+      <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <FormPreview th={th} id={form.id} title={`Pay increase for ${form.employeeName}`} thumbWidth={isMobile ? 200 : 260} />
+        <p style={{ fontSize: '0.82rem', color: th.muted, margin: 0, maxWidth: '22em' }}>Click the form to see it full size. <a href={`/.netlify/functions/pay-increase?pdf=${form.id}`} target="_blank" rel="noreferrer" style={{ color: O }}>Download the PDF</a></p>
+      </div>
       {err && <FinBanner th={th} tone="error" style={{ marginTop: '0.8rem' }}>{err}</FinBanner>}
       {backing && (
         <div style={{ marginTop: '0.8rem' }}>
@@ -146,6 +216,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
   const [complete, setComplete] = useState([]);
   const [view, setView] = useState('list');
   const [listTab, setListTab] = useState('pending');
+  const [viewing, setViewing] = useState(null); // Complete tab: the form shown full size
   // v22.68: nothing until the first load says which screen this person gets — otherwise an exec
   // saw the form flash up for a second before the Pending / Complete list replaced it.
   const [loaded, setLoaded] = useState(false);
@@ -304,13 +375,14 @@ export function PayIncrease({ th, isMobile, onBack }) {
                   <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {finMoney.format(f.currentRate)} to {finMoney.format(f.newRate)}</span>
                     <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}{f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : `, ${new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}</span></span>
                   <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
-                    {f.hasPdf && <a href={`/.netlify/functions/pay-increase?pdf=${f.id}`} target="_blank" rel="noreferrer" style={{ color: O }}>View PDF</a>}
+                    {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View form</button>}
                     {f.driveLink && <a href={f.driveLink} target="_blank" rel="noreferrer" style={{ color: O }}>Open in Google Drive</a>}
                   </span>
                 </div>
               ))}
             </div>
           ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No approved pay increases yet.</p>)}
+          {viewing && <FormModal th={th} id={viewing.id} title={`Pay increase for ${viewing.employeeName}`} onClose={() => setViewing(null)} />}
         </>)}
       </>) : (<>
       <p style={S.lede}>Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, and once he approves it, to the office to be entered in Paycor.</p>

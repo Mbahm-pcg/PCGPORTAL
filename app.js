@@ -2458,7 +2458,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/pay-increase-ui.jsx
-  var { useState: useState3, useEffect: useEffect3 } = React;
+  var { useState: useState3, useEffect: useEffect3, useRef: useRef3 } = React;
   var todayIso3 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   var POSITIONS2 = ["Crew Member", "Shift Leader", "Assistant Manager", "Store Manager"];
   var call = async (qs = "", body) => {
@@ -2513,6 +2513,98 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .pi-office td { border-top: 1px solid #b7b7b7; padding: 0.3em 0.5em; text-align: center; height: 1.9em; }
 .pi-office td + td { border-left: 1px solid #b7b7b7; color: #9a8f86; font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .pi-blank, .pi-sigbtn { transition: none; } }`;
+  var pdfCache = /* @__PURE__ */ new Map();
+  function loadPayPdf(id) {
+    if (!pdfCache.has(id)) {
+      pdfCache.set(id, (async () => {
+        const lib = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
+        if (!lib) throw new Error("The PDF viewer did not load \u2014 refresh the page.");
+        lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        const res = await fetch(`/.netlify/functions/pay-increase?pdf=${id}`, { credentials: "include", headers: { ...authHeader() } });
+        if (!res.ok) throw new Error(`Could not load the form (${res.status}).`);
+        const doc = await lib.getDocument({ data: new Uint8Array(await res.arrayBuffer()) }).promise;
+        return doc.getPage(1);
+      })().catch((e) => {
+        pdfCache.delete(id);
+        throw e;
+      }));
+    }
+    return pdfCache.get(id);
+  }
+  function PdfPage({ id, width, onError }) {
+    const ref = useRef3(null);
+    useEffect3(() => {
+      let live = true;
+      loadPayPdf(id).then((page) => {
+        if (!live || !ref.current) return;
+        const base = page.getViewport({ scale: 1 });
+        const dpr = window.devicePixelRatio || 1;
+        const vp = page.getViewport({ scale: width / base.width * dpr });
+        const c = ref.current;
+        c.width = vp.width;
+        c.height = vp.height;
+        c.style.width = `${width}px`;
+        c.style.height = `${vp.height / dpr}px`;
+        page.render({ canvasContext: c.getContext("2d"), viewport: vp });
+      }).catch((e) => live && onError && onError(e.message));
+      return () => {
+        live = false;
+      };
+    }, [id, width]);
+    return /* @__PURE__ */ React.createElement("canvas", { ref, style: { display: "block", background: "#fff" } });
+  }
+  function FormModal({ th, id, title, onClose }) {
+    const [err, setErr] = useState3(null);
+    const bigWidth = Math.min(860, (typeof window !== "undefined" ? window.innerWidth : 900) - 48);
+    useEffect3(() => {
+      const onKey = (e) => {
+        if (e.key === "Escape") onClose();
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, []);
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": title,
+        onClick: (e) => {
+          if (e.target === e.currentTarget) onClose();
+        },
+        style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(20,16,12,0.7)", overflowY: "auto", padding: "56px 16px 24px", display: "flex", justifyContent: "center", alignItems: "flex-start" }
+      },
+      /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          className: "fin-btn",
+          onClick: onClose,
+          "aria-label": "Close",
+          style: { position: "fixed", top: 12, right: 16, width: 40, height: 40, borderRadius: 20, border: "none", background: "#fff", color: "#111", fontSize: "1.3rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }
+        },
+        "\u2715"
+      ),
+      err ? /* @__PURE__ */ React.createElement("p", { style: { color: "#fff" } }, err, " ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${id}`, target: "_blank", rel: "noreferrer", style: { color: "#ffb48a" } }, "Open the PDF")) : /* @__PURE__ */ React.createElement("div", { style: { borderRadius: 6, overflow: "hidden", boxShadow: "0 12px 40px rgba(0,0,0,0.35)" } }, /* @__PURE__ */ React.createElement(PdfPage, { id, width: bigWidth, onError: setErr }))
+    );
+  }
+  function FormPreview({ th, id, title, thumbWidth = 230 }) {
+    const [open, setOpen] = useState3(false);
+    const [err, setErr] = useState3(null);
+    if (err) return /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem" } }, err, " ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open the PDF"));
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "fin-btn",
+        onClick: () => setOpen(true),
+        "aria-label": `Open ${title} full size`,
+        title: "Click to open the full form",
+        style: { padding: 0, border: `1px solid ${th.cardBorder}`, borderRadius: 8, overflow: "hidden", cursor: "zoom-in", background: "#fff", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", display: "inline-block" }
+      },
+      /* @__PURE__ */ React.createElement(PdfPage, { id, width: thumbWidth, onError: setErr })
+    ), open && /* @__PURE__ */ React.createElement(FormModal, { th, id, title, onClose: () => setOpen(false) }));
+  }
   function Review({ th, isMobile, form, onClose, canApprove = true }) {
     const S = finStyles(th);
     const [busy, setBusy] = useState3(false);
@@ -2532,7 +2624,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setBusy(false);
       }
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, finMoney.format(form.currentRate), " to ", finMoney.format(form.newRate), ", sent by ", form.submittedBy)), /* @__PURE__ */ React.createElement("p", { style: { color: th.text, fontSize: "0.9rem", margin: "0.4rem 0 0.8rem" } }, form.reason), /* @__PURE__ */ React.createElement("iframe", { title: `Pay increase for ${form.employeeName}`, src: `/.netlify/functions/pay-increase?pdf=${form.id}`, style: { width: "100%", height: isMobile ? 420 : 640, border: `1px solid ${th.cardBorder}`, borderRadius: 8, background: "#fff" } }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: "0.4rem 0 0" } }, "Form not showing? ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${form.id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open the PDF"), "."), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "pi-note", style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement("textarea", { id: "pi-note", value: note, maxLength: 400, rows: 3, onChange: (e) => setNote(e.target.value), style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the pay increase approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving\u2026" : "Approve & send to the office")));
+    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, finMoney.format(form.currentRate), " to ", finMoney.format(form.newRate), ", sent by ", form.submittedBy)), /* @__PURE__ */ React.createElement("p", { style: { color: th.text, fontSize: "0.9rem", margin: "0.4rem 0 0.8rem" } }, form.reason), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: form.id, title: `Pay increase for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${form.id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "pi-note", style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement("textarea", { id: "pi-note", value: note, maxLength: 400, rows: 3, onChange: (e) => setNote(e.target.value), style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the pay increase approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving\u2026" : "Approve & send to the office")));
   }
   var Locked = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `pi-locked${value ? "" : " pi-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function PayIncrease({ th, isMobile, onBack }) {
@@ -2566,6 +2658,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [complete, setComplete] = useState3([]);
     const [view, setView] = useState3("list");
     const [listTab, setListTab] = useState3("pending");
+    const [viewing, setViewing] = useState3(null);
     const [loaded, setLoaded] = useState3(false);
     const loadMain = () => call().then((b) => {
       setStores(b.stores || []);
@@ -2753,7 +2846,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       },
       /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, ", ", finMoney.format(f.currentRate), " to ", finMoney.format(f.newRate)), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Sent by ", f.submittedBy, ", ", new Date(f.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }))),
       /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")
-    ))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "complete" && (complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, ", ", finMoney.format(f.currentRate), " to ", finMoney.format(f.newRate)), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Sent by ", f.submittedBy, f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : `, ${new Date(f.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${f.id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "View PDF"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved pay increases yet.")))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, and once he approves it, to the office to be entered in Paycor."), role === "manager" && employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no hourly rate for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this form can't be made. Fix the rate in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The form changed after it was signed, so those signatures no longer count. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "pi-paper", style: {
+    ))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "complete" && (complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, ", ", finMoney.format(f.currentRate), " to ", finMoney.format(f.newRate)), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Sent by ", f.submittedBy, f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : `, ${new Date(f.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved pay increases yet.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: viewing.id, title: `Pay increase for ${viewing.employeeName}`, onClose: () => setViewing(null) }))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, and once he approves it, to the office to be entered in Paycor."), role === "manager" && employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no hourly rate for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this form can't be made. Fix the rate in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The form changed after it was signed, so those signatures no longer count. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "pi-paper", style: {
       borderRadius: 6,
       boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
       padding: isMobile ? "1.2rem 1rem 1.6rem" : "1.6rem 4.2rem 2.4rem",
@@ -3585,7 +3678,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // app.jsx
-  var { useState: useState4, useRef: useRef3, useCallback, useEffect: useEffect4 } = React;
+  var { useState: useState4, useRef: useRef4, useCallback, useEffect: useEffect4 } = React;
   var Guard = class extends React.Component {
     constructor(props) {
       super(props);
@@ -4761,14 +4854,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [showItModal, setShowItModal] = useState4(false);
     const [narrow, setNarrow] = useState4(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
     const [tinyScreen, setTinyScreen] = useState4(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
-    const toggleBtnRef = useRef3(null);
-    const logoRef = useRef3(null);
-    const googleBtnRef = useRef3(null);
-    const tokenClientRef = useRef3(null);
+    const toggleBtnRef = useRef4(null);
+    const logoRef = useRef4(null);
+    const googleBtnRef = useRef4(null);
+    const tokenClientRef = useRef4(null);
     const [bioAvailable, setBioAvailable] = useState4(false);
     const [bioLoading, setBioLoading] = useState4(false);
     const [bioAutoPrompting, setBioAutoPrompting] = useState4(false);
-    const bioAutoTriedRef = useRef3(false);
+    const bioAutoTriedRef = useRef4(false);
     useEffect4(() => {
       webauthnAvailable().then(setBioAvailable);
     }, []);
@@ -6147,9 +6240,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [recording, setRecording] = useState4(false);
     const [interimText, setInterimText] = useState4("");
     const [recordError, setRecordError] = useState4("");
-    const recognitionRef = useRef3(null);
-    const baseBodyRef = useRef3("");
-    const finalChunksRef = useRef3("");
+    const recognitionRef = useRef4(null);
+    const baseBodyRef = useRef4("");
+    const finalChunksRef = useRef4("");
     const SpeechRecognition = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
     const recordingSupported = !!SpeechRecognition;
     const nextId = () => Date.now();
@@ -6217,7 +6310,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setForm((f) => ({ ...f, title: firstLine || "Voice Note " + (/* @__PURE__ */ new Date()).toLocaleDateString() }));
       }
     };
-    const recordingRef = useRef3(false);
+    const recordingRef = useRef4(false);
     useEffect4(() => {
       return () => {
         recordingRef.current = false;
@@ -7054,7 +7147,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [statusFilter, setStatusFilter] = useState4("all");
     const [flashUserKey, setFlashUserKey] = useState4(null);
     const [leavingUserIds, setLeavingUserIds] = useState4([]);
-    const prevUserIdsRef = useRef3(/* @__PURE__ */ new Set());
+    const prevUserIdsRef = useRef4(/* @__PURE__ */ new Set());
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
       if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
@@ -8120,10 +8213,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [showSuggestions, setShowSuggestions] = useState4(false);
     const [suggestLoading, setSuggestLoading] = useState4(false);
     const [activeSugIdx, setActiveSugIdx] = useState4(-1);
-    const suggestTimer = useRef3(null);
-    const mapDiv = useRef3(null);
-    const mapRef = useRef3(null);
-    const markersRef = useRef3({});
+    const suggestTimer = useRef4(null);
+    const mapDiv = useRef4(null);
+    const mapRef = useRef4(null);
+    const markersRef = useRef4({});
     function handleAddrChange(val) {
       setAddr(val);
       setActiveSugIdx(-1);
@@ -8370,7 +8463,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       return () => onMapModeChange?.(false);
     }, [viewMode]);
     const [isNarrow, setIsNarrow] = useState4(() => typeof window !== "undefined" && window.innerWidth < 760);
-    const frameRef = useRef3(null);
+    const frameRef = useRef4(null);
     const frameH = useFrameHeight(frameRef, 340, 16);
     useEffect4(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
@@ -10031,8 +10124,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [distFilter, setDistFilter] = useState4(isDMViewer ? dmDistrict || 0 : 0);
     const [debugLines, setDebugLines] = useState4(null);
     const [showDebug, setShowDebug] = useState4(false);
-    const fileRef = useRef3(null);
-    const detailTableRef = useRef3(null);
+    const fileRef = useRef4(null);
+    const detailTableRef = useRef4(null);
     const fmtSales = (n) => {
       if (!n) return "\u2014";
       if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
@@ -14355,7 +14448,7 @@ ${pendingEmail.emails.join("\n")}`,
     const [pulseView, setPulseView] = useState4(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
     const [weatherForecast, setWeatherForecast] = useState4(null);
     const [networkReviews, setNetworkReviews] = useState4(null);
-    const cdRef = useRef3(null);
+    const cdRef = useRef4(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
@@ -14568,8 +14661,8 @@ ${t2.slice(0, 300)}`);
     const handleManualRefresh = () => {
       loadAll();
     };
-    const wtdAutoLoaded = useRef3(false);
-    const lastWtdWeek = useRef3("");
+    const wtdAutoLoaded = useRef4(false);
+    const lastWtdWeek = useRef4("");
     useEffect4(() => {
       loadAll();
       if (!drillInStore) setPulseView("network");
@@ -15692,7 +15785,7 @@ ${t2.slice(0, 300)}`);
     const [editReport, setEditReport] = useState4(null);
     const [rForm, setRForm] = useState4({ ...EMPTY_DAILY_REPORT });
     const [wxLoading, setWxLoading] = useState4(false);
-    const fileInputRefs = useRef3({});
+    const fileInputRefs = useRef4({});
     const projReports = dailyReports.filter((r) => r.projectId === project.id).sort((a, b) => b.date.localeCompare(a.date));
     const nextId = () => {
       const ts = Date.now();
@@ -15818,7 +15911,7 @@ ${t2.slice(0, 300)}`);
     const totalPhotos = (r) => (r.workLogs || []).reduce((s, w) => s + (w.photos?.length || 0), 0);
     const totalWorkers = (r) => (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
     const totalHrs = (r) => (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
-    const pdfImportRef = useRef3(null);
+    const pdfImportRef = useRef4(null);
     const [pdfImporting, setPdfImporting] = useState4(false);
     const [forceSyncState, setForceSyncState] = useState4("idle");
     const [forceSyncMsg, setForceSyncMsg] = useState4("");
@@ -17197,7 +17290,7 @@ ${t2.slice(0, 300)}`);
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
     const [view, setView] = useState4("table");
-    const tableFrameRef = useRef3(null);
+    const tableFrameRef = useRef4(null);
     const isMobile = useIsMobile();
     const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
     const [selectedProject, setSelectedProject] = useState4(null);
@@ -22679,7 +22772,7 @@ ${t2.slice(0, 300)}`);
     useEffect4(() => {
       load();
     }, [load]);
-    const frameRef = useRef3(null);
+    const frameRef = useRef4(null);
     const frameH = useFrameHeight(frameRef);
     const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
     const filtered = (templates || []).filter((t) => {
@@ -23097,7 +23190,7 @@ ${t2.slice(0, 300)}`);
     const [acks, setAcks] = React.useState(null);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
-    const reqRef = useRef3(0);
+    const reqRef = useRef4(0);
     const list = [...announcements || []].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const selected = list.find((a) => a.id === selId) || list[0] || null;
     const loadAcks = async (annId) => {
@@ -24516,8 +24609,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     } }, SAFE_VAR_LABEL[st] || st, variance != null ? ` ${fmtSafeMoney(variance)}` : "");
   }
   function SignaturePad({ th, onCapture, label }) {
-    const ref = useRef3(null);
-    const drawing = useRef3(false);
+    const ref = useRef4(null);
+    const drawing = useRef4(false);
     const pos = (e) => {
       const r = ref.current.getBoundingClientRect();
       const t = e.touches ? e.touches[0] : e;
@@ -24712,7 +24805,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const [savingExpected, setSavingExpected] = useState4(false);
     const [submitting, setSubmitting] = useState4(false);
     const [submitted, setSubmitted] = useState4(null);
-    const didHydrate = useRef3(false);
+    const didHydrate = useRef4(false);
     const [f, setF] = useState4({
       reason: "",
       safeCode: "",
@@ -25654,7 +25747,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [err, setErr] = useState4(false);
     const [lightbox, setLightbox] = useState4(null);
     const [exporting, setExporting] = useState4(false);
-    const printRef = useRef3(null);
+    const printRef = useRef4(null);
     useEffect4(() => {
       let cancelled = false;
       setAudit(null);
@@ -25960,7 +26053,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [submitting, setSubmitting] = useState4(false);
     const [submitted, setSubmitted] = useState4(null);
     const [gpsStatus, setGpsStatus] = useState4("");
-    const didHydrate = useRef3(false);
+    const didHydrate = useRef4(false);
     const localKey = "pcg_audit_draft_" + auditId;
     const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
     useEffect4(() => {
@@ -26319,7 +26412,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [err, setErr] = useState4(false);
     const [lightbox, setLightbox] = useState4(null);
     const [exporting, setExporting] = useState4(false);
-    const printRef = useRef3(null);
+    const printRef = useRef4(null);
     const load = useCallback(() => {
       setLoading(true);
       setErr(false);
@@ -27269,9 +27362,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [workers, setWorkers] = useState4([]);
     const [lwDaySales, setLwDaySales] = useState4(null);
     const [carouselPage, setCarouselPage] = useState4(0);
-    const touchStartX = useRef3(null);
-    const carouselInnerRef = useRef3(null);
-    const fetchTokenRef = useRef3(0);
+    const touchStartX = useRef4(null);
+    const carouselInnerRef = useRef4(null);
+    const fetchTokenRef = useRef4(0);
     const [loading, setLoading] = useState4(true);
     const [refreshing, setRefreshing] = useState4(false);
     const [lastRefresh, setLastRefresh] = useState4(null);
@@ -27287,11 +27380,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [mgrCaps, setMgrCaps] = useState4(null);
     const [mgrCapsErr, setMgrCapsErr] = useState4(false);
     const [expandedCap, setExpandedCap] = useState4(null);
-    const toggleBtnRef = useRef3(null);
+    const toggleBtnRef = useRef4(null);
     const [voiceState, setVoiceState] = useState4("idle");
     const [voiceTranscript, setVoiceTranscript] = useState4("");
     const [voiceReply, setVoiceReply] = useState4("");
-    const recogRef = useRef3(null);
+    const recogRef = useRef4(null);
     const handleToggle = useCallback(() => {
       const btn2 = toggleBtnRef.current;
       if (btn2) {
@@ -27861,7 +27954,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.68";
+  var APP_VERSION = "v22.69";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -28009,7 +28102,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return [{ id: personalAnalystId, type: "analyst", name: "Orion \u2014 My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" }, ...prev];
       });
     }, [user?.id]);
-    const sanitizedRef = useRef3(false);
+    const sanitizedRef = useRef4(false);
     useEffect4(() => {
       if (sanitizedRef.current || !channels || channels.length === 0) return;
       if (!users || users.length === 0) return;
@@ -28182,9 +28275,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setOrionThinking(false);
     };
     const [logFilters, setLogFilters] = useState4({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
-    const messagesEndRef = useRef3(null);
-    const inputRef = useRef3(null);
-    const fileRef = useRef3(null);
+    const messagesEndRef = useRef4(null);
+    const inputRef = useRef4(null);
+    const fileRef = useRef4(null);
     const isAdmin = isChatAdmin(user);
     const activeUsers = users.filter((u) => u.active);
     const resolveMention = (mention) => {
@@ -28967,7 +29060,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
     const [uploading, setUploading] = useState4(false);
     const [uploadMsg, setUploadMsg] = useState4(null);
-    const fileRef = useRef3(null);
+    const fileRef = useRef4(null);
     const handleUpload = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -30111,8 +30204,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     const [weather, setWeather] = useState4(null);
     const [showWeekWeather, setShowWeekWeather] = useState4(false);
-    const weatherRectRef = useRef3(null);
-    const weatherCloseTimer = useRef3(null);
+    const weatherRectRef = useRef4(null);
+    const weatherCloseTimer = useRef4(null);
     const openWeekWeather = (e) => {
       if (weatherCloseTimer.current) {
         clearTimeout(weatherCloseTimer.current);
@@ -30919,7 +31012,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [editForm, setEditForm] = useState4({ depositDate: "", amount: "" });
     const [posLoading, setPosLoading] = useState4(false);
     const [posProgress, setPosProgress] = useState4(0);
-    const fileRef = useRef3(null);
+    const fileRef = useRef4(null);
     const [uploading, setUploading] = useState4(false);
     const [uploadErr, setUploadErr] = useState4(null);
     const [view, setView] = useState4("alerts");
@@ -31178,7 +31271,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setPosLoading(false);
       if (!silent) showAlert2 && showAlert2("success", `POS cash totals loaded (${targets.length} fetched)`);
     };
-    const posAutoLoadedRef = useRef3("");
+    const posAutoLoadedRef = useRef4("");
     useEffect4(() => {
       if (view !== "recon") return;
       const key = `${weekOffset}|${distFilter}|${view}`;
@@ -33513,9 +33606,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [gpsLoading, setGpsLoading] = useState4(false);
     const [gpsDays, setGpsDays] = useState4(7);
     const [gpsTab, setGpsTab] = useState4("list");
-    const gpsMapDiv = useRef3(null);
-    const gpsMapRef = useRef3(null);
-    const gpsLayerRef = useRef3(null);
+    const gpsMapDiv = useRef4(null);
+    const gpsMapRef = useRef4(null);
+    const gpsLayerRef = useRef4(null);
     const [auditData, setAuditData] = useState4(null);
     const [auditLoading, setAuditLoading] = useState4(false);
     const [auditStore, setAuditStore] = useState4("");
@@ -33524,7 +33617,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [auditPhotos, setAuditPhotos] = useState4(false);
     const [auditPhotoUrls, setAuditPhotoUrls] = useState4({});
     const [auditExporting, setAuditExporting] = useState4(false);
-    const auditRef = useRef3(null);
+    const auditRef = useRef4(null);
     const [photoLightbox, setPhotoLightbox] = useState4(null);
     const [photoUrls, setPhotoUrls] = useState4({});
     const [merch, setMerch] = useState4(null);
@@ -33568,7 +33661,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
       return r.json();
     }, []);
-    const geoRef = useRef3(null);
+    const geoRef = useRef4(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
     const locDefaultOn = user?.userType === "store_tablet";
     const [shareLoc, setShareLoc] = useState4(() => {
@@ -34485,12 +34578,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [status, setStatus] = useState4("");
     const [busy, setBusy] = useState4(false);
     const [results, setResults] = useState4(null);
-    const chartCanvas = useRef3(null);
-    const chartRef = useRef3(null);
-    const mapDiv = useRef3(null);
-    const mapRef = useRef3(null);
+    const chartCanvas = useRef4(null);
+    const chartRef = useRef4(null);
+    const mapDiv = useRef4(null);
+    const mapRef = useRef4(null);
     const [radiusMi, setRadiusMi] = useState4(1);
-    const histCache = useRef3(/* @__PURE__ */ new Map());
+    const histCache = useRef4(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
       setBusy(true);
@@ -37073,7 +37166,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
     const [shown, setShown] = useState4(target);
-    const fromRef = useRef3(target);
+    const fromRef = useRef4(target);
     useEffect4(() => {
       const from = fromRef.current;
       if (teReducedMotion() || Math.abs(from - target) < 5e-3) {
@@ -37558,7 +37651,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [step, setStep] = useState4("");
     const [error, setError] = useState4(null);
     const [result, setResult] = useState4(null);
-    const pollRef = useRef3(null);
+    const pollRef = useRef4(null);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     React.useEffect(() => () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -37753,7 +37846,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [answer, setAnswer] = useState4(null);
     const [loading, setLoading] = useState4(false);
     const [feedback, setFeedback] = useState4(null);
-    const inputRef = useRef3(null);
+    const inputRef = useRef4(null);
     useEffect4(() => {
       const handler = (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -38400,7 +38493,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setReportsReadIds(allIds);
       setReportsUnreadCount(0);
     };
-    const selectReportTokenRef = useRef3(0);
+    const selectReportTokenRef = useRef4(0);
     const handleSelectReport = async (rpt) => {
       const myToken = ++selectReportTokenRef.current;
       setSelectedReport(rpt);
@@ -39036,7 +39129,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [selectedArticle, setSelectedArticle] = useState4(null);
     const [articleContent, setArticleContent] = useState4(null);
     const [loading, setLoading] = useState4(true);
-    const kbContentRef = useRef3(null);
+    const kbContentRef = useRef4(null);
     const [search, setSearch] = useState4("");
     const [catFilter, setCatFilter] = useState4("All");
     const [showForm, setShowForm] = useState4(false);
@@ -41711,7 +41804,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: form.storePC, onChange: (e) => setForm((p) => ({ ...p, storePC: e.target.value })), style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.9rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: form.category, onChange: (e) => setForm((p) => ({ ...p, category: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, MAINT_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: form.freq, onChange: (e) => setForm((p) => ({ ...p, freq: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, Object.entries(FREQ_LABELS).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Notes (optional)"), /* @__PURE__ */ React.createElement("textarea", { value: form.notes, onChange: (e) => setForm((p) => ({ ...p, notes: e.target.value })), rows: 2, style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem", resize: "vertical", boxSizing: "border-box" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: handleAdd, disabled: !form.title.trim() || saving, style: { flex: 1, background: O2, border: "none", borderRadius: 8, color: "#fff", padding: "0.65rem", cursor: "pointer", fontWeight: 700, fontFamily: "'Source Sans 3'", opacity: !form.title.trim() ? 0.5 : 1 } }, "Save Schedule"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAdd(false), style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.65rem 1rem", cursor: "pointer" } }, "Cancel")))));
   }
   function DunkinRunnerScene({ dark }) {
-    const hostRef = useRef3(null);
+    const hostRef = useRef4(null);
     useEffect4(() => {
       const host = hostRef.current;
       if (!host) return;
@@ -42037,7 +42130,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     });
     const [showPw, setShowPw] = useState4(false);
     const [saving, setSaving] = useState4(false);
-    const prevCandidateName = useRef3(candidate?.name || null);
+    const prevCandidateName = useRef4(candidate?.name || null);
     useEffect4(() => {
       if (!candidate || candidate.name === prevCandidateName.current) return;
       prevCandidateName.current = candidate.name;
@@ -42212,10 +42305,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDrillInStore(storePC);
       setTab(targetTab);
     };
-    const tabHistoryRef = useRef3(["dashboard"]);
-    const isGoingBackRef = useRef3(false);
-    const sidebarNavRef = useRef3(null);
-    const sidebarScrollPos = useRef3(0);
+    const tabHistoryRef = useRef4(["dashboard"]);
+    const isGoingBackRef = useRef4(false);
+    const sidebarNavRef = useRef4(null);
+    const sidebarScrollPos = useRef4(0);
     const [sidebarCollapsed, setSidebarCollapsed] = useState4(() => {
       try {
         const v = localStorage.getItem("pcg_sidebar_collapsed");
@@ -42391,28 +42484,28 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       });
     }, [user?.id]);
     const [accessOverrides, setAccessOverrides] = useState4({});
-    const cloudAccessLoaded = useRef3(false);
-    const cloudProjectsLoaded = useRef3(false);
-    const cloudDailyReportsLoaded = useRef3(false);
-    const cloudChatLoaded = useRef3(false);
-    const cloudAnnouncementsLoaded = useRef3(false);
-    const cloudStoresLoaded = useRef3(false);
-    const cloudDistrictsLoaded = useRef3(false);
-    const cloudContactsLoaded = useRef3(false);
-    const cloudVendorsLoaded = useRef3(false);
-    const cloudLinksLoaded = useRef3(false);
-    const cloudNotesLoaded = useRef3(false);
-    const cloudTodosLoaded = useRef3(false);
-    const cloudNotificationsLoaded = useRef3(false);
-    const cloudGlobalNotifyLoaded = useRef3(false);
-    const cloudTicketNotifyLoaded = useRef3(false);
-    const cloudTicketNotifyPhonesLoaded = useRef3(false);
-    const skipNextTicketNotifyPhonesSave = useRef3(false);
-    const cloudTicketNotifyOwnersLoaded = useRef3(false);
-    const cloudTicketNotifyPhoneOwnersLoaded = useRef3(false);
-    const projectsUserEdited = useRef3(false);
-    const dailyReportsUserEdited = useRef3(false);
-    const prevDailyReportsRef = useRef3([]);
+    const cloudAccessLoaded = useRef4(false);
+    const cloudProjectsLoaded = useRef4(false);
+    const cloudDailyReportsLoaded = useRef4(false);
+    const cloudChatLoaded = useRef4(false);
+    const cloudAnnouncementsLoaded = useRef4(false);
+    const cloudStoresLoaded = useRef4(false);
+    const cloudDistrictsLoaded = useRef4(false);
+    const cloudContactsLoaded = useRef4(false);
+    const cloudVendorsLoaded = useRef4(false);
+    const cloudLinksLoaded = useRef4(false);
+    const cloudNotesLoaded = useRef4(false);
+    const cloudTodosLoaded = useRef4(false);
+    const cloudNotificationsLoaded = useRef4(false);
+    const cloudGlobalNotifyLoaded = useRef4(false);
+    const cloudTicketNotifyLoaded = useRef4(false);
+    const cloudTicketNotifyPhonesLoaded = useRef4(false);
+    const skipNextTicketNotifyPhonesSave = useRef4(false);
+    const cloudTicketNotifyOwnersLoaded = useRef4(false);
+    const cloudTicketNotifyPhoneOwnersLoaded = useRef4(false);
+    const projectsUserEdited = useRef4(false);
+    const dailyReportsUserEdited = useRef4(false);
+    const prevDailyReportsRef = useRef4([]);
     const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState4({});
     useEffect4(() => {
       const handler = (e) => {
@@ -42436,8 +42529,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
     const [showNotifs, setShowNotifs] = useState4(false);
-    const notifRef = useRef3(null);
-    const chatPanelRef = useRef3(null);
+    const notifRef = useRef4(null);
+    const chatPanelRef = useRef4(null);
     const [showChatPanel, setShowChatPanel] = useState4(false);
     const [chatQuickReply, setChatQuickReply] = useState4({ channelId: null, text: "" });
     const [salesWeeks, setSalesWeeks] = useState4([]);
@@ -42445,24 +42538,24 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [cashUploads, setCashUploads] = useState4([]);
     const [cashNotes, setCashNotes] = useState4([]);
     const [cashPOS, setCashPOS] = useState4({});
-    const cloudCashLoaded = useRef3(false);
+    const cloudCashLoaded = useRef4(false);
     const [professionals, setProfessionals] = useState4(DEFAULT_PROFESSIONALS);
-    const cloudProfessionalsLoaded = useRef3(false);
+    const cloudProfessionalsLoaded = useRef4(false);
     const [showProfile, setShowProfile] = useState4(false);
     const [cloudStatus, setCloudStatus] = useState4("idle");
     const [logoAnim, setLogoAnim] = useState4(false);
     const [showTimeoutWarning, setShowTimeoutWarning] = useState4(false);
     const [timeoutCountdown, setTimeoutCountdown] = useState4(60);
-    const lastActivityRef = useRef3(Date.now());
-    const warningActiveRef = useRef3(false);
+    const lastActivityRef = useRef4(Date.now());
+    const warningActiveRef = useRef4(false);
     const [dataAlert, setDataAlert] = useState4(null);
-    const importRef = useRef3(null);
-    const logoRef = useRef3(null);
-    const toggleBtnRef = useRef3(null);
-    const deepLinkRef = useRef3(null);
-    const todoDeepLinkRef = useRef3(null);
-    const ticketDeepLinkRef = useRef3(null);
-    const txnDeepLinkRef = useRef3(null);
+    const importRef = useRef4(null);
+    const logoRef = useRef4(null);
+    const toggleBtnRef = useRef4(null);
+    const deepLinkRef = useRef4(null);
+    const todoDeepLinkRef = useRef4(null);
+    const ticketDeepLinkRef = useRef4(null);
+    const txnDeepLinkRef = useRef4(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
     const [pnlAllowed, setPnlAllowed] = useState4(DEFAULT_PNL_ALLOWED);
@@ -43219,7 +43312,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, [dailyReports]);
-    const storesSyncedRef = useRef3(null);
+    const storesSyncedRef = useRef4(null);
     const storeKey = (s) => String(s?.pc || s?.id || "");
     const storeSig = (s) => {
       if (!s) return "";
@@ -43451,8 +43544,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_phone_owners_v1", ticketNotifyPhoneOwners);
     }, [ticketNotifyPhoneOwners]);
-    const chatPollRef = useRef3(null);
-    const chatPollActive = useRef3(false);
+    const chatPollRef = useRef4(null);
+    const chatPollActive = useRef4(false);
     useEffect4(() => {
       Promise.all([
         cloudLoad("pcg_chat_channels_v1"),
@@ -43552,7 +43645,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 12e3);
       return () => clearInterval(chatPollRef.current);
     }, [user]);
-    const mentionAlertRef = useRef3({});
+    const mentionAlertRef = useRef4({});
     useEffect4(() => {
       if (!user) return;
       const interval = setInterval(() => {
@@ -43660,7 +43753,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const interval = setInterval(checkDeadlines, 864e5);
       return () => clearInterval(interval);
     }, [projects.map((p) => `${p.id}:${p.dueDate || ""}:${p.completed ? 1 : 0}`).join("|")]);
-    const prevProjectsRef = useRef3(projects);
+    const prevProjectsRef = useRef4(projects);
     const getNotifyRecipients = (p) => {
       const perProject = p.notifyEmails ? p.notifyEmails.split(",").map((e) => e.trim()).filter(Boolean) : [];
       const all = [...globalNotifyEmails, ...perProject];
@@ -43881,7 +43974,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setAnnGateQueue(queue);
       setAnnGateIdx(0);
     }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
-    const annBackfillRef = useRef3(false);
+    const annBackfillRef = useRef4(false);
     useEffect4(() => {
       if (!user || annBackfillRef.current || user.userType?.startsWith("kiosk")) return;
       if (!announcements || announcements.length === 0) return;
