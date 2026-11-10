@@ -1,17 +1,19 @@
-// src/pay-increase-ui.jsx — Tools · Pay Increase (v22.55).
+// src/pay-increase-ui.jsx — Tools · Pay Increase (v22.55; approval v22.60; v22.62).
 //
-// The screen IS HR's Pay Increase Form, ready to fill the moment it opens. The DM picks the
-// employee (name, position, store and current rate come from Paycor, locked), types the new
-// rate and the reason, and the Store Manager, the DM and the Director of Operations each sign
-// their line on this screen. "Send to the office" downloads the signed PDF, files it in Google
-// Drive and alerts the office (pay-increase.mjs) — the office then makes the change in Paycor,
-// so the "For Office Use Only" box stays blank here. A signature is void if the form changes.
+// The screen IS HR's Pay Increase Form, ready to fill the moment it opens. A Store Manager or DM
+// picks the employee (name, position, store and current rate come from Paycor, locked), types the
+// new rate and the reason, and signs. A Store Manager signs with their District Manager on the
+// same screen; anyone else has the Store Manager line N/A and signs the second line, titled by who
+// they are: District Manager / Director of Operations / Vice President (Mike) / Executive (v22.64).
+// "Send for approval" downloads the signed PDF and sends it to the approver (Mike); once approved
+// it goes to Drive and the office (pay-increase.mjs). Execs / IT open on a Pending / Complete list.
+// The "For Office Use Only" box stays blank. A signature is void if the form changes.
 import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles, finMoney } from './finance-ui.jsx';
 import { SignatureModal, toB64 } from './transfer-notice-ui.jsx';
 import { buildPayIncreasePdf, PAY_FONT, PAY_CHROME, formatFormDate } from './pay-increase-pdf.mjs';
-import { rateProblem, payFormValues, payFingerprint, missingPayFields } from './pay-increase.mjs';
+import { rateProblem, payFormValues, payFingerprint, missingPayFields, REASON_MIN } from './pay-increase.mjs';
 
 const { useState, useEffect } = React;
 const todayIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
@@ -63,6 +65,50 @@ const PAPER_CSS = `
 .pi-office td + td { border-left: 1px solid #b7b7b7; color: #9a8f86; font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .pi-blank, .pi-sigbtn { transition: none; } }`;
 
+// Approver's view of one waiting form: the signed PDF, then Approve or Send back.
+function Review({ th, isMobile, form, onClose, canApprove = true }) {
+  const S = finStyles(th);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [backing, setBacking] = useState(false);
+  const [note, setNote] = useState('');
+  const decide = async (action) => {
+    setBusy(true); setErr(null);
+    try {
+      const b = await call('', { action, id: form.id, note: note.trim() });
+      if (action === 'reject') return onClose(`Sent back to ${form.submittedBy}.`);
+      const d = b.drive || {}, a = b.alert || {};
+      onClose(`Approved: ${d.saved ? 'saved to Google Drive' : `not saved to Drive (${d.error || 'error'})`}, ${a.error ? `office alert failed (${a.error})` : a.recipients ? `the office was alerted (${a.recipients})` : 'no one is on the office list yet'}. ${form.submittedBy} was told.`);
+    } catch (e) { setErr(e.message); setBusy(false); }
+  };
+  return (
+    <div style={{ ...S.panel, padding: '1rem 1.1rem', marginBottom: '1.4rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <div style={{ ...S.panelTitle, fontSize: '1.05rem' }}>{form.employeeName}, {form.storeName}</div>
+        <span style={{ color: th.muted, fontSize: '0.88rem' }}>{finMoney.format(form.currentRate)} to {finMoney.format(form.newRate)}, sent by {form.submittedBy}</span>
+      </div>
+      <p style={{ color: th.text, fontSize: '0.9rem', margin: '0.4rem 0 0.8rem' }}>{form.reason}</p>
+      <iframe title={`Pay increase for ${form.employeeName}`} src={`/.netlify/functions/pay-increase?pdf=${form.id}`} style={{ width: '100%', height: isMobile ? 420 : 640, border: `1px solid ${th.cardBorder}`, borderRadius: 8, background: '#fff' }} />
+      <p style={{ fontSize: '0.82rem', color: th.muted, margin: '0.4rem 0 0' }}>Form not showing? <a href={`/.netlify/functions/pay-increase?pdf=${form.id}`} target="_blank" rel="noreferrer" style={{ color: O }}>Open the PDF</a>.</p>
+      {err && <FinBanner th={th} tone="error" style={{ marginTop: '0.8rem' }}>{err}</FinBanner>}
+      {backing && (
+        <div style={{ marginTop: '0.8rem' }}>
+          <label htmlFor="pi-note" style={{ display: 'block', fontWeight: 700, marginBottom: '0.3rem', color: th.text }}>Why is it being sent back?</label>
+          <textarea id="pi-note" value={note} maxLength={400} rows={3} onChange={e => setNote(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: '0.5rem', fontFamily: FONTS.body }} />
+        </div>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.9rem' }}>
+        <button type="button" className="fin-btn" style={S.ghost} onClick={() => onClose(null)} disabled={busy}>Back</button>
+        {!canApprove && <span style={{ color: th.muted, fontSize: '0.85rem', alignSelf: 'center' }}>Only the pay increase approver can approve this.</span>}
+        {canApprove && (backing
+          ? <button type="button" className="fin-btn" style={{ ...S.primary, background: '#b91c1c', opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }} disabled={note.trim().length < 3 || busy} onClick={() => decide('reject')}>{busy ? 'Sending…' : 'Send back'}</button>
+          : <button type="button" className="fin-btn" style={S.ghost} onClick={() => setBacking(true)} disabled={busy}>Send back…</button>)}
+        {canApprove && !backing && <button type="button" className="fin-btn" style={S.primary} disabled={busy} onClick={() => decide('approve')}>{busy ? 'Approving…' : 'Approve & send to the office'}</button>}
+      </div>
+    </div>
+  );
+}
+
 const Locked = ({ value, placeholder = 'from Paycor', w }) => <span className={`pi-locked${value ? '' : ' pi-empty'}`} style={w ? { minWidth: w } : undefined} title="From Paycor — can't be changed here">{value || placeholder}</span>;
 
 export function PayIncrease({ th, isMobile, onBack }) {
@@ -78,15 +124,38 @@ export function PayIncrease({ th, isMobile, onBack }) {
   const [position, setPosition] = useState(''); // only when Paycor has no job title
   const [newRate, setNewRate] = useState('');
   const [reason, setReason] = useState('');
+  const [reasonTouched, setReasonTouched] = useState(false);
   const [date, setDate] = useState(todayIso());
-  const [sigs, setSigs] = useState({}); // { sm|dm|director: { image, fp } }
+  const [sigs, setSigs] = useState({}); // { sm|dm: { image, fp } }
+  // v22.64: decided by who is signed in (server): the second line's title, and whether the Store
+  // Manager line is N/A (everyone but a Store Manager).
+  const [secondLabel, setSecondLabel] = useState('District Manager');
+  const [smNa, setSmNa] = useState(false);
   const [signing, setSigning] = useState(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(null);
+  const [role, setRole] = useState(null);
+  const [pending, setPending] = useState(null); // list screen: forms waiting for approval
+  const [reviewing, setReviewing] = useState(null);
+  // v22.63: executives / IT (and approvers) open on a list — Pending (to approve) and Complete
+  // (approved, to look up) — with "Start a pay increase" for the form. Everyone else gets the form.
+  const [listView, setListView] = useState(false);
+  const [canApprove, setCanApprove] = useState(false);
+  const [complete, setComplete] = useState([]);
+  const [view, setView] = useState('list');
+  const [listTab, setListTab] = useState('pending');
 
-  useEffect(() => {
-    call().then(b => { setStores(b.stores || []); setEmployees(b.employees || []); }).catch(e => { setError(e.message); setEmployees([]); });
-  }, []);
+  const loadMain = () => call().then(b => {
+    setStores(b.stores || []); setEmployees(b.employees || []); setRole(b.role || null);
+    setSecondLabel(b.secondLabel || 'District Manager'); setSmNa(!!b.smNa);
+    setListView(!!b.listView); setCanApprove(!!b.canApprove); if (b.rosterError) setError(b.rosterError);
+    setPending(b.listView ? (b.pending || []) : null); setComplete(b.complete || []);
+    // ?payIncrease=<id> from the approval email / text opens that form straight away.
+    let open = null; try { open = sessionStorage.getItem('pi_open'); sessionStorage.removeItem('pi_open'); } catch {}
+    const hit = open && (b.pending || []).find(x => String(x.id) === String(open));
+    if (hit) { setView('list'); setListTab('pending'); setReviewing(hit); }
+  }).catch(e => { setError(e.message); setEmployees([]); });
+  useEffect(() => { loadMain(); }, []);
   useEffect(() => {
     setEmployee(null);
     if (!picked) return;
@@ -98,15 +167,15 @@ export function PayIncrease({ th, isMobile, onBack }) {
 
   const storeName = (pc) => stores.find(s => s.pc === String(pc))?.name || '';
   const hourly = employee && /hour/i.test(employee.payType || 'Hourly') && employee.payRate > 0;
-  const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date });
+  const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel });
   const fp = payFingerprint(base);
   const sigOk = (k) => (sigs[k] && sigs[k].fp === fp ? sigs[k] : null);
   const voided = Object.keys(sigs).some(k => sigs[k] && sigs[k].fp !== fp);
-  const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smSig: sigOk('sm'), dmSig: sigOk('dm'), directorSig: sigOk('director') });
+  const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smSig: sigOk('sm'), dmSig: sigOk('dm') });
   const rateErr = hourly && newRate !== '' ? rateProblem(employee.payRate, newRate) : null;
-  const formMissing = missingPayFields(base).filter(m => !/signature/i.test(m));
+  const formMissing = missingPayFields(base, role || 'dm').filter(m => !/signature/i.test(m));
   const canSign = hourly && !rateErr && !formMissing.length && !loadingEmp;
-  const missing = missingPayFields(values);
+  const missing = missingPayFields(values, role || 'dm');
   const ready = canSign && !missing.length && !busy;
   useEffect(() => { setSaved(null); }, [fp]);
 
@@ -124,22 +193,17 @@ export function PayIncrease({ th, isMobile, onBack }) {
       const doc = buildPayIncreasePdf(JsPDF, fonts, values, images);
       doc.save(`Pay-Increase-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`);
       setSaved({ state: 'saving' });
-      try { setSaved({ state: 'done', ...(await call('', { values, employeeId: employee.id, pdf: doc.output('datauristring') })) }); }
+      try { setSaved({ state: 'done', ...(await call('', { values, employeeId: employee.id, pdf: doc.output('datauristring') })) }); if (pending) loadMain(); }
       catch (e) { setSaved({ state: 'failed', error: e.message }); }
     } catch (e) { setError(e.message); }
     setBusy(false);
   };
   const savedLine = () => {
     if (!saved) return null;
-    if (saved.state === 'saving') return <span style={{ color: th.muted }}>Sending to the office…</span>;
+    if (saved.state === 'saving') return <span style={{ color: th.muted }}>Sending for approval…</span>;
     if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Downloaded, but not sent: {saved.error}. Press the button again to retry.</span>;
-    const d = saved.drive || {}, a = saved.alert || {};
-    return (
-      <span style={{ color: d.saved && !a.error ? '#16a34a' : '#d97706' }}>
-        {d.saved ? <>Sent — saved to Google Drive{d.link ? <> (<a href={d.link} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>open</a>)</> : ''}.</> : `Not saved to Drive: ${d.error || 'unknown error'}. Press the button again to retry.`}
-        {' '}{a.error ? `Alert failed: ${a.error}.` : a.recipients ? `The office was alerted (${a.recipients} recipient${a.recipients === 1 ? '' : 's'}).` : a.recipients === 0 ? 'No one is on the Pay Increase alert list yet.' : ''}
-      </span>
-    );
+    if (saved.already) return <span style={{ color: '#16a34a' }}>This form was already sent, so there's nothing more to do.</span>;
+    return <span style={{ color: '#16a34a' }}>Sent for approval. Once it's approved, it goes to the office{saved.notified ? '' : ' (no approver is set up yet, tell IT)'}. You'll get a notification either way.</span>;
   };
 
   const empSearch = (
@@ -164,30 +228,79 @@ export function PayIncrease({ th, isMobile, onBack }) {
   );
 
   const row = (label, content) => <div className="pi-row"><span className="pi-label">{label}</span>{content}</div>;
-  const sigRow = (key, label) => {
+  // A Store Manager makes it → they and their District Manager both sign here. Anyone else →
+  // the Store Manager line is N/A and they sign the second line, titled by who they are.
+  const isManager = role === 'manager';
+  const sigButton = (key, label) => {
     const s = sigOk(key);
-    // DM and Director: one of the two is enough — once one signs, the other line isn't needed.
-    const other = key === 'dm' ? 'director' : key === 'director' ? 'dm' : null;
-    const notNeeded = !s && other && sigOk(other);
+    return s
+      ? <button type="button" className="pi-sigimg" onClick={() => setSigning(key)} title="Sign again"><img src={s.image} alt={`${label} signature`} style={{ maxHeight: '2.5em', maxWidth: '13em', objectFit: 'contain' }} /></button>
+      : <button type="button" className="pi-sigbtn" onClick={() => setSigning(key)} disabled={!canSign} style={{ opacity: canSign ? 1 : 0.45, cursor: canSign ? 'pointer' : 'not-allowed' }}>{canSign ? `Tap to sign — ${label}` : 'Fill in the form first'}</button>;
+  };
+  const sigRow = (key, label) => {
+    const content = key === 'sm' && !isManager
+      ? <span style={{ paddingBottom: '0.15em', paddingLeft: '0.4em' }}>N/A</span>
+      : sigButton(key, label);
     return (
       <div className="pi-row" style={{ marginTop: '0.7em' }}><span>{label} Signature:</span>
-        <span className="pi-sigline">
-          {notNeeded ? <span style={{ color: '#9a8f86', fontStyle: 'italic', fontSize: '0.85em', paddingBottom: '0.2em' }}>not needed — signed by the {LABEL[other]}</span>
-            : s ? <button type="button" className="pi-sigimg" onClick={() => setSigning(key)} title="Sign again"><img src={s.image} alt={`${label} signature`} style={{ maxHeight: '2.5em', maxWidth: '13em', objectFit: 'contain' }} /></button>
-            : <button type="button" className="pi-sigbtn" onClick={() => setSigning(key)} disabled={!canSign} style={{ opacity: canSign ? 1 : 0.45, cursor: canSign ? 'pointer' : 'not-allowed' }}>{canSign ? `Tap to sign — ${label}` : 'Fill in the form first'}</button>}
-        </span>
+        <span className="pi-sigline">{content}</span>
       </div>
     );
   };
-  const LABEL = { sm: 'Store Manager', dm: 'District Manager', director: 'Director of Operations' };
+  const LABEL = { sm: 'Store Manager', dm: secondLabel };
 
   return (
     <div className="fin-root" style={{ maxWidth: 900, margin: '0 auto' }}>
       <style>{FIN_CSS(th) + PAPER_CSS}</style>
-      {onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
+      {listView && view === 'form'
+        ? <button type="button" className="fin-btn" onClick={() => { setView('list'); loadMain(); }} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Pay Increases</button>
+        : onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
       <h2 style={S.title}>Pay Increase</h2>
-      <p style={S.lede}>Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then the Store Manager signs, and either you (the DM) or the Director of Operations. It goes to the office, who make the change in Paycor.</p>
 
+      {listView && view === 'list' ? (<>
+        <p style={S.lede}>Pay increases sent by Store Managers and DMs. Pending ones wait for approval; once approved they go to the office and show under Complete.</p>
+        {saved && saved.state === 'decided' && <FinBanner th={th} tone="success">{saved.msg}</FinBanner>}
+        {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
+        {reviewing ? <Review th={th} isMobile={isMobile} form={reviewing} canApprove={canApprove} onClose={(msg) => { setReviewing(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} /> : (<>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <div role="tablist" aria-label="Pay increases" style={{ display: 'flex', gap: '0.4rem' }}>
+              {[['pending', `Pending${pending && pending.length ? ` (${pending.length})` : ''}`], ['complete', 'Complete']].map(([k, label]) => (
+                <button key={k} type="button" role="tab" aria-selected={listTab === k} className="fin-btn" onClick={() => setListTab(k)}
+                  style={{ ...S.ghost, minHeight: 36, padding: '0.4rem 0.95rem', background: listTab === k ? O : th.card3, color: listTab === k ? '#fff' : th.text }}>{label}</button>
+              ))}
+            </div>
+            <button type="button" className="fin-btn" style={S.primary} onClick={() => { setSaved(null); setView('form'); }}>Start a pay increase</button>
+          </div>
+          {listTab === 'pending' && (pending && pending.length ? (
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              {pending.map(f => (
+                <button key={f.id} type="button" className="fin-btn" onClick={() => setReviewing(f)}
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', textAlign: 'left', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${canApprove ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: 'pointer', fontFamily: FONTS.body }}>
+                  <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {finMoney.format(f.currentRate)} to {finMoney.format(f.newRate)}</span>
+                    <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}, {new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></span>
+                  <span style={{ color: canApprove ? O : th.muted, fontWeight: 700, fontSize: '0.85rem', alignSelf: 'center' }}>{canApprove ? 'Review' : 'View'}</span>
+                </button>
+              ))}
+            </div>
+          ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>Nothing waiting for approval.</p>)}
+          {listTab === 'complete' && (complete.length ? (
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              {complete.map(f => (
+                <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body }}>
+                  <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {finMoney.format(f.currentRate)} to {finMoney.format(f.newRate)}</span>
+                    <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}{f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : `, ${new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}</span></span>
+                  <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
+                    {f.hasPdf && <a href={`/.netlify/functions/pay-increase?pdf=${f.id}`} target="_blank" rel="noreferrer" style={{ color: O }}>View PDF</a>}
+                    {f.driveLink && <a href={f.driveLink} target="_blank" rel="noreferrer" style={{ color: O }}>Open in Google Drive</a>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No approved pay increases yet.</p>)}
+        </>)}
+      </>) : (<>
+      <p style={S.lede}>Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, and once he approves it, to the office to be entered in Paycor.</p>
+      {role === 'manager' && employees && !employees.length && !error && <FinBanner th={th} tone="warn">Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store.</FinBanner>}
       {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
       {employee && !hourly && <FinBanner th={th} tone="warn">Paycor has no hourly rate for {employee.name}{employee.payType ? ` (pay type: ${employee.payType})` : ''}, so this form can't be made. Fix the rate in Paycor first.</FinBanner>}
       {voided && <FinBanner th={th} tone="warn">The form changed after it was signed, so those signatures no longer count. Sign again.</FinBanner>}
@@ -213,13 +326,16 @@ export function PayIncrease({ th, isMobile, onBack }) {
 
         <div className="pi-box" style={{ marginTop: '1.6em' }}>
           <div className="pi-boxhead">Reason for Pay Change / Evaluation:</div>
-          <textarea className="pi-reason" value={reason} maxLength={600} onChange={e => setReason(e.target.value)} placeholder="Why this raise — the evaluation, new responsibilities…" aria-label="Reason for pay change / evaluation" />
+          <textarea className="pi-reason" value={reason} maxLength={600} required aria-required="true" onChange={e => setReason(e.target.value)} onBlur={() => setReasonTouched(true)}
+            aria-invalid={reasonTouched && reason.trim().length < REASON_MIN} aria-describedby="pi-reason-hint"
+            style={reasonTouched && reason.trim().length < REASON_MIN ? { boxShadow: 'inset 0 0 0 2px #dc2626' } : undefined}
+            placeholder="Required: why this raise (the evaluation, new responsibilities…)" aria-label="Reason for pay change / evaluation (required)" />
+          {reason.trim().length < REASON_MIN && <div id="pi-reason-hint" style={{ fontSize: '0.78em', padding: '0.15em 0.5em 0.3em', color: reasonTouched ? '#dc2626' : '#8a7f76', fontFamily: FONTS.body }}>Required: write at least a sentence ({reason.trim().length}/{REASON_MIN} characters).</div>}
         </div>
 
         <div style={{ marginTop: '2.2em' }}>
           {sigRow('sm', LABEL.sm)}
           {sigRow('dm', LABEL.dm)}
-          {sigRow('director', LABEL.director)}
         </div>
 
         <div className="pi-box" style={{ marginTop: '2.4em' }}>
@@ -235,10 +351,11 @@ export function PayIncrease({ th, isMobile, onBack }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.9rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
         {!ready && <span style={{ color: rateErr ? '#dc2626' : th.muted, fontSize: '0.82rem' }}>{rateErr || (missing.length ? `Still needed: ${missing.join(', ')}` : '')}</span>}
         <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? 'pointer' : 'not-allowed' }} disabled={!ready} onClick={send}>
-          {busy ? 'Sending…' : 'Send to the office & download'}
+          {busy ? 'Sending…' : 'Send for approval & download'}
         </button>
       </div>
-      {saved && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginBottom: '2rem' }}>{savedLine()}</div>}
+      {saved && saved.state !== 'decided' && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginBottom: '2rem' }}>{savedLine()}</div>}
+      </>)}
 
       {signing && (
         <SignatureModal th={th} title={`${LABEL[signing]} signature — ${employee?.name || ''}`} onCancel={() => setSigning(null)}

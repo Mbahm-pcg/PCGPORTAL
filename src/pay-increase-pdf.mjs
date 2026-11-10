@@ -15,16 +15,16 @@ export const PAY_LAYOUT = [
   [309.4, 9, [[231.9, 'Reason for Pay Change / Evaluation:', 'b']]],
   [431.1, 11, [[72, 'Store Manager Signature:'], [200.2, '_____________________________']]],
   [456.9, 11, [[72, 'District Manager Signature:'], [205.7, '_____________________________']]],
-  [482.7, 11, [[72, 'Director of Operations Signature:'], [231.9, '_______________________']]],
   [545.2, 9, [[268.7, 'For Office Use Only', 'bi']]],
   [564.7, 9, [[157.0, 'Effective Date:']]],
   [584.2, 9, [[120.8, 'Effective Pay Rate Paycheck Date:']]],
   [603.7, 9, [[132.6, 'Payroll Manager Signature:']]],
 ];
 
-// The template's 9 underscore blanks in reading order → the field written on each.
-export const PAY_BLANK_FIELDS = ['date', 'pc', 'employeeName', 'position', 'currentRate', 'newRate', 'smSignature', 'dmSignature', 'directorSignature'];
-export const PAY_SIGNATURE_FIELDS = new Set(['smSignature', 'dmSignature', 'directorSignature', 'payrollSignature']);
+// The template's blanks in reading order → the field written on each. v22.62: the Director of
+// Operations signature line is gone (user, 2026-11-10) — only Store Manager and District Manager.
+export const PAY_BLANK_FIELDS = ['date', 'pc', 'employeeName', 'position', 'currentRate', 'newRate', 'smSignature', 'dmSignature'];
+export const PAY_SIGNATURE_FIELDS = new Set(['smSignature', 'dmSignature', 'payrollSignature']);
 
 export function payBlanks() {
   const out = [];
@@ -78,7 +78,7 @@ function wrap(doc, text, width) {
 
 // fonts: { regular, bold, boldItalic } base64 TTF. images: { logo (JPEG data URL), watermark (PNG data URL) }.
 // values: { date, pc, employeeName, position, currentRate, newRate, reason, smSignature, dmSignature,
-//           directorSignature, effectiveDate, paycheckDate, payrollSignature } — signatures as PNG data URLs.
+//           smNa, effectiveDate, paycheckDate, payrollSignature } — signatures as PNG data URLs; smNa prints N/A.
 export function buildPayIncreasePdf(jsPDF, fonts, values = {}, images = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const F = PAY_FONT.family;
@@ -90,27 +90,40 @@ export function buildPayIncreasePdf(jsPDF, fonts, values = {}, images = {}) {
   if (images.watermark) doc.addImage(images.watermark, 'PNG', C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size, 'seal', 'FAST');
   if (images.logo) doc.addImage(images.logo, 'JPEG', C.logo.x, C.logo.y, C.logo.w, C.logo.h);
 
+  // v22.64: the second signature line is titled by who made the form (District Manager /
+  // Director of Operations / Vice President / Executive); its blank starts right after the title,
+  // with the template's 4.9pt gap.
+  const SECOND = 'District Manager Signature:';
+  const secondText = `${values.secondLabel || 'District Manager'} Signature:`;
+  doc.setFont(F, 'normal'); doc.setFontSize(11);
+  const secondBlankX = 72 + doc.getTextWidth(secondText) + 4.9;
   doc.setTextColor(0, 0, 0);
   for (const [y, size, words] of PAY_LAYOUT) {
     doc.setFontSize(size);
-    for (const [x, text, style] of words) { doc.setFont(F, style === 'b' ? 'bold' : style === 'bi' ? 'bolditalic' : 'normal'); doc.text(text, x, y); }
+    const second = words[0][1] === SECOND;
+    for (const [x, text, style] of words) {
+      doc.setFont(F, style === 'b' ? 'bold' : style === 'bi' ? 'bolditalic' : 'normal');
+      doc.text(second ? (text === SECOND ? secondText : text) : text, second && text !== SECOND ? secondBlankX : x, y);
+    }
   }
   doc.setLineWidth(1);
   for (const l of PAY_LINES) { doc.setDrawColor(...l.c); doc.line(l.x1, l.y1, l.x2, l.y2); }
 
   const v = { ...values, date: formatFormDate(values.date), currentRate: formatRate(values.currentRate), newRate: formatRate(values.newRate) };
+  if (values.smNa) v.smSignature = 'N/A'; // store without a Store Manager
   const sign = (img, x, yLine, width, maxH) => {
     const p = doc.getImageProperties(img);
     const s = Math.min((width - 4) / p.width, maxH / p.height);
     doc.addImage(img, 'PNG', x + 4, yLine + 1 - p.height * s, p.width * s, p.height * s, undefined, 'FAST');
   };
   doc.setFont(F, 'normal');
-  for (const { field, y, x, raw, size } of payBlanks()) {
+  for (const { field, y, x: x0, raw, size } of payBlanks()) {
+    const x = field === 'dmSignature' ? secondBlankX : x0;
     const text = String(v[field] ?? '').trim();
     if (!text) continue;
     doc.setFontSize(size);
     const width = doc.getTextWidth(raw);
-    if (PAY_SIGNATURE_FIELDS.has(field)) { sign(text, x, y, width, 21); continue; }
+    if (PAY_SIGNATURE_FIELDS.has(field) && text.startsWith('data:')) { sign(text, x, y, width, 21); continue; }
     let s = size;
     while (s > 7 && (doc.setFontSize(s), doc.getTextWidth(text)) > width - 2) s -= 0.5;
     doc.setFontSize(s);

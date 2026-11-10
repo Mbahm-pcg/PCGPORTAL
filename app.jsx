@@ -20351,6 +20351,7 @@ const NOTIFY_ICONS = {
   newHires: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6M16 11h6"/></>,
   transferNotice: <><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/></>,
   payIncrease: <><path d="M12 20V6M7 11l5-5 5 5"/><path d="M5 20h14"/></>,
+  payIncreaseApprovers: <><path d="M20 6 9 17l-5-5"/></>,
   interviewReminders: <><path d="M4 5h16v11H8l-4 4Z"/><circle cx="12" cy="10.5" r="2.2"/><path d="M8.5 14.2a4 4 0 0 1 7 0"/></>,
   mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></>,
   phone:<><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></>,
@@ -20363,7 +20364,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
-  transferNotice: 'Transfer notices', payIncrease: 'Pay increases',
+  transferNotice: 'Transfer notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -20668,7 +20669,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [notifSubTab, setNotifSubTab] = useState('project');
   // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
   // here, then kept live by each ManualNotifyListPanel's onCountChange.
-  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1' };
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1' };
   const [notifCounts, setNotifCounts] = useState({});
   useEffect(() => {
     Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -20898,7 +20899,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
               { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
               { id: 'transferNotice', label: 'Transfer Notice', count: notifCounts.transferNotice },
-              { id: 'payIncrease', label: 'Pay Increase', count: notifCounts.payIncrease },
+              { id: 'payIncreaseApprovers', label: 'Pay Increase approval', count: notifCounts.payIncreaseApprovers },
+              { id: 'payIncrease', label: 'Pay Increase (office)', count: notifCounts.payIncrease },
               { id: 'interviewReminders', label: 'Interview Reminders' },
               { id: 'newHires', label: 'New Hires' },
             ] : []),
@@ -21044,9 +21046,18 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           Pay Increase Form to the office: email (PDF attached) + text to this list; push + bell
           to anyone added by name. This list is the whole recipient set. v22.55
           */}
+      {/* Pay Increase approval — full admins only. Read by pay-increase.mjs: people added BY NAME
+          here are the only ones who can approve (in Tools · Pay Increase); the emails / numbers get
+          the "waiting for approval" email / text with a link. While no one is named, every
+          executive approves and gets it. v22.60 */}
+      {notifSubTab === 'payIncreaseApprovers' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_approvers_v1" tagKey="payIncreaseApprovers" onCountChange={setNotifCount('payIncreaseApprovers')}
+          description="Who approves pay increases (e.g. Mike). When a manager or DM sends one, these people get an email and a text with a link to review it, then approve it or send it back in Tools · Pay Increase. Add the approver by name (that's what lets them approve) and add their mobile number below for the text. While no one is added by name, every executive can approve and gets the email."
+          smsLabel="Pay Increase approval SMS Numbers" />
+      )}
       {notifSubTab === 'payIncrease' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_notify_v1" tagKey="payIncrease" onCountChange={setNotifCount('payIncrease')}
-          description="These people are the office side of Tools · Pay Increase: every time a DM sends a pay increase signed by the Store Manager and the DM or Director of Operations, they get an email with the signed form attached (to enter in Paycor), and the numbers below get a text. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
+          description="The office side of Tools · Pay Increase (e.g. Ella and Roxy). Once the approver approves a pay increase, these people get an email with the signed form attached (to enter in Paycor), and the numbers below get a text. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
           smsLabel="Pay Increase SMS Numbers" />
       )}
       {notifSubTab === 'interviewReminders' && isFullAdmin(user) && <InterviewRemindersPanel th={th} showAlert={showAlert} users={users} />}
@@ -25086,8 +25097,9 @@ const ADMIN_CONSOLE_SUBS = [
 // v22.49: roles that can make a Transfer Notice at all (pay rates — what each sees is
 // also scoped server-side); the per-role on/off switch is Admin · Access.
 const TRANSFER_NOTICE_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
-// v22.55 Pay Increase: the DM fills it; the Store Manager + the DM or Director sign on the DM's screen.
-const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director']);
+// v22.60 Pay Increase: a Store Manager or DM makes it and signs their own line; it goes to the
+// approver (Mike) and, once approved, to the office.
+const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
 const accessSubOn = (overrides, rt, hubId, subId) => (overrides?.[rt]?.[`${hubId}:${subId}`]) !== false;
 
 
@@ -31009,6 +31021,7 @@ const computeRoleTabs = (user) => {
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+    { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
     { id: "pulse",     label: "My Pulse",     icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -32385,7 +32398,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.59";
+const APP_VERSION = "v22.64";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -55642,6 +55655,12 @@ function PCGPortal() {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
     const ticketParam = params.get('ticket');
+    const payParam = params.get('payIncrease'); // v22.60: approval email / text link
+    if (payParam && /^\d+$/.test(payParam)) {
+      try { sessionStorage.setItem('pi_open', payParam); } catch {}
+      setTab('pay-increase');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     if (ticketParam) {
       setTab('tickets');
       ticketDeepLinkRef.current = ticketParam;

@@ -2235,14 +2235,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     [309.4, 9, [[231.9, "Reason for Pay Change / Evaluation:", "b"]]],
     [431.1, 11, [[72, "Store Manager Signature:"], [200.2, "_____________________________"]]],
     [456.9, 11, [[72, "District Manager Signature:"], [205.7, "_____________________________"]]],
-    [482.7, 11, [[72, "Director of Operations Signature:"], [231.9, "_______________________"]]],
     [545.2, 9, [[268.7, "For Office Use Only", "bi"]]],
     [564.7, 9, [[157, "Effective Date:"]]],
     [584.2, 9, [[120.8, "Effective Pay Rate Paycheck Date:"]]],
     [603.7, 9, [[132.6, "Payroll Manager Signature:"]]]
   ];
-  var PAY_BLANK_FIELDS = ["date", "pc", "employeeName", "position", "currentRate", "newRate", "smSignature", "dmSignature", "directorSignature"];
-  var PAY_SIGNATURE_FIELDS = /* @__PURE__ */ new Set(["smSignature", "dmSignature", "directorSignature", "payrollSignature"]);
+  var PAY_BLANK_FIELDS = ["date", "pc", "employeeName", "position", "currentRate", "newRate", "smSignature", "dmSignature"];
+  var PAY_SIGNATURE_FIELDS = /* @__PURE__ */ new Set(["smSignature", "dmSignature", "payrollSignature"]);
   function payBlanks() {
     const out = [];
     for (const [y, size, words] of PAY_LAYOUT) for (const [x, raw] of words) {
@@ -2318,12 +2317,18 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const C = PAY_CHROME;
     if (images.watermark) doc.addImage(images.watermark, "PNG", C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size, "seal", "FAST");
     if (images.logo) doc.addImage(images.logo, "JPEG", C.logo.x, C.logo.y, C.logo.w, C.logo.h);
+    const SECOND = "District Manager Signature:";
+    const secondText = `${values.secondLabel || "District Manager"} Signature:`;
+    doc.setFont(F, "normal");
+    doc.setFontSize(11);
+    const secondBlankX = 72 + doc.getTextWidth(secondText) + 4.9;
     doc.setTextColor(0, 0, 0);
     for (const [y, size, words] of PAY_LAYOUT) {
       doc.setFontSize(size);
+      const second = words[0][1] === SECOND;
       for (const [x, text, style] of words) {
         doc.setFont(F, style === "b" ? "bold" : style === "bi" ? "bolditalic" : "normal");
-        doc.text(text, x, y);
+        doc.text(second ? text === SECOND ? secondText : text : text, second && text !== SECOND ? secondBlankX : x, y);
       }
     }
     doc.setLineWidth(1);
@@ -2332,18 +2337,20 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       doc.line(l.x1, l.y1, l.x2, l.y2);
     }
     const v = { ...values, date: formatFormDate(values.date), currentRate: formatRate(values.currentRate), newRate: formatRate(values.newRate) };
+    if (values.smNa) v.smSignature = "N/A";
     const sign = (img, x, yLine, width, maxH) => {
       const p = doc.getImageProperties(img);
       const s = Math.min((width - 4) / p.width, maxH / p.height);
       doc.addImage(img, "PNG", x + 4, yLine + 1 - p.height * s, p.width * s, p.height * s, void 0, "FAST");
     };
     doc.setFont(F, "normal");
-    for (const { field, y, x, raw, size } of payBlanks()) {
+    for (const { field, y, x: x0, raw, size } of payBlanks()) {
+      const x = field === "dmSignature" ? secondBlankX : x0;
       const text = String(v[field] ?? "").trim();
       if (!text) continue;
       doc.setFontSize(size);
       const width = doc.getTextWidth(raw);
-      if (PAY_SIGNATURE_FIELDS.has(field)) {
+      if (PAY_SIGNATURE_FIELDS.has(field) && text.startsWith("data:")) {
         sign(text, x, y, width, 21);
         continue;
       }
@@ -2387,7 +2394,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     if (nr > 100) return "That rate looks wrong \u2014 check it.";
     return null;
   }
-  function payFormValues({ employee, pc, position, newRate, reason, date, smSig, dmSig, directorSig }) {
+  function payFormValues({ employee, pc, position, newRate, reason, date, smSig, dmSig, smNa, secondLabel }) {
     return {
       date: date || "",
       pc: employee ? String(pc || "") : "",
@@ -2396,25 +2403,25 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       currentRate: employee?.payRate ?? "",
       newRate: newRate === "" || newRate == null ? "" : Number(newRate),
       reason: String(reason || "").trim(),
-      smSignature: smSig?.image || "",
-      dmSignature: dmSig?.image || "",
-      directorSignature: directorSig?.image || ""
+      smNa: !!smNa,
+      secondLabel: secondLabel || "District Manager",
+      smSignature: smNa ? "" : smSig?.image || "",
+      dmSignature: dmSig?.image || ""
     };
   }
   function payFingerprint(v) {
-    return ["date", "pc", "employeeName", "position", "currentRate", "newRate", "reason"].map((k) => String(v?.[k] ?? "").trim()).join("|");
+    return [...["date", "pc", "employeeName", "position", "currentRate", "newRate", "reason"].map((k) => String(v?.[k] ?? "").trim()), v?.smNa ? "SM:N/A" : ""].join("|");
   }
-  function missingPayFields(v) {
-    const need = [
-      ["employeeName", "Employee"],
-      ["position", "Position"],
-      ["newRate", "New pay rate"],
-      ["reason", "Reason"],
-      ["date", "Date"],
-      ["smSignature", "Store Manager signature"]
-    ];
-    const out = need.filter(([k]) => !String(v?.[k] ?? "").trim()).map(([, label]) => label);
-    if (!String(v?.dmSignature ?? "").trim() && !String(v?.directorSignature ?? "").trim()) out.push("District Manager or Director signature");
+  var has = (v, k) => !!String(v?.[k] ?? "").trim();
+  var REASON_MIN = 10;
+  function missingPayFields(v, role) {
+    const need = [["employeeName", "Employee"], ["position", "Position"], ["newRate", "New pay rate"], ["date", "Date"]];
+    const out = need.filter(([k]) => !has(v, k)).map(([, label]) => label);
+    if (String(v?.reason ?? "").trim().length < REASON_MIN) out.splice(3, 0, "Reason for the pay change (at least a sentence)");
+    if (role === "manager") {
+      if (!has(v, "smSignature")) out.push("Store Manager signature");
+      if (!has(v, "dmSignature")) out.push("District Manager signature");
+    } else if (!has(v, "dmSignature")) out.push("Your signature");
     return out;
   }
 
@@ -2474,6 +2481,27 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .pi-office td { border-top: 1px solid #b7b7b7; padding: 0.3em 0.5em; text-align: center; height: 1.9em; }
 .pi-office td + td { border-left: 1px solid #b7b7b7; color: #9a8f86; font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .pi-blank, .pi-sigbtn { transition: none; } }`;
+  function Review({ th, isMobile, form, onClose, canApprove = true }) {
+    const S = finStyles(th);
+    const [busy, setBusy] = useState3(false);
+    const [err, setErr] = useState3(null);
+    const [backing, setBacking] = useState3(false);
+    const [note, setNote] = useState3("");
+    const decide = async (action) => {
+      setBusy(true);
+      setErr(null);
+      try {
+        const b = await call("", { action, id: form.id, note: note.trim() });
+        if (action === "reject") return onClose(`Sent back to ${form.submittedBy}.`);
+        const d = b.drive || {}, a = b.alert || {};
+        onClose(`Approved: ${d.saved ? "saved to Google Drive" : `not saved to Drive (${d.error || "error"})`}, ${a.error ? `office alert failed (${a.error})` : a.recipients ? `the office was alerted (${a.recipients})` : "no one is on the office list yet"}. ${form.submittedBy} was told.`);
+      } catch (e) {
+        setErr(e.message);
+        setBusy(false);
+      }
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, finMoney.format(form.currentRate), " to ", finMoney.format(form.newRate), ", sent by ", form.submittedBy)), /* @__PURE__ */ React.createElement("p", { style: { color: th.text, fontSize: "0.9rem", margin: "0.4rem 0 0.8rem" } }, form.reason), /* @__PURE__ */ React.createElement("iframe", { title: `Pay increase for ${form.employeeName}`, src: `/.netlify/functions/pay-increase?pdf=${form.id}`, style: { width: "100%", height: isMobile ? 420 : 640, border: `1px solid ${th.cardBorder}`, borderRadius: 8, background: "#fff" } }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: "0.4rem 0 0" } }, "Form not showing? ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${form.id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open the PDF"), "."), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "pi-note", style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement("textarea", { id: "pi-note", value: note, maxLength: 400, rows: 3, onChange: (e) => setNote(e.target.value), style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the pay increase approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving\u2026" : "Approve & send to the office")));
+  }
   var Locked = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `pi-locked${value ? "" : " pi-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function PayIncrease({ th, isMobile, onBack }) {
     const S = finStyles(th);
@@ -2488,19 +2516,51 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [position, setPosition] = useState3("");
     const [newRate, setNewRate] = useState3("");
     const [reason, setReason] = useState3("");
+    const [reasonTouched, setReasonTouched] = useState3(false);
     const [date, setDate] = useState3(todayIso3());
     const [sigs, setSigs] = useState3({});
+    const [secondLabel, setSecondLabel] = useState3("District Manager");
+    const [smNa, setSmNa] = useState3(false);
     const [signing, setSigning] = useState3(null);
     const [busy, setBusy] = useState3(false);
     const [saved, setSaved] = useState3(null);
+    const [role, setRole] = useState3(null);
+    const [pending, setPending] = useState3(null);
+    const [reviewing, setReviewing] = useState3(null);
+    const [listView, setListView] = useState3(false);
+    const [canApprove, setCanApprove] = useState3(false);
+    const [complete, setComplete] = useState3([]);
+    const [view, setView] = useState3("list");
+    const [listTab, setListTab] = useState3("pending");
+    const loadMain = () => call().then((b) => {
+      setStores(b.stores || []);
+      setEmployees(b.employees || []);
+      setRole(b.role || null);
+      setSecondLabel(b.secondLabel || "District Manager");
+      setSmNa(!!b.smNa);
+      setListView(!!b.listView);
+      setCanApprove(!!b.canApprove);
+      if (b.rosterError) setError(b.rosterError);
+      setPending(b.listView ? b.pending || [] : null);
+      setComplete(b.complete || []);
+      let open = null;
+      try {
+        open = sessionStorage.getItem("pi_open");
+        sessionStorage.removeItem("pi_open");
+      } catch {
+      }
+      const hit = open && (b.pending || []).find((x) => String(x.id) === String(open));
+      if (hit) {
+        setView("list");
+        setListTab("pending");
+        setReviewing(hit);
+      }
+    }).catch((e) => {
+      setError(e.message);
+      setEmployees([]);
+    });
     useEffect3(() => {
-      call().then((b) => {
-        setStores(b.stores || []);
-        setEmployees(b.employees || []);
-      }).catch((e) => {
-        setError(e.message);
-        setEmployees([]);
-      });
+      loadMain();
     }, []);
     useEffect3(() => {
       setEmployee(null);
@@ -2515,15 +2575,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, [picked]);
     const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
     const hourly = employee && /hour/i.test(employee.payType || "Hourly") && employee.payRate > 0;
-    const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date });
+    const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel });
     const fp = payFingerprint(base);
     const sigOk = (k) => sigs[k] && sigs[k].fp === fp ? sigs[k] : null;
     const voided = Object.keys(sigs).some((k) => sigs[k] && sigs[k].fp !== fp);
-    const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smSig: sigOk("sm"), dmSig: sigOk("dm"), directorSig: sigOk("director") });
+    const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smSig: sigOk("sm"), dmSig: sigOk("dm") });
     const rateErr = hourly && newRate !== "" ? rateProblem(employee.payRate, newRate) : null;
-    const formMissing = missingPayFields(base).filter((m) => !/signature/i.test(m));
+    const formMissing = missingPayFields(base, role || "dm").filter((m) => !/signature/i.test(m));
     const canSign = hourly && !rateErr && !formMissing.length && !loadingEmp;
-    const missing = missingPayFields(values);
+    const missing = missingPayFields(values, role || "dm");
     const ready = canSign && !missing.length && !busy;
     useEffect3(() => {
       setSaved(null);
@@ -2549,6 +2609,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setSaved({ state: "saving" });
         try {
           setSaved({ state: "done", ...await call("", { values, employeeId: employee.id, pdf: doc.output("datauristring") }) });
+          if (pending) loadMain();
         } catch (e) {
           setSaved({ state: "failed", error: e.message });
         }
@@ -2559,10 +2620,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     };
     const savedLine = () => {
       if (!saved) return null;
-      if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Sending to the office\u2026");
+      if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Sending for approval\u2026");
       if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Downloaded, but not sent: ", saved.error, ". Press the button again to retry.");
-      const d = saved.drive || {}, a = saved.alert || {};
-      return /* @__PURE__ */ React.createElement("span", { style: { color: d.saved && !a.error ? "#16a34a" : "#d97706" } }, d.saved ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Sent \u2014 saved to Google Drive", d.link ? /* @__PURE__ */ React.createElement(React.Fragment, null, " (", /* @__PURE__ */ React.createElement("a", { href: d.link, target: "_blank", rel: "noreferrer", style: { color: "inherit" } }, "open"), ")") : "", ".") : `Not saved to Drive: ${d.error || "unknown error"}. Press the button again to retry.`, " ", a.error ? `Alert failed: ${a.error}.` : a.recipients ? `The office was alerted (${a.recipients} recipient${a.recipients === 1 ? "" : "s"}).` : a.recipients === 0 ? "No one is on the Pay Increase alert list yet." : "");
+      if (saved.already) return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "This form was already sent, so there's nothing more to do.");
+      return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "Sent for approval. Once it's approved, it goes to the office", saved.notified ? "" : " (no approver is set up yet, tell IT)", ". You'll get a notification either way.");
     };
     const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
       "input",
@@ -2608,14 +2669,50 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, whiteSpace: "nowrap" } }, storeName(e.pc), " \xB7 ", e.pc)
     ))));
     const row = (label, content) => /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", { className: "pi-label" }, label), content);
-    const sigRow = (key, label) => {
+    const isManager = role === "manager";
+    const sigButton = (key, label) => {
       const s = sigOk(key);
-      const other = key === "dm" ? "director" : key === "director" ? "dm" : null;
-      const notNeeded = !s && other && sigOk(other);
-      return /* @__PURE__ */ React.createElement("div", { className: "pi-row", style: { marginTop: "0.7em" } }, /* @__PURE__ */ React.createElement("span", null, label, " Signature:"), /* @__PURE__ */ React.createElement("span", { className: "pi-sigline" }, notNeeded ? /* @__PURE__ */ React.createElement("span", { style: { color: "#9a8f86", fontStyle: "italic", fontSize: "0.85em", paddingBottom: "0.2em" } }, "not needed \u2014 signed by the ", LABEL[other]) : s ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "pi-sigimg", onClick: () => setSigning(key), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: s.image, alt: `${label} signature`, style: { maxHeight: "2.5em", maxWidth: "13em", objectFit: "contain" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "pi-sigbtn", onClick: () => setSigning(key), disabled: !canSign, style: { opacity: canSign ? 1 : 0.45, cursor: canSign ? "pointer" : "not-allowed" } }, canSign ? `Tap to sign \u2014 ${label}` : "Fill in the form first")));
+      return s ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "pi-sigimg", onClick: () => setSigning(key), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: s.image, alt: `${label} signature`, style: { maxHeight: "2.5em", maxWidth: "13em", objectFit: "contain" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "pi-sigbtn", onClick: () => setSigning(key), disabled: !canSign, style: { opacity: canSign ? 1 : 0.45, cursor: canSign ? "pointer" : "not-allowed" } }, canSign ? `Tap to sign \u2014 ${label}` : "Fill in the form first");
     };
-    const LABEL = { sm: "Store Manager", dm: "District Manager", director: "Director of Operations" };
-    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + PAPER_CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Pay Increase"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then the Store Manager signs, and either you (the DM) or the Director of Operations. It goes to the office, who make the change in Paycor."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no hourly rate for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this form can't be made. Fix the rate in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The form changed after it was signed, so those signatures no longer count. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "pi-paper", style: {
+    const sigRow = (key, label) => {
+      const content = key === "sm" && !isManager ? /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.15em", paddingLeft: "0.4em" } }, "N/A") : sigButton(key, label);
+      return /* @__PURE__ */ React.createElement("div", { className: "pi-row", style: { marginTop: "0.7em" } }, /* @__PURE__ */ React.createElement("span", null, label, " Signature:"), /* @__PURE__ */ React.createElement("span", { className: "pi-sigline" }, content));
+    };
+    const LABEL = { sm: "Store Manager", dm: secondLabel };
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + PAPER_CSS), listView && view === "form" ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
+      setView("list");
+      loadMain();
+    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Pay Increases") : onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Pay Increase"), listView && view === "list" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Pay increases sent by Store Managers and DMs. Pending ones wait for approval; once approved they go to the office and show under Complete."), saved && saved.state === "decided" && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, saved.msg), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), reviewing ? /* @__PURE__ */ React.createElement(Review, { th, isMobile, form: reviewing, canApprove, onClose: (msg) => {
+      setReviewing(null);
+      loadMain();
+      if (msg) setSaved({ state: "decided", msg });
+    } }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "Pay increases", style: { display: "flex", gap: "0.4rem" } }, [["pending", `Pending${pending && pending.length ? ` (${pending.length})` : ""}`], ["complete", "Complete"]].map(([k, label]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: k,
+        type: "button",
+        role: "tab",
+        "aria-selected": listTab === k,
+        className: "fin-btn",
+        onClick: () => setListTab(k),
+        style: { ...S.ghost, minHeight: 36, padding: "0.4rem 0.95rem", background: listTab === k ? O : th.card3, color: listTab === k ? "#fff" : th.text }
+      },
+      label
+    ))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
+      setSaved(null);
+      setView("form");
+    } }, "Start a pay increase")), listTab === "pending" && (pending && pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, pending.map((f) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: f.id,
+        type: "button",
+        className: "fin-btn",
+        onClick: () => setReviewing(f),
+        style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", textAlign: "left", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${canApprove ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: "pointer", fontFamily: FONTS.body }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, ", ", finMoney.format(f.currentRate), " to ", finMoney.format(f.newRate)), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Sent by ", f.submittedBy, ", ", new Date(f.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }))),
+      /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")
+    ))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "complete" && (complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, ", ", finMoney.format(f.currentRate), " to ", finMoney.format(f.newRate)), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Sent by ", f.submittedBy, f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : `, ${new Date(f.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${f.id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "View PDF"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved pay increases yet.")))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, and once he approves it, to the office to be entered in Paycor."), role === "manager" && employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no hourly rate for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this form can't be made. Fix the rate in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The form changed after it was signed, so those signatures no longer count. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "pi-paper", style: {
       borderRadius: 6,
       boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
       padding: isMobile ? "1.2rem 1rem 1.6rem" : "1.6rem 4.2rem 2.4rem",
@@ -2626,7 +2723,23 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       backgroundRepeat: "no-repeat",
       backgroundPosition: "center 62%",
       backgroundSize: "77%"
-    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("img", { src: "/" + PAY_CHROME.logo.src, alt: "People Capital Group", style: { width: isMobile ? 110 : 144, height: "auto" } })), /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, fontSize: "1.09em", marginTop: "1.3em" } }, "PAY INCREASE FORM"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: isMobile ? "0.4em 1.5em" : "0 4.5em", flexWrap: "wrap", marginTop: "0.5em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", null, "Date:"), /* @__PURE__ */ React.createElement("input", { type: "date", className: "pi-blank", style: { width: "9.5em" }, value: date, onChange: (e) => setDate(e.target.value), "aria-label": "Form date" })), /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", null, "PC #:"), /* @__PURE__ */ React.createElement(Locked, { value: employee ? picked.pc : "", placeholder: loadingEmp ? "\u2026" : "from Paycor", w: "8em" }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.4em" } }, row("Employee Name:", empSearch), row("Employee Position:", employee && !employee.jobTitle ? /* @__PURE__ */ React.createElement("input", { className: "pi-blank", style: { width: "11em" }, list: "pi-positions", value: position, onChange: (e) => setPosition(e.target.value), placeholder: "position", "aria-label": "Employee position", title: "Paycor has no job title for this employee \u2014 fill it in" }) : /* @__PURE__ */ React.createElement(Locked, { value: employee?.jobTitle || "", placeholder: loadingEmp ? "\u2026" : "from Paycor" })), row("Current Pay Rate:", /* @__PURE__ */ React.createElement(Locked, { value: hourly ? finMoney.format(employee.payRate) : "", placeholder: loadingEmp ? "\u2026" : "from Paycor" })), row("New Pay Rate:", /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "flex-end" } }, "$", /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: "0.05", min: "0", className: "pi-blank", style: { width: "6.5em" }, value: newRate, onChange: (e) => setNewRate(e.target.value), placeholder: "0.00", "aria-label": "New pay rate" })))), /* @__PURE__ */ React.createElement("datalist", { id: "pi-positions" }, POSITIONS2.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("div", { className: "pi-box", style: { marginTop: "1.6em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-boxhead" }, "Reason for Pay Change / Evaluation:"), /* @__PURE__ */ React.createElement("textarea", { className: "pi-reason", value: reason, maxLength: 600, onChange: (e) => setReason(e.target.value), placeholder: "Why this raise \u2014 the evaluation, new responsibilities\u2026", "aria-label": "Reason for pay change / evaluation" })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "2.2em" } }, sigRow("sm", LABEL.sm), sigRow("dm", LABEL.dm), sigRow("director", LABEL.director)), /* @__PURE__ */ React.createElement("div", { className: "pi-box", style: { marginTop: "2.4em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-boxhead", style: { fontStyle: "italic", borderBottom: "none" } }, "For Office Use Only"), /* @__PURE__ */ React.createElement("table", { className: "pi-office" }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { width: "49%" } }, "Effective Date:"), /* @__PURE__ */ React.createElement("td", null, "office")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "Effective Pay Rate Paycheck Date:"), /* @__PURE__ */ React.createElement("td", null, "office")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "Payroll Manager Signature:"), /* @__PURE__ */ React.createElement("td", null, "office")))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: rateErr ? "#dc2626" : th.muted, fontSize: "0.82rem" } }, rateErr || (missing.length ? `Still needed: ${missing.join(", ")}` : "")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send }, busy ? "Sending\u2026" : "Send to the office & download")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine()), signing && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("img", { src: "/" + PAY_CHROME.logo.src, alt: "People Capital Group", style: { width: isMobile ? 110 : 144, height: "auto" } })), /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, fontSize: "1.09em", marginTop: "1.3em" } }, "PAY INCREASE FORM"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: isMobile ? "0.4em 1.5em" : "0 4.5em", flexWrap: "wrap", marginTop: "0.5em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", null, "Date:"), /* @__PURE__ */ React.createElement("input", { type: "date", className: "pi-blank", style: { width: "9.5em" }, value: date, onChange: (e) => setDate(e.target.value), "aria-label": "Form date" })), /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", null, "PC #:"), /* @__PURE__ */ React.createElement(Locked, { value: employee ? picked.pc : "", placeholder: loadingEmp ? "\u2026" : "from Paycor", w: "8em" }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.4em" } }, row("Employee Name:", empSearch), row("Employee Position:", employee && !employee.jobTitle ? /* @__PURE__ */ React.createElement("input", { className: "pi-blank", style: { width: "11em" }, list: "pi-positions", value: position, onChange: (e) => setPosition(e.target.value), placeholder: "position", "aria-label": "Employee position", title: "Paycor has no job title for this employee \u2014 fill it in" }) : /* @__PURE__ */ React.createElement(Locked, { value: employee?.jobTitle || "", placeholder: loadingEmp ? "\u2026" : "from Paycor" })), row("Current Pay Rate:", /* @__PURE__ */ React.createElement(Locked, { value: hourly ? finMoney.format(employee.payRate) : "", placeholder: loadingEmp ? "\u2026" : "from Paycor" })), row("New Pay Rate:", /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "flex-end" } }, "$", /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: "0.05", min: "0", className: "pi-blank", style: { width: "6.5em" }, value: newRate, onChange: (e) => setNewRate(e.target.value), placeholder: "0.00", "aria-label": "New pay rate" })))), /* @__PURE__ */ React.createElement("datalist", { id: "pi-positions" }, POSITIONS2.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("div", { className: "pi-box", style: { marginTop: "1.6em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-boxhead" }, "Reason for Pay Change / Evaluation:"), /* @__PURE__ */ React.createElement(
+      "textarea",
+      {
+        className: "pi-reason",
+        value: reason,
+        maxLength: 600,
+        required: true,
+        "aria-required": "true",
+        onChange: (e) => setReason(e.target.value),
+        onBlur: () => setReasonTouched(true),
+        "aria-invalid": reasonTouched && reason.trim().length < REASON_MIN,
+        "aria-describedby": "pi-reason-hint",
+        style: reasonTouched && reason.trim().length < REASON_MIN ? { boxShadow: "inset 0 0 0 2px #dc2626" } : void 0,
+        placeholder: "Required: why this raise (the evaluation, new responsibilities\u2026)",
+        "aria-label": "Reason for pay change / evaluation (required)"
+      }
+    ), reason.trim().length < REASON_MIN && /* @__PURE__ */ React.createElement("div", { id: "pi-reason-hint", style: { fontSize: "0.78em", padding: "0.15em 0.5em 0.3em", color: reasonTouched ? "#dc2626" : "#8a7f76", fontFamily: FONTS.body } }, "Required: write at least a sentence (", reason.trim().length, "/", REASON_MIN, " characters).")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "2.2em" } }, sigRow("sm", LABEL.sm), sigRow("dm", LABEL.dm)), /* @__PURE__ */ React.createElement("div", { className: "pi-box", style: { marginTop: "2.4em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-boxhead", style: { fontStyle: "italic", borderBottom: "none" } }, "For Office Use Only"), /* @__PURE__ */ React.createElement("table", { className: "pi-office" }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { width: "49%" } }, "Effective Date:"), /* @__PURE__ */ React.createElement("td", null, "office")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "Effective Pay Rate Paycheck Date:"), /* @__PURE__ */ React.createElement("td", null, "office")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "Payroll Manager Signature:"), /* @__PURE__ */ React.createElement("td", null, "office")))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: rateErr ? "#dc2626" : th.muted, fontSize: "0.82rem" } }, rateErr || (missing.length ? `Still needed: ${missing.join(", ")}` : "")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send }, busy ? "Sending\u2026" : "Send for approval & download")), saved && saved.state !== "decided" && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine())), signing && /* @__PURE__ */ React.createElement(
       SignatureModal,
       {
         th,
@@ -19394,6 +19507,7 @@ ${t2.slice(0, 300)}`);
     newHires: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M19 8v6M16 11h6" })),
     transferNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 8h13M13 4l4 4-4 4" }), /* @__PURE__ */ React.createElement("path", { d: "M20 16H7M11 12l-4 4 4 4" })),
     payIncrease: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 20V6M7 11l5-5 5 5" }), /* @__PURE__ */ React.createElement("path", { d: "M5 20h14" })),
+    payIncreaseApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M20 6 9 17l-5-5" })),
     interviewReminders: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 5h16v11H8l-4 4Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10.5", r: "2.2" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 14.2a4 4 0 0 1 7 0" })),
     mail: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "5", width: "18", height: "14", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "m3 7 9 6 9-6" })),
     phone: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "7", y: "2.5", width: "10", height: "19", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M11 18h2" })),
@@ -19411,7 +19525,8 @@ ${t2.slice(0, 300)}`);
     minorTimecard: "Minor timecard escalations",
     weeklyHoursSchedule: "Weekly hours report",
     transferNotice: "Transfer notices",
-    payIncrease: "Pay increases"
+    payIncrease: "Pay increases",
+    payIncreaseApprovers: "Pay increase approvals"
   };
   var nIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: NOTIFY_ICONS[k], color: c, size: s });
   var recipientInitials = (value, users) => {
@@ -19674,7 +19789,7 @@ ${t2.slice(0, 300)}`);
     const [pushSubs, setPushSubs] = useState4(null);
     const [notifyInfoOpen, setNotifyInfoOpen] = useState4(false);
     const [notifSubTab, setNotifSubTab] = useState4("project");
-    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1" };
+    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1" };
     const [notifCounts, setNotifCounts] = useState4({});
     useEffect4(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -19877,7 +19992,8 @@ ${t2.slice(0, 300)}`);
         { id: "minorTimecard", label: "Minor Timecard", count: notifCounts.minorTimecard },
         { id: "weeklyHoursSchedule", label: "Weekly Hours + Schedule", count: notifCounts.weeklyHoursSchedule },
         { id: "transferNotice", label: "Transfer Notice", count: notifCounts.transferNotice },
-        { id: "payIncrease", label: "Pay Increase", count: notifCounts.payIncrease },
+        { id: "payIncreaseApprovers", label: "Pay Increase approval", count: notifCounts.payIncreaseApprovers },
+        { id: "payIncrease", label: "Pay Increase (office)", count: notifCounts.payIncrease },
         { id: "interviewReminders", label: "Interview Reminders" },
         { id: "newHires", label: "New Hires" }
       ] : []
@@ -19995,6 +20111,19 @@ ${t2.slice(0, 300)}`);
         description: "These people are alerted every time a signed Transfer Notice is saved (Tools \xB7 Transfer Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone.",
         smsLabel: "Transfer Notice SMS Numbers"
       }
+    ), notifSubTab === "payIncreaseApprovers" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_pay_increase_approvers_v1",
+        tagKey: "payIncreaseApprovers",
+        onCountChange: setNotifCount("payIncreaseApprovers"),
+        description: "Who approves pay increases (e.g. Mike). When a manager or DM sends one, these people get an email and a text with a link to review it, then approve it or send it back in Tools \xB7 Pay Increase. Add the approver by name (that's what lets them approve) and add their mobile number below for the text. While no one is added by name, every executive can approve and gets the email.",
+        smsLabel: "Pay Increase approval SMS Numbers"
+      }
     ), notifSubTab === "payIncrease" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
       ManualNotifyListPanel,
       {
@@ -20005,7 +20134,7 @@ ${t2.slice(0, 300)}`);
         blobKey: "pcg_pay_increase_notify_v1",
         tagKey: "payIncrease",
         onCountChange: setNotifCount("payIncrease"),
-        description: "These people are the office side of Tools \xB7 Pay Increase: every time a DM sends a pay increase signed by the Store Manager and the DM or Director of Operations, they get an email with the signed form attached (to enter in Paycor), and the numbers below get a text. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone.",
+        description: "The office side of Tools \xB7 Pay Increase (e.g. Ella and Roxy). Once the approver approves a pay increase, these people get an email with the signed form attached (to enter in Paycor), and the numbers below get a text. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone.",
         smsLabel: "Pay Increase SMS Numbers"
       }
     ), notifSubTab === "interviewReminders" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(InterviewRemindersPanel, { th, showAlert: showAlert2, users }), notifSubTab === "newHires" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(NewHiresPanel, { th, showAlert: showAlert2, users })), user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(TestNotificationsPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(PulseDailyPanel, { th, user, showAlert: showAlert2 }), false, user?.username === "mike.bahm" && /* @__PURE__ */ React.createElement(AnnouncementsPanel, { th, user, showAlert: showAlert2, announcements, setAnnouncements }), false), settingsTab === "orion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: accentCard(th, "#7C3AED", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: reportOpen ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 22 }), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Orion Report Settings")), /* @__PURE__ */ React.createElement(
@@ -22472,7 +22601,7 @@ ${t2.slice(0, 300)}`);
     { id: "system", label: "System & Logs", icon: "\u{1F5C4}\uFE0F", accent: "#94a3b8" }
   ];
   var TRANSFER_NOTICE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
-  var PAY_INCREASE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "dm", "director"]);
+  var PAY_INCREASE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "dm", "director", "manager"]);
   var accessSubOn = (overrides, rt, hubId, subId) => overrides?.[rt]?.[`${hubId}:${subId}`] !== false;
   var TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
   var TASK_LABELS = ["Food Safety", "Facility", "Fresh", "Planning Checklist"];
@@ -26732,6 +26861,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+      { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
       { id: "pulse", label: "My Pulse", icon: (c) => ICONS.pulse ? ICONS.pulse(c) : ICONS.analytics(c), green: true },
@@ -27690,7 +27820,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.59";
+  var APP_VERSION = "v22.64";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -42710,6 +42840,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const ticketParam = params.get("ticket");
+      const payParam = params.get("payIncrease");
+      if (payParam && /^\d+$/.test(payParam)) {
+        try {
+          sessionStorage.setItem("pi_open", payParam);
+        } catch {
+        }
+        setTab("pay-increase");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
       if (ticketParam) {
         setTab("tickets");
         ticketDeepLinkRef.current = ticketParam;
