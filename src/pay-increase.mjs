@@ -121,11 +121,11 @@ export function approvalAlertText(kind, r, storeName, extra = {}) {
   return { title: 'Pay increase sent back', line: `${extra.by || 'The approver'} sent back the pay increase for ${who}: "${extra.note || ''}"` };
 }
 
-export function approvalEmailHtml(v, storeName, submittedBy, link, clientId) {
+export function approvalEmailHtml(v, storeName, submittedBy, link, clientId, waitingHours = 0) {
   const rows = [['Employee', v.employeeName], ['Store', `${storeName} (PC ${v.pc})${clientId ? ` (Client ID ${clientId})` : ''}`], ['Position', v.position],
     ['Current rate', money(v.currentRate)], ['New rate', money(v.newRate)], ['Reason', v.reason], ['Form date', usDate(v.date)], ['Sent by', submittedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<p>${esc(submittedBy || 'A manager')} sent this pay increase for your approval. Once you approve it, it goes to the office to be entered in Paycor.</p>
+<p>${waitingHours ? `<b>Reminder:</b> this has been waiting for your approval for ${waitingHours} hour${waitingHours === 1 ? '' : 's'}. ` : ''}${esc(submittedBy || 'A manager')} sent this pay increase for your approval. Once you approve it, it goes to the office to be entered in Paycor.</p>
 <table cellpadding="6" style="border-collapse:collapse">${rows.filter(r => r[1]).map(([k, val]) => `<tr><td style="color:#666;padding-right:14px;vertical-align:top">${esc(k)}</td><td><b>${esc(val)}</b></td></tr>`).join('')}</table>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Review and approve</a></p></div>`;
 }

@@ -267,6 +267,7 @@ npx netlify status           # Check auth + site link
 | `minor-timecard-detect-cron-background` | `0 10 * * 0` | Sun 6am ET; log-only until `MINOR_TIMECARD_LIVE` is set; PA under-18 break violations for the closed week |
 | `minor-timecard-followup-cron` | `30 11 * * *` | 7:30am ET daily re-check/escalation; **90 min after detect on purpose** — both write `pcg_minor_timecard_issues_v1` |
 | `reports-backup` | `59 4 * * *` | nightly rolling 7-day backup |
+| `pay-increase-reminder-cron` | `*/15 * * * *` | Pay Increase forms still pending approval: re-email + re-text the approver (Admin · Notifications · Pay Increase approval) every 3 h, 8am–9pm ET only |
 | `kb-sync-background` | `0 10 * * 1` | Mon weekly Drive KB sync |
 | `reconciliation-cron` | `1 4 * * 0,2` | Sun snapshot / Tue compare |
 | `weather-forecast-cron` | `0 12 * * *` | 8am ET forecast |

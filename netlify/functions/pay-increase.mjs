@@ -92,6 +92,28 @@ async function tellMaker(db, row, kind, extra) {
   } catch (e) { console.error('[pay-increase] tell maker', e.message); }
 }
 
+// Email + text + push + bell to the approvers about one pending form (a stored row). Used when a
+// form is sent and, every 3 hours while it is still pending, by pay-increase-reminder-cron.mjs.
+export async function notifyApprovers(db, row, { reminder = false } = {}) {
+  const appr = await approvers(db);
+  const store = storeOf(row.pc);
+  const v = rowValues(row);
+  const link = `${PORTAL}/?payIncrease=${row.id}`;
+  const t = approvalAlertText('request', row, store?.name);
+  const waited = reminder ? Math.max(1, Math.round((Date.now() - Date.parse(row.created_at)) / 3600e3)) : 0;
+  const title = reminder ? `Reminder: ${t.title.toLowerCase()} (waiting ${waited} h)` : t.title;
+  const sms = reminder ? `PCG reminder: a pay increase for ${row.employee_name} (${store?.name || 'PC ' + row.pc}) from ${row.submitted_by_name || 'a manager'} is still waiting for your approval (${waited} h). Open it:` : t.sms;
+  const b = blobs();
+  await Promise.all([
+    appr.emails.length ? sendHtmlEmail(appr.emails, title, approvalEmailHtml(v, store?.name, row.submitted_by_name, link, store?.paycor, waited)) : null,
+    appr.phones.length ? sendSms(appr.phones, `${sms}\n${link}`) : null,
+    !reminder && appr.ids.length ? sendPush(b, appr.ids, t.title, t.line, `pay-increase-${row.id}`) : null,
+  ]);
+  if (!reminder) await bell(b, appr.ids, t.line, 'request');
+  await db`UPDATE pay_increase_forms SET reminded_at = now(), reminder_count = reminder_count + ${reminder ? 1 : 0} WHERE id = ${row.id}`;
+  return new Set([...appr.ids, ...appr.emails, ...appr.phones]).size;
+}
+
 const rowValues = (r) => ({ employeeName: r.employee_name, position: r.position, pc: r.pc, currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, date: r.form_date, signer: r.signer });
 
 export default async (request) => {
@@ -125,6 +147,9 @@ export default async (request) => {
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS decided_by_name text`;
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS decided_at timestamptz`;
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS decision_note text`;
+  // v22.65: when the approver was last emailed / texted about a pending form (3-hour reminders).
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS reminded_at timestamptz`;
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS reminder_count integer NOT NULL DEFAULT 0`;
 
   const appr = await approvers(db);
   const canApprove = appr.ids.includes(String(authed.sub));
@@ -244,19 +269,8 @@ export default async (request) => {
     const resent = row.status === 'rejected' && (await db`UPDATE pay_increase_forms SET status = 'pending', decided_by = NULL, decided_by_name = NULL, decided_at = NULL, decision_note = NULL
       WHERE id = ${row.id} AND status = 'rejected' RETURNING id`).length > 0;
     if (!inserted.length && !resent) return json(200, { ok: true, id: row.id, status: row.status === 'rejected' ? 'pending' : (row.status || 'approved'), notified: 0, already: true });
-    let notified = 0;
-    {
-      const t = approvalAlertText('request', { ...rowValues({ employee_name: emp.name, position: v.position, pc: store.pc, current_rate: emp.payRate, new_rate: v.newRate, reason: v.reason, form_date: v.date }), id: row.id, submitted_by_name: myName }, store.name);
-      const link = `${PORTAL}/?payIncrease=${row.id}`;
-      const b = blobs();
-      await Promise.all([
-        appr.emails.length ? sendHtmlEmail(appr.emails, t.title, approvalEmailHtml(rowValues({ employee_name: emp.name, position: v.position, pc: store.pc, current_rate: emp.payRate, new_rate: v.newRate, reason: v.reason, form_date: v.date }), store.name, myName, link, store.paycor)) : null,
-        appr.phones.length ? sendSms(appr.phones, `${t.sms}\n${link}`) : null,
-        appr.ids.length ? sendPush(b, appr.ids, t.title, t.line, `pay-increase-${row.id}`) : null,
-      ]);
-      await bell(b, appr.ids, t.line, 'request');
-      notified = new Set([...appr.ids, ...appr.emails, ...appr.phones]).size;
-    }
+    const full = (await db`SELECT * FROM pay_increase_forms WHERE id = ${row.id}`)[0];
+    const notified = await notifyApprovers(db, full);
     return json(200, { ok: true, id: row.id, status: 'pending', notified });
   } catch (e) {
     console.error('[pay-increase]', e.message);
