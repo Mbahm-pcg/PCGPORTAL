@@ -8,6 +8,7 @@ import { ExecutiveView } from './src/executive-view.jsx';
 import { TerminationsReport } from './src/terminations-ui.jsx';
 import { TransferNotice } from './src/transfer-notice-ui.jsx';
 import { PayIncrease } from './src/pay-increase-ui.jsx';
+import { ViolationNotice } from './src/violation-notice-ui.jsx';
 import { isDirector, parseDistricts } from './src/director-scope.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
@@ -20350,6 +20351,7 @@ const NOTIFY_ICONS = {
   weeklyHoursSchedule: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></>,
   newHires: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6M16 11h6"/></>,
   transferNotice: <><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/></>,
+  violationNotice: <><path d="M12 3 2.5 20h19Z"/><path d="M12 10v4M12 17h.01"/></>,
   payIncrease: <><path d="M12 20V6M7 11l5-5 5 5"/><path d="M5 20h14"/></>,
   payIncreaseApprovers: <><path d="M20 6 9 17l-5-5"/></>,
   interviewReminders: <><path d="M4 5h16v11H8l-4 4Z"/><circle cx="12" cy="10.5" r="2.2"/><path d="M8.5 14.2a4 4 0 0 1 7 0"/></>,
@@ -20364,7 +20366,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
-  transferNotice: 'Transfer notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals',
+  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -20414,12 +20416,12 @@ function NotifyAddBar({ th, value, onChange, onSubmit, placeholder, icon = 'mail
 }
 
 // "Add by name, or type a role" search — same behaviour as before, new look.
-function NotifyNameSearch({ th, value, onChange, onFocus, onBlur, placeholder, children }) {
+function NotifyNameSearch({ th, value, onChange, onFocus, onBlur, onKeyDown, placeholder, children }) {
   return (
     <div style={{ position: 'relative', marginBottom: '1rem' }}>
       <span style={{ position: 'absolute', left: '0.95rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', pointerEvents: 'none' }}>{nIco('search', th.muted, 16)}</span>
       <input style={{ ...inp(th), width: '100%', boxSizing: 'border-box', padding: '0.8rem 1rem 0.8rem 2.6rem', borderRadius: '0.75rem', fontSize: '0.88rem' }}
-        placeholder={placeholder} value={value} onChange={onChange} onFocus={onFocus} onBlur={onBlur} />
+        placeholder={placeholder} value={value} onChange={onChange} onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown} aria-label={placeholder} />
       {children}
     </div>
   );
@@ -20524,6 +20526,21 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
       .map(r => ({ ...r, members: users.filter(u => u.active !== false && u.userType === r.id && (u.email || u.phone)) }))
       .filter(r => r.members.length > 0);
   }, [nameQuery, users]);
+  // v22.73: the one search bar also takes a plain email address or phone number (user, 2026-11-10:
+  // "the top bar should be enough") — the separate "Add email" / "Add number" bars are gone.
+  const typed = nameQuery.trim();
+  const typedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed) ? typed : null;
+  const typedDigits = typed.replace(/\D/g, '');
+  const typedPhone = smsLabel && !typedEmail && /^[\d\s()+.\-]+$/.test(typed) && (typedDigits.length === 10 || (typedDigits.length === 11 && typedDigits[0] === '1')) ? typed : null;
+  const addTyped = () => {
+    if (typedEmail) {
+      if (!(emails || []).some(e => e.toLowerCase() === typedEmail.toLowerCase())) persist([...(emails || []), typedEmail], phones || [], [...(emailOwners || []), null], phoneOwners || []);
+    } else if (typedPhone) {
+      if (!(phones || []).some(p => p.replace(/\D/g, '').slice(-10) === typedDigits.slice(-10))) persist(emails || [], [...(phones || []), typedPhone], emailOwners || [], [...(phoneOwners || []), null]);
+    } else return false;
+    setNameQuery(''); setShowSuggestions(false);
+    return true;
+  };
   const addRoleGroup = (role) => {
     let nextEmails = emails || [], nextEmailOwners = emailOwners || [];
     let nextPhones = phones || [], nextPhoneOwners = phoneOwners || [];
@@ -20591,13 +20608,29 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
           a role keyword ("manager", "dm"...) offers a group suggestion that
           adds everyone in that role at once, Gmail-group-style. */}
       {users && (
-        <NotifyNameSearch th={th} placeholder={'Add by name, or type a role (e.g. "manager") to add everyone in it'}
+        <NotifyNameSearch th={th} placeholder={smsLabel ? 'Add by name, role, email or phone number' : 'Add by name, role or email'}
             value={nameQuery}
             onChange={e => { setNameQuery(e.target.value); setShowSuggestions(true); }}
             onFocus={() => setShowSuggestions(true)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}>
-          {showSuggestions && (roleMatches.length > 0 || nameMatches.length > 0) && (
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onKeyDown={e => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              if (addTyped()) return;
+              if (nameMatches.length === 1 && !roleMatches.length) addPerson(nameMatches[0]);
+              else if (roleMatches.length === 1 && !nameMatches.length) addRoleGroup(roleMatches[0]);
+            }}>
+          {showSuggestions && (typedEmail || typedPhone || roleMatches.length > 0 || nameMatches.length > 0) && (
             <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+              {(typedEmail || typedPhone) && (
+                <div onMouseDown={() => addTyped()}
+                  style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}`, background: O + '0c' }}
+                  onMouseEnter={e => e.currentTarget.style.background = O + '22'}
+                  onMouseLeave={e => e.currentTarget.style.background = O + '0c'}>
+                  <div style={{ fontSize: '0.83rem', fontWeight: 700, color: O, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>{nIco(typedEmail ? 'mail' : 'phone', O, 15)} Add {typedEmail ? 'email' : 'number'} {typedEmail || formatPhone(typedPhone)}</div>
+                  <div style={{ fontSize: '0.7rem', color: th.muted }}>Press Enter or click to add.</div>
+                </div>
+              )}
               {roleMatches.map(r => (
                 <div key={r.id} onMouseDown={() => addRoleGroup(r)}
                   style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}`, background: O + '0c' }}
@@ -20629,7 +20662,6 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
           <NotifyRecipientRow key={idx} th={th} value={email} users={users} tagKey={tagKey} tagText={NOTIFY_TAGS[tagKey] || 'Notifications'} onRemove={() => removeEmail(idx)} disabled={saving} />
         ))}
       </div>
-      <NotifyAddBar th={th} value={newEmail} onChange={setNewEmail} onSubmit={addEmail} placeholder="Add email address..." disabled={saving} />
 
       {/* SMS section omitted when no smsLabel is passed (e.g. System Health — email/push only) */}
       {smsLabel && <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
@@ -20646,7 +20678,6 @@ function ManualNotifyListPanel({ th, user, users, showAlert, blobKey, descriptio
             <NotifyRecipientRow key={idx} th={th} value={phone} display={formatPhone(phone)} users={users} tagKey="phone" tagText="SMS" onRemove={() => removePhone(idx)} disabled={saving} />
           ))}
         </div>
-        <NotifyAddBar th={th} value={newPhone} onChange={setNewPhone} onSubmit={addPhone} placeholder="(555) 123-4567" icon="phone" label="Add number" disabled={saving} />
       </div>}
     </div>
   );
@@ -20669,7 +20700,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [notifSubTab, setNotifSubTab] = useState('project');
   // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
   // here, then kept live by each ManualNotifyListPanel's onCountChange.
-  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1' };
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1' };
   const [notifCounts, setNotifCounts] = useState({});
   useEffect(() => {
     Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -20729,27 +20760,32 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     setLogLoading(false);
   };
 
-  const addEmail = () => {
-    const email = newEmail.trim().toLowerCase();
+  const addEmail = (raw = newEmail) => {
+    const email = String(raw || '').trim().toLowerCase();
     if (!email || !email.includes("@")) { showAlert("error", "Enter a valid email"); return; }
-    if (globalNotifyEmails.map(e => e.toLowerCase()).includes(email)) { showAlert("error", "Email already in list"); return; }
-    setGlobalNotifyEmails(prev => [...prev, newEmail.trim()]);
+    if (globalNotifyEmails.map(e => e.toLowerCase()).includes(email)) { showAlert("error", "Email already in list"); setNewEmail(""); return; }
+    setGlobalNotifyEmails(prev => [...prev, String(raw).trim()]);
     setNewEmail("");
     showAlert("success", "Email added to global notify list");
   };
+  // v22.73: one bar for the Project list too — type a name (adds their email) or an email address.
+  const [projectShowSuggestions, setProjectShowSuggestions] = useState(false);
+  const projectTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim()) ? newEmail.trim() : null;
+  const projectNameMatches = (users || []).filter(u => newEmail.trim().length > 0 && !projectTypedEmail
+    && (u.name || '').toLowerCase().includes(newEmail.trim().toLowerCase()) && u.email).slice(0, 8);
 
   const removeEmail = (idx) => {
     setGlobalNotifyEmails(prev => prev.filter((_, i) => i !== idx));
     showAlert("success", "Email removed");
   };
 
-  const addTicketEmail = () => {
-    const email = newTicketEmail.trim().toLowerCase();
+  const addTicketEmail = (raw = newTicketEmail) => {
+    const email = String(raw || '').trim().toLowerCase();
     if (!email || !email.includes("@")) { showAlert("error", "Enter a valid email"); return; }
-    if ((ticketNotifyEmails || []).map(e => e.toLowerCase()).includes(email)) { showAlert("error", "Email already in ticket list"); return; }
-    setTicketNotifyEmails(prev => [...(prev || []), newTicketEmail.trim()]);
+    if ((ticketNotifyEmails || []).map(e => e.toLowerCase()).includes(email)) { showAlert("error", "Email already in ticket list"); setTicketNameQuery(''); return; }
+    setTicketNotifyEmails(prev => [...(prev || []), String(raw).trim()]);
     setTicketNotifyEmailOwners(prev => [...(prev || []), null]);
-    setNewTicketEmail("");
+    setNewTicketEmail(""); setTicketNameQuery(''); setTicketShowSuggestions(false);
     showAlert("success", "Email added to ticket notify list");
   };
 
@@ -20768,8 +20804,8 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     showAlert("success", "Email removed from ticket list");
   };
 
-  const addTicketPhone = () => {
-    const digits = newTicketPhone.replace(/\D/g, "");
+  const addTicketPhone = (raw = newTicketPhone) => {
+    const digits = String(raw || '').replace(/\D/g, "");
     // An 11-digit US number is only valid with a leading '1' (country code) —
     // an 11-digit number starting with anything else is a mistyped/foreign
     // number, not a US number missing its country code, so it must be rejected
@@ -20777,10 +20813,10 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
     const validLength = digits.length === 10 || (digits.length === 11 && digits[0] === '1');
     if (!validLength) { showAlert("error", "Enter a valid 10-digit phone number"); return; }
     const normalized = digits.length === 11 ? digits.slice(1) : digits;
-    if ((ticketNotifyPhones || []).map(p => p.replace(/\D/g, "")).includes(normalized)) { showAlert("error", "Number already in ticket list"); return; }
+    if ((ticketNotifyPhones || []).map(p => p.replace(/\D/g, "")).includes(normalized)) { showAlert("error", "Number already in ticket list"); setTicketNameQuery(''); return; }
     setTicketNotifyPhones(prev => [...(prev || []), normalized]);
     setTicketNotifyPhoneOwners(prev => [...(prev || []), null]);
-    setNewTicketPhone("");
+    setNewTicketPhone(""); setTicketNameQuery(''); setTicketShowSuggestions(false);
     showAlert("success", "Number added to ticket SMS list");
   };
 
@@ -20798,6 +20834,11 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   // Add-by-name — same convenience as the Car/Food License panels: picking a
   // Portal user adds their email AND phone together instead of copying each
   // over by hand from Admin > Users.
+  // v22.73: the same bar also takes a typed email address or phone number.
+  const ticketTyped = ticketNameQuery.trim();
+  const ticketTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ticketTyped) ? ticketTyped : null;
+  const ticketTypedDigits = ticketTyped.replace(/\D/g, '');
+  const ticketTypedPhone = !ticketTypedEmail && /^[\d\s()+.\-]+$/.test(ticketTyped) && (ticketTypedDigits.length === 10 || (ticketTypedDigits.length === 11 && ticketTypedDigits[0] === '1')) ? ticketTyped : null;
   const ticketNameMatches = (users || []).filter(u => ticketNameQuery.trim().length > 0
     && (u.name || '').toLowerCase().includes(ticketNameQuery.trim().toLowerCase())
     && (u.email || u.phone)
@@ -20899,6 +20940,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
               { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
               { id: 'transferNotice', label: 'Transfer Notice', count: notifCounts.transferNotice },
+              { id: 'violationNotice', label: 'Violation Notice', count: notifCounts.violationNotice },
               { id: 'payIncreaseApprovers', label: 'Pay Increase approval', count: notifCounts.payIncreaseApprovers },
               { id: 'payIncrease', label: 'Pay Increase (office)', count: notifCounts.payIncrease },
               { id: 'interviewReminders', label: 'Interview Reminders' },
@@ -20935,7 +20977,32 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               <NotifyRecipientRow key={idx} th={th} value={email} users={users} tagKey="project" tagText={NOTIFY_TAGS.project} onRemove={() => removeEmail(idx)} />
             ))}
           </div>
-          <NotifyAddBar th={th} value={newEmail} onChange={setNewEmail} onSubmit={addEmail} placeholder="Add email address..." />
+          <NotifyNameSearch th={th} placeholder="Add by name or email"
+              value={newEmail}
+              onChange={e => { setNewEmail(e.target.value); setProjectShowSuggestions(true); }}
+              onFocus={() => setProjectShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setProjectShowSuggestions(false), 150)}
+              onKeyDown={e => { if (e.key !== 'Enter') return; e.preventDefault(); if (projectTypedEmail) addEmail(projectTypedEmail); else if (projectNameMatches.length === 1) addEmail(projectNameMatches[0].email); }}>
+            {projectShowSuggestions && (projectTypedEmail || projectNameMatches.length > 0) && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+                {projectTypedEmail && (
+                  <div onMouseDown={() => addEmail(projectTypedEmail)} style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}`, background: O + '0c' }}>
+                    <div style={{ fontSize: '0.83rem', fontWeight: 700, color: O, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>{nIco('mail', O, 15)} Add email {projectTypedEmail}</div>
+                    <div style={{ fontSize: '0.7rem', color: th.muted }}>Press Enter or click to add.</div>
+                  </div>
+                )}
+                {projectNameMatches.map(u => (
+                  <div key={u.id} onMouseDown={() => addEmail(u.email)}
+                    style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = th.card2}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <div style={{ fontSize: '0.83rem', fontWeight: 700, color: th.text }}>{u.name}</div>
+                    <div style={{ fontSize: '0.7rem', color: th.muted }}>{u.email}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </NotifyNameSearch>
       </>}
 
       {/* Ticket */}
@@ -20945,13 +21012,20 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           </p>
 
           {/* Add by name — adds a matched Portal user's email + phone together */}
-          <NotifyNameSearch th={th} placeholder="Add by name (fills in email + phone together)"
+          <NotifyNameSearch th={th} placeholder="Add by name, email or phone number"
               value={ticketNameQuery}
               onChange={e => { setTicketNameQuery(e.target.value); setTicketShowSuggestions(true); }}
               onFocus={() => setTicketShowSuggestions(true)}
-              onBlur={() => setTimeout(() => setTicketShowSuggestions(false), 150)}>
-            {ticketShowSuggestions && ticketNameMatches.length > 0 && (
+              onBlur={() => setTimeout(() => setTicketShowSuggestions(false), 150)}
+              onKeyDown={e => { if (e.key !== 'Enter') return; e.preventDefault(); if (ticketTypedEmail) addTicketEmail(ticketTypedEmail); else if (ticketTypedPhone) addTicketPhone(ticketTypedPhone); else if (ticketNameMatches.length === 1) addTicketPerson(ticketNameMatches[0]); }}>
+            {ticketShowSuggestions && (ticketTypedEmail || ticketTypedPhone || ticketNameMatches.length > 0) && (
               <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+                {(ticketTypedEmail || ticketTypedPhone) && (
+                  <div onMouseDown={() => (ticketTypedEmail ? addTicketEmail(ticketTypedEmail) : addTicketPhone(ticketTypedPhone))} style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}`, background: O + '0c' }}>
+                    <div style={{ fontSize: '0.83rem', fontWeight: 700, color: O, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>{nIco(ticketTypedEmail ? 'mail' : 'phone', O, 15)} Add {ticketTypedEmail ? 'email' : 'number'} {ticketTypedEmail || formatPhone(ticketTypedPhone)}</div>
+                    <div style={{ fontSize: '0.7rem', color: th.muted }}>Press Enter or click to add.</div>
+                  </div>
+                )}
                 {ticketNameMatches.map(u => (
                   <div key={u.id} onMouseDown={() => addTicketPerson(u)}
                     style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: `1px solid ${th.cardBorder}` }}
@@ -20973,7 +21047,6 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               <NotifyRecipientRow key={idx} th={th} value={email} users={users} tagKey="ticket" tagText={NOTIFY_TAGS.ticket} onRemove={() => removeTicketEmail(idx)} />
             ))}
           </div>
-          <NotifyAddBar th={th} value={newTicketEmail} onChange={setNewTicketEmail} onSubmit={addTicketEmail} placeholder="Add email address..." />
 
           {/* Ticket Notify Phone Numbers — SMS alongside the email list above */}
           <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` }}>
@@ -20993,7 +21066,6 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                 <NotifyRecipientRow key={idx} th={th} value={phone} display={formatPhone(phone)} users={users} tagKey="phone" tagText="Ticket SMS" onRemove={() => removeTicketPhone(idx)} />
               ))}
             </div>
-            <NotifyAddBar th={th} value={newTicketPhone} onChange={setNewTicketPhone} onSubmit={addTicketPhone} placeholder="(555) 123-4567" icon="phone" label="Add number" />
           </div>
       </>}
 
@@ -21037,6 +21109,13 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {/* Transfer Notice — full admins only. Read by transfer-notice.mjs (POST) each time a
           signed notice is saved: email (PDF attached) + text to this list; push + bell to
           anyone added by name. This list is the whole recipient set. v22.54 */}
+      {/* Violation Notice — full admins only. Read by violation-notice.mjs each time a signed notice
+          is saved: email (PDF attached) + text to this list; push + bell to anyone added by name. v22.72 */}
+      {notifSubTab === 'violationNotice' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_violation_notice_notify_v1" tagKey="violationNotice" onCountChange={setNotifCount('violationNotice')}
+          description="These people get every signed Violation Notice (Tools · Violation Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
+          smsLabel="Violation Notice SMS Numbers" />
+      )}
       {notifSubTab === 'transferNotice' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_transfer_notice_notify_v1" tagKey="transferNotice" onCountChange={setNotifCount('transferNotice')}
           description="These people are alerted every time a signed Transfer Notice is saved (Tools · Transfer Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
@@ -25041,6 +25120,7 @@ const HUB_SUBITEMS = {
     { id: 'hours-report', label: 'Hours Report' },
     { id: 'terminations', label: 'Terminations' },
     { id: 'transfer-notice', label: 'Transfer Notice' },
+    { id: 'violation-notice', label: 'Violation Notice' },
     { id: 'pay-increase', label: 'Pay Increase' },
   ],
   finance: [
@@ -25097,6 +25177,8 @@ const ADMIN_CONSOLE_SUBS = [
 // v22.49: roles that can make a Transfer Notice at all (pay rates — what each sees is
 // also scoped server-side); the per-role on/off switch is Admin · Access.
 const TRANSFER_NOTICE_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
+// v22.72 Violation Notice: everyone can open it (user, 2026-11-10); who they can pick is scoped server-side.
+const VIOLATION_NOTICE_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
 // v22.60 Pay Increase: a Store Manager or DM makes it and signs their own line; it goes to the
 // approver (Mike) and, once approved, to the office.
 const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
@@ -30902,6 +30984,7 @@ const computeRoleTabs = (user) => {
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+    { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
     { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
@@ -30948,6 +31031,7 @@ const computeRoleTabs = (user) => {
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+    { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -30994,6 +31078,7 @@ const computeRoleTabs = (user) => {
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+    { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
     { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -31021,6 +31106,7 @@ const computeRoleTabs = (user) => {
     { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+    { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
     { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -32398,7 +32484,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.71";
+const APP_VERSION = "v22.73";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -58161,6 +58247,7 @@ function PCGPortal() {
               { id: 'terminations', name: 'Terminations', sub: 'Who left, by store — quarter and half-year views from Paycor.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations'), icon: <><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6"/><path d="M16 18h6"/><path d="M19 15l3 3-3 3"/></> },
               // v22.49: HR's Employee Transfer letter, filled from Paycor (name, position, PC#, wage locked).
               { id: 'transfer-notice', name: 'Transfer Notice', sub: 'Fill HR’s Employee Transfer letter from Paycor and download it as a PDF, ready to sign.', show: TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'transfer-notice'), icon: <>{ICONS.transferNotice(TOOLS)}</> },
+              { id: 'violation-notice', name: 'Violation Notice', sub: 'HR’s Violation Notice with the employee filled in from Paycor, signed on screen and sent to HR.', show: VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'violation-notice'), icon: <>{ICONS.violationNotice(TOOLS)}</> },
               { id: 'pay-increase', name: 'Pay Increase', sub: 'HR’s Pay Increase Form filled from Paycor, signed by the Store Manager and the DM or Director, and sent to the office.', show: PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'pay-increase'), icon: <>{ICONS.payIncrease(TOOLS)}</> },
             ].filter(t => t.show);
             return (
@@ -58178,6 +58265,7 @@ function PCGPortal() {
           {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={openStores} user={user} />}
           {tab === "terminations" && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations') && <TerminationsReport th={th} user={user} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'transfer-notice') && <TransferNotice th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
+          {tab === "violation-notice" && VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'violation-notice') && <ViolationNotice th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'pay-increase') && <PayIncrease th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={openStores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}
           {tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && <ImpactRadar th={th} user={user} dark={dark} salesWeeks={salesWeeks} />}

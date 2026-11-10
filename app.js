@@ -83,6 +83,7 @@
     // v22.49: Tools · Transfer Notice — a letter with a sideways move arrow
     transferNotice: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5" }), /* @__PURE__ */ React.createElement("path", { d: "M8 8h6" }), /* @__PURE__ */ React.createElement("path", { d: "M8 12h4" }), /* @__PURE__ */ React.createElement("path", { d: "M14 17h7" }), /* @__PURE__ */ React.createElement("path", { d: "M18 14l3 3-3 3" })),
     payIncrease: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6" }), /* @__PURE__ */ React.createElement("path", { d: "M8 8h6" }), /* @__PURE__ */ React.createElement("path", { d: "M8 12h3" }), /* @__PURE__ */ React.createElement("path", { d: "M18 21v-8" }), /* @__PURE__ */ React.createElement("path", { d: "M15 16l3-3 3 3" })),
+    violationNotice: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 3v6h6" }), /* @__PURE__ */ React.createElement("path", { d: "M12 12v3M12 18h.01" })),
     terminations: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6" }), /* @__PURE__ */ React.createElement("path", { d: "M16 18h6" }), /* @__PURE__ */ React.createElement("path", { d: "M19 15l3 3-3 3" }))
   };
   var BTN = {
@@ -2906,6 +2907,517 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
 
+  // src/violation-notice-pdf.mjs
+  var VIO_LAYOUT = [
+    [52.15, 15, [[250.89, "Violation", 1], [317.29, "Notice", 1]]],
+    [68.42, 10, [[36, "Employee", 1], [83.03, "Information:", 1]]],
+    [93.09, 9, [[36, "Employee", 1], [78.35, "Name:", 1], [106.56, "__________________________________________________"], [277.3, "Job", 1], [292.79, "Title:", 1], [314.73, "_______________________________________________"], [473.48, "PC#:", 1], [494.16, "_____________________"]]],
+    [117.36, 9, [[36, "Supervisor:", 1], [85.81, "_________________________________________________________"], [277.91, "Date:", 1], [301.51, "___________________________________"]]],
+    [142.57, 10, [[36, "Type", 1], [60.93, "of", 1], [72.08, "Violation", 1], [116.33, "Notice:", 1]]],
+    [167.24, 9, [[36, "_____"], [54.66, "First"], [74.61, "Violation"], [111.48, "Notice"], [150.16, "_____"], [168.82, "Second"], [198.42, "Violation"], [235.29, "Notice"], [271.99, "_____"], [290.65, "Third"], [314.02, "Violation"], [350.89, "Notice"], [391.55, "_____"], [410.21, "Ongoing"], [444.29, "Violation"], [481.17, "Notice"]]],
+    [193.41, 10, [[36, "Type", 1], [60.93, "of", 1], [72.08, "Violation:", 1]]],
+    [218.47, 9, [[36, "_____"], [54.66, "Tardiness/Lea"], [109.77, "ving"], [128.25, "Early"], [156.23, "_____"], [174.89, "Absenteeism"], [228.2, "or"], [238.68, "No"], [251.57, "Call"], [267.9, "No"], [280.78, "Show"], [315.79, "_____"], [334.45, "Insubor"], [364.52, "dination"], [406.68, "_____"], [425.34, "Cash"], [445.61, "Handling"], [482.6, "Procedure"]]],
+    [230.61, 9, [[36, "_____"], [54.66, "Employee"], [94.54, "Conduct"], [138.27, "_____"], [156.93, "Workplace"], [199.99, "Policy"], [225.14, "(safety,"], [254.5, "uniform,"], [289.42, "sanitation,"], [331.82, "etc.)"]]],
+    [256.77, 10, [[36, "Description", 1], [92.07, "of", 1], [103.22, "Violation:", 1], [256.59, "Date", 1], [280, "of", 1], [291.15, "Violation:", 1], [338.42, "________________________________"]]],
+    [377.93, 10, [[36, "Disciplinary", 1], [94.3, "Action", 1], [126.09, "Taken:", 1]]],
+    [404.89, 9, [[36, "_____"], [54.88, "Verbal"], [81.51, "Warning"], [122.44, "_____"], [141.1, "Written"], [172.81, "Warning"], [211.76, "_____"], [230.42, "Termination"], [279.87, "_____"], [298.53, "Suspension"], [344.4, "(Start"], [368.49, "Date:____________"], [432.56, "Return"], [461.12, "to"], [470.84, "Work"], [493.76, "Date"], [513.45, "____________"], [555.46, ")"]]],
+    [428.37, 10, [[36, "Plans", 1], [63.39, "for", 1], [79.15, "Improvement", 1], [143.87, "(If", 1], [156.91, "Applicable):", 1]]],
+    [495.78, 10, [[36, "Consequences", 1], [103.21, "of", 1], [114.37, "Further", 1], [152.05, "Policy", 1], [182.04, "Violation:", 1]]],
+    [549.71, 10, [[36, "Acknowledgment:", 1]]],
+    [574.38, 9, [[36, "By"], [47.93, "signing"], [77.72, "this"], [94.08, "form,"], [116.51, "you"], [132.6, "confirm"], [164.79, "that"], [182.22, "you"], [198.31, "understand"], [244.71, "the"], [259.09, "information"], [306.94, "on"], [318.72, "this"], [335.08, "violation."], [372.91, "You"], [388.98, "also"], [406.44, "confirm"], [438.63, "that"], [456.06, "you"], [472.15, "and"], [488.54, "your"], [508.35, "manager"], [544.19, "have"]]],
+    [586.51, 9, [[36, "discussed"], [75.4, "the"], [89.78, "violation"], [125.76, "and"], [142.15, "plan"], [161, "for"], [174.09, "improvement."], [229.98, "Signing"], [260.37, "this"], [276.73, "form"], [297.31, "does"], [317.32, "not"], [332.15, "necessaril"], [370.53, "y"], [377.05, "indicate"], [409.77, "that"], [427.2, "you"], [443.29, "agree"], [466.48, "with"], [485.95, "this"], [502.31, "violation."], [540.13, "If"], [547.76, "you"]]],
+    [598.65, 9, [[36, "are"], [50.36, "provided"], [86.99, "this"], [103.35, "notice"], [129.04, "by"], [140.35, "email,"], [165.39, "it"], [172.92, "is"], [181.27, "not"], [196.1, "necessary"], [236.24, "for"], [249.33, "the"], [263.72, "employee"], [302.81, "to"], [312.53, "sign"], [330.35, "the"], [344.74, "acknowledgement"], [417.05, "as"], [427.29, "the"], [441.68, "email"], [464.88, "serves"], [491.45, "as"], [501.7, "a"], [508.07, "formal"]]],
+    [610.78, 9, [[36, "acknowledgment"], [102.07, "."]]],
+    [649.88, 9, [[36, "Employee", 1], [78.35, "-", 1], [85.34, "Name:", 1], [113.56, "______________________________________________"], [272.94, "Signatur", 1], [308, "e:", 1], [317.27, "_______________________________________________"], [478, "Date:", 1], [501.6, "______________________"]]],
+    [681.53, 9, [[36, "Supervisor", 1], [83.29, "-", 1], [90.29, "Name:", 1], [118.51, "_____________________________________________"], [272.57, "Signatur", 1], [307.63, "e:", 1], [316.9, "_______________________________________________"], [477.63, "Date:", 1], [501.23, "______________________"]]],
+    [713.19, 9, [[36, "Witness", 1], [71.22, "-", 1], [78.22, "Name:", 1], [106.44, "______________________________________________"], [265.81, "Signatur", 1], [300.87, "e:", 1], [310.15, "_______________________________________________"], [470.88, "Date:", 1], [494.48, "______________________"]]]
+  ];
+  var BLACK2 = [0, 0, 0];
+  var GREY = [136, 136, 136];
+  var VIO_LINES = [
+    [251, 53.5, 361],
+    [36, 69.5, 142],
+    [36, 143.5, 148],
+    [36, 194.5, 117],
+    [36, 257.5, 148],
+    [257, 257.5, 336],
+    [36, 379.5, 157],
+    [36, 429.5, 213],
+    [36, 496.5, 227],
+    [36, 550.5, 119],
+    [36, 650.5, 76],
+    [36, 682.5, 81],
+    [36, 714.5, 69]
+  ].map(([x1, y, x2]) => ({ x1, y, x2, c: BLACK2 })).concat([280.5, 304.5, 327.5, 351.5, 453.5, 480.5, 521.5].map((y) => ({ x1: 39, y, x2: 573, c: GREY })));
+  var VIO_TEXT_LINES = { description: [280.5, 304.5, 327.5, 351.5], improvement: [453.5, 480.5], consequences: [521.5] };
+  var VIO_BLANK_FIELDS = [
+    "employeeName",
+    "jobTitle",
+    "pc",
+    "supervisor",
+    "date",
+    "notice:first",
+    "notice:second",
+    "notice:third",
+    "notice:ongoing",
+    "type:tardiness",
+    "type:absenteeism",
+    "type:insubordination",
+    "type:cash",
+    "type:conduct",
+    "type:policy",
+    "violationDate",
+    "action:verbal",
+    "action:written",
+    "action:termination",
+    "action:suspension",
+    "suspensionStart",
+    "suspensionReturn",
+    "employeeName2",
+    "employeeSignature",
+    "employeeSignedDate",
+    "supervisorName",
+    "supervisorSignature",
+    "supervisorSignedDate",
+    "witnessName",
+    "witnessSignature",
+    "witnessSignedDate"
+  ];
+  var VIO_SIGNATURE_FIELDS = /* @__PURE__ */ new Set(["employeeSignature", "supervisorSignature", "witnessSignature"]);
+  function vioBlanks() {
+    const out = [];
+    for (const [y, size, words] of VIO_LAYOUT) for (const [x, raw] of words) {
+      const m = /_{3,}/.exec(raw);
+      if (!m) continue;
+      out.push({ field: VIO_BLANK_FIELDS[out.length], y, x, prefix: raw.slice(0, m.index), run: m[0], size });
+    }
+    return out;
+  }
+  var VIO_CHROME = { watermark: { x: 71, y: 175, size: 470, src: "pcg-watermark.png" } };
+  var VIO_FONT = { family: "Caladea", regular: "Caladea-Regular.ttf", bold: "Caladea-Bold.ttf" };
+  var formatVioDate = (v) => {
+    const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : String(v || "");
+  };
+  function wrap2(doc, text, width) {
+    const lines = [];
+    for (const para of String(text || "").split(/\r?\n/)) {
+      let line = "";
+      for (const word of para.split(/\s+/).filter(Boolean)) {
+        const t = line ? line + " " + word : word;
+        if (doc.getTextWidth(t) <= width || !line) line = t;
+        else {
+          lines.push(line);
+          line = word;
+        }
+      }
+      if (line) lines.push(line);
+    }
+    return lines;
+  }
+  function buildViolationPdf(jsPDF, fonts, values = {}, opts = {}) {
+    const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
+    const F = VIO_FONT.family;
+    doc.addFileToVFS(VIO_FONT.regular, fonts.regular);
+    doc.addFont(VIO_FONT.regular, F, "normal");
+    doc.addFileToVFS(VIO_FONT.bold, fonts.bold);
+    doc.addFont(VIO_FONT.bold, F, "bold");
+    doc.setProperties({ title: "Violation Notice", creator: "PCG Portal" });
+    const W2 = VIO_CHROME.watermark;
+    if (opts.watermark) doc.addImage(opts.watermark, "PNG", W2.x, W2.y, W2.size, W2.size, "seal", "FAST");
+    doc.setTextColor(0, 0, 0);
+    for (const [y, size, words] of VIO_LAYOUT) {
+      doc.setFontSize(size);
+      for (const [x, text2, bold] of words) {
+        doc.setFont(F, bold ? "bold" : "normal");
+        doc.text(text2, x, y);
+      }
+    }
+    doc.setLineWidth(1);
+    for (const l of VIO_LINES) {
+      doc.setDrawColor(...l.c);
+      doc.line(l.x1, l.y, l.x2, l.y);
+    }
+    const v = values;
+    const checked = (f) => {
+      const [group, key] = f.split(":");
+      if (group === "notice") return v.notice === key;
+      if (group === "type") return (v.types || []).includes(key);
+      if (group === "action") return v.action === key;
+      return false;
+    };
+    const text = {
+      employeeName: v.employeeName,
+      jobTitle: v.jobTitle,
+      pc: v.pc,
+      supervisor: v.supervisor,
+      date: formatVioDate(v.date),
+      violationDate: formatVioDate(v.violationDate),
+      suspensionStart: v.action === "suspension" ? formatVioDate(v.suspensionStart) : "",
+      suspensionReturn: v.action === "suspension" ? formatVioDate(v.suspensionReturn) : "",
+      employeeName2: v.employeeName,
+      employeeSignedDate: formatVioDate(v.employeeSignedDate),
+      supervisorName: v.supervisorName,
+      supervisorSignedDate: formatVioDate(v.supervisorSignedDate),
+      witnessName: v.witnessName,
+      witnessSignedDate: formatVioDate(v.witnessSignedDate)
+    };
+    doc.setFont(F, "normal");
+    for (const { field, y, x, prefix, run, size } of vioBlanks()) {
+      doc.setFontSize(size);
+      const x0 = x + doc.getTextWidth(prefix);
+      const width = doc.getTextWidth(run);
+      if (field.includes(":")) {
+        if (!checked(field)) continue;
+        doc.setFont(F, "bold");
+        doc.text("X", x0 + width / 2, y - 1, { align: "center" });
+        doc.setFont(F, "normal");
+        continue;
+      }
+      if (VIO_SIGNATURE_FIELDS.has(field)) {
+        const img = v[field];
+        if (field === "employeeSignature" && !img && v.employeeRefused) {
+          doc.setFont(F, "normal");
+          doc.text("Refused to sign", x0 + width / 2, y - 1.5, { align: "center" });
+          continue;
+        }
+        if (!img) continue;
+        const p = doc.getImageProperties(img);
+        const s = Math.min((width - 4) / p.width, 22 / p.height);
+        doc.addImage(img, "PNG", x0 + 4, y + 1 - p.height * s, p.width * s, p.height * s, void 0, "FAST");
+        continue;
+      }
+      const t = String(text[field] ?? "").trim();
+      if (!t) continue;
+      let sz = size;
+      while (sz > 6 && (doc.setFontSize(sz), doc.getTextWidth(t)) > width - 2) sz -= 0.5;
+      doc.setFontSize(sz);
+      doc.text(t, x0 + width / 2, y - 1.5, { align: "center" });
+    }
+    for (const [key, ys] of Object.entries(VIO_TEXT_LINES)) {
+      const t = String(v[key] || "").trim();
+      if (!t) continue;
+      let sz = 10, lines;
+      for (; ; ) {
+        doc.setFontSize(sz);
+        lines = wrap2(doc, t, 573 - 41 - 4);
+        if (lines.length <= ys.length || sz <= 7) break;
+        sz -= 0.5;
+      }
+      if (lines.length > ys.length) lines = [...lines.slice(0, ys.length - 1), lines.slice(ys.length - 1).join(" ")];
+      lines.forEach((ln, i) => doc.text(ln, 41, ys[i] - 3));
+    }
+    doc.setFontSize(10);
+    return doc;
+  }
+
+  // src/violation-notice.mjs
+  var NOTICE_TYPES = [["first", "First Violation Notice"], ["second", "Second Violation Notice"], ["third", "Third Violation Notice"], ["ongoing", "Ongoing Violation Notice"]];
+  var VIOLATION_TYPES = [
+    ["tardiness", "Tardiness/Leaving Early"],
+    ["absenteeism", "Absenteeism or No Call No Show"],
+    ["insubordination", "Insubordination"],
+    ["cash", "Cash Handling Procedure"],
+    ["conduct", "Employee Conduct"],
+    ["policy", "Workplace Policy (safety, uniform, sanitation, etc.)"]
+  ];
+  var ACTIONS = [["verbal", "Verbal Warning"], ["written", "Written Warning"], ["termination", "Termination"], ["suspension", "Suspension"]];
+  var DESCRIPTION_MIN = 10;
+  var clean = (s, n = 600) => String(s ?? "").trim().slice(0, n);
+  var has2 = (v, k) => !!String(v?.[k] ?? "").trim();
+  function violationValues(f = {}) {
+    const action = ACTIONS.some(([k]) => k === f.action) ? f.action : "";
+    return {
+      employeeName: clean(f.employee?.name, 80),
+      jobTitle: clean(f.employee?.jobTitle || f.jobTitle, 80),
+      pc: clean(f.employee ? f.pc : "", 10),
+      supervisor: clean(f.supervisor, 80),
+      date: clean(f.date, 10),
+      notice: NOTICE_TYPES.some(([k]) => k === f.notice) ? f.notice : "",
+      types: [...new Set((f.types || []).filter((t) => VIOLATION_TYPES.some(([k]) => k === t)))],
+      action,
+      suspensionStart: action === "suspension" ? clean(f.suspensionStart, 10) : "",
+      suspensionReturn: action === "suspension" ? clean(f.suspensionReturn, 10) : "",
+      violationDate: clean(f.violationDate, 10),
+      description: clean(f.description, 900),
+      improvement: clean(f.improvement, 400),
+      consequences: clean(f.consequences, 200),
+      supervisorName: clean(f.supervisorName, 80),
+      witnessName: clean(f.witnessName, 80),
+      employeeRefused: !f.employeeSig?.image && !!f.employeeRefused,
+      employeeSignature: f.employeeSig?.image || "",
+      employeeSignedDate: f.employeeSig?.date || "",
+      supervisorSignature: f.supervisorSig?.image || "",
+      supervisorSignedDate: f.supervisorSig?.date || "",
+      witnessSignature: f.witnessSig?.image || "",
+      witnessSignedDate: f.witnessSig?.date || ""
+    };
+  }
+  function violationFingerprint(v) {
+    return [
+      "employeeName",
+      "jobTitle",
+      "pc",
+      "supervisor",
+      "date",
+      "notice",
+      "action",
+      "suspensionStart",
+      "suspensionReturn",
+      "violationDate",
+      "description",
+      "improvement",
+      "consequences",
+      "supervisorName",
+      "witnessName"
+    ].map((k) => String(v?.[k] ?? "").trim()).concat((v?.types || []).slice().sort().join(",")).join("|");
+  }
+  function missingViolationFields(v) {
+    const out = [];
+    if (!has2(v, "employeeName")) out.push("Employee");
+    if (!has2(v, "supervisor")) out.push("Supervisor");
+    if (!v?.notice) out.push("Type of violation notice");
+    if (!(v?.types || []).length) out.push("Type of violation");
+    if (!has2(v, "violationDate")) out.push("Date of violation");
+    if (String(v?.description ?? "").trim().length < DESCRIPTION_MIN) out.push("Description of violation (at least a sentence)");
+    if (!v?.action) out.push("Disciplinary action");
+    if (v?.action === "suspension" && (!has2(v, "suspensionStart") || !has2(v, "suspensionReturn"))) out.push("Suspension start and return dates");
+    if (!has2(v, "supervisorName")) out.push("Supervisor name");
+    if (!has2(v, "supervisorSignature")) out.push("Supervisor signature");
+    if (has2(v, "witnessSignature") && !has2(v, "witnessName")) out.push("Witness name");
+    return out;
+  }
+
+  // src/violation-notice-ui.jsx
+  var { useState: useState4, useEffect: useEffect4 } = React;
+  var todayIso4 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  var call2 = async (body) => {
+    const res = await fetch("/.netlify/functions/violation-notice", {
+      method: body ? "POST" : "GET",
+      credentials: "include",
+      headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() },
+      body: body ? JSON.stringify(body) : void 0
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+    return b;
+  };
+  var assetsPromise2 = null;
+  var fetchB642 = (path) => fetch(path).then((r) => {
+    if (!r.ok) throw new Error("load " + path);
+    return r.arrayBuffer();
+  }).then(toB64);
+  var loadAssets2 = () => assetsPromise2 || (assetsPromise2 = Promise.all([fetchB642("/fonts/" + VIO_FONT.regular), fetchB642("/fonts/" + VIO_FONT.bold), fetchB642("/" + VIO_CHROME.watermark.src)]).then(([regular, bold, seal]) => ({ fonts: { regular, bold }, watermark: "data:image/png;base64," + seal })).catch((e) => {
+    assetsPromise2 = null;
+    throw e;
+  }));
+  var INK4 = "#111";
+  var FILL3 = "#fdf3ea";
+  var CSS = `
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
+.vn-paper { font-family: 'Caladea', Cambria, Georgia, serif; color: ${INK4}; background: #fff; }
+.vn-paper p { margin: 0; }
+.vn-h { font-weight: 700; text-decoration: underline; text-underline-offset: 2px; margin: 1.15em 0 0.55em; }
+.vn-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.3em 1.2em; }
+.vn-f { display: inline-flex; align-items: flex-end; gap: 0.35em; }
+.vn-f b { white-space: nowrap; }
+.vn-blank { font: inherit; color: ${INK4}; border: none; border-bottom: 1px solid ${INK4}; border-radius: 0; background: ${FILL3}; padding: 0 0.3em; min-height: 1.4em; line-height: 1.4; text-align: center; -webkit-appearance: none; appearance: none; }
+.vn-blank::placeholder, .vn-lines::placeholder { color: #9a8f86; font-style: italic; }
+.vn-locked { display: inline-block; border-bottom: 1px solid ${INK4}; padding: 0 0.3em; text-align: center; line-height: 1.4; min-width: 9em; }
+.vn-locked.vn-empty { color: #9a8f86; font-style: italic; }
+.vn-check { display: inline-flex; align-items: center; gap: 0.35em; cursor: pointer; margin-right: 1.1em; line-height: 1.9; }
+.vn-check input { width: 1.05em; height: 1.05em; accent-color: ${O}; cursor: pointer; }
+.vn-lines { font: inherit; width: 100%; box-sizing: border-box; border: none; resize: vertical; padding: 0.15em 0.3em; color: ${INK4}; line-height: 1.75em;
+  background-color: ${FILL3}; background-image: repeating-linear-gradient(transparent 0, transparent calc(1.75em - 1px), #888 calc(1.75em - 1px), #888 1.75em); background-attachment: local; }
+.vn-sigline { display: inline-flex; align-items: flex-end; border-bottom: 1px solid ${INK4}; height: 2.5em; min-width: 12em; }
+.vn-sigbtn { font: inherit; font-family: ${FONTS.body}; font-size: 0.8rem; color: ${O}; font-weight: 700; background: ${FILL3}; border: 1px dashed ${O}; border-radius: 6px; padding: 0.25rem 0.65rem; margin: 0 0 0.2rem 0.2rem; cursor: pointer; }
+.vn-sigimg { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: flex-end; }
+.vn-blank:focus-visible, .vn-lines:focus-visible, .vn-sigbtn:focus-visible, .vn-sigimg:focus-visible, .vn-check input:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .vn-blank, .vn-sigbtn { transition: none; } }`;
+  var Locked2 = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `vn-locked${value ? "" : " vn-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
+  function ViolationNotice({ th, isMobile, onBack }) {
+    const S = finStyles(th);
+    const [stores, setStores] = useState4([]);
+    const [employees, setEmployees] = useState4(null);
+    const [error, setError] = useState4(null);
+    const [query, setQuery] = useState4("");
+    const [listOpen, setListOpen] = useState4(false);
+    const [picked, setPicked] = useState4(null);
+    const [supervisor, setSupervisor] = useState4("");
+    const [supervisorName, setSupervisorName] = useState4("");
+    const [date] = useState4(todayIso4());
+    const [notice, setNotice] = useState4("");
+    const [types, setTypes] = useState4([]);
+    const [action, setAction] = useState4("");
+    const [suspensionStart, setSuspensionStart] = useState4("");
+    const [suspensionReturn, setSuspensionReturn] = useState4("");
+    const [violationDate, setViolationDate] = useState4("");
+    const [description, setDescription] = useState4("");
+    const [descTouched, setDescTouched] = useState4(false);
+    const [improvement, setImprovement] = useState4("");
+    const [consequences, setConsequences] = useState4("");
+    const [witnessName, setWitnessName] = useState4("");
+    const [employeeRefused, setEmployeeRefused] = useState4(false);
+    const [sigs, setSigs] = useState4({});
+    const [signing, setSigning] = useState4(null);
+    const [busy, setBusy] = useState4(false);
+    const [saved, setSaved] = useState4(null);
+    useEffect4(() => {
+      call2().then((b) => {
+        setStores(b.stores || []);
+        setEmployees(b.employees || []);
+        setSupervisor((s) => s || b.myName || "");
+        setSupervisorName((s) => s || b.myName || "");
+        if (b.rosterError) setError(b.rosterError);
+      }).catch((e) => {
+        setError(e.message);
+        setEmployees([]);
+      });
+    }, []);
+    const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
+    const form = { employee: picked, pc: picked?.pc, supervisor, date, notice, types, action, suspensionStart, suspensionReturn, violationDate, description, improvement, consequences, supervisorName, witnessName, employeeRefused };
+    const base = violationValues(form);
+    const fp = violationFingerprint(base);
+    const sigOk = (k) => sigs[k] && sigs[k].fp === fp ? sigs[k] : null;
+    const voided = Object.keys(sigs).some((k) => sigs[k] && sigs[k].fp !== fp);
+    const values = violationValues({ ...form, employeeSig: sigOk("employee"), supervisorSig: sigOk("supervisor"), witnessSig: sigOk("witness") });
+    const formMissing = missingViolationFields({ ...base, supervisorSignature: "x" });
+    const canSign = !formMissing.length;
+    const missing = missingViolationFields(values);
+    const ready = !missing.length && !busy;
+    useEffect4(() => {
+      setSaved(null);
+    }, [fp]);
+    const q = query.trim().toLowerCase();
+    const matches = q && employees ? employees.filter((e) => e.name.toLowerCase().includes(q) || storeName(e.pc).toLowerCase().includes(q) || e.pc.includes(q)).slice(0, 40) : [];
+    const pick = (e) => {
+      setPicked(e);
+      setQuery(e.name);
+      setListOpen(false);
+    };
+    const toggleType = (k) => setTypes((t) => t.includes(k) ? t.filter((x) => x !== k) : [...t, k]);
+    const send = async () => {
+      if (!ready) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const JsPDF = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
+        if (!JsPDF) throw new Error("PDF library did not load \u2014 refresh the page.");
+        const { fonts, watermark } = await loadAssets2();
+        const doc = buildViolationPdf(JsPDF, fonts, values, { watermark });
+        const fileName = `Violation-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
+        setSaved({ state: "saving" });
+        try {
+          const b = await call2({ values, employeeId: picked.id, pdf: doc.output("datauristring") });
+          setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
+        } catch (e) {
+          setSaved({ state: "failed", error: e.message, pdfUrl: deliverPdf(doc, fileName) });
+        }
+      } catch (e) {
+        setError(e.message);
+      }
+      setBusy(false);
+    };
+    const savedLine = () => {
+      if (!saved) return null;
+      if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Saving and sending\u2026");
+      if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Not saved: ", saved.error, ". Press the button again to retry.");
+      const d = saved.drive || {}, a = saved.alert || {};
+      return /* @__PURE__ */ React.createElement("span", { style: { color: d.saved && !a.error ? "#16a34a" : "#d97706" } }, d.saved ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Saved to Google Drive", d.link ? /* @__PURE__ */ React.createElement(React.Fragment, null, " (", /* @__PURE__ */ React.createElement("a", { href: d.link, target: "_blank", rel: "noreferrer", style: { color: "inherit" } }, "open"), ")") : "", ".") : `Not saved to Drive: ${d.error || "unknown error"}. Press the button again to retry.`, " ", a.error ? `Alert failed: ${a.error}.` : a.recipients ? `Sent to ${a.recipients} recipient${a.recipients === 1 ? "" : "s"}.` : a.recipients === 0 ? "No one is on the Violation Notice alert list yet." : "");
+    };
+    const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "vn-blank",
+        style: { width: isMobile ? "14em" : "15em", maxWidth: "100%" },
+        value: query,
+        role: "combobox",
+        "aria-expanded": listOpen && matches.length > 0,
+        "aria-controls": "vn-emp-list",
+        autoComplete: "off",
+        "aria-label": "Employee name",
+        placeholder: employees ? "Search employee name" : "Loading from Paycor\u2026",
+        disabled: !employees,
+        onChange: (e) => {
+          setQuery(e.target.value);
+          setListOpen(true);
+          if (picked) setPicked(null);
+        },
+        onFocus: () => setListOpen(true),
+        onBlur: () => setTimeout(() => setListOpen(false), 150),
+        onKeyDown: (e) => {
+          if (e.key === "Enter" && matches[0]) {
+            e.preventDefault();
+            pick(matches[0]);
+          }
+          if (e.key === "Escape") setListOpen(false);
+        }
+      }
+    ), listOpen && matches.length > 0 && /* @__PURE__ */ React.createElement("span", { id: "vn-emp-list", role: "listbox", style: { position: "absolute", zIndex: 30, left: 0, top: "100%", marginTop: 4, width: "min(420px, 82vw)", maxHeight: 300, overflowY: "auto", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.15)", textAlign: "left" } }, matches.map((e) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: e.pc + e.id,
+        type: "button",
+        role: "option",
+        "aria-selected": "false",
+        className: "fin-btn",
+        onMouseDown: (ev) => ev.preventDefault(),
+        onClick: () => pick(e),
+        style: { display: "flex", width: "100%", justifyContent: "space-between", gap: "0.8rem", padding: "0.6rem 0.9rem", background: "none", border: "none", borderBottom: `1px solid ${th.cardBorder}`, color: th.text, textAlign: "left", cursor: "pointer", fontFamily: FONTS.body, fontSize: "0.88rem" }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, e.name, e.jobTitle && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \u2014 ", e.jobTitle)),
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, whiteSpace: "nowrap" } }, storeName(e.pc), " \xB7 ", e.pc)
+    ))));
+    const check = (checked, onChange, labelText, key) => /* @__PURE__ */ React.createElement("label", { key, className: "vn-check" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked, onChange }), " ", labelText);
+    const dateIn = (value, set, label, opts = {}) => /* @__PURE__ */ React.createElement("input", { type: "date", className: "vn-blank", style: { width: "9.5em" }, value, min: opts.min, max: opts.notFuture ? todayIso4() : void 0, onChange: (e) => set(e.target.value), "aria-label": label });
+    const sigBlock = (key, label, name) => {
+      const s = sigOk(key);
+      const refused = key === "employee" && !s && employeeRefused;
+      const can = canSign && (key !== "witness" || witnessName.trim());
+      return /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { marginTop: "0.9em" } }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement("u", null, label), " - Name:"), name), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Signature:"), /* @__PURE__ */ React.createElement("span", { className: "vn-sigline" }, refused ? /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.2em", paddingLeft: "0.4em" } }, "Refused to sign") : s ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "vn-sigimg", onClick: () => setSigning(key), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: s.image, alt: `${label} signature`, style: { maxHeight: "2.3em", maxWidth: "12em", objectFit: "contain" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "vn-sigbtn", disabled: !can, onClick: () => setSigning(key), style: { opacity: can ? 1 : 0.45, cursor: can ? "pointer" : "not-allowed" } }, can ? `Tap to sign \u2014 ${label}` : canSign ? "Type the witness name first" : "Fill in the form first"))), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Date:"), /* @__PURE__ */ React.createElement(Locked2, { value: s ? formatVioDate(s.date) : "", placeholder: "on signing", w: "6.5em" })), key === "employee" && !s && /* @__PURE__ */ React.createElement("label", { className: "vn-check", style: { fontFamily: FONTS.body, fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: employeeRefused, onChange: (e) => setEmployeeRefused(e.target.checked) }), " Employee refused to sign"));
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign too if they're there."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The notice changed after it was signed, so those signatures no longer count. Sign again."), employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "There's no one you can pick yet. If you're a Store Manager, ask IT to link your account to your store."), /* @__PURE__ */ React.createElement("div", { className: "vn-paper", style: {
+      borderRadius: 6,
+      boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
+      padding: isMobile ? "1.2rem 1rem 1.6rem" : "1.8rem 2.6rem 2.4rem",
+      fontSize: isMobile ? "14px" : "14.5px",
+      lineHeight: 1.5,
+      marginBottom: "1.2rem",
+      backgroundImage: `url('/${VIO_CHROME.watermark.src}')`,
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "center 45%",
+      backgroundSize: "72%"
+    } }, /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", fontWeight: 700, fontSize: "1.65em", textDecoration: "underline", textUnderlineOffset: 3 } }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Employee Information:"), /* @__PURE__ */ React.createElement("div", { className: "vn-row" }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Employee Name:"), empSearch), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Job Title:"), /* @__PURE__ */ React.createElement(Locked2, { value: picked?.jobTitle || "" })), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "PC#:"), /* @__PURE__ */ React.createElement(Locked2, { value: picked?.pc || "", w: "6em" }))), /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { marginTop: "0.6em" } }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Supervisor:"), /* @__PURE__ */ React.createElement("input", { className: "vn-blank", style: { width: "14em" }, value: supervisor, maxLength: 80, onChange: (e) => setSupervisor(e.target.value), "aria-label": "Supervisor" })), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Date:"), /* @__PURE__ */ React.createElement(Locked2, { value: formatVioDate(date), w: "7em" }))), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Type of Violation Notice:"), /* @__PURE__ */ React.createElement("div", null, NOTICE_TYPES.map(([k, l]) => check(notice === k, () => setNotice(notice === k ? "" : k), l, k))), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Type of Violation:"), /* @__PURE__ */ React.createElement("div", null, VIOLATION_TYPES.map(([k, l]) => check(types.includes(k), () => toggleType(k), l, k))), /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { marginTop: "1.15em", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("p", { className: "vn-h", style: { margin: 0 } }, "Description of Violation:"), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", { style: { textDecoration: "underline" } }, "Date of Violation:"), dateIn(violationDate, setViolationDate, "Date of violation", { notFuture: true }))), /* @__PURE__ */ React.createElement(
+      "textarea",
+      {
+        className: "vn-lines",
+        rows: 4,
+        value: description,
+        maxLength: 900,
+        required: true,
+        "aria-required": "true",
+        onChange: (e) => setDescription(e.target.value),
+        onBlur: () => setDescTouched(true),
+        style: { marginTop: "0.4em", ...descTouched && description.trim().length < DESCRIPTION_MIN ? { boxShadow: "inset 0 0 0 2px #dc2626" } : {} },
+        placeholder: "Required: what happened, when, and where",
+        "aria-label": "Description of violation (required)"
+      }
+    ), description.trim().length < DESCRIPTION_MIN && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78em", color: descTouched ? "#dc2626" : "#8a7f76", fontFamily: FONTS.body } }, "Required: write at least a sentence (", description.trim().length, "/", DESCRIPTION_MIN, " characters)."), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Disciplinary Action Taken:"), /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { gap: "0 0.2em" } }, ACTIONS.map(([k, l]) => check(action === k, () => setAction(action === k ? "" : k), l, k)), action === "suspension" && /* @__PURE__ */ React.createElement("span", { className: "vn-f", style: { flexWrap: "wrap" } }, "(Start Date:", dateIn(suspensionStart, setSuspensionStart, "Suspension start date"), " Return to Work Date", " ", /* @__PURE__ */ React.createElement("input", { type: "date", className: "vn-blank", style: { width: "9.5em" }, value: suspensionReturn, min: suspensionStart || void 0, onChange: (e) => setSuspensionReturn(e.target.value), "aria-label": "Return to work date" }), ")")), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Plans for Improvement (If Applicable):"), /* @__PURE__ */ React.createElement("textarea", { className: "vn-lines", rows: 2, value: improvement, maxLength: 400, onChange: (e) => setImprovement(e.target.value), "aria-label": "Plans for improvement" }), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Consequences of Further Policy Violation:"), /* @__PURE__ */ React.createElement("textarea", { className: "vn-lines", rows: 1, value: consequences, maxLength: 200, onChange: (e) => setConsequences(e.target.value), "aria-label": "Consequences of further policy violation" }), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Acknowledgment:"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.9em" } }, "By signing this form, you confirm that you understand the information on this violation. You also confirm that you and your manager have discussed the violation and plan for improvement. Signing this form does not necessarily indicate that you agree with this violation. If you are provided this notice by email, it is not necessary for the employee to sign the acknowledgement as the email serves as a formal acknowledgment."), sigBlock("employee", "Employee", /* @__PURE__ */ React.createElement(Locked2, { value: picked?.name || "", placeholder: "employee", w: "11em" })), sigBlock("supervisor", "Supervisor", /* @__PURE__ */ React.createElement("input", { className: "vn-blank", style: { width: "11em" }, value: supervisorName, maxLength: 80, onChange: (e) => setSupervisorName(e.target.value), "aria-label": "Supervisor name" })), sigBlock("witness", "Witness", /* @__PURE__ */ React.createElement("input", { className: "vn-blank", style: { width: "11em" }, value: witnessName, maxLength: 80, onChange: (e) => setWitnessName(e.target.value), placeholder: "witness name", "aria-label": "Witness name" }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send }, busy ? "Saving\u2026" : "Save & send")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
+      SignatureModal,
+      {
+        th,
+        title: `${signing === "employee" ? "Employee" : signing === "supervisor" ? "Supervisor" : "Witness"} signature \u2014 ${picked?.name || ""}`,
+        onCancel: () => setSigning(null),
+        onDone: (image) => {
+          setSigs((x) => ({ ...x, [signing]: { image, date: todayIso4(), fp } }));
+          if (signing === "employee") setEmployeeRefused(false);
+          setSigning(null);
+        }
+      }
+    ));
+  }
+
   // src/director-scope.mjs
   function parseDistricts(v) {
     const list = Array.isArray(v) ? v : String(v ?? "").split(/[,\s]+/);
@@ -3697,7 +4209,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // app.jsx
-  var { useState: useState4, useRef: useRef4, useCallback, useEffect: useEffect4 } = React;
+  var { useState: useState5, useRef: useRef4, useCallback, useEffect: useEffect5 } = React;
   var Guard = class extends React.Component {
     constructor(props) {
       super(props);
@@ -3720,8 +4232,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
   var GOOGLE_ALLOWED_DOMAINS = ["peoplecapitalgroup.com", "rgi.life", "Raogroupinc.com"];
   function useIsMobile() {
-    const [isMobile, setIsMobile] = useState4(() => window.innerWidth <= 768);
-    useEffect4(() => {
+    const [isMobile, setIsMobile] = useState5(() => window.innerWidth <= 768);
+    useEffect5(() => {
       const handler = () => setIsMobile(window.innerWidth <= 768);
       window.addEventListener("resize", handler);
       return () => window.removeEventListener("resize", handler);
@@ -3729,8 +4241,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return isMobile;
   }
   function useNoHoverDevice() {
-    const [noHover, setNoHover] = useState4(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
-    useEffect4(() => {
+    const [noHover, setNoHover] = useState5(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
+    useEffect5(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mq = window.matchMedia("(hover: none)");
       const handler = () => setNoHover(mq.matches);
@@ -3742,8 +4254,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return noHover;
   }
   function useFrameHeight(frameRef, min = 360, gutter = 20, dep) {
-    const [frameH, setFrameH] = useState4(null);
-    useEffect4(() => {
+    const [frameH, setFrameH] = useState5(null);
+    useEffect5(() => {
       const measure = () => {
         const el = frameRef.current;
         if (!el) return;
@@ -4661,9 +5173,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return secret;
   }
   function base32ToBytes(secret) {
-    const clean = String(secret || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
+    const clean2 = String(secret || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
     let bits = "";
-    for (const char of clean) {
+    for (const char of clean2) {
       const value = TOTP_BASE32_ALPHABET.indexOf(char);
       if (value >= 0) bits += value.toString(2).padStart(5, "0");
     }
@@ -4841,50 +5353,50 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Login({ onLogin, dark, toggleDark, users }) {
     const th = getTheme(dark);
-    const [form, setForm] = useState4({ u: (() => {
+    const [form, setForm] = useState5({ u: (() => {
       try {
         return localStorage.getItem("pcg_remember_username") || "";
       } catch {
         return "";
       }
     })(), p: "" });
-    const [rememberMe, setRememberMe] = useState4(() => {
+    const [rememberMe, setRememberMe] = useState5(() => {
       try {
         return !!localStorage.getItem("pcg_remember_username");
       } catch {
         return false;
       }
     });
-    const [authStage, setAuthStage] = useState4("password");
-    const [pendingUser, setPendingUser] = useState4(null);
-    const [twoFactorCode, setTwoFactorCode] = useState4("");
-    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState4("");
-    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState4(false);
-    const [trustDevice, setTrustDevice] = useState4(true);
-    const [err, setErr] = useState4("");
-    const [show, setShow] = useState4(false);
-    const [logoAnim, setLogoAnim] = useState4(false);
-    const [shake, setShake] = useState4(false);
-    const [loading, setLoading] = useState4(false);
-    const [exiting, setExiting] = useState4(false);
-    const [focusField, setFocusField] = useState4(null);
-    const [now, setNow] = useState4(/* @__PURE__ */ new Date());
-    const [mounted, setMounted] = useState4(false);
-    const [showItModal, setShowItModal] = useState4(false);
-    const [narrow, setNarrow] = useState4(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
-    const [tinyScreen, setTinyScreen] = useState4(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
+    const [authStage, setAuthStage] = useState5("password");
+    const [pendingUser, setPendingUser] = useState5(null);
+    const [twoFactorCode, setTwoFactorCode] = useState5("");
+    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState5("");
+    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState5(false);
+    const [trustDevice, setTrustDevice] = useState5(true);
+    const [err, setErr] = useState5("");
+    const [show, setShow] = useState5(false);
+    const [logoAnim, setLogoAnim] = useState5(false);
+    const [shake, setShake] = useState5(false);
+    const [loading, setLoading] = useState5(false);
+    const [exiting, setExiting] = useState5(false);
+    const [focusField, setFocusField] = useState5(null);
+    const [now, setNow] = useState5(/* @__PURE__ */ new Date());
+    const [mounted, setMounted] = useState5(false);
+    const [showItModal, setShowItModal] = useState5(false);
+    const [narrow, setNarrow] = useState5(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
+    const [tinyScreen, setTinyScreen] = useState5(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
     const toggleBtnRef = useRef4(null);
     const logoRef = useRef4(null);
     const googleBtnRef = useRef4(null);
     const tokenClientRef = useRef4(null);
-    const [bioAvailable, setBioAvailable] = useState4(false);
-    const [bioLoading, setBioLoading] = useState4(false);
-    const [bioAutoPrompting, setBioAutoPrompting] = useState4(false);
+    const [bioAvailable, setBioAvailable] = useState5(false);
+    const [bioLoading, setBioLoading] = useState5(false);
+    const [bioAutoPrompting, setBioAutoPrompting] = useState5(false);
     const bioAutoTriedRef = useRef4(false);
-    useEffect4(() => {
+    useEffect5(() => {
       webauthnAvailable().then(setBioAvailable);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       const onResize = () => {
         setNarrow(window.innerWidth < 900);
         setTinyScreen(window.innerWidth < 420);
@@ -4896,15 +5408,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         window.removeEventListener("orientationchange", onResize);
       };
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       const t = setInterval(() => setNow(/* @__PURE__ */ new Date()), 1e3);
       return () => clearInterval(t);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       const t = setTimeout(() => setMounted(true), 30);
       return () => clearTimeout(t);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       fetch("/.netlify/functions/portal-auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5100,7 +5612,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBioLoading(false);
       await handleBiometricResult(res, false);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (bioAutoTriedRef.current) return;
       if (!bioAvailable || !webauthnDeviceEnrolled()) return;
       bioAutoTriedRef.current = true;
@@ -5111,7 +5623,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         await handleBiometricResult(res, true);
       })();
     }, [bioAvailable]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
       let tries = 0;
       const init = () => {
@@ -5972,15 +6484,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ))));
   }
   function LinksHub({ links, setLinks, th, user }) {
-    const [search, setSearch] = useState4("");
-    const [editMode, setEditMode] = useState4(false);
-    const [addMode, setAddMode] = useState4(false);
-    const [editingLink, setEditingLink] = useState4(null);
-    const [newLink, setNewLink] = useState4({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
-    const [editForm, setEditForm] = useState4({ name: "", url: "", desc: "", cat: "", visibility: "all" });
-    const [dragId, setDragId] = useState4(null);
-    const [dragCat, setDragCat] = useState4(null);
-    const [dragOverId, setDragOverId] = useState4(null);
+    const [search, setSearch] = useState5("");
+    const [editMode, setEditMode] = useState5(false);
+    const [addMode, setAddMode] = useState5(false);
+    const [editingLink, setEditingLink] = useState5(null);
+    const [newLink, setNewLink] = useState5({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
+    const [editForm, setEditForm] = useState5({ name: "", url: "", desc: "", cat: "", visibility: "all" });
+    const [dragId, setDragId] = useState5(null);
+    const [dragCat, setDragCat] = useState5(null);
+    const [dragOverId, setDragOverId] = useState5(null);
     const canAdmin = isFullAdmin(user) || user?.userType === "office_staff";
     const isFieldUser = user?.userType === "dm" || user?.userType === "manager";
     const allCats = Object.keys(links);
@@ -6253,12 +6765,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         [user.id]: typeof updater === "function" ? updater(prev[user.id] || []) : updater
       }));
     };
-    const [editing, setEditing] = useState4(null);
-    const [form, setForm] = useState4({ title: "", body: "" });
-    const [adding, setAdding] = useState4(false);
-    const [recording, setRecording] = useState4(false);
-    const [interimText, setInterimText] = useState4("");
-    const [recordError, setRecordError] = useState4("");
+    const [editing, setEditing] = useState5(null);
+    const [form, setForm] = useState5({ title: "", body: "" });
+    const [adding, setAdding] = useState5(false);
+    const [recording, setRecording] = useState5(false);
+    const [interimText, setInterimText] = useState5("");
+    const [recordError, setRecordError] = useState5("");
     const recognitionRef = useRef4(null);
     const baseBodyRef = useRef4("");
     const finalChunksRef = useRef4("");
@@ -6330,7 +6842,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     const recordingRef = useRef4(false);
-    useEffect4(() => {
+    useEffect5(() => {
       return () => {
         recordingRef.current = false;
         try {
@@ -6655,13 +7167,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Todos({ todos, setTodos, user, users, th, deepLinkRef }) {
     const emptyForm = { text: "", priority: "Medium", assigneeIds: [user.id], dueDate: "", note: "" };
-    const [form, setForm] = useState4(emptyForm);
-    const [addOpen, setAddOpen] = useState4(false);
-    const [viewTab, setViewTab] = useState4("mine");
-    const [detailId, setDetailId] = useState4(null);
-    const [assignDropOpen, setAssignDropOpen] = useState4(false);
+    const [form, setForm] = useState5(emptyForm);
+    const [addOpen, setAddOpen] = useState5(false);
+    const [viewTab, setViewTab] = useState5("mine");
+    const [detailId, setDetailId] = useState5(null);
+    const [assignDropOpen, setAssignDropOpen] = useState5(false);
     const getUserById = (id) => users.find((u) => u.id === id);
-    useEffect4(() => {
+    useEffect5(() => {
       if (deepLinkRef?.current) {
         const task = todos.find((t) => t.id === deepLinkRef.current);
         if (task) {
@@ -6673,7 +7185,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         deepLinkRef.current = null;
       }
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       const needsMigration = todos.some((t) => t.assigneeId !== void 0 && !t.assigneeIds);
       if (needsMigration) {
         setTodos((ts) => ts.map((t) => {
@@ -7104,21 +7616,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         return st;
       }));
     };
-    const [view, setView] = useState4("list");
-    const [editId, setEditId] = useState4(null);
-    const [showPw, setShowPw] = useState4(false);
-    const [form, setForm] = useState4({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
-    const [search, setSearch] = useState4("");
-    const [welcomeSent, setWelcomeSent] = useState4(null);
-    const [saveFlash, setSaveFlash] = useState4(false);
-    const [confirmDeleteId, setConfirmDeleteId] = useState4(null);
+    const [view, setView] = useState5("list");
+    const [editId, setEditId] = useState5(null);
+    const [showPw, setShowPw] = useState5(false);
+    const [form, setForm] = useState5({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
+    const [search, setSearch] = useState5("");
+    const [welcomeSent, setWelcomeSent] = useState5(null);
+    const [saveFlash, setSaveFlash] = useState5(false);
+    const [confirmDeleteId, setConfirmDeleteId] = useState5(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const canLinkTimeOff = isFullAdmin(currentUser);
-    const [timeOff, setTimeOff] = useState4({});
-    const [timeOffSync, setTimeOffSync] = useState4(null);
-    const [timeOffSyncing, setTimeOffSyncing] = useState4(false);
-    const [linkTarget, setLinkTarget] = useState4(null);
+    const [timeOff, setTimeOff] = useState5({});
+    const [timeOffSync, setTimeOffSync] = useState5(null);
+    const [timeOffSyncing, setTimeOffSyncing] = useState5(false);
+    const [linkTarget, setLinkTarget] = useState5(null);
     const loadTimeOff = useCallback(() => {
       timeOffApi("users").then((j) => setTimeOff(j.users || {})).catch(() => {
       });
@@ -7149,7 +7661,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       loadTimeOff();
       setTimeOffSyncing(false);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       loadTimeOff().then((last) => {
         if (!canLinkTimeOff || last === void 0) return;
         const now = Date.now();
@@ -7161,11 +7673,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, [loadTimeOff]);
     const nextId = () => Math.max(0, ...users.map((u) => u.id)) + 1;
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-    const [emailAction, setEmailAction] = useState4(null);
-    const [revokeAction, setRevokeAction] = useState4(null);
-    const [statusFilter, setStatusFilter] = useState4("all");
-    const [flashUserKey, setFlashUserKey] = useState4(null);
-    const [leavingUserIds, setLeavingUserIds] = useState4([]);
+    const [emailAction, setEmailAction] = useState5(null);
+    const [revokeAction, setRevokeAction] = useState5(null);
+    const [statusFilter, setStatusFilter] = useState5("all");
+    const [flashUserKey, setFlashUserKey] = useState5(null);
+    const [leavingUserIds, setLeavingUserIds] = useState5([]);
     const prevUserIdsRef = useRef4(/* @__PURE__ */ new Set());
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
@@ -7404,8 +7916,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
     const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development", "Field Operations Auditor"] : ["District Manager", "Store Manager", "Construction & Development"];
     const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
-    const [roleFilter, setRoleFilter] = useState4("all");
-    const [isMobileUsers, setIsMobileUsers] = useState4(() => window.innerWidth < 700);
+    const [roleFilter, setRoleFilter] = useState5("all");
+    const [isMobileUsers, setIsMobileUsers] = useState5(() => window.innerWidth < 700);
     React.useEffect(() => {
       const fn = () => setIsMobileUsers(window.innerWidth < 700);
       window.addEventListener("resize", fn);
@@ -7416,7 +7928,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
     const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
     const displayUsers = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username || "").toLowerCase().includes(search.toLowerCase())).filter((u) => roleFilter === "all" || u.userType === roleFilter).filter((u) => statusFilter === "all" || (statusFilter === "active" ? u.active !== false : statusFilter === "inactive" ? u.active === false : !!u.locked)).sort((a, b) => (b.active === false ? 1 : 0) - (a.active === false ? 1 : 0));
-    useEffect4(() => {
+    useEffect5(() => {
       prevUserIdsRef.current = new Set(displayUsers.map((u) => u.id));
     });
     const rc = roleColor(form.userType || "manager");
@@ -8221,17 +8733,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var openStoreList = () => LIVE_OPEN_STORES || STORES_SEED.filter((s) => s.status !== PERMANENTLY_CLOSED);
   function ClosestToFinder({ th, onClose }) {
     const O2 = "#FF671F";
-    const [addr, setAddr] = useState4("");
-    const [origin, setOrigin] = useState4(null);
-    const [ranked, setRanked] = useState4([]);
-    const [drive, setDrive] = useState4({});
-    const [busy, setBusy] = useState4(false);
-    const [status, setStatus] = useState4("");
-    const [hoverPc, setHoverPc] = useState4(null);
-    const [suggestions, setSuggestions] = useState4([]);
-    const [showSuggestions, setShowSuggestions] = useState4(false);
-    const [suggestLoading, setSuggestLoading] = useState4(false);
-    const [activeSugIdx, setActiveSugIdx] = useState4(-1);
+    const [addr, setAddr] = useState5("");
+    const [origin, setOrigin] = useState5(null);
+    const [ranked, setRanked] = useState5([]);
+    const [drive, setDrive] = useState5({});
+    const [busy, setBusy] = useState5(false);
+    const [status, setStatus] = useState5("");
+    const [hoverPc, setHoverPc] = useState5(null);
+    const [suggestions, setSuggestions] = useState5([]);
+    const [showSuggestions, setShowSuggestions] = useState5(false);
+    const [suggestLoading, setSuggestLoading] = useState5(false);
+    const [activeSugIdx, setActiveSugIdx] = useState5(-1);
     const suggestTimer = useRef4(null);
     const mapDiv = useRef4(null);
     const mapRef = useRef4(null);
@@ -8351,7 +8863,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setDrive((d) => ({ ...d, [row.pc]: "err" }));
       }
     }
-    useEffect4(() => {
+    useEffect5(() => {
       if (!mapDiv.current || !window.L) return;
       const L = window.L;
       if (!mapRef.current) {
@@ -8384,11 +8896,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setTimeout(() => map.invalidateSize(), 60);
     }, [ranked, origin]);
-    useEffect4(() => {
+    useEffect5(() => {
       const m = hoverPc && markersRef.current[hoverPc];
       if (m && m.openPopup) m.openPopup();
     }, [hoverPc]);
-    useEffect4(() => () => {
+    useEffect5(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -8435,30 +8947,30 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
     const mgrOf = (s) => storeMgrName(s, users);
-    const [laborData, setLaborData] = useState4(null);
-    useEffect4(() => {
+    const [laborData, setLaborData] = useState5(null);
+    useEffect5(() => {
       cloudLoad("pcg_labor_v1").then((d) => {
         if (d?.stores) setLaborData(d.stores);
       }).catch(() => {
       });
     }, []);
     const employeeCountOf = (s) => laborData?.[s.pc]?.today?.employees;
-    const [filterState, setFilterState] = useState4("All");
-    const [filterStatus, setFilterStatus] = useState4("All");
-    const [filterDistrict, setFilterDistrict] = useState4("All");
-    const [filterNxt, setFilterNxt] = useState4(false);
-    const [filterBaskin, setFilterBaskin] = useState4(false);
-    const [search, setSearch] = useState4("");
-    const [editStore, setEditStore] = useState4(null);
-    const [addMode, setAddMode] = useState4(false);
-    const [selectedStore, setSelectedStore] = useState4(null);
-    const [sortCol, setSortCol] = useState4("pc");
-    const [sortDir, setSortDir] = useState4("asc");
-    const [copiedId, setCopiedId] = useState4(null);
-    const [cityData, setCityData] = useState4(null);
-    const [cityLoading, setCityLoading] = useState4(false);
-    const [foodLicenses, setFoodLicenses] = useState4({});
-    const [foodLicensesLoading, setFoodLicensesLoading] = useState4(false);
+    const [filterState, setFilterState] = useState5("All");
+    const [filterStatus, setFilterStatus] = useState5("All");
+    const [filterDistrict, setFilterDistrict] = useState5("All");
+    const [filterNxt, setFilterNxt] = useState5(false);
+    const [filterBaskin, setFilterBaskin] = useState5(false);
+    const [search, setSearch] = useState5("");
+    const [editStore, setEditStore] = useState5(null);
+    const [addMode, setAddMode] = useState5(false);
+    const [selectedStore, setSelectedStore] = useState5(null);
+    const [sortCol, setSortCol] = useState5("pc");
+    const [sortDir, setSortDir] = useState5("asc");
+    const [copiedId, setCopiedId] = useState5(null);
+    const [cityData, setCityData] = useState5(null);
+    const [cityLoading, setCityLoading] = useState5(false);
+    const [foodLicenses, setFoodLicenses] = useState5({});
+    const [foodLicensesLoading, setFoodLicensesLoading] = useState5(false);
     const loadFoodLicenses = async () => {
       setFoodLicensesLoading(true);
       try {
@@ -8474,17 +8986,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setFoodLicensesLoading(false);
     };
-    const [toolsOpen, setToolsOpen] = useState4(false);
-    const [activeTool, setActiveTool] = useState4(null);
-    const [viewMode, setViewMode] = useState4("list");
-    useEffect4(() => {
+    const [toolsOpen, setToolsOpen] = useState5(false);
+    const [activeTool, setActiveTool] = useState5(null);
+    const [viewMode, setViewMode] = useState5("list");
+    useEffect5(() => {
       onMapModeChange?.(viewMode === "map");
       return () => onMapModeChange?.(false);
     }, [viewMode]);
-    const [isNarrow, setIsNarrow] = useState4(() => typeof window !== "undefined" && window.innerWidth < 760);
+    const [isNarrow, setIsNarrow] = useState5(() => typeof window !== "undefined" && window.innerWidth < 760);
     const frameRef = useRef4(null);
     const frameH = useFrameHeight(frameRef, 340, 16);
-    useEffect4(() => {
+    useEffect5(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -8523,7 +9035,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     const emptyStore = { pc: "", paycor: "", legal: "", name: "", address: "", city: "", state: "PA", zip: "", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "", district: "", dmName: "", dmEmail: "", status: "Coming Soon", closedDate: "", employees: 0, sales: 0 };
-    const [newStore, setNewStore] = useState4(emptyStore);
+    const [newStore, setNewStore] = useState5(emptyStore);
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
     const isDM = user?.userType === "dm";
@@ -9730,12 +10242,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
-    const [editDist, setEditDist] = useState4(null);
-    const [distForm, setDistForm] = useState4({});
-    const [addMode, setAddMode] = useState4(false);
-    const [newDist, setNewDist] = useState4({ num: "", name: "", email: "" });
-    const [expandedDist, setExpandedDist] = useState4(null);
-    const [moveStore, setMoveStore] = useState4(null);
+    const [editDist, setEditDist] = useState5(null);
+    const [distForm, setDistForm] = useState5({});
+    const [addMode, setAddMode] = useState5(false);
+    const [newDist, setNewDist] = useState5({ num: "", name: "", email: "" });
+    const [expandedDist, setExpandedDist] = useState5(null);
+    const [moveStore, setMoveStore] = useState5(null);
     const distList = Object.values(districts).sort((a, b) => a.num - b.num);
     const mgrOf = (s) => storeMgrName(s, users);
     const saveEdit = () => {
@@ -10135,14 +10647,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const canUpload = user?.username === "mike.bahm";
     const isDMViewer = user?.userType === "dm";
     const dmDistrict = isDMViewer ? user?.district || null : null;
-    const [uploading, setUploading] = useState4(false);
-    const [uploadErr, setUploadErr] = useState4(null);
-    const [selWeek, setSelWeek] = useState4(0);
-    const [sortCol, setSortCol] = useState4("lwSale");
-    const [sortDir, setSortDir] = useState4(-1);
-    const [distFilter, setDistFilter] = useState4(isDMViewer ? dmDistrict || 0 : 0);
-    const [debugLines, setDebugLines] = useState4(null);
-    const [showDebug, setShowDebug] = useState4(false);
+    const [uploading, setUploading] = useState5(false);
+    const [uploadErr, setUploadErr] = useState5(null);
+    const [selWeek, setSelWeek] = useState5(0);
+    const [sortCol, setSortCol] = useState5("lwSale");
+    const [sortDir, setSortDir] = useState5(-1);
+    const [distFilter, setDistFilter] = useState5(isDMViewer ? dmDistrict || 0 : 0);
+    const [debugLines, setDebugLines] = useState5(null);
+    const [showDebug, setShowDebug] = useState5(false);
     const fileRef = useRef4(null);
     const detailTableRef = useRef4(null);
     const fmtSales = (n) => {
@@ -10406,33 +10918,33 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     "Other": { color: "#aaa", bg: "#aaa18" }
   };
   function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, currentUser, th }) {
-    const [search, setSearch] = useState4("");
-    const [modal, setModal] = useState4(null);
-    const [editItem, setEditItem] = useState4(null);
-    const [form, setForm] = useState4({});
-    const [deptDropOpen, setDeptDropOpen] = useState4(false);
-    const [showInternal, setShowInternal] = useState4(() => {
+    const [search, setSearch] = useState5("");
+    const [modal, setModal] = useState5(null);
+    const [editItem, setEditItem] = useState5(null);
+    const [form, setForm] = useState5({});
+    const [deptDropOpen, setDeptDropOpen] = useState5(false);
+    const [showInternal, setShowInternal] = useState5(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_internal") ?? "true");
       } catch {
         return true;
       }
     });
-    const [showVendors, setShowVendors] = useState4(() => {
+    const [showVendors, setShowVendors] = useState5(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_vendors") ?? "true");
       } catch {
         return true;
       }
     });
-    const [dragId, setDragId] = useState4(null);
-    useEffect4(() => {
+    const [dragId, setDragId] = useState5(null);
+    useEffect5(() => {
       localStorage.setItem("pcg_show_internal", JSON.stringify(showInternal));
     }, [showInternal]);
-    useEffect4(() => {
+    useEffect5(() => {
       localStorage.setItem("pcg_show_vendors", JSON.stringify(showVendors));
     }, [showVendors]);
-    useEffect4(() => {
+    useEffect5(() => {
       const needsMigration = contacts.some((c) => c.dept !== void 0 && !c.depts);
       if (needsMigration) {
         setContacts((cs) => cs.map((c) => {
@@ -11609,9 +12121,9 @@ ${pendingEmail.emails.join("\n")}`,
     }, user, standalone: true, txnDeepLinkRef, initialTab: initialTab || "sales" }));
   }
   function AdminSchedule({ stores, th, user }) {
-    const [selectedStore, setSelectedStore] = useState4(null);
-    const [search, setSearch] = useState4("");
-    const [filterDistrict, setFilterDistrict] = useState4("All");
+    const [selectedStore, setSelectedStore] = useState5(null);
+    const [search, setSearch] = useState5("");
+    const [filterDistrict, setFilterDistrict] = useState5("All");
     const isDM = user?.userType === "dm";
     const visibleStores = React.useMemo(() => {
       if (isDM && user?.district != null) return (stores || []).filter((s) => String(s.district) === String(user.district));
@@ -11649,7 +12161,7 @@ ${pendingEmail.emails.join("\n")}`,
     ))));
   }
   function ManagerSchedule({ stores, th, user }) {
-    const [mode, setMode] = useState4("build");
+    const [mode, setMode] = useState5("build");
     const store = getManagerStore(stores, user);
     if (!store?.pc) {
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "No store is linked to your account yet. Ask an admin to assign one.");
@@ -14371,7 +14883,7 @@ ${pendingEmail.emails.join("\n")}`,
   function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
     const G = "#00d084";
     const isMobile = useIsMobile();
-    const [laborData, setLaborData] = useState4(null);
+    const [laborData, setLaborData] = useState5(null);
     const fetchLaborData = useCallback(async () => {
       try {
         const data = await cloudLoad("pcg_labor_v1");
@@ -14379,10 +14891,10 @@ ${pendingEmail.emails.join("\n")}`,
       } catch {
       }
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect4(() => {
+    useEffect5(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -14390,30 +14902,30 @@ ${pendingEmail.emails.join("\n")}`,
       const d = /* @__PURE__ */ new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     })();
-    const [busDt, setBusDt] = useState4(todayStr);
-    const [storeData, setStoreData] = useState4({});
-    const [loading, setLoading] = useState4(false);
-    const [progress, setProgress] = useState4(0);
-    const [lastRefresh, setLastRefresh] = useState4(null);
-    const [countdown, setCountdown] = useState4(300);
+    const [busDt, setBusDt] = useState5(todayStr);
+    const [storeData, setStoreData] = useState5({});
+    const [loading, setLoading] = useState5(false);
+    const [progress, setProgress] = useState5(0);
+    const [lastRefresh, setLastRefresh] = useState5(null);
+    const [countdown, setCountdown] = useState5(300);
     const isDMUser = user?.userType === "dm";
     const dmDistrict = isDMUser && user?.district ? Number(user.district) : 0;
-    const [distFilter, setDistFilter] = useState4(dmDistrict);
-    const [autoRefresh, setAutoRefresh] = useState4(true);
-    const [testResult, setTestResult] = useState4(null);
-    const [testing, setTesting] = useState4(false);
-    const [dateCache, setDateCache] = useState4({});
-    const [lyCache, setLyCache] = useState4({});
-    const [wtdLoading, setWtdLoading] = useState4(false);
-    const [viewMode, setViewMode] = useState4("day");
-    const [weekStoreData, setWeekStoreData] = useState4({});
-    const [weekLoading, setWeekLoading] = useState4(false);
-    const [dayStoreCache, setDayStoreCache] = useState4({});
-    const [comparisonsLoading, setComparisonsLoading] = useState4(false);
-    const [hourlyHistories, setHourlyHistories] = useState4(null);
-    const [collapsed, setCollapsed] = useState4(/* @__PURE__ */ new Set());
-    const [tipsSnapshot, setTipsSnapshot] = useState4(null);
-    useEffect4(() => {
+    const [distFilter, setDistFilter] = useState5(dmDistrict);
+    const [autoRefresh, setAutoRefresh] = useState5(true);
+    const [testResult, setTestResult] = useState5(null);
+    const [testing, setTesting] = useState5(false);
+    const [dateCache, setDateCache] = useState5({});
+    const [lyCache, setLyCache] = useState5({});
+    const [wtdLoading, setWtdLoading] = useState5(false);
+    const [viewMode, setViewMode] = useState5("day");
+    const [weekStoreData, setWeekStoreData] = useState5({});
+    const [weekLoading, setWeekLoading] = useState5(false);
+    const [dayStoreCache, setDayStoreCache] = useState5({});
+    const [comparisonsLoading, setComparisonsLoading] = useState5(false);
+    const [hourlyHistories, setHourlyHistories] = useState5(null);
+    const [collapsed, setCollapsed] = useState5(/* @__PURE__ */ new Set());
+    const [tipsSnapshot, setTipsSnapshot] = useState5(null);
+    useEffect5(() => {
       let alive = true;
       setTipsSnapshot(null);
       cloudLoad(`pcg_tips_snapshot_${busDt}`).then((d) => {
@@ -14430,8 +14942,8 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [busDt]);
-    const [laborDailyByStore, setLaborDailyByStore] = useState4({});
-    useEffect4(() => {
+    const [laborDailyByStore, setLaborDailyByStore] = useState5({});
+    useEffect5(() => {
       let alive = true;
       Promise.all((stores || []).map(
         (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => [s.pc, Array.isArray(d?.daily) ? d.daily : []]).catch(() => [s.pc, []])
@@ -14464,16 +14976,16 @@ ${pendingEmail.emails.join("\n")}`,
       if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
       return daily ? daily.find((e) => e.date === busDt) || null : null;
     }, [laborDailyByStore, viewMode, busDt, todayStr, laborData]);
-    const [pulseView, setPulseView] = useState4(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
-    const [weatherForecast, setWeatherForecast] = useState4(null);
-    const [networkReviews, setNetworkReviews] = useState4(null);
+    const [pulseView, setPulseView] = useState5(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
+    const [weatherForecast, setWeatherForecast] = useState5(null);
+    const [networkReviews, setNetworkReviews] = useState5(null);
     const cdRef = useRef4(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
     const dmStoreCount = activePCs.length;
     const pulseDistrictNums = districtNumbers(stores.filter((s) => s.status === "Open"));
-    useEffect4(() => {
+    useEffect5(() => {
       let alive = true;
       Promise.all(activePCs.map(
         (pc) => cloudLoad(`pcg_hourly_history_${pc}`).then((d) => Array.isArray(d) ? d : null).catch(() => null)
@@ -14484,13 +14996,13 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [activePCs.join(",")]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (drillInStore) {
         setPulseView({ level: "store", pc: drillInStore });
         if (onClearDrillIn) onClearDrillIn();
       }
     }, [drillInStore]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (pulseView !== "network") {
         window.scrollTo(0, 0);
         frameRef.current?.scrollTo(0, 0);
@@ -14682,11 +15194,11 @@ ${t2.slice(0, 300)}`);
     };
     const wtdAutoLoaded = useRef4(false);
     const lastWtdWeek = useRef4("");
-    useEffect4(() => {
+    useEffect5(() => {
       loadAll();
       if (!drillInStore) setPulseView("network");
     }, [busDt]);
-    useEffect4(() => {
+    useEffect5(() => {
       const d = /* @__PURE__ */ new Date(busDt + "T12:00:00");
       const sun = new Date(d);
       sun.setDate(d.getDate() - d.getDay());
@@ -14696,19 +15208,19 @@ ${t2.slice(0, 300)}`);
         lastWtdWeek.current = weekKey;
       }
     }, [busDt]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!loading && Object.keys(storeData).length > 0 && !wtdAutoLoaded.current) {
         wtdAutoLoaded.current = true;
         loadWTD();
         loadLYWeek();
       }
     }, [loading, storeData]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (loading) return;
       if (!Object.keys(storeData).length) return;
       loadComparisons();
     }, [busDt, viewMode, loading]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (autoRefresh) {
         cdRef.current = setInterval(() => {
           setCountdown((c) => {
@@ -14722,15 +15234,15 @@ ${t2.slice(0, 300)}`);
       }
       return () => clearInterval(cdRef.current);
     }, [autoRefresh, busDt]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (viewMode !== "week") return;
       loadWeekGrid();
     }, [viewMode, busDt]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (viewMode !== "week" || loading) return;
       loadWeekGrid();
     }, [storeData]);
-    useEffect4(() => {
+    useEffect5(() => {
       (async () => {
         try {
           const fRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) });
@@ -15742,10 +16254,10 @@ ${t2.slice(0, 300)}`);
     return doc;
   }
   function ReportPhotoRestore({ th, showAlert: showAlert2 }) {
-    const [open, setOpen] = useState4(false);
-    const [busy, setBusy] = useState4(null);
-    const [status, setStatus] = useState4(null);
-    const call2 = async (mode, extra = {}) => {
+    const [open, setOpen] = useState5(false);
+    const [busy, setBusy] = useState5(null);
+    const [status, setStatus] = useState5(null);
+    const call3 = async (mode, extra = {}) => {
       setBusy(mode);
       let before = null;
       try {
@@ -15789,21 +16301,21 @@ ${t2.slice(0, 300)}`);
       {
         disabled: !!busy,
         onClick: () => {
-          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call2("undo", { undoKey: status.undoKey });
+          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call3("undo", { undoKey: status.undoKey });
         },
         style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text }
       },
       "Undo restore"
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call2("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
-      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call2("restore");
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call3("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
+      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call3("restore");
     }, style: { ...btn(th) } }, "Restore ", plan.photos, " photos"))))));
   }
   function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert: showAlert2, editable }) {
     const dailyReports = _dr2 || [];
-    const [drView, setDrView] = useState4("list");
-    const [editReport, setEditReport] = useState4(null);
-    const [rForm, setRForm] = useState4({ ...EMPTY_DAILY_REPORT });
-    const [wxLoading, setWxLoading] = useState4(false);
+    const [drView, setDrView] = useState5("list");
+    const [editReport, setEditReport] = useState5(null);
+    const [rForm, setRForm] = useState5({ ...EMPTY_DAILY_REPORT });
+    const [wxLoading, setWxLoading] = useState5(false);
     const fileInputRefs = useRef4({});
     const projReports = dailyReports.filter((r) => r.projectId === project.id).sort((a, b) => b.date.localeCompare(a.date));
     const nextId = () => {
@@ -15931,12 +16443,12 @@ ${t2.slice(0, 300)}`);
     const totalWorkers = (r) => (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
     const totalHrs = (r) => (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
     const pdfImportRef = useRef4(null);
-    const [pdfImporting, setPdfImporting] = useState4(false);
-    const [forceSyncState, setForceSyncState] = useState4("idle");
-    const [forceSyncMsg, setForceSyncMsg] = useState4("");
-    const [backupState, setBackupState] = useState4("idle");
-    const [lastBackupTime, setLastBackupTime] = useState4(null);
-    useEffect4(() => {
+    const [pdfImporting, setPdfImporting] = useState5(false);
+    const [forceSyncState, setForceSyncState] = useState5("idle");
+    const [forceSyncMsg, setForceSyncMsg] = useState5("");
+    const [backupState, setBackupState] = useState5("idle");
+    const [lastBackupTime, setLastBackupTime] = useState5(null);
+    useEffect5(() => {
       const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
       cloudLoad(`pcg_daily_reports_backup_${date}`).then((data) => {
         if (data?.[0] || Array.isArray(data)) {
@@ -16087,12 +16599,12 @@ ${t2.slice(0, 300)}`);
         if (pdfImportRef.current) pdfImportRef.current.value = "";
       }
     };
-    const [pdfLoading, setPdfLoading] = useState4(false);
-    const [emailModal, setEmailModal] = useState4(false);
-    const [emailTo, setEmailTo] = useState4("");
-    const [emailSubject, setEmailSubject] = useState4("");
-    const [emailSending, setEmailSending] = useState4(false);
-    const [lightbox, setLightbox] = useState4(null);
+    const [pdfLoading, setPdfLoading] = useState5(false);
+    const [emailModal, setEmailModal] = useState5(false);
+    const [emailTo, setEmailTo] = useState5("");
+    const [emailSubject, setEmailSubject] = useState5("");
+    const [emailSending, setEmailSending] = useState5(false);
+    const [lightbox, setLightbox] = useState5(null);
     const buildNativePdf = (report, projOverride) => buildReportPdf(report, projOverride || project);
     const _legacyPdfBody = async (report, project2) => {
       const _proj = project2;
@@ -17308,32 +17820,32 @@ ${t2.slice(0, 300)}`);
   }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
-    const [view, setView] = useState4("table");
+    const [view, setView] = useState5("table");
     const tableFrameRef = useRef4(null);
     const isMobile = useIsMobile();
     const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
-    const [selectedProject, setSelectedProject] = useState4(null);
-    const [detailTab, setDetailTab] = useState4("checklist");
-    const [addMode, setAddMode] = useState4(false);
-    const [editId, setEditId] = useState4(null);
-    const [form, setForm] = useState4({ ...EMPTY_PROJECT });
-    const [filterType, setFilterType] = useState4("All");
-    const [filterPhase, setFilterPhase] = useState4("All");
-    const [search, setSearch] = useState4("");
-    const [manualAddr, setManualAddr] = useState4(false);
-    const [sortCol, setSortCol] = useState4("priority");
-    const [sortDir, setSortDir] = useState4("asc");
-    const [reorderLocked, setReorderLocked] = useState4(true);
-    const [dragIdx, setDragIdx] = useState4(null);
-    const [dragOverIdx, setDragOverIdx] = useState4(null);
-    const [zoningOverlay, setZoningOverlay] = useState4(null);
-    const [zoningLoading, setZoningLoading] = useState4(false);
-    const [zoningData, setZoningData] = useState4(null);
-    const [permitUploading, setPermitUploading] = useState4(null);
-    const [permitDetailData, setPermitDetailData] = useState4(null);
-    const [docViewerData, setDocViewerData] = useState4(null);
-    const [docBlobUrl, setDocBlobUrl] = useState4(null);
-    useEffect4(() => {
+    const [selectedProject, setSelectedProject] = useState5(null);
+    const [detailTab, setDetailTab] = useState5("checklist");
+    const [addMode, setAddMode] = useState5(false);
+    const [editId, setEditId] = useState5(null);
+    const [form, setForm] = useState5({ ...EMPTY_PROJECT });
+    const [filterType, setFilterType] = useState5("All");
+    const [filterPhase, setFilterPhase] = useState5("All");
+    const [search, setSearch] = useState5("");
+    const [manualAddr, setManualAddr] = useState5(false);
+    const [sortCol, setSortCol] = useState5("priority");
+    const [sortDir, setSortDir] = useState5("asc");
+    const [reorderLocked, setReorderLocked] = useState5(true);
+    const [dragIdx, setDragIdx] = useState5(null);
+    const [dragOverIdx, setDragOverIdx] = useState5(null);
+    const [zoningOverlay, setZoningOverlay] = useState5(null);
+    const [zoningLoading, setZoningLoading] = useState5(false);
+    const [zoningData, setZoningData] = useState5(null);
+    const [permitUploading, setPermitUploading] = useState5(null);
+    const [permitDetailData, setPermitDetailData] = useState5(null);
+    const [docViewerData, setDocViewerData] = useState5(null);
+    const [docBlobUrl, setDocBlobUrl] = useState5(null);
+    useEffect5(() => {
       if (!docViewerData?.data || docViewerData.type && docViewerData.type.startsWith("image/")) {
         setDocBlobUrl(null);
         return;
@@ -17351,15 +17863,15 @@ ${t2.slice(0, 300)}`);
         setDocBlobUrl(null);
       }
     }, [docViewerData]);
-    const [planUploading, setPlanUploading] = useState4(null);
-    const [projCityData, setProjCityData] = useState4(null);
-    const [projCityLoading, setProjCityLoading] = useState4(false);
+    const [planUploading, setPlanUploading] = useState5(null);
+    const [projCityData, setProjCityData] = useState5(null);
+    const [projCityLoading, setProjCityLoading] = useState5(false);
     const pros = professionals || DEFAULT_PROFESSIONALS;
-    useEffect4(() => {
+    useEffect5(() => {
       setProjCityData(null);
       setZoningData(null);
     }, [selectedProject?.id]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (deepLinkRef?.current) {
         const proj = projects.find((p) => p.id === deepLinkRef.current);
         if (proj) {
@@ -18975,12 +19487,12 @@ ${t2.slice(0, 300)}`);
   var accIco = (k, c, s = 18) => /* @__PURE__ */ React.createElement(HubIcon, { d: ACCESS_ICONS[k], color: c, size: s });
   var initialsOf = (name) => String(name || "?").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "?";
   function PnlAccessPanel({ th, user, users, showAlert: showAlert2 }) {
-    const [allowed, setAllowed] = useState4(null);
-    const [query, setQuery] = useState4("");
-    const [adding, setAdding] = useState4(false);
-    const [addQuery, setAddQuery] = useState4("");
-    const [saving, setSaving] = useState4(false);
-    useEffect4(() => {
+    const [allowed, setAllowed] = useState5(null);
+    const [query, setQuery] = useState5("");
+    const [adding, setAdding] = useState5(false);
+    const [addQuery, setAddQuery] = useState5("");
+    const [saving, setSaving] = useState5(false);
+    useEffect5(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => setAllowed(Array.isArray(d?.allowed) ? d.allowed : [...DEFAULT_PNL_ALLOWED])).catch(() => setAllowed([...DEFAULT_PNL_ALLOWED]));
     }, []);
     const persist = async (next) => {
@@ -19083,9 +19595,9 @@ ${t2.slice(0, 300)}`);
     });
     const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
     const ov = accessOverrides || {};
-    const [expandedHubs, setExpandedHubs] = useState4(/* @__PURE__ */ new Set());
-    const [openRoles, setOpenRoles] = useState4(/* @__PURE__ */ new Set());
-    const [showMore, setShowMore] = useState4(false);
+    const [expandedHubs, setExpandedHubs] = useState5(/* @__PURE__ */ new Set());
+    const [openRoles, setOpenRoles] = useState5(/* @__PURE__ */ new Set());
+    const [showMore, setShowMore] = useState5(false);
     const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
       const next = new Set(prev);
       if (next.has(hubId)) next.delete(hubId);
@@ -19212,7 +19724,7 @@ ${t2.slice(0, 300)}`);
     );
   }
   function WeeklyReportSendNow({ th, showAlert: showAlert2 }) {
-    const [state, setState] = useState4("idle");
+    const [state, setState] = useState5("idle");
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const today = /* @__PURE__ */ new Date();
     const daysSinceSat = (today.getDay() + 1) % 7 || 7;
@@ -19261,21 +19773,21 @@ ${t2.slice(0, 300)}`);
   var irIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS[k] || NOTIFY_ICONS[k], color: c, size: s });
   function InterviewRemindersPanel({ th, showAlert: showAlert2, users }) {
     const O2 = "#FF671F";
-    const [data, setData] = useState4(null);
-    const [err, setErr] = useState4(null);
-    const [running, setRunning] = useState4(false);
-    const [ivQ, setIvQ] = useState4("");
-    const [ivStatus, setIvStatus] = useState4("all");
-    const [ivRange, setIvRange] = useState4("today");
-    const [ivShowAll, setIvShowAll] = useState4(false);
-    const [peopleOpen, setPeopleOpen] = useState4(true);
-    const [activityOpen, setActivityOpen] = useState4(false);
-    const [peopleQ, setPeopleQ] = useState4("");
-    const [peopleRole, setPeopleRole] = useState4("all");
-    const [picked, setPicked] = useState4([]);
-    const [savingMuted, setSavingMuted] = useState4(false);
-    const [savingSource, setSavingSource] = useState4(false);
-    const [pxCheck, setPxCheck] = useState4(null);
+    const [data, setData] = useState5(null);
+    const [err, setErr] = useState5(null);
+    const [running, setRunning] = useState5(false);
+    const [ivQ, setIvQ] = useState5("");
+    const [ivStatus, setIvStatus] = useState5("all");
+    const [ivRange, setIvRange] = useState5("today");
+    const [ivShowAll, setIvShowAll] = useState5(false);
+    const [peopleOpen, setPeopleOpen] = useState5(true);
+    const [activityOpen, setActivityOpen] = useState5(false);
+    const [peopleQ, setPeopleQ] = useState5("");
+    const [peopleRole, setPeopleRole] = useState5("all");
+    const [picked, setPicked] = useState5([]);
+    const [savingMuted, setSavingMuted] = useState5(false);
+    const [savingSource, setSavingSource] = useState5(false);
+    const [pxCheck, setPxCheck] = useState5(null);
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -19287,7 +19799,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const ivSourceNow = data?.config?.source === "paradox" ? "paradox" : "email";
@@ -19461,13 +19973,13 @@ ${t2.slice(0, 300)}`);
     ), activityOpen && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column" } }, (st?.sent || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No reminders sent yet."), (st?.sent || []).slice(0, 25).map((s, i, arr) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.5rem 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtAgo(s.at)), " \xB7 ", s.kind === "hour" ? "1-hour reminder" : "1-day reminder", " \xB7 ", s.store, " \xB7 ", s.candidate || "candidate", " \xB7 ", s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`, " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: s.smsSent ? "#16a34a" : "#dc2626" } }, s.smsSent ? "text sent" : "no text"), s.emails ? " \xB7 email sent" : "")))));
   }
   function NewHiresPanel({ th, showAlert: showAlert2, users }) {
-    const [data, setData] = useState4(null);
-    const [err, setErr] = useState4(null);
-    const [running, setRunning] = useState4(false);
-    const [testing, setTesting] = useState4(null);
-    const [draft, setDraft] = useState4(null);
-    const [savingCfg, setSavingCfg] = useState4(false);
-    const [pickQ, setPickQ] = useState4("");
+    const [data, setData] = useState5(null);
+    const [err, setErr] = useState5(null);
+    const [running, setRunning] = useState5(false);
+    const [testing, setTesting] = useState5(null);
+    const [draft, setDraft] = useState5(null);
+    const [savingCfg, setSavingCfg] = useState5(false);
+    const [pickQ, setPickQ] = useState5("");
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -19479,7 +19991,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const runNow = async () => {
@@ -19515,7 +20027,7 @@ ${t2.slice(0, 300)}`);
       }
       setTesting(null);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [], source: data.hiresConfig.source || "email" });
     }, [data, draft]);
     const savedCfg = data?.hiresConfig || { live: false, recipients: [], source: "email" };
@@ -19659,6 +20171,7 @@ ${t2.slice(0, 300)}`);
     weeklyHoursSchedule: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01" })),
     newHires: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M19 8v6M16 11h6" })),
     transferNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 8h13M13 4l4 4-4 4" }), /* @__PURE__ */ React.createElement("path", { d: "M20 16H7M11 12l-4 4 4 4" })),
+    violationNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 2.5 20h19Z" }), /* @__PURE__ */ React.createElement("path", { d: "M12 10v4M12 17h.01" })),
     payIncrease: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 20V6M7 11l5-5 5 5" }), /* @__PURE__ */ React.createElement("path", { d: "M5 20h14" })),
     payIncreaseApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M20 6 9 17l-5-5" })),
     interviewReminders: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 5h16v11H8l-4 4Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10.5", r: "2.2" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 14.2a4 4 0 0 1 7 0" })),
@@ -19678,6 +20191,7 @@ ${t2.slice(0, 300)}`);
     minorTimecard: "Minor timecard escalations",
     weeklyHoursSchedule: "Weekly hours report",
     transferNotice: "Transfer notices",
+    violationNotice: "Violation notices",
     payIncrease: "Pay increases",
     payIncreaseApprovers: "Pay increase approvals"
   };
@@ -19708,31 +20222,7 @@ ${t2.slice(0, 300)}`);
       nIco("trash", th.muted, 15)
     ));
   }
-  function NotifyAddBar({ th, value, onChange, onSubmit, placeholder, icon = "mail", label = "Add recipient", disabled }) {
-    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "stretch" } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flex: 1 } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.95rem", top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" } }, nIco(icon, th.muted, 16)), /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        value,
-        onChange: (e) => onChange(e.target.value),
-        onKeyDown: (e) => {
-          if (e.key === "Enter") onSubmit();
-        },
-        placeholder,
-        style: { ...inp(th), width: "100%", boxSizing: "border-box", padding: "0.8rem 1rem 0.8rem 2.6rem", borderRadius: "0.75rem", fontSize: "0.88rem" }
-      }
-    )), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: onSubmit,
-        disabled,
-        style: { ...btn(th, { padding: "0 1.3rem", fontSize: "0.86rem", borderRadius: "0.75rem" }), display: "inline-flex", alignItems: "center", gap: "0.45rem", whiteSpace: "nowrap", opacity: disabled ? 0.6 : 1 }
-      },
-      nIco("plus", "#fff", 15),
-      " ",
-      label
-    ));
-  }
-  function NotifyNameSearch({ th, value, onChange, onFocus, onBlur, placeholder, children }) {
+  function NotifyNameSearch({ th, value, onChange, onFocus, onBlur, onKeyDown, placeholder, children }) {
     return /* @__PURE__ */ React.createElement("div", { style: { position: "relative", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", left: "0.95rem", top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" } }, nIco("search", th.muted, 16)), /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -19741,21 +20231,23 @@ ${t2.slice(0, 300)}`);
         value,
         onChange,
         onFocus,
-        onBlur
+        onBlur,
+        onKeyDown,
+        "aria-label": placeholder
       }
     ), children);
   }
   function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel, seedUserTypes, tagKey = "mail", onCountChange }) {
-    const [emails, setEmails] = useState4(null);
-    const [phones, setPhones] = useState4(null);
-    const [emailOwners, setEmailOwners] = useState4(null);
-    const [phoneOwners, setPhoneOwners] = useState4(null);
-    const [newEmail, setNewEmail] = useState4("");
-    const [newPhone, setNewPhone] = useState4("");
-    const [nameQuery, setNameQuery] = useState4("");
-    const [showSuggestions, setShowSuggestions] = useState4(false);
-    const [saving, setSaving] = useState4(false);
-    useEffect4(() => {
+    const [emails, setEmails] = useState5(null);
+    const [phones, setPhones] = useState5(null);
+    const [emailOwners, setEmailOwners] = useState5(null);
+    const [phoneOwners, setPhoneOwners] = useState5(null);
+    const [newEmail, setNewEmail] = useState5("");
+    const [newPhone, setNewPhone] = useState5("");
+    const [nameQuery, setNameQuery] = useState5("");
+    const [showSuggestions, setShowSuggestions] = useState5(false);
+    const [saving, setSaving] = useState5(false);
+    useEffect5(() => {
       cloudLoad(blobKey).then((d) => {
         if (!d?.updatedAt && seedUserTypes && (users || []).length) {
           const seed = (users || []).filter((u) => u.active !== false && u.email && seedUserTypes.includes(u.userType));
@@ -19827,6 +20319,20 @@ ${t2.slice(0, 300)}`);
       if (!q || !(users || []).length) return [];
       return ROLE_GROUP_LABELS.filter((r) => r.id.includes(q) || r.label.toLowerCase().includes(q)).map((r) => ({ ...r, members: users.filter((u) => u.active !== false && u.userType === r.id && (u.email || u.phone)) })).filter((r) => r.members.length > 0);
     }, [nameQuery, users]);
+    const typed = nameQuery.trim();
+    const typedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed) ? typed : null;
+    const typedDigits = typed.replace(/\D/g, "");
+    const typedPhone = smsLabel && !typedEmail && /^[\d\s()+.\-]+$/.test(typed) && (typedDigits.length === 10 || typedDigits.length === 11 && typedDigits[0] === "1") ? typed : null;
+    const addTyped = () => {
+      if (typedEmail) {
+        if (!(emails || []).some((e) => e.toLowerCase() === typedEmail.toLowerCase())) persist([...emails || [], typedEmail], phones || [], [...emailOwners || [], null], phoneOwners || []);
+      } else if (typedPhone) {
+        if (!(phones || []).some((p) => p.replace(/\D/g, "").slice(-10) === typedDigits.slice(-10))) persist(emails || [], [...phones || [], typedPhone], emailOwners || [], [...phoneOwners || [], null]);
+      } else return false;
+      setNameQuery("");
+      setShowSuggestions(false);
+      return true;
+    };
     const addRoleGroup = (role) => {
       let nextEmails = emails || [], nextEmailOwners = emailOwners || [];
       let nextPhones = phones || [], nextPhoneOwners = phoneOwners || [];
@@ -19863,7 +20369,7 @@ ${t2.slice(0, 300)}`);
       setNameQuery("");
       setShowSuggestions(false);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!users || emails === null || phones === null) return;
       let changed = false;
       const nextEmails = (emails || []).map((e, i) => {
@@ -19888,7 +20394,7 @@ ${t2.slice(0, 300)}`);
       });
       if (changed) persist(nextEmails, nextPhones, emailOwners, phoneOwners);
     }, [users, emails, phones, emailOwners, phoneOwners]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (emails !== null && onCountChange) onCountChange(emails.length);
     }, [emails]);
     if (emails === null) return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading recipients\u2026");
@@ -19896,16 +20402,33 @@ ${t2.slice(0, 300)}`);
       NotifyNameSearch,
       {
         th,
-        placeholder: 'Add by name, or type a role (e.g. "manager") to add everyone in it',
+        placeholder: smsLabel ? "Add by name, role, email or phone number" : "Add by name, role or email",
         value: nameQuery,
         onChange: (e) => {
           setNameQuery(e.target.value);
           setShowSuggestions(true);
         },
         onFocus: () => setShowSuggestions(true),
-        onBlur: () => setTimeout(() => setShowSuggestions(false), 150)
+        onBlur: () => setTimeout(() => setShowSuggestions(false), 150),
+        onKeyDown: (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (addTyped()) return;
+          if (nameMatches.length === 1 && !roleMatches.length) addPerson(nameMatches[0]);
+          else if (roleMatches.length === 1 && !nameMatches.length) addRoleGroup(roleMatches[0]);
+        }
       },
-      showSuggestions && (roleMatches.length > 0 || nameMatches.length > 0) && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", overflow: "hidden" } }, roleMatches.map((r) => /* @__PURE__ */ React.createElement(
+      showSuggestions && (typedEmail || typedPhone || roleMatches.length > 0 || nameMatches.length > 0) && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", overflow: "hidden" } }, (typedEmail || typedPhone) && /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          onMouseDown: () => addTyped(),
+          style: { padding: "0.5rem 0.75rem", cursor: "pointer", borderBottom: `1px solid ${th.cardBorder}`, background: O + "0c" },
+          onMouseEnter: (e) => e.currentTarget.style.background = O + "22",
+          onMouseLeave: (e) => e.currentTarget.style.background = O + "0c"
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.83rem", fontWeight: 700, color: O, display: "flex", alignItems: "center", gap: "0.4rem" } }, nIco(typedEmail ? "mail" : "phone", O, 15), " Add ", typedEmail ? "email" : "number", " ", typedEmail || formatPhone(typedPhone)),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "Press Enter or click to add.")
+      ), roleMatches.map((r) => /* @__PURE__ */ React.createElement(
         "div",
         {
           key: r.id,
@@ -19928,23 +20451,23 @@ ${t2.slice(0, 300)}`);
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.83rem", fontWeight: 700, color: th.text } }, u.name),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, [u.email, u.phone].filter(Boolean).join(" \xB7 ") || "no email/phone on file")
       )))
-    ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey, tagText: NOTIFY_TAGS[tagKey] || "Notifications", onRemove: () => removeEmail(idx), disabled: saving }))), /* @__PURE__ */ React.createElement(NotifyAddBar, { th, value: newEmail, onChange: setNewEmail, onSubmit: addEmail, placeholder: "Add email address...", disabled: saving }), smsLabel && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "SMS", onRemove: () => removePhone(idx), disabled: saving }))), /* @__PURE__ */ React.createElement(NotifyAddBar, { th, value: newPhone, onChange: setNewPhone, onSubmit: addPhone, placeholder: "(555) 123-4567", icon: "phone", label: "Add number", disabled: saving })));
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey, tagText: NOTIFY_TAGS[tagKey] || "Notifications", onRemove: () => removeEmail(idx), disabled: saving }))), smsLabel && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "SMS", onRemove: () => removePhone(idx), disabled: saving })))));
   }
   function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
-    const [newEmail, setNewEmail] = useState4("");
-    const [newTicketEmail, setNewTicketEmail] = useState4("");
-    const [newTicketPhone, setNewTicketPhone] = useState4("");
-    const [ticketNameQuery, setTicketNameQuery] = useState4("");
-    const [ticketShowSuggestions, setTicketShowSuggestions] = useState4(false);
-    const [notifyLog, setNotifyLog] = useState4(null);
-    const [logLoading, setLogLoading] = useState4(false);
-    const [logOpen, setLogOpen] = useState4(false);
-    const [pushSubs, setPushSubs] = useState4(null);
-    const [notifyInfoOpen, setNotifyInfoOpen] = useState4(false);
-    const [notifSubTab, setNotifSubTab] = useState4("project");
-    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1" };
-    const [notifCounts, setNotifCounts] = useState4({});
-    useEffect4(() => {
+    const [newEmail, setNewEmail] = useState5("");
+    const [newTicketEmail, setNewTicketEmail] = useState5("");
+    const [newTicketPhone, setNewTicketPhone] = useState5("");
+    const [ticketNameQuery, setTicketNameQuery] = useState5("");
+    const [ticketShowSuggestions, setTicketShowSuggestions] = useState5(false);
+    const [notifyLog, setNotifyLog] = useState5(null);
+    const [logLoading, setLogLoading] = useState5(false);
+    const [logOpen, setLogOpen] = useState5(false);
+    const [pushSubs, setPushSubs] = useState5(null);
+    const [notifyInfoOpen, setNotifyInfoOpen] = useState5(false);
+    const [notifSubTab, setNotifSubTab] = useState5("project");
+    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1" };
+    const [notifCounts, setNotifCounts] = useState5({});
+    useEffect5(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
         cloudLoad(key).then((d) => {
           let n = Array.isArray(d?.emails) ? d.emails.length : 0;
@@ -19955,11 +20478,11 @@ ${t2.slice(0, 300)}`);
       });
     }, [(users || []).length > 0]);
     const setNotifCount = (id) => (n) => setNotifCounts((c) => c[id] === n ? c : { ...c, [id]: n });
-    const [userNotifsOpen, setUserNotifsOpen] = useState4(false);
-    const [reportSettings, setReportSettings] = useState4(null);
-    const [reportLoading, setReportLoading] = useState4(false);
-    const [reportOpen, setReportOpen] = useState4(false);
-    const [newReportCC, setNewReportCC] = useState4("");
+    const [userNotifsOpen, setUserNotifsOpen] = useState5(false);
+    const [reportSettings, setReportSettings] = useState5(null);
+    const [reportLoading, setReportLoading] = useState5(false);
+    const [reportOpen, setReportOpen] = useState5(false);
+    const [newReportCC, setNewReportCC] = useState5("");
     const loadReportSettings = async () => {
       setReportLoading(true);
       try {
@@ -20001,37 +20524,44 @@ ${t2.slice(0, 300)}`);
       }
       setLogLoading(false);
     };
-    const addEmail = () => {
-      const email = newEmail.trim().toLowerCase();
+    const addEmail = (raw = newEmail) => {
+      const email = String(raw || "").trim().toLowerCase();
       if (!email || !email.includes("@")) {
         showAlert2("error", "Enter a valid email");
         return;
       }
       if (globalNotifyEmails.map((e) => e.toLowerCase()).includes(email)) {
         showAlert2("error", "Email already in list");
+        setNewEmail("");
         return;
       }
-      setGlobalNotifyEmails((prev) => [...prev, newEmail.trim()]);
+      setGlobalNotifyEmails((prev) => [...prev, String(raw).trim()]);
       setNewEmail("");
       showAlert2("success", "Email added to global notify list");
     };
+    const [projectShowSuggestions, setProjectShowSuggestions] = useState5(false);
+    const projectTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim()) ? newEmail.trim() : null;
+    const projectNameMatches = (users || []).filter((u) => newEmail.trim().length > 0 && !projectTypedEmail && (u.name || "").toLowerCase().includes(newEmail.trim().toLowerCase()) && u.email).slice(0, 8);
     const removeEmail = (idx) => {
       setGlobalNotifyEmails((prev) => prev.filter((_, i) => i !== idx));
       showAlert2("success", "Email removed");
     };
-    const addTicketEmail = () => {
-      const email = newTicketEmail.trim().toLowerCase();
+    const addTicketEmail = (raw = newTicketEmail) => {
+      const email = String(raw || "").trim().toLowerCase();
       if (!email || !email.includes("@")) {
         showAlert2("error", "Enter a valid email");
         return;
       }
       if ((ticketNotifyEmails || []).map((e) => e.toLowerCase()).includes(email)) {
         showAlert2("error", "Email already in ticket list");
+        setTicketNameQuery("");
         return;
       }
-      setTicketNotifyEmails((prev) => [...prev || [], newTicketEmail.trim()]);
+      setTicketNotifyEmails((prev) => [...prev || [], String(raw).trim()]);
       setTicketNotifyEmailOwners((prev) => [...prev || [], null]);
       setNewTicketEmail("");
+      setTicketNameQuery("");
+      setTicketShowSuggestions(false);
       showAlert2("success", "Email added to ticket notify list");
     };
     const removeTicketEmail = (idx) => {
@@ -20044,8 +20574,8 @@ ${t2.slice(0, 300)}`);
       setTicketNotifyEmailOwners((prev) => (prev || []).filter((_, i) => i !== idx));
       showAlert2("success", "Email removed from ticket list");
     };
-    const addTicketPhone = () => {
-      const digits = newTicketPhone.replace(/\D/g, "");
+    const addTicketPhone = (raw = newTicketPhone) => {
+      const digits = String(raw || "").replace(/\D/g, "");
       const validLength = digits.length === 10 || digits.length === 11 && digits[0] === "1";
       if (!validLength) {
         showAlert2("error", "Enter a valid 10-digit phone number");
@@ -20054,11 +20584,14 @@ ${t2.slice(0, 300)}`);
       const normalized = digits.length === 11 ? digits.slice(1) : digits;
       if ((ticketNotifyPhones || []).map((p) => p.replace(/\D/g, "")).includes(normalized)) {
         showAlert2("error", "Number already in ticket list");
+        setTicketNameQuery("");
         return;
       }
       setTicketNotifyPhones((prev) => [...prev || [], normalized]);
       setTicketNotifyPhoneOwners((prev) => [...prev || [], null]);
       setNewTicketPhone("");
+      setTicketNameQuery("");
+      setTicketShowSuggestions(false);
       showAlert2("success", "Number added to ticket SMS list");
     };
     const removeTicketPhone = (idx) => {
@@ -20071,6 +20604,10 @@ ${t2.slice(0, 300)}`);
       setTicketNotifyPhoneOwners((prev) => (prev || []).filter((_, i) => i !== idx));
       showAlert2("success", "Number removed from ticket SMS list");
     };
+    const ticketTyped = ticketNameQuery.trim();
+    const ticketTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ticketTyped) ? ticketTyped : null;
+    const ticketTypedDigits = ticketTyped.replace(/\D/g, "");
+    const ticketTypedPhone = !ticketTypedEmail && /^[\d\s()+.\-]+$/.test(ticketTyped) && (ticketTypedDigits.length === 10 || ticketTypedDigits.length === 11 && ticketTypedDigits[0] === "1") ? ticketTyped : null;
     const ticketNameMatches = (users || []).filter(
       (u) => ticketNameQuery.trim().length > 0 && (u.name || "").toLowerCase().includes(ticketNameQuery.trim().toLowerCase()) && (u.email || u.phone)
     ).slice(0, 8);
@@ -20094,7 +20631,7 @@ ${t2.slice(0, 300)}`);
       setTicketNameQuery("");
       setTicketShowSuggestions(false);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!users) return;
       (ticketNotifyEmailOwners || []).forEach((ownerId, i) => {
         if (ownerId == null) return;
@@ -20145,6 +20682,7 @@ ${t2.slice(0, 300)}`);
         { id: "minorTimecard", label: "Minor Timecard", count: notifCounts.minorTimecard },
         { id: "weeklyHoursSchedule", label: "Weekly Hours + Schedule", count: notifCounts.weeklyHoursSchedule },
         { id: "transferNotice", label: "Transfer Notice", count: notifCounts.transferNotice },
+        { id: "violationNotice", label: "Violation Notice", count: notifCounts.violationNotice },
         { id: "payIncreaseApprovers", label: "Pay Increase approval", count: notifCounts.payIncreaseApprovers },
         { id: "payIncrease", label: "Pay Increase (office)", count: notifCounts.payIncrease },
         { id: "interviewReminders", label: "Interview Reminders" },
@@ -20176,20 +20714,58 @@ ${t2.slice(0, 300)}`);
         t.label,
         t.count != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: on ? "#FF671Fb3" : th.muted, fontWeight: 500 } }, "(", t.count, ")")
       );
-    })), notifSubTab === "project" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses receive notifications for ", /* @__PURE__ */ React.createElement("strong", null, "all projects"), " \u2014 phase changes, new projects, deadline alerts, and checklist updates. Individual projects can also have their own additional notify emails."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, globalNotifyEmails.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.75rem" } }, "No global notify emails configured."), globalNotifyEmails.map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey: "project", tagText: NOTIFY_TAGS.project, onRemove: () => removeEmail(idx) }))), /* @__PURE__ */ React.createElement(NotifyAddBar, { th, value: newEmail, onChange: setNewEmail, onSubmit: addEmail, placeholder: "Add email address..." })), notifSubTab === "ticket" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses receive notifications when a new service ticket is created. Separate from the global project list \u2014 add or remove anyone here."), /* @__PURE__ */ React.createElement(
+    })), notifSubTab === "project" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses receive notifications for ", /* @__PURE__ */ React.createElement("strong", null, "all projects"), " \u2014 phase changes, new projects, deadline alerts, and checklist updates. Individual projects can also have their own additional notify emails."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, globalNotifyEmails.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.75rem" } }, "No global notify emails configured."), globalNotifyEmails.map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey: "project", tagText: NOTIFY_TAGS.project, onRemove: () => removeEmail(idx) }))), /* @__PURE__ */ React.createElement(
       NotifyNameSearch,
       {
         th,
-        placeholder: "Add by name (fills in email + phone together)",
+        placeholder: "Add by name or email",
+        value: newEmail,
+        onChange: (e) => {
+          setNewEmail(e.target.value);
+          setProjectShowSuggestions(true);
+        },
+        onFocus: () => setProjectShowSuggestions(true),
+        onBlur: () => setTimeout(() => setProjectShowSuggestions(false), 150),
+        onKeyDown: (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (projectTypedEmail) addEmail(projectTypedEmail);
+          else if (projectNameMatches.length === 1) addEmail(projectNameMatches[0].email);
+        }
+      },
+      projectShowSuggestions && (projectTypedEmail || projectNameMatches.length > 0) && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", overflow: "hidden" } }, projectTypedEmail && /* @__PURE__ */ React.createElement("div", { onMouseDown: () => addEmail(projectTypedEmail), style: { padding: "0.5rem 0.75rem", cursor: "pointer", borderBottom: `1px solid ${th.cardBorder}`, background: O + "0c" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.83rem", fontWeight: 700, color: O, display: "flex", alignItems: "center", gap: "0.4rem" } }, nIco("mail", O, 15), " Add email ", projectTypedEmail), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "Press Enter or click to add.")), projectNameMatches.map((u) => /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: u.id,
+          onMouseDown: () => addEmail(u.email),
+          style: { padding: "0.5rem 0.75rem", cursor: "pointer", borderBottom: `1px solid ${th.cardBorder}` },
+          onMouseEnter: (e) => e.currentTarget.style.background = th.card2,
+          onMouseLeave: (e) => e.currentTarget.style.background = "transparent"
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.83rem", fontWeight: 700, color: th.text } }, u.name),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, u.email)
+      )))
+    )), notifSubTab === "ticket" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These email addresses receive notifications when a new service ticket is created. Separate from the global project list \u2014 add or remove anyone here."), /* @__PURE__ */ React.createElement(
+      NotifyNameSearch,
+      {
+        th,
+        placeholder: "Add by name, email or phone number",
         value: ticketNameQuery,
         onChange: (e) => {
           setTicketNameQuery(e.target.value);
           setTicketShowSuggestions(true);
         },
         onFocus: () => setTicketShowSuggestions(true),
-        onBlur: () => setTimeout(() => setTicketShowSuggestions(false), 150)
+        onBlur: () => setTimeout(() => setTicketShowSuggestions(false), 150),
+        onKeyDown: (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (ticketTypedEmail) addTicketEmail(ticketTypedEmail);
+          else if (ticketTypedPhone) addTicketPhone(ticketTypedPhone);
+          else if (ticketNameMatches.length === 1) addTicketPerson(ticketNameMatches[0]);
+        }
       },
-      ticketShowSuggestions && ticketNameMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", overflow: "hidden" } }, ticketNameMatches.map((u) => /* @__PURE__ */ React.createElement(
+      ticketShowSuggestions && (ticketTypedEmail || ticketTypedPhone || ticketNameMatches.length > 0) && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 5, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", overflow: "hidden" } }, (ticketTypedEmail || ticketTypedPhone) && /* @__PURE__ */ React.createElement("div", { onMouseDown: () => ticketTypedEmail ? addTicketEmail(ticketTypedEmail) : addTicketPhone(ticketTypedPhone), style: { padding: "0.5rem 0.75rem", cursor: "pointer", borderBottom: `1px solid ${th.cardBorder}`, background: O + "0c" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.83rem", fontWeight: 700, color: O, display: "flex", alignItems: "center", gap: "0.4rem" } }, nIco(ticketTypedEmail ? "mail" : "phone", O, 15), " Add ", ticketTypedEmail ? "email" : "number", " ", ticketTypedEmail || formatPhone(ticketTypedPhone)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, "Press Enter or click to add.")), ticketNameMatches.map((u) => /* @__PURE__ */ React.createElement(
         "div",
         {
           key: u.id,
@@ -20201,7 +20777,7 @@ ${t2.slice(0, 300)}`);
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.83rem", fontWeight: 700, color: th.text } }, u.name),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, [u.email, u.phone].filter(Boolean).join(" \xB7 ") || "no email/phone on file")
       )))
-    ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (ticketNotifyEmails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No ticket notify emails configured."), (ticketNotifyEmails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey: "ticket", tagText: NOTIFY_TAGS.ticket, onRemove: () => removeTicketEmail(idx) }))), /* @__PURE__ */ React.createElement(NotifyAddBar, { th, value: newTicketEmail, onChange: setNewTicketEmail, onSubmit: addTicketEmail, placeholder: "Add email address..." }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, "Ticket SMS Numbers"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (ticketNotifyPhones || []).length, ")")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These phone numbers get a text message when a new service ticket is created, same trigger as the email list above."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (ticketNotifyPhones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No ticket SMS numbers configured."), (ticketNotifyPhones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "Ticket SMS", onRemove: () => removeTicketPhone(idx) }))), /* @__PURE__ */ React.createElement(NotifyAddBar, { th, value: newTicketPhone, onChange: setNewTicketPhone, onSubmit: addTicketPhone, placeholder: "(555) 123-4567", icon: "phone", label: "Add number" }))), notifSubTab === "fleet" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(FleetAlertAccessPanel, { th, user, users, showAlert: showAlert2, onCountChange: setNotifCount("fleet") }), notifSubTab === "foodLicense" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (ticketNotifyEmails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No ticket notify emails configured."), (ticketNotifyEmails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey: "ticket", tagText: NOTIFY_TAGS.ticket, onRemove: () => removeTicketEmail(idx) }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, "Ticket SMS Numbers"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (ticketNotifyPhones || []).length, ")")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8125rem", color: th.muted, marginBottom: "1rem" } }, "These phone numbers get a text message when a new service ticket is created, same trigger as the email list above."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (ticketNotifyPhones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No ticket SMS numbers configured."), (ticketNotifyPhones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "Ticket SMS", onRemove: () => removeTicketPhone(idx) }))))), notifSubTab === "fleet" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(FleetAlertAccessPanel, { th, user, users, showAlert: showAlert2, onCountChange: setNotifCount("fleet") }), notifSubTab === "foodLicense" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
       ManualNotifyListPanel,
       {
         th,
@@ -20251,7 +20827,20 @@ ${t2.slice(0, 300)}`);
         onCountChange: setNotifCount("weeklyHoursSchedule"),
         description: "These email addresses receive the weekly network-wide Timecard + Schedule report (Monday mornings, previous Sun\u2013Sat week \u2014 one Excel file and one PDF per store). There's no other fallback recipient \u2014 this list is the entire send list. Empty until you add someone."
       }
-    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 })), notifSubTab === "transferNotice" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(WeeklyReportSendNow, { th, showAlert: showAlert2 })), notifSubTab === "violationNotice" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_violation_notice_notify_v1",
+        tagKey: "violationNotice",
+        onCountChange: setNotifCount("violationNotice"),
+        description: "These people get every signed Violation Notice (Tools \xB7 Violation Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone.",
+        smsLabel: "Violation Notice SMS Numbers"
+      }
+    ), notifSubTab === "transferNotice" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
       ManualNotifyListPanel,
       {
         th,
@@ -22711,6 +23300,7 @@ ${t2.slice(0, 300)}`);
       { id: "hours-report", label: "Hours Report" },
       { id: "terminations", label: "Terminations" },
       { id: "transfer-notice", label: "Transfer Notice" },
+      { id: "violation-notice", label: "Violation Notice" },
       { id: "pay-increase", label: "Pay Increase" }
     ],
     finance: [
@@ -22754,6 +23344,7 @@ ${t2.slice(0, 300)}`);
     { id: "system", label: "System & Logs", icon: "\u{1F5C4}\uFE0F", accent: "#94a3b8" }
   ];
   var TRANSFER_NOTICE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
+  var VIOLATION_NOTICE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
   var PAY_INCREASE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "dm", "director", "manager"]);
   var accessSubOn = (overrides, rt, hubId, subId) => overrides?.[rt]?.[`${hubId}:${subId}`] !== false;
   var TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
@@ -22763,18 +23354,18 @@ ${t2.slice(0, 300)}`);
   var TASK_TYPES = ["shift", "general"];
   var NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
   function AdminTaskManager({ th, user, stores, showAlert: showAlert2 }) {
-    const [templates, setTemplates] = useState4(null);
-    const [loading, setLoading] = useState4(false);
-    const [q, setQ] = useState4("");
-    const [catFilter, setCatFilter] = useState4("all");
-    const [activeFilter, setActiveFilter] = useState4("all");
-    const [editing, setEditing] = useState4(null);
-    const [locFor, setLocFor] = useState4(null);
-    const [locPcs, setLocPcs] = useState4([]);
-    const [itemsFor, setItemsFor] = useState4(null);
-    const [templateItems, setTemplateItems] = useState4([]);
-    const [templateEquip, setTemplateEquip] = useState4([]);
-    const [busy, setBusy] = useState4(false);
+    const [templates, setTemplates] = useState5(null);
+    const [loading, setLoading] = useState5(false);
+    const [q, setQ] = useState5("");
+    const [catFilter, setCatFilter] = useState5("all");
+    const [activeFilter, setActiveFilter] = useState5("all");
+    const [editing, setEditing] = useState5(null);
+    const [locFor, setLocFor] = useState5(null);
+    const [locPcs, setLocPcs] = useState5([]);
+    const [itemsFor, setItemsFor] = useState5(null);
+    const [templateItems, setTemplateItems] = useState5([]);
+    const [templateEquip, setTemplateEquip] = useState5([]);
+    const [busy, setBusy] = useState5(false);
     const api2 = useCallback(async (action, payload = {}) => {
       const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
       return r.json();
@@ -22788,7 +23379,7 @@ ${t2.slice(0, 300)}`);
         setLoading(false);
       }
     }, [api2]);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const frameRef = useRef4(null);
@@ -23112,16 +23703,16 @@ ${t2.slice(0, 300)}`);
     })));
   }
   function AdminSensors({ th, user, stores }) {
-    const [shellyDevices, setShellyDevices] = useState4(null);
+    const [shellyDevices, setShellyDevices] = useState5(null);
     const loadShellyTemp = () => {
       setShellyDevices(null);
       fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
     };
-    useEffect4(() => {
+    useEffect5(() => {
       loadShellyTemp();
     }, []);
-    const [shellyDeviceMap, setShellyDeviceMap] = useState4({});
-    useEffect4(() => {
+    const [shellyDeviceMap, setShellyDeviceMap] = useState5({});
+    useEffect5(() => {
       cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
       });
     }, []);
@@ -23398,15 +23989,15 @@ ${t2.slice(0, 300)}`);
     })))), displayed.length > PAGE && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAll((s) => !s), style: { ...btn(th, { padding: "0.3rem 1rem", fontSize: "0.75rem" }) } }, showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", textAlign: "right" } }, "Showing ", visibleRows.length, " of ", displayed.length, " event", displayed.length !== 1 ? "s" : ""))));
   }
   function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert: showAlert2, users }) {
-    const [editingId, setEditingId] = useState4(null);
-    const [editForm, setEditForm] = useState4({ title: "", message: "" });
-    const [addMode, setAddMode] = useState4(false);
-    const [newTitle, setNewTitle] = useState4("");
-    const [newMsg, setNewMsg] = useState4("");
-    const [newTargets, setNewTargets] = useState4([]);
-    const [newUserTargets, setNewUserTargets] = useState4([]);
-    const [newForceAll, setNewForceAll] = useState4(false);
-    const [expandedRole, setExpandedRole] = useState4(null);
+    const [editingId, setEditingId] = useState5(null);
+    const [editForm, setEditForm] = useState5({ title: "", message: "" });
+    const [addMode, setAddMode] = useState5(false);
+    const [newTitle, setNewTitle] = useState5("");
+    const [newMsg, setNewMsg] = useState5("");
+    const [newTargets, setNewTargets] = useState5([]);
+    const [newUserTargets, setNewUserTargets] = useState5([]);
+    const [newForceAll, setNewForceAll] = useState5(false);
+    const [expandedRole, setExpandedRole] = useState5(null);
     const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
     const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
     const ANN_ROLES = [
@@ -24680,8 +25271,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: save, style: { ...btn(th), minHeight: 40 } }, "Save signature"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clear, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Clear")));
   }
   function SafeAuditsPane({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState4("list");
-    const [sel, setSel] = useState4(null);
+    const [view, setView] = useState5("list");
+    const [sel, setSel] = useState5(null);
     const openConduct = (id, storePC) => {
       setSel({ id, storePC });
       setView("conduct");
@@ -24726,11 +25317,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
   }
   function SafeAuditList({ user, th, stores, showAlert: showAlert2, onConduct, onViewReport }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState4(null);
-    const [err, setErr] = useState4(false);
-    const [picking, setPicking] = useState4(false);
-    const [pickStore, setPickStore] = useState4("");
-    const [starting, setStarting] = useState4(false);
+    const [audits, setAudits] = useState5(null);
+    const [err, setErr] = useState5(false);
+    const [picking, setPicking] = useState5(false);
+    const [pickStore, setPickStore] = useState5("");
+    const [starting, setStarting] = useState5(false);
     const canConduct = safeCanConduct(user);
     const load = useCallback(() => {
       setErr(false);
@@ -24739,7 +25330,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setErr(true);
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -24818,14 +25409,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const storeName = store?.name || storePC;
     const storeDistrict = store?.district ?? null;
     const localKey = "pcg_safe_draft_" + auditId;
-    const [loading, setLoading] = useState4(true);
-    const [loadErr, setLoadErr] = useState4(false);
-    const [setting, setSetting] = useState4(null);
-    const [savingExpected, setSavingExpected] = useState4(false);
-    const [submitting, setSubmitting] = useState4(false);
-    const [submitted, setSubmitted] = useState4(null);
+    const [loading, setLoading] = useState5(true);
+    const [loadErr, setLoadErr] = useState5(false);
+    const [setting, setSetting] = useState5(null);
+    const [savingExpected, setSavingExpected] = useState5(false);
+    const [submitting, setSubmitting] = useState5(false);
+    const [submitted, setSubmitted] = useState5(null);
     const didHydrate = useRef4(false);
-    const [f, setF] = useState4({
+    const [f, setF] = useState5({
       reason: "",
       safeCode: "",
       codeLastChanged: "",
@@ -24846,7 +25437,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       notes: ""
     });
     const set = (patch) => setF((prev) => ({ ...prev, ...patch }));
-    useEffect4(() => {
+    useEffect5(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -24933,7 +25524,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       managerAckName: f.managerAckName,
       notes: f.notes
     });
-    useEffect4(() => {
+    useEffect5(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -25110,9 +25701,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function SafeSigImage({ sigKey, th, label }) {
-    const [src, setSrc] = useState4(null);
-    const [loading, setLoading] = useState4(!!sigKey);
-    useEffect4(() => {
+    const [src, setSrc] = useState5(null);
+    const [loading, setLoading] = useState5(!!sigKey);
+    useEffect5(() => {
       let cancelled = false;
       if (!sigKey) {
         setSrc(null);
@@ -25762,12 +26353,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const store = stores?.find((s) => String(s.pc) === String(storePC));
     const storeName = store?.name || storePC;
     const storeAddress = store ? [store.address, store.city, store.state, store.zip].filter(Boolean).join(", ") : "";
-    const [audit, setAudit] = useState4(null);
-    const [err, setErr] = useState4(false);
-    const [lightbox, setLightbox] = useState4(null);
-    const [exporting, setExporting] = useState4(false);
+    const [audit, setAudit] = useState5(null);
+    const [err, setErr] = useState5(false);
+    const [lightbox, setLightbox] = useState5(null);
+    const [exporting, setExporting] = useState5(false);
     const printRef = useRef4(null);
-    useEffect4(() => {
+    useEffect5(() => {
       let cancelled = false;
       setAudit(null);
       setErr(false);
@@ -25823,16 +26414,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Back to safe audits"), /* @__PURE__ */ React.createElement("button", { onClick: exportPdf, disabled: exporting, style: { ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 } }, exporting ? "Exporting\u2026" : "\u2913 Export PDF")), /* @__PURE__ */ React.createElement("div", { ref: printRef }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "flex-start", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: pageTitle(th) }, storeName, " ", storePC ? `(${storePC})` : ""), storeAddress && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", marginTop: "0.15rem" } }, storeAddress), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Auditor: ", audit.auditorName || "\u2014", audit.auditorRole ? ` (${audit.auditorRole})` : ""), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginTop: "0.25rem" } }, "Started ", audit.startedAt ? new Date(audit.startedAt).toLocaleString() : "\u2014", " \xB7 Submitted ", audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "\u2014", durationLabel ? ` \xB7 Duration ${durationLabel}` : "")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.4rem" } }, "Accounted ", fmtSafeMoney(audit.accountedTotal), " vs Expected ", fmtSafeMoney(audit.expectedPettyCash))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "General Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Reason for audit", value: audit.reason || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Current safe code", value: audit.safeCode || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Code last changed", value: audit.codeLastChanged || "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Store Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store manager", value: audit.storeManagerName || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: audit.district != null ? districtLabel(audit.district) : "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Petty Cash Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Expected petty cash", value: fmtSafeMoney(audit.expectedPettyCash), th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts in safe", value: audit.hasReceipts ? "Yes" : "No", th }), audit.hasReceipts && /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts total", value: fmtSafeMoney(audit.receiptsTotal), th })), audit.hasReceipts && audit.receiptPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Receipt photos (", audit.receiptPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.receiptPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "left" } }, "Denomination"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Count"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Value"))), /* @__PURE__ */ React.createElement("tbody", null, SAFE_BILLS.map((d) => denomRow(d, "billCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Bills"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.billsTotal))), SAFE_COINS.map((d) => denomRow(d, "coinCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Coins"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.coinsTotal))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, "Counted Total"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, fmtSafeMoney(audit.countedTotal)))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between", marginTop: "0.9rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 700 } }, "Accounted total (counted + receipts): ", fmtSafeMoney(audit.accountedTotal)), /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.9rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: audit.hasCounterfeit ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit cash found", value: audit.hasCounterfeit ? "Yes" : "No", color: audit.hasCounterfeit ? "#ef4444" : void 0, th }), audit.hasCounterfeit && /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit total", value: fmtSafeMoney(audit.counterfeitTotal), color: "#ef4444", th })), audit.hasCounterfeit && audit.counterfeitPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Counterfeit photos (", audit.counterfeitPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.counterfeitPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Signatures"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem" } }, /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.conductorSigKey, th, label: `Conductor \u2014 ${audit.auditorName || "\u2014"}` }), /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.managerSigKey, th, label: `Store manager / witness${audit.managerAckName ? ` \u2014 ${audit.managerAckName}` : ""}` }))), audit.notes && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, whiteSpace: "pre-wrap" } }, audit.notes))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
   }
   function SystemHealth({ th, user }) {
-    const [snap, setSnap] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    const [refreshing, setRefreshing] = useState4(false);
+    const [snap, setSnap] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    const [refreshing, setRefreshing] = useState5(false);
     const load = useCallback(async () => {
       setLoading(true);
       const d = await cloudLoad("pcg_system_health_v1");
       setSnap(d || null);
       setLoading(false);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const refreshNow = async () => {
@@ -25872,7 +26463,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function AuditsTab({ user, th, stores, showAlert: showAlert2, setTab }) {
     const canFieldOps = auditCanView(user);
     const canSafe = safeCanView(user);
-    const [mode, setMode] = useState4(canFieldOps ? "field" : "safe");
+    const [mode, setMode] = useState5(canFieldOps ? "field" : "safe");
     const both = canFieldOps && canSafe;
     const effectiveMode = canFieldOps ? mode : "safe";
     const seg = both ? /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", padding: 3, gap: 3, borderRadius: 999, background: th.card2, border: `1px solid ${th.cardBorder}` } }, [["field", "Field Ops"], ["safe", "Safe"]].map(([m, lbl]) => /* @__PURE__ */ React.createElement(
@@ -25887,13 +26478,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, seg, effectiveMode === "safe" ? /* @__PURE__ */ React.createElement(SafeAuditsPane, { user, th, stores, showAlert: showAlert2, setTab }) : /* @__PURE__ */ React.createElement(FieldOpsAudits, { user, th, stores, showAlert: showAlert2, setTab }));
   }
   function FieldOpsAudits({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState4(null);
-    const [conduct, setConduct] = useState4(null);
+    const [view, setView] = useState5(null);
+    const [conduct, setConduct] = useState5(null);
     const canConduct = auditCanAudit(user);
     const canSeeCapBoard = auditCanView(user);
     const canSeeDashboard = canSeeCapBoard;
     const dashboardIsDefault = auditCanAudit(user);
-    useEffect4(() => {
+    useEffect5(() => {
       let cancelled = false;
       if (!dashboardIsDefault) {
         setView("list");
@@ -25988,11 +26579,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function AuditList({ user, th, stores, showAlert: showAlert2, canConduct, canSeeCapBoard, canSeeDashboard, onConduct, onViewReport, onOpenCapBoard, onOpenDashboard }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState4(null);
-    const [err, setErr] = useState4(false);
-    const [picking, setPicking] = useState4(false);
-    const [pickStore, setPickStore] = useState4("");
-    const [starting, setStarting] = useState4(false);
+    const [audits, setAudits] = useState5(null);
+    const [err, setErr] = useState5(false);
+    const [picking, setPicking] = useState5(false);
+    const [pickStore, setPickStore] = useState5("");
+    const [starting, setStarting] = useState5(false);
     const load = useCallback(() => {
       setErr(false);
       auditsApi("list").then((j) => setAudits(Array.isArray(j.audits) ? j.audits : [])).catch(() => {
@@ -26000,7 +26591,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -26064,18 +26655,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeDashboard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenDashboard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Dashboard"), canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
   }
   function AuditConduct({ user, th, stores, showAlert: showAlert2, auditId, storePC, onExit, onViewReport }) {
-    const [template, setTemplate] = useState4(null);
-    const [results, setResults] = useState4({});
-    const [secIdx, setSecIdx] = useState4(0);
-    const [loading, setLoading] = useState4(true);
-    const [loadErr, setLoadErr] = useState4(false);
-    const [submitting, setSubmitting] = useState4(false);
-    const [submitted, setSubmitted] = useState4(null);
-    const [gpsStatus, setGpsStatus] = useState4("");
+    const [template, setTemplate] = useState5(null);
+    const [results, setResults] = useState5({});
+    const [secIdx, setSecIdx] = useState5(0);
+    const [loading, setLoading] = useState5(true);
+    const [loadErr, setLoadErr] = useState5(false);
+    const [submitting, setSubmitting] = useState5(false);
+    const [submitted, setSubmitted] = useState5(null);
+    const [gpsStatus, setGpsStatus] = useState5("");
     const didHydrate = useRef4(false);
     const localKey = "pcg_audit_draft_" + auditId;
     const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
-    useEffect4(() => {
+    useEffect5(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -26108,7 +26699,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [auditId]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -26327,9 +26918,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   };
   var capStatusMeta = (s) => CAP_STATUS_META[s] || { label: s || "\u2014", color: "#6b7280" };
   function AuditPhotoThumb({ photoKey, th, onZoom, size = 64 }) {
-    const [src, setSrc] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    useEffect4(() => {
+    const [src, setSrc] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    useEffect5(() => {
       let cancelled = false;
       setLoading(true);
       cloudLoadFile(photoKey).then((f) => {
@@ -26354,10 +26945,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", cursor: "zoom-out" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "Full size", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "100%", borderRadius: "0.75rem", objectFit: "contain", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.25rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"));
   }
   function CapResolveForm({ th, user, cap, showAlert: showAlert2, onDone, onCancel }) {
-    const [note, setNote] = useState4("");
-    const [photoKeys, setPhotoKeys] = useState4([]);
-    const [uploading, setUploading] = useState4(false);
-    const [saving, setSaving] = useState4(false);
+    const [note, setNote] = useState5("");
+    const [photoKeys, setPhotoKeys] = useState5([]);
+    const [uploading, setUploading] = useState5(false);
+    const [saving, setSaving] = useState5(false);
     const addPhotos = async (fileList) => {
       const files = Array.from(fileList || []);
       if (!files.length) return;
@@ -26424,13 +27015,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function AuditReport({ user, th, stores, showAlert: showAlert2, auditId, storePC, onBack }) {
-    const [audit, setAudit] = useState4(null);
-    const [items, setItems] = useState4([]);
-    const [caps, setCaps] = useState4([]);
-    const [loading, setLoading] = useState4(true);
-    const [err, setErr] = useState4(false);
-    const [lightbox, setLightbox] = useState4(null);
-    const [exporting, setExporting] = useState4(false);
+    const [audit, setAudit] = useState5(null);
+    const [items, setItems] = useState5([]);
+    const [caps, setCaps] = useState5([]);
+    const [loading, setLoading] = useState5(true);
+    const [err, setErr] = useState5(false);
+    const [lightbox, setLightbox] = useState5(null);
+    const [exporting, setExporting] = useState5(false);
     const printRef = useRef4(null);
     const load = useCallback(() => {
       setLoading(true);
@@ -26441,7 +27032,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setCaps(Array.isArray(j.caps) ? j.caps : []);
       }).catch(() => setErr(true)).finally(() => setLoading(false));
     }, [auditId]);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const store = (stores || []).find((s) => String(s.pc) === String(storePC));
@@ -26517,16 +27108,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function CapBoard({ user, th, stores, showAlert: showAlert2, onBack }) {
     const isMobile = useIsMobile();
-    const [rows, setRows] = useState4(null);
-    const [err, setErr] = useState4(false);
-    const [statusFilter, setStatusFilter] = useState4("all");
-    const [districtFilter, setDistrictFilter] = useState4("all");
-    const [ownerFilter, setOwnerFilter] = useState4("all");
-    const [expanded, setExpanded] = useState4(null);
-    const [rejectFor, setRejectFor] = useState4(null);
-    const [rejectNote, setRejectNote] = useState4("");
-    const [busyId, setBusyId] = useState4(null);
-    const [lightbox, setLightbox] = useState4(null);
+    const [rows, setRows] = useState5(null);
+    const [err, setErr] = useState5(false);
+    const [statusFilter, setStatusFilter] = useState5("all");
+    const [districtFilter, setDistrictFilter] = useState5("all");
+    const [ownerFilter, setOwnerFilter] = useState5("all");
+    const [expanded, setExpanded] = useState5(null);
+    const [rejectFor, setRejectFor] = useState5(null);
+    const [rejectNote, setRejectNote] = useState5("");
+    const [busyId, setBusyId] = useState5(null);
+    const [lightbox, setLightbox] = useState5(null);
     const canAudit = auditCanAudit(user);
     const load = useCallback(() => {
       setErr(false);
@@ -26535,7 +27126,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const storeInfo = (pc) => (stores || []).find((s) => String(s.pc) === String(pc));
@@ -26651,8 +27242,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var DISTRICT_TREND_COLORS = ["#3b82f6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#14b8a6", "#eab308", "#ec4899"];
   function AuditDashboard({ user, th, stores, showAlert: showAlert2, onOpenReport, onGoList, onGoCaps }) {
-    const [data, setData] = useState4(null);
-    const [err, setErr] = useState4(false);
+    const [data, setData] = useState5(null);
+    const [err, setErr] = useState5(false);
     const isFull = auditCanView(user) && user?.userType !== "dm";
     const isDm = user?.userType === "dm";
     const canSeeManagerRanking = auditCanAudit(user);
@@ -26663,7 +27254,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     const visibleStores = React.useMemo(() => {
@@ -26729,7 +27320,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       for (const m of trend) Object.keys(m.byDistrict || {}).forEach((d) => set.add(d));
       return [...set].sort((a, b) => Number(a) - Number(b));
     }, [trend, isFull]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chartRef.current) {
         chartRef.current.destroy();
         chartRef.current = null;
@@ -26820,9 +27411,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ManagerCapCard({ user, th, stores, showAlert: showAlert2 }) {
     const store = getManagerStore(stores, user);
-    const [caps, setCaps] = useState4(null);
-    const [err, setErr] = useState4(false);
-    const [expanded, setExpanded] = useState4(null);
+    const [caps, setCaps] = useState5(null);
+    const [err, setErr] = useState5(false);
+    const [expanded, setExpanded] = useState5(null);
     const load = useCallback(() => {
       if (!store?.pc) {
         setCaps([]);
@@ -26843,7 +27434,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, [store?.pc]);
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, [load]);
     if (!store?.pc) return null;
@@ -26900,6 +27491,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+      { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
       { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
@@ -26945,6 +27537,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+      { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
       { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -26988,6 +27581,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+      { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
       { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -27014,6 +27608,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "district-alignment", label: "District Alignment", icon: (c) => ICONS.tools(c) },
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
+      { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
       { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -27075,9 +27670,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return visible;
   };
   function ManagerOrionBrief({ pc, storeName, th }) {
-    const [brief, setBrief] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    const [err, setErr] = useState4(false);
+    const [brief, setBrief] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    const [err, setErr] = useState5(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -27097,7 +27692,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect4(() => {
+    useEffect5(() => {
       load(false);
     }, [pc]);
     return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem", borderLeft: "3px solid #b197fc" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", paddingBottom: "0.6rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 18 }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text, whiteSpace: "nowrap" } }, "Orion \xB7 Store Brief"), storeName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "\xB7 ", storeName)), /* @__PURE__ */ React.createElement(
@@ -27112,9 +27707,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Reading your store\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Brief unavailable right now \u2014 try again shortly.") : brief && brief.content ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(brief.content, th)) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "No brief yet \u2014 not enough data for this store."));
   }
   function ForecastPrePlanCard({ pc, storeName, th }) {
-    const [plan, setPlan] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    const [err, setErr] = useState4(false);
+    const [plan, setPlan] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    const [err, setErr] = useState5(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -27134,7 +27729,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect4(() => {
+    useEffect5(() => {
       load(false);
     }, [pc]);
     const fc = plan && plan.forecast;
@@ -27154,14 +27749,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Building your game plan\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Pre-plan unavailable right now \u2014 try again shortly.") : !fc ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Not enough history yet \u2014 the model is still collecting data.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.8rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.66rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high), fc.holidayName ? ` \xB7 \u{1F389} ${fc.holidayName}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginTop: "0.7rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 7, padding: "0.4rem 0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.5rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.72rem", marginTop: "0.15rem" } }, f(v))))), par && (par.donut || par.munchkin) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.55rem", fontSize: "0.62rem", color: th.muted } }, par.donut && /* @__PURE__ */ React.createElement("span", null, "\u{1F369} Donut par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.donut.par)), par.munchkin && /* @__PURE__ */ React.createElement("span", null, "\xB7 Munchkin par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.munchkin.par))), plan && plan.content && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.78rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(plan.content, th))));
   }
   function StoreForecastTab({ pc, date, actualHourly, th }) {
-    const [mode, setMode] = useState4("day");
-    const [data, setData] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    const [err, setErr] = useState4(false);
-    const [week, setWeek] = useState4(null);
-    const [weekLoading, setWeekLoading] = useState4(false);
-    const [weekErr, setWeekErr] = useState4(false);
-    useEffect4(() => {
+    const [mode, setMode] = useState5("day");
+    const [data, setData] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    const [err, setErr] = useState5(false);
+    const [week, setWeek] = useState5(null);
+    const [weekLoading, setWeekLoading] = useState5(false);
+    const [weekErr, setWeekErr] = useState5(false);
+    useEffect5(() => {
       if (!pc) {
         setLoading(false);
         return;
@@ -27188,7 +27783,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [pc, date]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (mode !== "week" || !pc) return;
       let cancelled = false;
       setWeekLoading(true);
@@ -27218,7 +27813,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [mode, pc, date]);
-    const wrap2 = (msg) => /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, msg);
+    const wrap3 = (msg) => /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem" } }, msg);
     const toggle = /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", gap: "0.25rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.2rem", alignSelf: "start" } }, [["day", "Tomorrow"], ["week", "This Week"]].map(([m, label]) => /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -27230,14 +27825,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
     let body;
     if (mode === "day") {
-      if (loading) body = wrap2("Building forecast\u2026");
-      else if (err) body = wrap2("Forecast unavailable right now \u2014 try again shortly.");
-      else if (!data || !data.forecast) body = wrap2("Not enough history yet \u2014 the model needs a few more weeks of data for this store.");
+      if (loading) body = wrap3("Building forecast\u2026");
+      else if (err) body = wrap3("Forecast unavailable right now \u2014 try again shortly.");
+      else if (!data || !data.forecast) body = wrap3("Not enough history yet \u2014 the model needs a few more weeks of data for this store.");
       else body = /* @__PURE__ */ React.createElement(ForecastDayView, { data, actualHourly, th });
     } else {
-      if (weekLoading) body = wrap2("Building this week\u2019s forecast\u2026");
-      else if (weekErr) body = wrap2("Forecast unavailable right now \u2014 try again shortly.");
-      else if (!week || !(week.days || []).some((d) => d.dayTotal != null)) body = wrap2("Not enough history yet \u2014 the model needs a few more weeks of data for this store.");
+      if (weekLoading) body = wrap3("Building this week\u2019s forecast\u2026");
+      else if (weekErr) body = wrap3("Forecast unavailable right now \u2014 try again shortly.");
+      else if (!week || !(week.days || []).some((d) => d.dayTotal != null)) body = wrap3("Not enough history yet \u2014 the model needs a few more weeks of data for this store.");
       else body = /* @__PURE__ */ React.createElement(ForecastWeekView, { week, th });
     }
     return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "1.25rem" } }, toggle, body);
@@ -27372,37 +27967,37 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 364);
       return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     })();
-    const [sales, setSales] = useState4(null);
-    const [tappedHour, setTappedHour] = useState4(null);
-    const [salesYesterday, setSalesYesterday] = useState4(null);
-    const [salesLastYear, setSalesLastYear] = useState4(null);
-    const [labor, setLabor] = useState4(null);
-    const [hourly, setHourly] = useState4(null);
-    const [workers, setWorkers] = useState4([]);
-    const [lwDaySales, setLwDaySales] = useState4(null);
-    const [carouselPage, setCarouselPage] = useState4(0);
+    const [sales, setSales] = useState5(null);
+    const [tappedHour, setTappedHour] = useState5(null);
+    const [salesYesterday, setSalesYesterday] = useState5(null);
+    const [salesLastYear, setSalesLastYear] = useState5(null);
+    const [labor, setLabor] = useState5(null);
+    const [hourly, setHourly] = useState5(null);
+    const [workers, setWorkers] = useState5([]);
+    const [lwDaySales, setLwDaySales] = useState5(null);
+    const [carouselPage, setCarouselPage] = useState5(0);
     const touchStartX = useRef4(null);
     const carouselInnerRef = useRef4(null);
     const fetchTokenRef = useRef4(0);
-    const [loading, setLoading] = useState4(true);
-    const [refreshing, setRefreshing] = useState4(false);
-    const [lastRefresh, setLastRefresh] = useState4(null);
-    const [showStoreInfo, setShowStoreInfo] = useState4(false);
-    const [showUserMenu, setShowUserMenu] = useState4(false);
-    const [dayOffset, setDayOffset] = useState4(0);
-    const [storeBlob, setStoreBlob] = useState4(null);
-    const [histHourly, setHistHourly] = useState4(null);
-    const [liveHistCache, setLiveHistCache] = useState4({});
-    const [histLoading, setHistLoading] = useState4(false);
-    const [storeTickets, setStoreTickets] = useState4([]);
-    const [taskSummary, setTaskSummary] = useState4(null);
-    const [mgrCaps, setMgrCaps] = useState4(null);
-    const [mgrCapsErr, setMgrCapsErr] = useState4(false);
-    const [expandedCap, setExpandedCap] = useState4(null);
+    const [loading, setLoading] = useState5(true);
+    const [refreshing, setRefreshing] = useState5(false);
+    const [lastRefresh, setLastRefresh] = useState5(null);
+    const [showStoreInfo, setShowStoreInfo] = useState5(false);
+    const [showUserMenu, setShowUserMenu] = useState5(false);
+    const [dayOffset, setDayOffset] = useState5(0);
+    const [storeBlob, setStoreBlob] = useState5(null);
+    const [histHourly, setHistHourly] = useState5(null);
+    const [liveHistCache, setLiveHistCache] = useState5({});
+    const [histLoading, setHistLoading] = useState5(false);
+    const [storeTickets, setStoreTickets] = useState5([]);
+    const [taskSummary, setTaskSummary] = useState5(null);
+    const [mgrCaps, setMgrCaps] = useState5(null);
+    const [mgrCapsErr, setMgrCapsErr] = useState5(false);
+    const [expandedCap, setExpandedCap] = useState5(null);
     const toggleBtnRef = useRef4(null);
-    const [voiceState, setVoiceState] = useState4("idle");
-    const [voiceTranscript, setVoiceTranscript] = useState4("");
-    const [voiceReply, setVoiceReply] = useState4("");
+    const [voiceState, setVoiceState] = useState5("idle");
+    const [voiceTranscript, setVoiceTranscript] = useState5("");
+    const [voiceReply, setVoiceReply] = useState5("");
     const recogRef = useRef4(null);
     const handleToggle = useCallback(() => {
       const btn2 = toggleBtnRef.current;
@@ -27560,17 +28155,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     }, [pc, todayStr]);
-    useEffect4(() => {
+    useEffect5(() => {
       fetchAll();
       return () => {
         fetchTokenRef.current++;
       };
     }, [fetchAll]);
-    useEffect4(() => {
+    useEffect5(() => {
       const t = setInterval(fetchAll, 10 * 60 * 1e3);
       return () => clearInterval(t);
     }, [fetchAll]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (dayOffset === 0) {
         setHistHourly(null);
         return;
@@ -27617,7 +28212,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [dayOffset, pc]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!pc) return;
       try {
         const raw = localStorage.getItem("pcg_tickets_v1");
@@ -27973,7 +28568,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.71";
+  var APP_VERSION = "v22.73";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -28059,22 +28654,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     reader.readAsText(file);
   }
   function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert: showAlert2, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores, onDrillIn }) {
-    const [chatView, setChatView] = useState4(initialChannelId ? "thread" : "list");
-    const [activeChannelId, setActiveChannelId] = useState4(initialChannelId || null);
-    const [msgText, setMsgText] = useState4("");
-    const [searchTerm, setSearchTerm] = useState4("");
-    const [pendingAttachments, setPendingAttachments] = useState4([]);
-    const [mentionQuery, setMentionQuery] = useState4(null);
-    const [groupName, setGroupName] = useState4("");
-    const [groupMembers, setGroupMembers] = useState4([]);
-    const [dmSearch, setDmSearch] = useState4("");
-    const [orionThinking, setOrionThinking] = useState4(false);
-    const [replyToThread, setReplyToThread] = useState4(null);
-    const [expandedThreads, setExpandedThreads] = useState4(/* @__PURE__ */ new Set());
-    const [orionFeedback, setOrionFeedback] = useState4({});
-    const [editMembers, setEditMembers] = useState4(null);
-    const [chatMenuOpen, setChatMenuOpen] = useState4(false);
-    const [chatConfirm, setChatConfirm] = useState4(null);
+    const [chatView, setChatView] = useState5(initialChannelId ? "thread" : "list");
+    const [activeChannelId, setActiveChannelId] = useState5(initialChannelId || null);
+    const [msgText, setMsgText] = useState5("");
+    const [searchTerm, setSearchTerm] = useState5("");
+    const [pendingAttachments, setPendingAttachments] = useState5([]);
+    const [mentionQuery, setMentionQuery] = useState5(null);
+    const [groupName, setGroupName] = useState5("");
+    const [groupMembers, setGroupMembers] = useState5([]);
+    const [dmSearch, setDmSearch] = useState5("");
+    const [orionThinking, setOrionThinking] = useState5(false);
+    const [replyToThread, setReplyToThread] = useState5(null);
+    const [expandedThreads, setExpandedThreads] = useState5(/* @__PURE__ */ new Set());
+    const [orionFeedback, setOrionFeedback] = useState5({});
+    const [editMembers, setEditMembers] = useState5(null);
+    const [chatMenuOpen, setChatMenuOpen] = useState5(false);
+    const [chatConfirm, setChatConfirm] = useState5(null);
     const sendOrionFeedback = (messageId, rating) => {
       if (!messageId) return;
       setOrionFeedback((prev) => ({ ...prev, [messageId]: rating }));
@@ -28085,7 +28680,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!pendingOrionQuestion) return;
       const analystChId = `analyst_${user.id}`;
       setActiveChannelId(analystChId);
@@ -28114,7 +28709,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [pendingOrionQuestion]);
     const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
     const personalAnalystId = `analyst_${user.id}`;
-    useEffect4(() => {
+    useEffect5(() => {
       if (!isAnalystUser) return;
       setChannels((prev) => {
         if (prev.some((c) => c.id === personalAnalystId)) return prev;
@@ -28122,7 +28717,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
     }, [user?.id]);
     const sanitizedRef = useRef4(false);
-    useEffect4(() => {
+    useEffect5(() => {
       if (sanitizedRef.current || !channels || channels.length === 0) return;
       if (!users || users.length === 0) return;
       const removedIds = /* @__PURE__ */ new Set();
@@ -28293,7 +28888,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setOrionThinking(false);
     };
-    const [logFilters, setLogFilters] = useState4({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
+    const [logFilters, setLogFilters] = useState5({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
     const messagesEndRef = useRef4(null);
     const inputRef = useRef4(null);
     const fileRef = useRef4(null);
@@ -28629,12 +29224,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const mentionSuggestions = mentionQuery ? activeUsers.filter(
       (u) => u.id !== user.id && (u.username.toLowerCase().includes(mentionQuery.query) || u.name.toLowerCase().includes(mentionQuery.query))
     ).slice(0, 6) : [];
-    useEffect4(() => {
+    useEffect5(() => {
       if (initialChannelId && activeChannelId === initialChannelId) {
         setReadState((prev) => ({ ...prev, [`${user.id}_${initialChannelId}`]: (/* @__PURE__ */ new Date()).toISOString() }));
       }
     }, [initialChannelId]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chatView === "thread") messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, chatView, activeChannelId]);
     const getSeenBy = (msg) => {
@@ -28648,7 +29243,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const activeChannel = channels.find((ch) => ch.id === activeChannelId);
     const threadMessages = activeChannelId ? messages.filter((m) => m.channelId === activeChannelId).sort((a, b) => a.timestamp.localeCompare(b.timestamp)) : [];
-    useEffect4(() => {
+    useEffect5(() => {
       setReplyToThread(null);
       setChatMenuOpen(false);
     }, [activeChannelId]);
@@ -29077,8 +29672,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: () => setChatView("list"), style: { color: th.muted, cursor: "pointer" } }, "\u2190 Back to Chat");
   }
   function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
-    const [uploading, setUploading] = useState4(false);
-    const [uploadMsg, setUploadMsg] = useState4(null);
+    const [uploading, setUploading] = useState5(false);
+    const [uploadMsg, setUploadMsg] = useState5(null);
     const fileRef = useRef4(null);
     const handleUpload = async (e) => {
       const file = e.target.files?.[0];
@@ -29122,8 +29717,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     } }, uploadMsg.text), currentWeek && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.5rem", padding: "1rem", background: th.card2, borderRadius: "0.5rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Currently Loaded"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", color: th.text, fontWeight: 700 } }, "Week #", currentWeek.weekNum, " \u2014 ", currentWeek.weekEnd, currentWeek.isDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#ffa94d", fontWeight: 700, marginLeft: "0.4rem", fontSize: "0.65rem", border: "1px solid #ffa94d", borderRadius: "4px", padding: "1px 6px" } }, "DRAFT") : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, currentWeek.stores.length, " stores")), salesWeeks.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Previous Weeks"), salesWeeks.slice(1).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.25rem 0" } }, "Week #", w.weekNum, " \u2014 ", w.weekEnd, w.isDraft ? " (Draft)" : "", " (", w.stores.length, " stores)")))));
   }
   function BiometricEnrollPrompt({ th, onDone }) {
-    const [busy, setBusy] = useState4(false);
-    const [err, setErr] = useState4("");
+    const [busy, setBusy] = useState5(false);
+    const [err, setErr] = useState5("");
     const enable = async () => {
       setBusy(true);
       setErr("");
@@ -29146,8 +29741,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), maxWidth: 380, width: "100%", padding: "1.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 28, color: O })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Enable Face ID / Fingerprint?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" } }, "Skip typing your password next time you sign in on this device."), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.75rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted, flex: 1 }), onClick: decline, disabled: busy }, "Not now"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { flex: 1 }), onClick: enable, disabled: busy }, busy ? "Enabling..." : "Enable"))));
   }
   function FirstLoginSetup({ user, setUser, setUsers, th }) {
-    const [step, setStep] = useState4(1);
-    const [form, setForm] = useState4({
+    const [step, setStep] = useState5(1);
+    const [form, setForm] = useState5({
       newPassword: "",
       confirmPassword: "",
       showNew: false,
@@ -29158,7 +29753,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       smsNotify: false,
       pushNotify: false
     });
-    const [err, setErr] = useState4("");
+    const [err, setErr] = useState5("");
     const handleStep1 = () => {
       setErr("");
       if (!isSharedDeviceType(user.userType)) {
@@ -29283,8 +29878,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return j;
   }
   function MyTimeOffCard({ th }) {
-    const [data, setData] = useState4(null);
-    useEffect4(() => {
+    const [data, setData] = useState5(null);
+    useEffect5(() => {
       timeOffApi("mine").then(setData).catch(() => setData({ linked: false, balances: [] }));
     }, []);
     if (!data || !data.linked) return null;
@@ -29313,10 +29908,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), canLink && /* @__PURE__ */ React.createElement("button", { onClick: onLink, title: "Change the linked Paycor employee", style: { fontSize: "0.62rem", color: th.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" } }, "change"));
   }
   function TimeOffLinkPicker({ th, target, onClose, onSaved, showAlert: showAlert2 }) {
-    const [q, setQ] = useState4("");
-    const [list, setList] = useState4(null);
-    const [saving, setSaving] = useState4(false);
-    useEffect4(() => {
+    const [q, setQ] = useState5("");
+    const [list, setList] = useState5(null);
+    const [saving, setSaving] = useState5(false);
+    useEffect5(() => {
       let cancelled = false;
       const t = setTimeout(() => {
         timeOffApi("candidates", { userId: target.id, q }).then((j) => {
@@ -29363,7 +29958,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     );
   }
   function ProfileModal({ user, setUser, setUsers, th, onClose }) {
-    const [profileForm, setProfileForm] = useState4({
+    const [profileForm, setProfileForm] = useState5({
       email: user.email || "",
       phone: user.phone || "",
       emailNotify: user.emailNotify !== false,
@@ -29376,12 +29971,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       showNew: false,
       showConfirm: false
     });
-    const [profileMsg, setProfileMsg] = useState4(null);
-    const [bioAvailable, setBioAvailable] = useState4(false);
-    const [bioCreds, setBioCreds] = useState4([]);
-    const [bioBusy, setBioBusy] = useState4(false);
+    const [profileMsg, setProfileMsg] = useState5(null);
+    const [bioAvailable, setBioAvailable] = useState5(false);
+    const [bioCreds, setBioCreds] = useState5([]);
+    const [bioBusy, setBioBusy] = useState5(false);
     const refreshBioCreds = () => webauthnList().then(setBioCreds);
-    useEffect4(() => {
+    useEffect5(() => {
       webauthnAvailable().then(setBioAvailable);
       refreshBioCreds();
     }, []);
@@ -29583,11 +30178,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [actionLog, setActionLog] = React.useState([]);
     const logLoadedRef = React.useRef(false);
     const cleanAcked = (raw) => {
-      const now = Date.now(), clean = {};
+      const now = Date.now(), clean2 = {};
       Object.entries(raw || {}).forEach(([k, ts]) => {
-        if (now - ts < 4 * 36e5) clean[k] = ts;
+        if (now - ts < 4 * 36e5) clean2[k] = ts;
       });
-      return clean;
+      return clean2;
     };
     const [acked, setAcked] = React.useState(() => {
       try {
@@ -30221,8 +30816,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const firstName2 = (user?.name || "").split(" ")[0];
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    const [weather, setWeather] = useState4(null);
-    const [showWeekWeather, setShowWeekWeather] = useState4(false);
+    const [weather, setWeather] = useState5(null);
+    const [showWeekWeather, setShowWeekWeather] = useState5(false);
     const weatherRectRef = useRef4(null);
     const weatherCloseTimer = useRef4(null);
     const openWeekWeather = (e) => {
@@ -30243,13 +30838,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (weatherCloseTimer.current) clearTimeout(weatherCloseTimer.current);
       weatherCloseTimer.current = setTimeout(() => setShowWeekWeather(false), 150);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!showWeekWeather) return;
       const close = () => setShowWeekWeather(false);
       window.addEventListener("scroll", close, { passive: true });
       return () => window.removeEventListener("scroll", close);
     }, [showWeekWeather]);
-    useEffect4(() => {
+    useEffect5(() => {
       (async () => {
         try {
           let lat = 40.084, lon = -75.0524;
@@ -30420,7 +31015,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))));
   }
   function DashboardHeadlines({ th, isMobile, dailyFeed }) {
-    const [newsTab, setNewsTab] = useState4("general");
+    const [newsTab, setNewsTab] = useState5("general");
     return /* @__PURE__ */ React.createElement(React.Fragment, null, dailyFeed?.news && Object.values(dailyFeed.news).some((arr) => Array.isArray(arr) && arr.length > 0) && (() => {
       const SOURCE_COLORS = {
         "Fox News": "#003366",
@@ -30586,8 +31181,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return all;
     }, [stores, user, isDM, isManager]);
     const { actions, acknowledge, delegate, delegating } = useActionQueue({ stores: scopedStores, user, users, showAlert: showAlert2, enabled: opsRole });
-    const [foodSafety, setFoodSafety] = useState4(null);
-    useEffect4(() => {
+    const [foodSafety, setFoodSafety] = useState5(null);
+    useEffect5(() => {
       if (!opsRole) return;
       if (isManager && !scopedStores.length) return;
       const district = isDM ? user?.district : isManager ? scopedStores[0]?.district : null;
@@ -30621,9 +31216,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [opsRole, scopedStores.length]);
-    const [cases, setCases] = useState4(null);
-    const [showAllCases, setShowAllCases] = useState4(false);
-    useEffect4(() => {
+    const [cases, setCases] = useState5(null);
+    const [showAllCases, setShowAllCases] = useState5(false);
+    useEffect5(() => {
       if (!isExecIT) return;
       fetch("/.netlify/functions/analyst", {
         method: "POST",
@@ -30633,15 +31228,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [isExecIT]);
     const CLOSED_CASE = /* @__PURE__ */ new Set(["Done", "Dismissed", "Rejected", "Closed"]);
     const openCases = (cases || []).filter((c) => !CLOSED_CASE.has(c.status)).sort((a, b) => (b.dollarOpportunity || 0) - (a.dollarOpportunity || 0));
-    const [dailyFeed, setDailyFeed] = useState4(null);
-    useEffect4(() => {
+    const [dailyFeed, setDailyFeed] = useState5(null);
+    useEffect5(() => {
       fetch("/.netlify/functions/daily-feed").then((r) => r.ok ? r.json() : null).then((d) => {
         if (d) setDailyFeed(d);
       }).catch(() => {
       });
     }, []);
-    const [showAllAttention, setShowAllAttention] = useState4(false);
-    const [showBrief, setShowBrief] = useState4(false);
+    const [showAllAttention, setShowAllAttention] = useState5(false);
+    const [showBrief, setShowBrief] = useState5(false);
     const now = /* @__PURE__ */ new Date();
     const sevRank = { High: 0, Medium: 1, Low: 2 };
     const ICON_STORE = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M3 9h18M9 20v-6h6v6" }));
@@ -30892,19 +31487,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return d.getDay() === 0;
   }
   function SalesReconciliation({ th, user, showAlert: showAlert2 }) {
-    const [busDt, setBusDt] = useState4(() => {
+    const [busDt, setBusDt] = useState5(() => {
       const d = /* @__PURE__ */ new Date();
       d.setDate(d.getDate() - 1);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     });
-    const [snapping, setSnapping] = useState4(false);
-    const [comparing, setComparing] = useState4(false);
-    const [result, setResult] = useState4(null);
-    const [history, setHistory] = useState4(null);
-    const [wtdSnapshots, setWtdSnapshots] = useState4(null);
-    const [wtdHistory, setWtdHistory] = useState4(null);
-    const [wtdDetail, setWtdDetail] = useState4(null);
-    const [view, setView] = useState4("main");
+    const [snapping, setSnapping] = useState5(false);
+    const [comparing, setComparing] = useState5(false);
+    const [result, setResult] = useState5(null);
+    const [history, setHistory] = useState5(null);
+    const [wtdSnapshots, setWtdSnapshots] = useState5(null);
+    const [wtdHistory, setWtdHistory] = useState5(null);
+    const [wtdDetail, setWtdDetail] = useState5(null);
+    const [view, setView] = useState5("main");
     const callRecon = async (action, extra = {}) => {
       const res = await fetch("/.netlify/functions/reconciliation", {
         method: "POST",
@@ -30963,7 +31558,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setComparing(false);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       loadHistory();
     }, []);
     const fmtD = (v) => "$" + Math.abs(v || 0).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -31025,19 +31620,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canEdit = isCashAdmin(user);
     const isDM = user?.userType === "dm";
     const dmDistrict = isDM ? user?.district : null;
-    const [noteModal, setNoteModal] = useState4(null);
-    const [noteText, setNoteText] = useState4("");
-    const [editDep, setEditDep] = useState4(null);
-    const [editForm, setEditForm] = useState4({ depositDate: "", amount: "" });
-    const [posLoading, setPosLoading] = useState4(false);
-    const [posProgress, setPosProgress] = useState4(0);
+    const [noteModal, setNoteModal] = useState5(null);
+    const [noteText, setNoteText] = useState5("");
+    const [editDep, setEditDep] = useState5(null);
+    const [editForm, setEditForm] = useState5({ depositDate: "", amount: "" });
+    const [posLoading, setPosLoading] = useState5(false);
+    const [posProgress, setPosProgress] = useState5(0);
     const fileRef = useRef4(null);
-    const [uploading, setUploading] = useState4(false);
-    const [uploadErr, setUploadErr] = useState4(null);
-    const [view, setView] = useState4("alerts");
-    const [weekOffset, setWeekOffset] = useState4(0);
-    const [storeFilter, setStoreFilter] = useState4(null);
-    const [distFilter, setDistFilter] = useState4(isDM ? dmDistrict : 0);
+    const [uploading, setUploading] = useState5(false);
+    const [uploadErr, setUploadErr] = useState5(null);
+    const [view, setView] = useState5("alerts");
+    const [weekOffset, setWeekOffset] = useState5(0);
+    const [storeFilter, setStoreFilter] = useState5(null);
+    const [distFilter, setDistFilter] = useState5(isDM ? dmDistrict : 0);
     const fmtUSD = (v) => "$" + (Math.round(v * 100) / 100).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtUSDRound = (v) => "$" + Math.round(v).toLocaleString();
     const fmtShort = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
@@ -31291,7 +31886,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!silent) showAlert2 && showAlert2("success", `POS cash totals loaded (${targets.length} fetched)`);
     };
     const posAutoLoadedRef = useRef4("");
-    useEffect4(() => {
+    useEffect5(() => {
       if (view !== "recon") return;
       const key = `${weekOffset}|${distFilter}|${view}`;
       if (posAutoLoadedRef.current === key) return;
@@ -32014,10 +32609,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var SCHEDULE_DESKTOP_BREAKPOINT = 1024;
   function useIsDesktopViewport() {
-    const [isDesktop, setIsDesktop] = useState4(
+    const [isDesktop, setIsDesktop] = useState5(
       () => typeof window !== "undefined" ? window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT : true
     );
-    useEffect4(() => {
+    useEffect5(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mql = window.matchMedia(`(min-width: ${SCHEDULE_DESKTOP_BREAKPOINT}px)`);
       const onChange = (e) => setIsDesktop(e.matches);
@@ -32105,9 +32700,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setUTCDate(d.getUTCDate() + i);
       return d;
     });
-    const [hoveredCell, setHoveredCell] = useState4(null);
-    const [clipboard, setClipboard] = useState4(null);
-    useEffect4(() => {
+    const [hoveredCell, setHoveredCell] = useState5(null);
+    const [clipboard, setClipboard] = useState5(null);
+    useEffect5(() => {
       const onKeyDown = (e) => {
         if (e.key === "Escape") setClipboard(null);
       };
@@ -32131,8 +32726,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const handleAddShift = (employeeId, dayOffset) => {
       onCardsChange(addShiftToEmployee(cards, employeeId, { dayOffset, startTime: "09:00", endTime: "17:00" }));
     };
-    const [editingShift, setEditingShift] = useState4(null);
-    const [editDraft, setEditDraft] = useState4({ startTime: "", endTime: "", reassignTo: "" });
+    const [editingShift, setEditingShift] = useState5(null);
+    const [editDraft, setEditDraft] = useState5({ startTime: "", endTime: "", reassignTo: "" });
     const openEdit = (employeeId, shift) => {
       setEditingShift({ employeeId, shift });
       setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: "" });
@@ -32208,8 +32803,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "sticky", top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.85rem 1.1rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Projected Weekly Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color } }, "$", weeklyTotal.totalDollars.toFixed(2), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 600 } }, "(", pct.toFixed(1), "%)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, weeklyTotal.totalHours.toFixed(1), " total hours"), overtimeEmployees.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b", fontWeight: 600 } }, "\u26A0 ", overtimeEmployees.length, " employee(s) over 40h this week"));
   }
   function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmployees = [], onReassign, startInEdit = false }) {
-    const [editing, setEditing] = useState4(startInEdit);
-    const [draftShifts, setDraftShifts] = useState4(cardData.shifts || []);
+    const [editing, setEditing] = useState5(startInEdit);
+    const [draftShifts, setDraftShifts] = useState5(cardData.shifts || []);
     const updateShift = (idx, field, value) => {
       setDraftShifts((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
     };
@@ -32243,17 +32838,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ScheduleBuilder({ store, th, mode }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [weekStart, setWeekStart] = useState4("");
-    const [loading, setLoading] = useState4(false);
-    const [error, setError] = useState4(null);
-    const [cards, setCards] = useState4(null);
-    const [cardIndex, setCardIndex] = useState4(0);
-    const [approvedCards, setApprovedCards] = useState4([]);
-    const [payRates, setPayRates] = useState4({});
-    const [openShiftGroups, setOpenShiftGroups] = useState4([]);
-    const [submitResult, setSubmitResult] = useState4(null);
-    const [showBuildPreview, setShowBuildPreview] = useState4(false);
-    const [reopenEmployeeId, setReopenEmployeeId] = useState4(null);
+    const [weekStart, setWeekStart] = useState5("");
+    const [loading, setLoading] = useState5(false);
+    const [error, setError] = useState5(null);
+    const [cards, setCards] = useState5(null);
+    const [cardIndex, setCardIndex] = useState5(0);
+    const [approvedCards, setApprovedCards] = useState5([]);
+    const [payRates, setPayRates] = useState5({});
+    const [openShiftGroups, setOpenShiftGroups] = useState5([]);
+    const [submitResult, setSubmitResult] = useState5(null);
+    const [showBuildPreview, setShowBuildPreview] = useState5(false);
+    const [reopenEmployeeId, setReopenEmployeeId] = useState5(null);
     const load = async () => {
       if (!weekStart) return;
       setLoading(true);
@@ -32511,21 +33106,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
-    const [activeTab, setActiveTab] = useState4("hourly");
-    const [laborHoverHr, setLaborHoverHr] = useState4(null);
-    const [punches, setPunches] = useState4([]);
-    const [employees, setEmployees] = useState4([]);
-    const [storeHistory, setStoreHistory] = useState4(null);
-    const [hourlySales, setHourlySales] = useState4({});
-    const [scheduleShifts, setScheduleShifts] = useState4([]);
-    const [livePunches, setLivePunches] = useState4({});
-    const [liveSummary, setLiveSummary] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    const [fetchError, setFetchError] = useState4(false);
-    const [empExpanded, setEmpExpanded] = useState4(false);
-    const [weekSchedule, setWeekSchedule] = useState4(null);
-    const [expandedDay, setExpandedDay] = useState4(null);
-    const [empHourAdj, setEmpHourAdj] = useState4({});
+    const [activeTab, setActiveTab] = useState5("hourly");
+    const [laborHoverHr, setLaborHoverHr] = useState5(null);
+    const [punches, setPunches] = useState5([]);
+    const [employees, setEmployees] = useState5([]);
+    const [storeHistory, setStoreHistory] = useState5(null);
+    const [hourlySales, setHourlySales] = useState5({});
+    const [scheduleShifts, setScheduleShifts] = useState5([]);
+    const [livePunches, setLivePunches] = useState5({});
+    const [liveSummary, setLiveSummary] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    const [fetchError, setFetchError] = useState5(false);
+    const [empExpanded, setEmpExpanded] = useState5(false);
+    const [weekSchedule, setWeekSchedule] = useState5(null);
+    const [expandedDay, setExpandedDay] = useState5(null);
+    const [empHourAdj, setEmpHourAdj] = useState5({});
     const storeInfo = stores.find((s) => s.pc === store.pc) || {};
     const mgrName = storeMgrName(storeInfo, users) || "Unassigned";
     const todayStr = localDateStr(/* @__PURE__ */ new Date());
@@ -32536,7 +33131,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() + diff);
       return localDateStr(d);
     })();
-    useEffect4(() => {
+    useEffect5(() => {
       async function loadAll() {
         setLoading(true);
         const legalEntityId = store.paycor || storeInfo.paycor;
@@ -32658,7 +33253,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       loadAll();
     }, [store.pc, store.paycor]);
-    useEffect4(() => {
+    useEffect5(() => {
       setWeekSchedule(null);
       setExpandedDay(null);
       setEmpHourAdj({});
@@ -32900,7 +33495,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 3 } }, hrLong), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: O, marginRight: 6 } }), "Sales ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.sales))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: clr, marginRight: 6 } }), "Labor ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.labor)), h.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", pct.toFixed(1), "%")))
       );
     }
-    useEffect4(() => {
+    useEffect5(() => {
       if (activeTab !== "optimizer" || weekSchedule !== null) return;
       cloudLoad("pcg_schedule_" + store.pc).then((data) => {
         setWeekSchedule(data || {});
@@ -33131,21 +33726,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return Math.floor(hrs / 24) + "d ago";
   }
   function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn, users }) {
-    const [laborData, setLaborData] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    const [error, setError] = useState4(null);
-    const [selectedStore, setSelectedStore] = useState4(null);
-    useEffect4(() => {
+    const [laborData, setLaborData] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    const [error, setError] = useState5(null);
+    const [selectedStore, setSelectedStore] = useState5(null);
+    useEffect5(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
-    const [timeFilter, setTimeFilter] = useState4("today");
-    const [districtFilter, setDistrictFilter] = useState4("all");
-    const [storeQuery, setStoreQuery] = useState4("");
-    const [viewDate, setViewDate] = useState4("");
-    const [dayData, setDayData] = useState4(null);
-    const [dayLoading, setDayLoading] = useState4(false);
-    const [dayError, setDayError] = useState4(null);
-    useEffect4(() => {
+    const [timeFilter, setTimeFilter] = useState5("today");
+    const [districtFilter, setDistrictFilter] = useState5("all");
+    const [storeQuery, setStoreQuery] = useState5("");
+    const [viewDate, setViewDate] = useState5("");
+    const [dayData, setDayData] = useState5(null);
+    const [dayLoading, setDayLoading] = useState5(false);
+    const [dayError, setDayError] = useState5(null);
+    useEffect5(() => {
       if (!viewDate) {
         setDayData(null);
         setDayError(null);
@@ -33174,7 +33769,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [viewDate]);
-    const [forecastData, setForecastData] = useState4({});
+    const [forecastData, setForecastData] = useState5({});
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const next7Days = React.useMemo(() => {
@@ -33192,10 +33787,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
     }, []);
     const todayStr = next7Days.find((d) => d.isToday)?.dateStr;
-    useEffect4(() => {
+    useEffect5(() => {
       if (isDM && user.district) setDistrictFilter(String(user.district));
     }, [isDM, user]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (drillInStore) {
         const store = stores.find((s) => s.pc === drillInStore);
         if (store) {
@@ -33218,10 +33813,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setLoading(false);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect4(() => {
+    useEffect5(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -33229,7 +33824,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!isManager) return /* @__PURE__ */ new Set();
       return new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
     }, [isManager, stores, user]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!laborData?.stores) return;
       const pcs = Object.keys(laborData.stores);
       let cancelled = false;
@@ -33451,13 +34046,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })));
   }
   function PnLStoreDetail({ store, th, onClose }) {
-    const [history, setHistory] = useState4(null);
+    const [history, setHistory] = useState5(null);
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad(`pcg_pnl_store_${store.pc}`).then((d) => setHistory(d?.daily || [])).catch(() => setHistory([]));
     }, [store.pc]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !history?.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -33602,58 +34197,58 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
       return f.format(/* @__PURE__ */ new Date());
     };
-    const [view, setView] = useState4(isManager ? "tasks" : "dashboard");
+    const [view, setView] = useState5(isManager ? "tasks" : "dashboard");
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef, 420, 20, view);
-    const [storePc, setStorePc] = useState4(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
-    const [date, setDate] = useState4(todayET());
-    const [seg, setSeg] = useState4("open");
-    const [data, setData] = useState4(null);
-    const [dash, setDash] = useState4(null);
-    const [rollup, setRollup] = useState4(null);
-    const [loading, setLoading] = useState4(false);
-    const [busyId, setBusyId] = useState4(null);
-    const [openEntry, setOpenEntry] = useState4(null);
-    const [entryVal, setEntryVal] = useState4("");
-    const [keypad, setKeypad] = useState4(null);
-    const [expandedId, setExpandedId] = useState4(null);
-    const [localAnswers, setLocalAnswers] = useState4({});
-    const [cas, setCas] = useState4(null);
-    const [caFilter, setCaFilter] = useState4("open");
-    const [loadingCAs, setLoadingCAs] = useState4(false);
-    const [gpsRows, setGpsRows] = useState4(null);
-    const [gpsLoading, setGpsLoading] = useState4(false);
-    const [gpsDays, setGpsDays] = useState4(7);
-    const [gpsTab, setGpsTab] = useState4("list");
+    const [storePc, setStorePc] = useState5(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
+    const [date, setDate] = useState5(todayET());
+    const [seg, setSeg] = useState5("open");
+    const [data, setData] = useState5(null);
+    const [dash, setDash] = useState5(null);
+    const [rollup, setRollup] = useState5(null);
+    const [loading, setLoading] = useState5(false);
+    const [busyId, setBusyId] = useState5(null);
+    const [openEntry, setOpenEntry] = useState5(null);
+    const [entryVal, setEntryVal] = useState5("");
+    const [keypad, setKeypad] = useState5(null);
+    const [expandedId, setExpandedId] = useState5(null);
+    const [localAnswers, setLocalAnswers] = useState5({});
+    const [cas, setCas] = useState5(null);
+    const [caFilter, setCaFilter] = useState5("open");
+    const [loadingCAs, setLoadingCAs] = useState5(false);
+    const [gpsRows, setGpsRows] = useState5(null);
+    const [gpsLoading, setGpsLoading] = useState5(false);
+    const [gpsDays, setGpsDays] = useState5(7);
+    const [gpsTab, setGpsTab] = useState5("list");
     const gpsMapDiv = useRef4(null);
     const gpsMapRef = useRef4(null);
     const gpsLayerRef = useRef4(null);
-    const [auditData, setAuditData] = useState4(null);
-    const [auditLoading, setAuditLoading] = useState4(false);
-    const [auditStore, setAuditStore] = useState4("");
-    const [auditFrom, setAuditFrom] = useState4("");
-    const [auditTo, setAuditTo] = useState4("");
-    const [auditPhotos, setAuditPhotos] = useState4(false);
-    const [auditPhotoUrls, setAuditPhotoUrls] = useState4({});
-    const [auditExporting, setAuditExporting] = useState4(false);
+    const [auditData, setAuditData] = useState5(null);
+    const [auditLoading, setAuditLoading] = useState5(false);
+    const [auditStore, setAuditStore] = useState5("");
+    const [auditFrom, setAuditFrom] = useState5("");
+    const [auditTo, setAuditTo] = useState5("");
+    const [auditPhotos, setAuditPhotos] = useState5(false);
+    const [auditPhotoUrls, setAuditPhotoUrls] = useState5({});
+    const [auditExporting, setAuditExporting] = useState5(false);
     const auditRef = useRef4(null);
-    const [photoLightbox, setPhotoLightbox] = useState4(null);
-    const [photoUrls, setPhotoUrls] = useState4({});
-    const [merch, setMerch] = useState4(null);
-    const [merchPage, setMerchPage] = useState4(1);
-    const [merchLoading, setMerchLoading] = useState4(false);
-    const [merchAllDates, setMerchAllDates] = useState4(false);
+    const [photoLightbox, setPhotoLightbox] = useState5(null);
+    const [photoUrls, setPhotoUrls] = useState5({});
+    const [merch, setMerch] = useState5(null);
+    const [merchPage, setMerchPage] = useState5(1);
+    const [merchLoading, setMerchLoading] = useState5(false);
+    const [merchAllDates, setMerchAllDates] = useState5(false);
     const MERCH_PAGE_SIZE = 8;
-    const [rangeDays, setRangeDays] = useState4(14);
-    const [reportData, setReportData] = useState4(null);
-    const [reportLoading, setReportLoading] = useState4(false);
-    const [hist, setHist] = useState4(null);
-    const [histLoading, setHistLoading] = useState4(false);
-    const [histPage, setHistPage] = useState4(1);
-    const [histStatus, setHistStatus] = useState4("all");
-    const [tempLog, setTempLog] = useState4(null);
-    const [tempLoading, setTempLoading] = useState4(false);
-    const [tempPage, setTempPage] = useState4(1);
+    const [rangeDays, setRangeDays] = useState5(14);
+    const [reportData, setReportData] = useState5(null);
+    const [reportLoading, setReportLoading] = useState5(false);
+    const [hist, setHist] = useState5(null);
+    const [histLoading, setHistLoading] = useState5(false);
+    const [histPage, setHistPage] = useState5(1);
+    const [histStatus, setHistStatus] = useState5("all");
+    const [tempLog, setTempLog] = useState5(null);
+    const [tempLoading, setTempLoading] = useState5(false);
+    const [tempPage, setTempPage] = useState5(1);
     const byName = user?.name || user?.email || "user";
     const SHIFT_WINDOWS_CLIENT = {
       "1 AM": 0,
@@ -33683,7 +34278,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const geoRef = useRef4(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
     const locDefaultOn = user?.userType === "store_tablet";
-    const [shareLoc, setShareLoc] = useState4(() => {
+    const [shareLoc, setShareLoc] = useState5(() => {
       try {
         const v = localStorage.getItem("pcg_share_location");
         if (v === "1") return true;
@@ -33693,21 +34288,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return locDefaultOn;
       }
     });
-    const [locAsked, setLocAsked] = useState4(() => {
+    const [locAsked, setLocAsked] = useState5(() => {
       try {
         return localStorage.getItem("pcg_share_location") != null;
       } catch {
         return true;
       }
     });
-    const [locDenied, setLocDenied] = useState4(false);
+    const [locDenied, setLocDenied] = useState5(false);
     const persistLoc = (on) => {
       try {
         localStorage.setItem("pcg_share_location", on ? "1" : "0");
       } catch {
       }
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!navigator.permissions?.query) return;
       let perm;
       navigator.permissions.query({ name: "geolocation" }).then((p) => {
@@ -33862,22 +34457,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setMerchLoading(false);
       }
     }, [api2, scopeStores, merchPage, date, merchAllDates]);
-    useEffect4(() => {
+    useEffect5(() => {
       setMerchPage(1);
     }, [date, merchAllDates]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "tasks" || view === "dashboard") loadStore();
     }, [view, loadStore]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "stores") loadRollup();
     }, [view, loadRollup]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "cas") loadCAs();
     }, [view, loadCAs]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "gps") loadGps();
     }, [view, gpsDays]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "merchandising") loadMerch();
     }, [view, loadMerch]);
     const rangeFromTo = useCallback(() => {
@@ -33915,23 +34510,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setTempLoading(false);
       }
     }, [api2, scopePcs, rangeFromTo, tempPage, user]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "reports") loadReports();
     }, [view, loadReports]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "history") loadHistory();
     }, [view, loadHistory]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "temp") loadTemp();
     }, [view, loadTemp]);
-    useEffect4(() => {
+    useEffect5(() => {
       setHistPage(1);
       setTempPage(1);
     }, [rangeDays]);
-    useEffect4(() => {
+    useEffect5(() => {
       setHistPage(1);
     }, [histStatus]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view !== "gps" || gpsTab !== "map" || !gpsRows || !gpsMapDiv.current || !window.L) return;
       const L = window.L;
       if (!gpsMapRef.current) {
@@ -33963,7 +34558,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       }, 150);
     }, [view, gpsTab, gpsRows, th.dark, stores]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (view === "gps" && gpsTab === "map") return;
       if (gpsMapRef.current) {
         try {
@@ -33974,7 +34569,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         gpsLayerRef.current = null;
       }
     }, [view, gpsTab]);
-    useEffect4(() => () => {
+    useEffect5(() => () => {
       if (gpsMapRef.current) {
         try {
           gpsMapRef.current.remove();
@@ -33985,7 +34580,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     }, []);
     const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    useEffect4(() => {
+    useEffect5(() => {
       if (view !== "audit" || auditTo) return;
       const to = todayET();
       const d = /* @__PURE__ */ new Date(to + "T12:00:00");
@@ -34006,7 +34601,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditLoading(false);
       }
     }, [api2, auditStore, auditFrom, auditTo]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!auditPhotos || !auditData) return;
       const need = (auditData.tasks || []).filter((t) => t.has_photo && auditPhotoUrls[t.id] === void 0);
       if (!need.length) return;
@@ -34036,7 +34631,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditExporting(false);
       }
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (view !== "tasks" && view !== "dashboard") return;
       const id = setInterval(() => loadStore(true), 25e3);
       return () => clearInterval(id);
@@ -34585,23 +35180,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), photoLightbox && /* @__PURE__ */ React.createElement("div", { onClick: () => setPhotoLightbox(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoLightbox(null), style: { position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: photoLightbox, alt: "Full size photo", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } }))))));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
-    const [eventAddr, setEventAddr] = useState4("2310 W Passyunk Ave, Philadelphia, PA 19145");
-    const [eventLatLng, setEventLatLng] = useState4(null);
-    const [eventDate, setEventDate] = useState4("2025-12-28");
-    const [weeksBefore, setWeeksBefore] = useState4(13);
-    const [weeksAfter, setWeeksAfter] = useState4("");
-    const [coords, setCoords] = useState4(null);
-    const [ranked, setRanked] = useState4([]);
-    const [impactedPc, setImpactedPc] = useState4(null);
-    const [controlPcs, setControlPcs] = useState4([]);
-    const [status, setStatus] = useState4("");
-    const [busy, setBusy] = useState4(false);
-    const [results, setResults] = useState4(null);
+    const [eventAddr, setEventAddr] = useState5("2310 W Passyunk Ave, Philadelphia, PA 19145");
+    const [eventLatLng, setEventLatLng] = useState5(null);
+    const [eventDate, setEventDate] = useState5("2025-12-28");
+    const [weeksBefore, setWeeksBefore] = useState5(13);
+    const [weeksAfter, setWeeksAfter] = useState5("");
+    const [coords, setCoords] = useState5(null);
+    const [ranked, setRanked] = useState5([]);
+    const [impactedPc, setImpactedPc] = useState5(null);
+    const [controlPcs, setControlPcs] = useState5([]);
+    const [status, setStatus] = useState5("");
+    const [busy, setBusy] = useState5(false);
+    const [results, setResults] = useState5(null);
     const chartCanvas = useRef4(null);
     const chartRef = useRef4(null);
     const mapDiv = useRef4(null);
     const mapRef = useRef4(null);
-    const [radiusMi, setRadiusMi] = useState4(1);
+    const [radiusMi, setRadiusMi] = useState5(1);
     const histCache = useRef4(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
@@ -34759,7 +35354,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       doc.text("Source: Dunkin\u2019 Pulse POS net sales. Distances are geocoded centroid estimates (US Census).", margin, 10.7);
       doc.save(`impact-${imp.name.replace(/\s+/g, "-")}-${eventDate}.pdf`);
     }
-    useEffect4(() => {
+    useEffect5(() => {
       (async () => {
         let c = await cloudLoad(COORDS_BLOB);
         if (!c || Object.keys(c).length < STORES_SEED.length) {
@@ -34806,7 +35401,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setBusy(false);
     }
-    useEffect4(() => {
+    useEffect5(() => {
       if (!eventLatLng || !coords) return;
       const rows = openStoreList().filter((s) => coords[s.pc]).map((s) => ({
         pc: s.pc,
@@ -34820,7 +35415,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
       }
     }, [eventLatLng, coords]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!results || !chartCanvas.current || !window.Chart) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -34856,7 +35451,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       };
     }, [results, dark]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!eventLatLng || !mapDiv.current || !window.L) return;
       if (!mapRef.current) {
         mapRef.current = window.L.map(mapDiv.current).setView([eventLatLng.lat, eventLatLng.lng], 13);
@@ -34896,7 +35491,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       map.setView([eventLatLng.lat, eventLatLng.lng], 13);
     }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
-    useEffect4(() => () => {
+    useEffect5(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -34910,22 +35505,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })(), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", color: th.muted, fontSize: 12 } }, /* @__PURE__ */ React.createElement("th", { style: { padding: 6 } }, "Store"), /* @__PURE__ */ React.createElement("th", null, "Distance"), /* @__PURE__ */ React.createElement("th", null, "Before $/wk"), /* @__PURE__ */ React.createElement("th", null, "After $/wk"), /* @__PURE__ */ React.createElement("th", null, "%\u0394"), /* @__PURE__ */ React.createElement("th", null, "Weeks"))), /* @__PURE__ */ React.createElement("tbody", null, [results.impacted, ...results.controls].map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: row.pc, style: { borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: 6 } }, row.name, i === 0 ? " (impacted)" : ""), /* @__PURE__ */ React.createElement("td", null, row.distance != null ? `${row.distance.toFixed(1)} mi` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgBefore)), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgAfter)), /* @__PURE__ */ React.createElement("td", { style: { color: row.deltaPct < -15 ? "#dc2626" : row.deltaPct < -7 ? "#d97706" : th.text } }, fmtPct(row.deltaPct)), /* @__PURE__ */ React.createElement("td", { style: { color: row.weeksBeforeUsed < weeksBefore ? "#d97706" : th.muted } }, row.weeksBeforeUsed, "/", row.weeksAfterUsed, row.weeksBeforeUsed < weeksBefore ? " \u26A0" : ""))))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 11, marginTop: 8 } }, "Source: ", results.impacted.source === "scorecard" ? `uploaded weekly scorecards (${results.impacted.weeksAvailable} wks available for the impacted store)` : `Pulse net sales via labor blobs (~13-week retention; ${results.impacted.weeksAvailable} wks available)`, ". \u26A0 = fewer weeks than requested.")));
   }
   function AdminNdcp({ th, user }) {
-    const [orders, setOrders] = useState4(null);
-    const [err, setErr] = useState4(null);
-    const [q, setQ] = useState4("");
-    const [storeFilter, setStoreFilter] = useState4("");
-    const [sel, setSel] = useState4(null);
-    const [detail, setDetail] = useState4(null);
-    const [detailLoading, setDetailLoading] = useState4(false);
+    const [orders, setOrders] = useState5(null);
+    const [err, setErr] = useState5(null);
+    const [q, setQ] = useState5("");
+    const [storeFilter, setStoreFilter] = useState5("");
+    const [sel, setSel] = useState5(null);
+    const [detail, setDetail] = useState5(null);
+    const [detailLoading, setDetailLoading] = useState5(false);
     const todayISO = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const ago = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-    const [from, setFrom] = useState4(ago(13 * 7));
-    const [to, setTo] = useState4(todayISO);
-    const [view, setView] = useState4("weekly");
-    const [summary, setSummary] = useState4(null);
-    const [labor, setLabor] = useState4(null);
-    const [expandWeek, setExpandWeek] = useState4(null);
-    const [expandDist, setExpandDist] = useState4(null);
+    const [from, setFrom] = useState5(ago(13 * 7));
+    const [to, setTo] = useState5(todayISO);
+    const [view, setView] = useState5("weekly");
+    const [summary, setSummary] = useState5(null);
+    const [labor, setLabor] = useState5(null);
+    const [expandWeek, setExpandWeek] = useState5(null);
+    const [expandDist, setExpandDist] = useState5(null);
     const dcpPct = (spend, sales) => {
       if (spend == null || sales == null) return null;
       const sp = +spend, sl = +sales;
@@ -34937,7 +35532,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }).then((r) => r.json());
-    useEffect4(() => {
+    useEffect5(() => {
       setOrders(null);
       setErr(null);
       const f = (action, extra = {}) => api2({ action, from, to, ...extra });
@@ -34952,7 +35547,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setOrders([]);
       });
     }, [from, to]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_labor_v1").then(setLabor).catch(() => {
       });
     }, []);
@@ -35123,7 +35718,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
     const weeks = React.useMemo(() => Object.entries(summary && summary.byWeek || {}).sort((a, b) => a[0].localeCompare(b[0])), [summary]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !weeks.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -35226,65 +35821,65 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
     const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
     const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
-    const [deals, setDeals] = useState4([]);
-    const [loading, setLoading] = useState4(true);
-    const [error, setError] = useState4(null);
-    const [view, setView] = useState4("kanban");
-    const [filterBrand, setFilterBrand] = useState4("all");
-    const [filterType, setFilterType] = useState4("all");
-    const [filterState, setFilterState] = useState4("all");
-    const [filterStage, setFilterStage] = useState4("all");
-    const [filterLead, setFilterLead] = useState4("all");
-    const [sortCol, setSortCol] = useState4("name");
-    const [sortDir, setSortDir] = useState4("asc");
-    const [selectedDeal, setSelectedDeal] = useState4(null);
-    const [detailDeal, setDetailDeal] = useState4(null);
-    const [detailDates, setDetailDates] = useState4([]);
-    const [detailNotes, setDetailNotes] = useState4([]);
-    const [detailLoading, setDetailLoading] = useState4(false);
-    const [detailError, setDetailError] = useState4(null);
-    const [editFields, setEditFields] = useState4({});
-    const [saving, setSaving] = useState4(false);
-    const [saveMsg, setSaveMsg] = useState4(null);
-    const [newNote, setNewNote] = useState4("");
-    const [addingNote, setAddingNote] = useState4(false);
-    const [noteErr, setNoteErr] = useState4(null);
-    const [actionErr, setActionErr] = useState4(null);
-    const [showCreate, setShowCreate] = useState4(false);
-    const [createForm, setCreateForm] = useState4({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
-    const [creating, setCreating] = useState4(false);
-    const [createError, setCreateError] = useState4(null);
-    const [docs, setDocs] = useState4([]);
-    const [docVersions, setDocVersions] = useState4([]);
-    const [docBusy, setDocBusy] = useState4(false);
-    const [docErr, setDocErr] = useState4(null);
-    const [newDocType, setNewDocType] = useState4("loi");
-    const [allDates, setAllDates] = useState4([]);
-    const [newDateType, setNewDateType] = useState4(DATE_TYPES[0]?.id || "");
-    const [newDateDue, setNewDateDue] = useState4("");
-    const [newDateTiers, setNewDateTiers] = useState4(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
-    const [newDateNotes, setNewDateNotes] = useState4("");
-    const [newDateRecurring, setNewDateRecurring] = useState4("");
-    const [dateAdding, setDateAdding] = useState4(false);
-    const [dateErr, setDateErr] = useState4(null);
-    const [showAccess, setShowAccess] = useState4(false);
-    const [accessRows, setAccessRows] = useState4(null);
-    const [accessInput, setAccessInput] = useState4("");
-    const [accessRole, setAccessRole] = useState4("view");
-    const [accessBusy, setAccessBusy] = useState4(false);
-    const [accessErr, setAccessErr] = useState4(null);
-    const [dealLeads, setDealLeads] = useState4([]);
-    const [newLeadName, setNewLeadName] = useState4("");
-    const [deadFor, setDeadFor] = useState4(null);
-    const [deadReason, setDeadReason] = useState4(DEAD_REASONS[0]);
-    const [deadNote, setDeadNote] = useState4("");
-    const [deadBusy, setDeadBusy] = useState4(false);
-    const [deadErr, setDeadErr] = useState4(null);
-    const [remindFor, setRemindFor] = useState4(null);
-    const [remindPhone, setRemindPhone] = useState4("");
-    const [remindMsg, setRemindMsg] = useState4("");
-    const [remindBusy, setRemindBusy] = useState4(false);
-    const [remindStatus, setRemindStatus] = useState4(null);
+    const [deals, setDeals] = useState5([]);
+    const [loading, setLoading] = useState5(true);
+    const [error, setError] = useState5(null);
+    const [view, setView] = useState5("kanban");
+    const [filterBrand, setFilterBrand] = useState5("all");
+    const [filterType, setFilterType] = useState5("all");
+    const [filterState, setFilterState] = useState5("all");
+    const [filterStage, setFilterStage] = useState5("all");
+    const [filterLead, setFilterLead] = useState5("all");
+    const [sortCol, setSortCol] = useState5("name");
+    const [sortDir, setSortDir] = useState5("asc");
+    const [selectedDeal, setSelectedDeal] = useState5(null);
+    const [detailDeal, setDetailDeal] = useState5(null);
+    const [detailDates, setDetailDates] = useState5([]);
+    const [detailNotes, setDetailNotes] = useState5([]);
+    const [detailLoading, setDetailLoading] = useState5(false);
+    const [detailError, setDetailError] = useState5(null);
+    const [editFields, setEditFields] = useState5({});
+    const [saving, setSaving] = useState5(false);
+    const [saveMsg, setSaveMsg] = useState5(null);
+    const [newNote, setNewNote] = useState5("");
+    const [addingNote, setAddingNote] = useState5(false);
+    const [noteErr, setNoteErr] = useState5(null);
+    const [actionErr, setActionErr] = useState5(null);
+    const [showCreate, setShowCreate] = useState5(false);
+    const [createForm, setCreateForm] = useState5({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
+    const [creating, setCreating] = useState5(false);
+    const [createError, setCreateError] = useState5(null);
+    const [docs, setDocs] = useState5([]);
+    const [docVersions, setDocVersions] = useState5([]);
+    const [docBusy, setDocBusy] = useState5(false);
+    const [docErr, setDocErr] = useState5(null);
+    const [newDocType, setNewDocType] = useState5("loi");
+    const [allDates, setAllDates] = useState5([]);
+    const [newDateType, setNewDateType] = useState5(DATE_TYPES[0]?.id || "");
+    const [newDateDue, setNewDateDue] = useState5("");
+    const [newDateTiers, setNewDateTiers] = useState5(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
+    const [newDateNotes, setNewDateNotes] = useState5("");
+    const [newDateRecurring, setNewDateRecurring] = useState5("");
+    const [dateAdding, setDateAdding] = useState5(false);
+    const [dateErr, setDateErr] = useState5(null);
+    const [showAccess, setShowAccess] = useState5(false);
+    const [accessRows, setAccessRows] = useState5(null);
+    const [accessInput, setAccessInput] = useState5("");
+    const [accessRole, setAccessRole] = useState5("view");
+    const [accessBusy, setAccessBusy] = useState5(false);
+    const [accessErr, setAccessErr] = useState5(null);
+    const [dealLeads, setDealLeads] = useState5([]);
+    const [newLeadName, setNewLeadName] = useState5("");
+    const [deadFor, setDeadFor] = useState5(null);
+    const [deadReason, setDeadReason] = useState5(DEAD_REASONS[0]);
+    const [deadNote, setDeadNote] = useState5("");
+    const [deadBusy, setDeadBusy] = useState5(false);
+    const [deadErr, setDeadErr] = useState5(null);
+    const [remindFor, setRemindFor] = useState5(null);
+    const [remindPhone, setRemindPhone] = useState5("");
+    const [remindMsg, setRemindMsg] = useState5("");
+    const [remindBusy, setRemindBusy] = useState5(false);
+    const [remindStatus, setRemindStatus] = useState5(null);
     const loadList = () => {
       setLoading(true);
       return dealApi(token, { action: "list", status: "active" }).then((r) => {
@@ -35293,7 +35888,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setError(null);
       }).catch((e) => setError(e.message)).finally(() => setLoading(false));
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!token) {
         setLoading(false);
         return;
@@ -35306,7 +35901,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setAccessErr(null);
       dealApi(token, { action: "listAccess" }).then((r) => setAccessRows(r.access || [])).catch((e) => setAccessErr(e.message));
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (showAccess) loadAccess();
     }, [showAccess]);
     const doSetAccess = (key, r) => {
@@ -36130,16 +36725,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ));
   }
   function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
-    const [pnl, setPnl] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    const [error, setError] = useState4(null);
-    const [selectedStore, setSelectedStore] = useState4(null);
-    useEffect4(() => {
+    const [pnl, setPnl] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    const [error, setError] = useState5(null);
+    const [selectedStore, setSelectedStore] = useState5(null);
+    useEffect5(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) {
           setPnl(d);
@@ -36172,7 +36767,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const p = (n) => a.revenue > 0 ? n / a.revenue * 100 : 0;
       return { ...a, marginPct: p(a.contribution), laborPct: p(a.labor), cogsPct: p(a.cogs) };
     }, [ranked]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (drillInStore && pnl?.stores) {
         const match = pnl.stores.find((s) => String(s.pc) === String(drillInStore));
         if (match) setSelectedStore(match);
@@ -36332,8 +36927,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var QUICKFIND_HUB_LABELS = { "ops-hub": "Operations", "team-hub": "Team & Sites", "system-hub": "System", "tools-hub": "Tools", finance: "Finance" };
   function QuickFindBar({ th, tabs, onNavigate, compact }) {
-    const [query, setQuery] = useState4("");
-    const [showSuggestions, setShowSuggestions] = useState4(false);
+    const [query, setQuery] = useState5("");
+    const [showSuggestions, setShowSuggestions] = useState5(false);
     const matches = React.useMemo(() => {
       const q = query.trim().toLowerCase();
       if (!q) return [];
@@ -36469,11 +37064,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
     const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
-    const [viewMode, setViewMode] = useState4("overview");
-    const [hubQuery, setHubQuery] = useState4("");
-    const [pnlOv, setPnlOv] = useState4(null);
-    const [expPending, setExpPending] = useState4(null);
-    useEffect4(() => {
+    const [viewMode, setViewMode] = useState5("overview");
+    const [hubQuery, setHubQuery] = useState5("");
+    const [pnlOv, setPnlOv] = useState5(null);
+    const [expPending, setExpPending] = useState5(null);
+    useEffect5(() => {
       if (viewMode !== "overview") return;
       if (canPnl && !pnlOv) cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) setPnlOv(d);
@@ -36757,21 +37352,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function TipsReportBuilder({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [periodStart, setPeriodStart] = useState4("");
-    const [loading, setLoading] = useState4(false);
-    const [error, setError] = useState4(null);
-    const [dayInfo, setDayInfo] = useState4(null);
-    const [snapshots, setSnapshots] = useState4(null);
-    const [grandTotal, setGrandTotal] = useState4(0);
+    const [periodStart, setPeriodStart] = useState5("");
+    const [loading, setLoading] = useState5(false);
+    const [error, setError] = useState5(null);
+    const [dayInfo, setDayInfo] = useState5(null);
+    const [snapshots, setSnapshots] = useState5(null);
+    const [grandTotal, setGrandTotal] = useState5(0);
     const canPushToPaycor = canPaycorPush(user);
-    const [paycorCfg, setPaycorCfg] = useState4({});
-    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState4(false);
-    const [paycorPush, setPaycorPush] = useState4(null);
-    const [singleSendPc, setSingleSendPc] = useState4("");
-    const [singleSending, setSingleSending] = useState4(false);
-    const [refreshingDates, setRefreshingDates] = useState4(() => /* @__PURE__ */ new Set());
-    const [refreshingStores, setRefreshingStores] = useState4(() => /* @__PURE__ */ new Set());
-    useEffect4(() => {
+    const [paycorCfg, setPaycorCfg] = useState5({});
+    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState5(false);
+    const [paycorPush, setPaycorPush] = useState5(null);
+    const [singleSendPc, setSingleSendPc] = useState5("");
+    const [singleSending, setSingleSending] = useState5(false);
+    const [refreshingDates, setRefreshingDates] = useState5(() => /* @__PURE__ */ new Set());
+    const [refreshingStores, setRefreshingStores] = useState5(() => /* @__PURE__ */ new Set());
+    useEffect5(() => {
       if (!canPushToPaycor || paycorCfgLoaded) return;
       cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
       }).finally(() => setPaycorCfgLoaded(true));
@@ -36787,12 +37382,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return next;
       });
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!canPushToPaycor || !paycorCfgLoaded || !snapshots) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
       fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc));
     }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
-    const [missingCheck, setMissingCheck] = useState4(null);
+    const [missingCheck, setMissingCheck] = useState5(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
     const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 864e5) : 0;
@@ -37184,9 +37779,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   var teHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
-    const [shown, setShown] = useState4(target);
+    const [shown, setShown] = useState5(target);
     const fromRef = useRef4(target);
-    useEffect4(() => {
+    useEffect5(() => {
       const from = fromRef.current;
       if (teReducedMotion() || Math.abs(from - target) < 5e-3) {
         fromRef.current = target;
@@ -37304,20 +37899,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 14);
       return tipsFormatISODate(d);
     })();
-    const [storePc, setStorePc] = useState4("");
-    const [roster, setRoster] = useState4(null);
-    const [rosterLoading, setRosterLoading] = useState4(false);
-    const [personQuery, setPersonQuery] = useState4("");
-    const [person, setPerson] = useState4(null);
-    const [startDate, setStartDate] = useState4(twoWeeksAgo);
-    const [endDate, setEndDate] = useState4(yesterday);
-    const [days, setDays] = useState4(null);
-    const [edits, setEdits] = useState4({});
-    const [loading, setLoading] = useState4(false);
-    const [saving, setSaving] = useState4(false);
-    const [error, setError] = useState4(null);
-    const [result, setResult] = useState4(null);
-    const [reason, setReason] = useState4("");
+    const [storePc, setStorePc] = useState5("");
+    const [roster, setRoster] = useState5(null);
+    const [rosterLoading, setRosterLoading] = useState5(false);
+    const [personQuery, setPersonQuery] = useState5("");
+    const [person, setPerson] = useState5(null);
+    const [startDate, setStartDate] = useState5(twoWeeksAgo);
+    const [endDate, setEndDate] = useState5(yesterday);
+    const [days, setDays] = useState5(null);
+    const [edits, setEdits] = useState5({});
+    const [loading, setLoading] = useState5(false);
+    const [saving, setSaving] = useState5(false);
+    const [error, setError] = useState5(null);
+    const [result, setResult] = useState5(null);
+    const [reason, setReason] = useState5("");
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const api2 = async (body) => {
       const res = await fetch("/.netlify/functions/tips-manual-edit", {
@@ -37456,25 +38051,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.88rem", fontWeight: 600, color: th.text, marginBottom: "0.35rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("textarea", { rows: 2, className: "te-input", placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: FONTS.body, fontSize: "0.92rem" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.84rem", color: th.muted, marginRight: "auto" } }, /* @__PURE__ */ React.createElement(TeTicker, { value: checkedDays.length, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
   }
   function TipsEditor({ th, stores, user, onGoToReport }) {
-    const [mode, setMode] = useState4("day");
+    const [mode, setMode] = useState5("day");
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState4("");
-    const [dateStr, setDateStr] = useState4(todayStr);
-    const [loading, setLoading] = useState4(false);
-    const [error, setError] = useState4(null);
-    const [store, setStore] = useState4(null);
-    const [crew, setCrew] = useState4([]);
-    const [saving, setSaving] = useState4(false);
-    const [savedMsg, setSavedMsg] = useState4(null);
-    const [reason, setReason] = useState4("");
-    const [roster, setRoster] = useState4(null);
-    const [rosterLoading, setRosterLoading] = useState4(false);
-    const [rosterQuery, setRosterQuery] = useState4("");
-    const [showRoster, setShowRoster] = useState4(false);
-    const [hoverKey, setHoverKey] = useState4(null);
-    const [leavingKeys, setLeavingKeys] = useState4([]);
-    const [justSaved, setJustSaved] = useState4(false);
-    const [addedKeys, setAddedKeys] = useState4([]);
+    const [storePc, setStorePc] = useState5("");
+    const [dateStr, setDateStr] = useState5(todayStr);
+    const [loading, setLoading] = useState5(false);
+    const [error, setError] = useState5(null);
+    const [store, setStore] = useState5(null);
+    const [crew, setCrew] = useState5([]);
+    const [saving, setSaving] = useState5(false);
+    const [savedMsg, setSavedMsg] = useState5(null);
+    const [reason, setReason] = useState5("");
+    const [roster, setRoster] = useState5(null);
+    const [rosterLoading, setRosterLoading] = useState5(false);
+    const [rosterQuery, setRosterQuery] = useState5("");
+    const [showRoster, setShowRoster] = useState5(false);
+    const [hoverKey, setHoverKey] = useState5(null);
+    const [leavingKeys, setLeavingKeys] = useState5([]);
+    const [justSaved, setJustSaved] = useState5(false);
+    const [addedKeys, setAddedKeys] = useState5([]);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const pool = tipsRound2(store?.tipPool || 0);
     const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
@@ -37663,13 +38258,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function EmployeeHoursReport({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState4("");
-    const [startDate, setStartDate] = useState4("");
-    const [endDate, setEndDate] = useState4("");
-    const [status, setStatus] = useState4(null);
-    const [step, setStep] = useState4("");
-    const [error, setError] = useState4(null);
-    const [result, setResult] = useState4(null);
+    const [storePc, setStorePc] = useState5("");
+    const [startDate, setStartDate] = useState5("");
+    const [endDate, setEndDate] = useState5("");
+    const [status, setStatus] = useState5(null);
+    const [step, setStep] = useState5("");
+    const [error, setError] = useState5(null);
+    const [result, setResult] = useState5(null);
     const pollRef = useRef4(null);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     React.useEffect(() => () => {
@@ -37860,13 +38455,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return React.createElement("div", { style: { fontFamily: "'Source Sans 3'", fontSize: "0.875rem" } }, elements);
   }
   function AskBar({ user, stores, th, onNavigate }) {
-    const [open, setOpen] = useState4(false);
-    const [query, setQuery] = useState4("");
-    const [answer, setAnswer] = useState4(null);
-    const [loading, setLoading] = useState4(false);
-    const [feedback, setFeedback] = useState4(null);
+    const [open, setOpen] = useState5(false);
+    const [query, setQuery] = useState5("");
+    const [answer, setAnswer] = useState5(null);
+    const [loading, setLoading] = useState5(false);
+    const [feedback, setFeedback] = useState5(null);
     const inputRef = useRef4(null);
-    useEffect4(() => {
+    useEffect5(() => {
       const handler = (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") {
           e.preventDefault();
@@ -37882,7 +38477,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       window.addEventListener("keydown", handler);
       return () => window.removeEventListener("keydown", handler);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (open && inputRef.current) inputRef.current.focus();
     }, [open]);
     const ask = async () => {
@@ -38001,14 +38596,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         y = margin;
       }
       if (line.startsWith("\u2022") || line.startsWith("-")) {
-        const clean = line.replace(/^[•\-]\s*/, "").replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
-        const parts = clean.split("\xB7");
+        const clean2 = line.replace(/^[•\-]\s*/, "").replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
+        const parts = clean2.split("\xB7");
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
         doc.setTextColor(30, 30, 30);
         doc.setFillColor(...br);
         doc.circle(margin + 0.07, y - 0.04, 0.035, "F");
-        const wrapped = doc.splitTextToSize(clean, contentW - 0.25);
+        const wrapped = doc.splitTextToSize(clean2, contentW - 0.25);
         if (y + wrapped.length * 0.175 > pageH - 1.2) {
           doc.addPage();
           y = margin;
@@ -38017,8 +38612,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         y += wrapped.length * 0.175 + 0.14;
       } else if (line.toLowerCase().includes("watch today")) {
         y += 0.08;
-        const clean = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").replace(/^[^\w]*/, "").trim();
-        const label = clean.match(/^watch today/i) ? clean : "Watch today: " + clean;
+        const clean2 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").replace(/^[^\w]*/, "").trim();
+        const label = clean2.match(/^watch today/i) ? clean2 : "Watch today: " + clean2;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         const wrapped = doc.splitTextToSize(label, contentW - 0.4);
@@ -38035,15 +38630,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         doc.text(wrapped, margin + 0.18, y + 0.1);
         y += boxH + 0.1;
       } else {
-        const clean = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
-        if (!clean) {
+        const clean2 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
+        if (!clean2) {
           y += 0.08;
           continue;
         }
-        doc.setFont("helvetica", clean.length < 60 ? "bold" : "normal");
+        doc.setFont("helvetica", clean2.length < 60 ? "bold" : "normal");
         doc.setFontSize(10);
         doc.setTextColor(50, 50, 50);
-        const wrapped = doc.splitTextToSize(clean, contentW);
+        const wrapped = doc.splitTextToSize(clean2, contentW);
         doc.text(wrapped, margin, y);
         y += wrapped.length * 0.175 + 0.08;
       }
@@ -38265,11 +38860,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     doc.save(`business_cases_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.pdf`);
   }
   function TodayBrief({ user, th, setAnnouncements, showAlert: showAlert2, announcementsDismissed, setAnnouncementsDismissed }) {
-    const [brief, setBrief] = useState4(null);
-    const [loading, setLoading] = useState4(true);
-    const [refreshing, setRefreshing] = useState4(false);
-    const [collapsed, setCollapsed] = useState4(false);
-    const [posting, setPosting] = useState4(false);
+    const [brief, setBrief] = useState5(null);
+    const [loading, setLoading] = useState5(true);
+    const [refreshing, setRefreshing] = useState5(false);
+    const [collapsed, setCollapsed] = useState5(false);
+    const [posting, setPosting] = useState5(false);
     const fetchBrief = async (refresh) => {
       if (refresh) setRefreshing(true);
       else setLoading(true);
@@ -38287,7 +38882,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setLoading(false);
       setRefreshing(false);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       fetchBrief(false);
     }, []);
     if (loading) return /* @__PURE__ */ React.createElement("div", { style: { background: `linear-gradient(135deg, ${O}12, ${O}06)`, border: `1px solid ${O}33`, borderRadius: "0.75rem", padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", color: O, fontSize: "0.75rem", fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", null, "\u{1F52E}"), " Loading Orion's brief..."));
@@ -38316,16 +38911,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, collapsed ? "\u25BC" : "\u25B2"))), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem" } }, renderAnalystMarkdown(brief.content, th)));
   }
   function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnouncements, showAlert: showAlert2 }) {
-    const [cases, setCases] = useState4([]);
-    const [totalOpp, setTotalOpp] = useState4(0);
-    const [byStatus, setByStatus] = useState4({});
-    const [loading, setLoading] = useState4(true);
-    const [expanded, setExpanded] = useState4(null);
-    const [caseAction, setCaseAction] = useState4({});
-    const [reasonPrompt, setReasonPrompt] = useState4(null);
-    const [decisionLog, setDecisionLog] = useState4([]);
-    const [showDecisionLog, setShowDecisionLog] = useState4(false);
-    useEffect4(() => {
+    const [cases, setCases] = useState5([]);
+    const [totalOpp, setTotalOpp] = useState5(0);
+    const [byStatus, setByStatus] = useState5({});
+    const [loading, setLoading] = useState5(true);
+    const [expanded, setExpanded] = useState5(null);
+    const [caseAction, setCaseAction] = useState5({});
+    const [reasonPrompt, setReasonPrompt] = useState5(null);
+    const [decisionLog, setDecisionLog] = useState5([]);
+    const [showDecisionLog, setShowDecisionLog] = useState5(false);
+    useEffect5(() => {
       (async () => {
         try {
           const district = user.userType === "dm" ? user.district : null;
@@ -39144,19 +39739,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const CAT_COLORS = { "Setup Guide": "#3b82f6", "SOP": "#8b5cf6", "Training": "#22c55e", "Policy": "#ef4444", "Reference": "#f59e0b" };
     const isAdmin = user && (user.userType === "executive" || user.userType === "it");
     const [kbSection, setKbSection] = React.useState("articles");
-    const [articles, setArticles] = useState4([]);
-    const [selectedArticle, setSelectedArticle] = useState4(null);
-    const [articleContent, setArticleContent] = useState4(null);
-    const [loading, setLoading] = useState4(true);
+    const [articles, setArticles] = useState5([]);
+    const [selectedArticle, setSelectedArticle] = useState5(null);
+    const [articleContent, setArticleContent] = useState5(null);
+    const [loading, setLoading] = useState5(true);
     const kbContentRef = useRef4(null);
-    const [search, setSearch] = useState4("");
-    const [catFilter, setCatFilter] = useState4("All");
-    const [showForm, setShowForm] = useState4(false);
-    const [showPdfModal, setShowPdfModal] = useState4(false);
-    const [editing, setEditing] = useState4(false);
-    const [editForm, setEditForm] = useState4({ title: "", category: "", description: "", content: "" });
-    const [form, setForm] = useState4({ title: "", category: "Setup Guide", description: "", content: "" });
-    useEffect4(() => {
+    const [search, setSearch] = useState5("");
+    const [catFilter, setCatFilter] = useState5("All");
+    const [showForm, setShowForm] = useState5(false);
+    const [showPdfModal, setShowPdfModal] = useState5(false);
+    const [editing, setEditing] = useState5(false);
+    const [editForm, setEditForm] = useState5({ title: "", category: "", description: "", content: "" });
+    const [form, setForm] = useState5({ title: "", category: "Setup Guide", description: "", content: "" });
+    useEffect5(() => {
       if (!kbContentRef.current || !articleContent) return;
       kbContentRef.current.querySelectorAll("script").forEach((old) => {
         const s = document.createElement("script");
@@ -39165,7 +39760,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         old.parentNode.replaceChild(s, old);
       });
     }, [articleContent]);
-    useEffect4(() => {
+    useEffect5(() => {
       (async () => {
         setLoading(true);
         const data = await cloudLoad("pcg_kb_articles");
@@ -39173,7 +39768,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setLoading(false);
       })();
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       const draft = takePendingKbDraft();
       if (draft) {
         setForm({
@@ -39668,14 +40263,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     );
   }
   function EmailTab({ th, user }) {
-    const [emails, setEmails] = useState4([]);
-    const [loading, setLoading] = useState4(true);
-    const [filter, setFilter] = useState4("all");
-    const [selectedEmail, setSelectedEmail] = useState4(null);
-    const [composing, setComposing] = useState4(false);
-    const [composeData, setComposeData] = useState4({ to: "", cc: "", subject: "", body: "" });
-    const [sending, setSending] = useState4(false);
-    const [lastSync, setLastSync] = useState4(null);
+    const [emails, setEmails] = useState5([]);
+    const [loading, setLoading] = useState5(true);
+    const [filter, setFilter] = useState5("all");
+    const [selectedEmail, setSelectedEmail] = useState5(null);
+    const [composing, setComposing] = useState5(false);
+    const [composeData, setComposeData] = useState5({ to: "", cc: "", subject: "", body: "" });
+    const [sending, setSending] = useState5(false);
+    const [lastSync, setLastSync] = useState5(null);
     const loadEmails = async () => {
       setLoading(true);
       try {
@@ -39694,7 +40289,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setLoading(false);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       loadEmails();
     }, []);
     const filtered = filter === "all" ? emails : emails.filter((e) => e.category === filter);
@@ -40875,17 +41470,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   };
   function ConstructionMobileView({ th, user, stores, projects, setProjects, todos, setTodos, onFullPortal, onOpenChat, onLogout }) {
     const O2 = "#FF671F";
-    const [navTab, setNavTab] = useState4("projects");
-    const [screen, setScreen] = useState4("list");
-    const [detailTab, setDetailTab] = useState4("reports");
-    const [calWeekOffset, setCalWeekOffset] = useState4(0);
-    const [calSelectedDay, setCalSelectedDay] = useState4(() => {
+    const [navTab, setNavTab] = useState5("projects");
+    const [screen, setScreen] = useState5("list");
+    const [detailTab, setDetailTab] = useState5("reports");
+    const [calWeekOffset, setCalWeekOffset] = useState5(0);
+    const [calSelectedDay, setCalSelectedDay] = useState5(() => {
       const d = /* @__PURE__ */ new Date();
       d.setHours(0, 0, 0, 0);
       return d;
     });
-    const [calSchedules, setCalSchedules] = useState4([]);
-    useEffect4(() => {
+    const [calSchedules, setCalSchedules] = useState5([]);
+    useEffect5(() => {
       const load = () => cloudLoad(typeof MAINT_SCHEDULE_KEY !== "undefined" ? MAINT_SCHEDULE_KEY : "pcg_maint_schedules_v1").then((d) => {
         if (Array.isArray(d)) setCalSchedules(d);
       }).catch(() => {
@@ -40894,9 +41489,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const id = setInterval(load, 6e4);
       return () => clearInterval(id);
     }, []);
-    const [selectedProject, setSelectedProject] = useState4(null);
-    const [dailyReports, setDailyReports] = useState4([]);
-    const [loadingReports, setLoadingReports] = useState4(false);
+    const [selectedProject, setSelectedProject] = useState5(null);
+    const [dailyReports, setDailyReports] = useState5([]);
+    const [loadingReports, setLoadingReports] = useState5(false);
     const EMPTY_LOG = { name: "", description: "", quantity: "", totalHours: "", hoursToDate: "", photos: [] };
     const SURVEY_KEYS = ["accidents", "scheduleDelays", "weatherDelays", "visitors", "blockedAreas", "rentedEquipment"];
     const SURVEY_LABELS = {
@@ -40912,7 +41507,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { time: "12:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" },
       { time: "4:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" }
     ];
-    const [rForm, setRForm] = useState4({
+    const [rForm, setRForm] = useState5({
       date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
       preparedBy: user?.name || "",
       jobNumber: "",
@@ -40924,8 +41519,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       survey: Object.fromEntries(SURVEY_KEYS.map((k) => [k, null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map((k) => [k, ""]))
     });
-    const [rSaving, setRSaving] = useState4(false);
-    const [wxLoading, setWxLoading] = useState4(false);
+    const [rSaving, setRSaving] = useState5(false);
+    const [wxLoading, setWxLoading] = useState5(false);
     const autoFillWeather = async (proj, date) => {
       const zip = proj?.zip;
       if (!zip) {
@@ -40949,17 +41544,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setWxLoading(false);
     };
-    const [syncing, setSyncing] = useState4(false);
-    const [syncMsg, setSyncMsg] = useState4("");
-    const [selectedReport, setSelectedReport] = useState4(null);
-    const [loadingReport, setLoadingReport] = useState4(false);
-    const [lightboxSrc, setLightboxSrc] = useState4(null);
-    const [expandedLogs, setExpandedLogs] = useState4({});
-    const [pdfLoading, setPdfLoading] = useState4(false);
-    const [emailModal, setEmailModal] = useState4(false);
-    const [emailTo, setEmailTo] = useState4("");
-    const [emailSubject, setEmailSubject] = useState4("");
-    const [emailSending, setEmailSending] = useState4(false);
+    const [syncing, setSyncing] = useState5(false);
+    const [syncMsg, setSyncMsg] = useState5("");
+    const [selectedReport, setSelectedReport] = useState5(null);
+    const [loadingReport, setLoadingReport] = useState5(false);
+    const [lightboxSrc, setLightboxSrc] = useState5(null);
+    const [expandedLogs, setExpandedLogs] = useState5({});
+    const [pdfLoading, setPdfLoading] = useState5(false);
+    const [emailModal, setEmailModal] = useState5(false);
+    const [emailTo, setEmailTo] = useState5("");
+    const [emailSubject, setEmailSubject] = useState5("");
+    const [emailSending, setEmailSending] = useState5(false);
     const mobileGeneratePdf = async (r, proj, download = true) => {
       setPdfLoading(true);
       try {
@@ -41189,7 +41784,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setRSaving(false);
       }
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (screen !== "detail" || !selectedProject) return;
       setLoadingReports(true);
       cloudLoad(DR_INDEX_KEY).then((idx) => {
@@ -41765,8 +42360,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const deleteSchedule = (id) => saveSchedules(schedules.filter((s) => s.id !== id));
     const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
     const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const [isNarrow, setIsNarrow] = useState4(() => typeof window !== "undefined" && window.innerWidth < 760);
-    useEffect4(() => {
+    const [isNarrow, setIsNarrow] = useState5(() => typeof window !== "undefined" && window.innerWidth < 760);
+    useEffect5(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -41824,7 +42419,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   }
   function DunkinRunnerScene({ dark }) {
     const hostRef = useRef4(null);
-    useEffect4(() => {
+    useEffect5(() => {
       const host = hostRef.current;
       if (!host) return;
       const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -42133,24 +42728,24 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const store = (stores || []).find((s) => String(s.pc) === String(pc));
     const storeName = store?.name || pc;
     const existingUsernames = users.map((u) => u.username);
-    const [selectedCandidateId, setSelectedCandidateId] = useState4(
+    const [selectedCandidateId, setSelectedCandidateId] = useState5(
       item.kind === "needsReview" ? null : item.candidate?.employeeId || null
     );
     const candidate = item.kind === "needsReview" ? (item.candidates || []).find((c) => c.employeeId === selectedCandidateId) || null : item.kind === "vacant" ? null : item.candidate;
     const existingAccount = item.kind === "replace" ? item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId) : null : users.find((u) => u.userType === "manager" && u.active !== false && String(u.storePC) === String(pc));
     const oldAlreadyDeactivated = existingAccount ? existingAccount.active === false : true;
-    const [deactivateOld, setDeactivateOld] = useState4(true);
-    const [form, setForm] = useState4({
+    const [deactivateOld, setDeactivateOld] = useState5(true);
+    const [form, setForm] = useState5({
       name: candidate?.name || "",
       username: candidate ? suggestUsername(candidate.name, existingUsernames) : "",
       password: generatePassword(),
       email: `${pc}@peoplecapitalgroup.com`,
       role: ""
     });
-    const [showPw, setShowPw] = useState4(false);
-    const [saving, setSaving] = useState4(false);
+    const [showPw, setShowPw] = useState5(false);
+    const [saving, setSaving] = useState5(false);
     const prevCandidateName = useRef4(candidate?.name || null);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!candidate || candidate.name === prevCandidateName.current) return;
       prevCandidateName.current = candidate.name;
       setForm((f) => ({ ...f, name: candidate.name, username: suggestUsername(candidate.name, existingUsernames) }));
@@ -42242,12 +42837,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 } }, "Dismiss")))))));
   }
   function PCGPortal() {
-    const [rawUser, setUser] = useState4(null);
+    const [rawUser, setUser] = useState5(null);
     const user = React.useMemo(() => {
       if (!rawUser || !isDirector(rawUser)) return rawUser;
       return { ...rawUser, userType: "director", realUserType: "director", district: null, districts: parseDistricts(rawUser.districts) };
     }, [rawUser]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (user || !getSessionToken()) return;
       let cancelled = false;
       portalMe().then((u) => {
@@ -42258,8 +42853,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    const [managerMode, setManagerMode] = useState4(null);
-    const [preferFullPortal, setPreferFullPortal] = useState4(() => {
+    const [managerMode, setManagerMode] = useState5(null);
+    const [preferFullPortal, setPreferFullPortal] = useState5(() => {
       try {
         return localStorage.getItem("pcg_prefer_full_portal") === "true";
       } catch {
@@ -42282,7 +42877,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setPreferFullPortal(full);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user) return;
       const onMobile = window.innerWidth <= 768;
       if (onMobile && (user.userType === "manager" || user.userType === "maintenance" || user.userType === "office_staff") && preferFullPortal) {
@@ -42308,18 +42903,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setPreferFullPortal(false);
       setUser(null);
     };
-    const [tab, setTab] = useState4("dashboard");
-    const [pulseInitialTab, setPulseInitialTab] = useState4("sales");
-    useEffect4(() => {
+    const [tab, setTab] = useState5("dashboard");
+    const [pulseInitialTab, setPulseInitialTab] = useState5("sales");
+    useEffect5(() => {
       window.scrollTo(0, 0);
     }, [tab]);
-    const [pendingOrionQuestion, setPendingOrionQuestion] = useState4(null);
-    const [orionIntent, setOrionIntent] = useState4(false);
-    useEffect4(() => {
+    const [pendingOrionQuestion, setPendingOrionQuestion] = useState5(null);
+    const [orionIntent, setOrionIntent] = useState5(false);
+    useEffect5(() => {
       if (tab !== "chat" && orionIntent) setOrionIntent(false);
     }, [tab, orionIntent]);
-    const [drillInStore, setDrillInStore] = useState4(null);
-    const [locationsMapMode, setLocationsMapMode] = useState4(false);
+    const [drillInStore, setDrillInStore] = useState5(null);
+    const [locationsMapMode, setLocationsMapMode] = useState5(false);
     const handleDrillIn = (storePC, targetTab) => {
       setDrillInStore(storePC);
       setTab(targetTab);
@@ -42328,7 +42923,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const isGoingBackRef = useRef4(false);
     const sidebarNavRef = useRef4(null);
     const sidebarScrollPos = useRef4(0);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState4(() => {
+    const [sidebarCollapsed, setSidebarCollapsed] = useState5(() => {
       try {
         const v = localStorage.getItem("pcg_sidebar_collapsed");
         return v === null ? true : v === "true";
@@ -42336,8 +42931,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return true;
       }
     });
-    const [pinnedTabIds, setPinnedTabIds] = useState4(null);
-    useEffect4(() => {
+    const [pinnedTabIds, setPinnedTabIds] = useState5(null);
+    useEffect5(() => {
       if (!user?.id) {
         setPinnedTabIds(null);
         return;
@@ -42388,7 +42983,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, [user?.id]);
-    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState4(() => {
+    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState5(() => {
       try {
         const s = localStorage.getItem("pcg_sidebar_sections");
         if (s) return JSON.parse(s);
@@ -42396,21 +42991,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return {};
     });
-    const [managingFavorites, setManagingFavorites] = useState4(false);
-    const [links, setLinks] = useState4(() => {
+    const [managingFavorites, setManagingFavorites] = useState5(false);
+    const [links, setLinks] = useState5(() => {
       const s = loadFromStorage();
       return s?.links || INIT_LINKS;
     });
-    const [notes, setNotes] = useState4(() => {
+    const [notes, setNotes] = useState5(() => {
       const s = loadFromStorage();
       return s?.notes || {};
     });
-    const [todos, setTodos] = useState4(() => {
+    const [todos, setTodos] = useState5(() => {
       const s = loadFromStorage();
       return s?.todos || [];
     });
-    const [users, setUsers] = useState4([]);
-    const [stores, setStores] = useState4(() => {
+    const [users, setUsers] = useState5([]);
+    const [stores, setStores] = useState5(() => {
       const s = loadFromStorage();
       return s?.stores || STORES_SEED;
     });
@@ -42423,10 +43018,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return open;
     }, [stores, user?.realUserType, (user?.districts || []).join(",")]);
-    useEffect4(() => {
+    useEffect5(() => {
       LIVE_OPEN_STORES = openStores;
     }, [openStores]);
-    const [districts, setDistricts] = useState4(() => {
+    const [districts, setDistricts] = useState5(() => {
       const s = loadFromStorage();
       return s?.districts || DISTRICTS_SEED;
     });
@@ -42434,15 +43029,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     React.useEffect(() => {
       setDistrictsRef(districts);
     }, [districts]);
-    const [contacts, setContacts] = useState4(() => {
+    const [contacts, setContacts] = useState5(() => {
       const s = loadFromStorage();
       return s?.contacts || CONTACTS_SEED;
     });
-    const [vendors, setVendors] = useState4(() => {
+    const [vendors, setVendors] = useState5(() => {
       const s = loadFromStorage();
       return s?.vendors || VENDORS_SEED;
     });
-    const [dark, setDark] = useState4(() => {
+    const [dark, setDark] = useState5(() => {
       try {
         const v = localStorage.getItem("pcg_dark_mode");
         if (v !== null) return JSON.parse(v);
@@ -42451,58 +43046,58 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.dark ?? false;
     });
-    const [projects, setProjects] = useState4(() => {
+    const [projects, setProjects] = useState5(() => {
       const s = loadFromStorage();
       const p = s?.projects;
       return p && p.length > 0 ? p : PROJECTS_SEED;
     });
-    const [notifications, setNotifications] = useState4(() => {
+    const [notifications, setNotifications] = useState5(() => {
       const s = loadFromStorage();
       return s?.notifications || [];
     });
-    const [dailyReports, setDailyReports] = useState4(() => {
+    const [dailyReports, setDailyReports] = useState5(() => {
       const s = loadFromStorage();
       return s?.dailyReports || [];
     });
     const DEFAULT_GLOBAL_NOTIFY = ["Mike@peoplecapitalgroup.com", "Bill@Raogroupinc.com", "Sam@peoplecapitalgroup.com", "Casey@peoplecapitalgroup.com"];
-    const [globalNotifyEmails, setGlobalNotifyEmails] = useState4(() => {
+    const [globalNotifyEmails, setGlobalNotifyEmails] = useState5(() => {
       const s = loadFromStorage();
       return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY;
     });
     const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter((e) => e.toLowerCase() !== "sam@peoplecapitalgroup.com");
-    const [ticketNotifyEmails, setTicketNotifyEmails] = useState4(() => {
+    const [ticketNotifyEmails, setTicketNotifyEmails] = useState5(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY;
     });
-    const [ticketNotifyPhones, setTicketNotifyPhones] = useState4(() => {
+    const [ticketNotifyPhones, setTicketNotifyPhones] = useState5(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhones || [];
     });
-    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState4(() => {
+    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState5(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmailOwners || ticketNotifyEmails.map(() => null);
     });
-    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState4(() => {
+    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState5(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhoneOwners || ticketNotifyPhones.map(() => null);
     });
-    const [chatChannels, setChatChannels] = useState4([]);
-    const [chatMessages, setChatMessages] = useState4([]);
-    const [chatReadState, setChatReadState] = useState4({});
-    const [announcements, setAnnouncements] = useState4([]);
-    const [announcementsDismissed, setAnnouncementsDismissed] = useState4({});
-    const [annGateQueue, setAnnGateQueue] = useState4([]);
-    const [annGateIdx, setAnnGateIdx] = useState4(0);
-    const [annGateDone, setAnnGateDone] = useState4(false);
-    const [bioPromptDone, setBioPromptDone] = useState4(false);
-    const [bioPromptEligible, setBioPromptEligible] = useState4(false);
-    useEffect4(() => {
+    const [chatChannels, setChatChannels] = useState5([]);
+    const [chatMessages, setChatMessages] = useState5([]);
+    const [chatReadState, setChatReadState] = useState5({});
+    const [announcements, setAnnouncements] = useState5([]);
+    const [announcementsDismissed, setAnnouncementsDismissed] = useState5({});
+    const [annGateQueue, setAnnGateQueue] = useState5([]);
+    const [annGateIdx, setAnnGateIdx] = useState5(0);
+    const [annGateDone, setAnnGateDone] = useState5(false);
+    const [bioPromptDone, setBioPromptDone] = useState5(false);
+    const [bioPromptEligible, setBioPromptEligible] = useState5(false);
+    useEffect5(() => {
       if (!user) return;
       webauthnAvailable().then((avail) => {
         setBioPromptEligible(avail && !webauthnDeviceEnrolled() && !webauthnDeviceDeclined());
       });
     }, [user?.id]);
-    const [accessOverrides, setAccessOverrides] = useState4({});
+    const [accessOverrides, setAccessOverrides] = useState5({});
     const cloudAccessLoaded = useRef4(false);
     const cloudProjectsLoaded = useRef4(false);
     const cloudDailyReportsLoaded = useRef4(false);
@@ -42525,8 +43120,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const projectsUserEdited = useRef4(false);
     const dailyReportsUserEdited = useRef4(false);
     const prevDailyReportsRef = useRef4([]);
-    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState4({});
-    useEffect4(() => {
+    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState5({});
+    useEffect5(() => {
       const handler = (e) => {
         const pending = Object.values(dailyReportSyncStatus).some((s) => s === "syncing" || s === "failed");
         if (pending) {
@@ -42538,36 +43133,36 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       window.addEventListener("beforeunload", handler);
       return () => window.removeEventListener("beforeunload", handler);
     }, [dailyReportSyncStatus]);
-    useEffect4(() => {
+    useEffect5(() => {
       try {
         localStorage.setItem("pcg_dark_mode", JSON.stringify(dark));
       } catch {
       }
     }, [dark]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
-    const [showNotifs, setShowNotifs] = useState4(false);
+    const [showNotifs, setShowNotifs] = useState5(false);
     const notifRef = useRef4(null);
     const chatPanelRef = useRef4(null);
-    const [showChatPanel, setShowChatPanel] = useState4(false);
-    const [chatQuickReply, setChatQuickReply] = useState4({ channelId: null, text: "" });
-    const [salesWeeks, setSalesWeeks] = useState4([]);
-    const [cashDeposits, setCashDeposits] = useState4([]);
-    const [cashUploads, setCashUploads] = useState4([]);
-    const [cashNotes, setCashNotes] = useState4([]);
-    const [cashPOS, setCashPOS] = useState4({});
+    const [showChatPanel, setShowChatPanel] = useState5(false);
+    const [chatQuickReply, setChatQuickReply] = useState5({ channelId: null, text: "" });
+    const [salesWeeks, setSalesWeeks] = useState5([]);
+    const [cashDeposits, setCashDeposits] = useState5([]);
+    const [cashUploads, setCashUploads] = useState5([]);
+    const [cashNotes, setCashNotes] = useState5([]);
+    const [cashPOS, setCashPOS] = useState5({});
     const cloudCashLoaded = useRef4(false);
-    const [professionals, setProfessionals] = useState4(DEFAULT_PROFESSIONALS);
+    const [professionals, setProfessionals] = useState5(DEFAULT_PROFESSIONALS);
     const cloudProfessionalsLoaded = useRef4(false);
-    const [showProfile, setShowProfile] = useState4(false);
-    const [cloudStatus, setCloudStatus] = useState4("idle");
-    const [logoAnim, setLogoAnim] = useState4(false);
-    const [showTimeoutWarning, setShowTimeoutWarning] = useState4(false);
-    const [timeoutCountdown, setTimeoutCountdown] = useState4(60);
+    const [showProfile, setShowProfile] = useState5(false);
+    const [cloudStatus, setCloudStatus] = useState5("idle");
+    const [logoAnim, setLogoAnim] = useState5(false);
+    const [showTimeoutWarning, setShowTimeoutWarning] = useState5(false);
+    const [timeoutCountdown, setTimeoutCountdown] = useState5(60);
     const lastActivityRef = useRef4(Date.now());
     const warningActiveRef = useRef4(false);
-    const [dataAlert, setDataAlert] = useState4(null);
+    const [dataAlert, setDataAlert] = useState5(null);
     const importRef = useRef4(null);
     const logoRef = useRef4(null);
     const toggleBtnRef = useRef4(null);
@@ -42577,8 +43172,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const txnDeepLinkRef = useRef4(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
-    const [pnlAllowed, setPnlAllowed] = useState4(DEFAULT_PNL_ALLOWED);
-    useEffect4(() => {
+    const [pnlAllowed, setPnlAllowed] = useState5(DEFAULT_PNL_ALLOWED);
+    useEffect5(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => {
         if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed);
       }).catch(() => {
@@ -42586,8 +43181,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, []);
     const canPnl = canViewPnl(user, pnlAllowed);
     const canManagePnl = canManagePnlAccess(user);
-    const [dealAuth, setDealAuth] = useState4({ token: null, role: null, loaded: false });
-    useEffect4(() => {
+    const [dealAuth, setDealAuth] = useState5({ token: null, role: null, loaded: false });
+    useEffect5(() => {
       if (!user) {
         setDealAuth({ token: null, role: null, loaded: false });
         return;
@@ -42663,12 +43258,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return null;
     };
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user || !tab || tab === MOBILE_LAUNCHER_TAB_ID) return;
       const ids = tabsForUser(user).map((t) => t.id);
       if (!ids.includes(tab)) setTab(ids[0] || "dashboard");
     }, [accessOverrides, tab, user?.userType]);
-    useEffect4(() => {
+    useEffect5(() => {
       const hiddenAt = { t: null };
       const TIMEOUT_MS = 15 * 60 * 1e3;
       const onVisibility = () => {
@@ -42708,7 +43303,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.removeEventListener("pageshow", onPageShow);
       };
     }, [user]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       let cancelled = false;
       const forceOut = (reason) => {
@@ -42739,7 +43334,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       const WARN_AFTER = 29 * 60 * 1e3 + 45 * 1e3;
       const LOGOUT_AFTER = 30 * 60 * 1e3;
@@ -42781,7 +43376,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user || !isTwoFactorRequired(user)) return;
       const check = async () => {
         if (!user.twoFactorSecret) return;
@@ -42808,7 +43403,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", onVisibility);
       };
     }, [user]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (isGoingBackRef.current) {
         isGoingBackRef.current = false;
         return;
@@ -42824,7 +43419,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       isGoingBackRef.current = true;
       setTab(next[next.length - 1]);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!isMobile) return;
       let startX = 0, startY = 0, edgeSwipe = false;
       const onStart = (e) => {
@@ -42846,7 +43441,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("touchend", onEnd);
       };
     }, [isMobile, goBack]);
-    useEffect4(() => {
+    useEffect5(() => {
       try {
         localStorage.setItem("pcg_sidebar_collapsed", sidebarCollapsed);
       } catch {
@@ -42944,13 +43539,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return missing;
     }, [cashDeposits, cashUploads, stores, user]);
-    useEffect4(() => {
+    useEffect5(() => {
       fetch("/.netlify/functions/users?action=list", { headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).then((data) => {
         if (Array.isArray(data) && data.length > 0) setUsers(data);
       }).catch(() => {
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       let updated = [...projects];
       let changed = false;
       for (const seed of PROJECTS_SEED) {
@@ -42972,7 +43567,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       if (changed) setProjects(updated);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const projId = parseInt(params.get("project"));
@@ -42989,7 +43584,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTab("reports");
       }
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const ticketParam = params.get("ticket");
@@ -43008,10 +43603,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.history.replaceState({}, "", window.location.pathname);
       }
     }, [user]);
-    useEffect4(() => {
+    useEffect5(() => {
       saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners });
     }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
-    useEffect4(() => {
+    useEffect5(() => {
       setCloudStatus("loading");
       cloudLoadOrThrow("pcg_sales_v1").then((data) => {
         if (Array.isArray(data)) {
@@ -43031,7 +43626,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setCloudStatus("error");
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (salesWeeks.length === 0) return;
       setCloudStatus("saving");
       try {
@@ -43043,7 +43638,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTimeout(() => setCloudStatus("idle"), 2500);
       });
     }, [salesWeeks]);
-    useEffect4(() => {
+    useEffect5(() => {
       let cancelled = false;
       (async () => {
         let legacy = null;
@@ -43071,7 +43666,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       Promise.all([
         cloudLoad("pcg_cash_deposits_v1"),
         cloudLoad("pcg_cash_uploads_v1"),
@@ -43085,22 +43680,22 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudCashLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudCashLoaded.current) return;
       if (cashDeposits.length === 0) return;
       cloudSave("pcg_cash_deposits_v1", cashDeposits);
     }, [cashDeposits]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudCashLoaded.current) return;
       if (cashUploads.length === 0) return;
       cloudSave("pcg_cash_uploads_v1", cashUploads);
     }, [cashUploads]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudCashLoaded.current) return;
       if (cashNotes.length === 0) return;
       cloudSave("pcg_cash_notes_v1", cashNotes);
     }, [cashNotes]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_projects_v1").then((cloudData) => {
         cloudProjectsLoaded.current = true;
         if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
@@ -43125,7 +43720,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudProjectsLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudProjectsLoaded.current) return;
       if (!projectsUserEdited.current) return;
       if (projects.length === 0) return;
@@ -43159,7 +43754,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const full = await cloudLoadReport(id);
       return full || null;
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       (async () => {
         try {
           const [index, legacy] = await Promise.all([
@@ -43218,7 +43813,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       const interval = setInterval(async () => {
         if (dailyReportsUserEdited.current) return;
         try {
@@ -43254,7 +43849,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 3e4);
       return () => clearInterval(interval);
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!dailyReportsUserEdited.current) return;
       if (!cloudDailyReportsLoaded.current) return;
       dailyReportsUserEdited.current = false;
@@ -43338,7 +43933,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const { updatedAt, ...rest } = s;
       return JSON.stringify(rest);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_stores_v1").then((data) => {
         cloudStoresLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -43356,7 +43951,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudStoresLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudStoresLoaded.current) return;
       if (stores.length === 0) return;
       const synced = storesSyncedRef.current || /* @__PURE__ */ new Map();
@@ -43387,7 +43982,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 500);
       return () => clearTimeout(t);
     }, [stores]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_districts_v1").then((data) => {
         cloudDistrictsLoaded.current = true;
         if (data && typeof data === "object" && Object.keys(data).length > 0) setDistricts(data);
@@ -43395,12 +43990,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudDistrictsLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudDistrictsLoaded.current) return;
       if (!districts || Object.keys(districts).length === 0) return;
       cloudSave("pcg_districts_v1", districts);
     }, [districts]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_contacts_v1").then((data) => {
         cloudContactsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setContacts(data);
@@ -43408,12 +44003,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudContactsLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudContactsLoaded.current) return;
       if (contacts.length === 0) return;
       cloudSave("pcg_contacts_v1", contacts);
     }, [contacts]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_vendors_v1").then((data) => {
         cloudVendorsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setVendors(data);
@@ -43421,12 +44016,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudVendorsLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudVendorsLoaded.current) return;
       if (vendors.length === 0) return;
       cloudSave("pcg_vendors_v1", vendors);
     }, [vendors]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_professionals_v1").then((data) => {
         cloudProfessionalsLoaded.current = true;
         if (data && typeof data === "object" && data.attorneys) setProfessionals((prev) => ({ ...DEFAULT_PROFESSIONALS, ...prev, ...data }));
@@ -43434,11 +44029,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudProfessionalsLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudProfessionalsLoaded.current) return;
       cloudSave("pcg_professionals_v1", professionals);
     }, [professionals]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_links_v1").then((data) => {
         cloudLinksLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setLinks(data);
@@ -43446,12 +44041,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudLinksLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudLinksLoaded.current) return;
       if (!links || Object.keys(links).length === 0) return;
       cloudSave("pcg_links_v1", links);
     }, [links]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_notes_v1").then((data) => {
         cloudNotesLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setNotes(data);
@@ -43459,12 +44054,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotesLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudNotesLoaded.current) return;
       if (!notes || Object.keys(notes).length === 0) return;
       cloudSave("pcg_notes_v1", notes);
     }, [notes]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_todos_v1").then((data) => {
         cloudTodosLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTodos(data);
@@ -43472,12 +44067,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTodosLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudTodosLoaded.current) return;
       if (todos.length === 0) return;
       cloudSave("pcg_todos_v1", todos);
     }, [todos]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_notifications_v1").then((data) => {
         cloudNotificationsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -43490,12 +44085,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotificationsLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chatPollActive.current || !cloudNotificationsLoaded.current) return;
       if (notifications.length === 0) return;
       cloudSave("pcg_notifications_v1", notifications);
     }, [notifications]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_global_notify_v1").then((data) => {
         cloudGlobalNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setGlobalNotifyEmails(data);
@@ -43503,12 +44098,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudGlobalNotifyLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudGlobalNotifyLoaded.current) return;
       if (globalNotifyEmails.length === 0) return;
       cloudSave("pcg_global_notify_v1", globalNotifyEmails);
     }, [globalNotifyEmails]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_ticket_notify_v1").then((data) => {
         cloudTicketNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTicketNotifyEmails(data);
@@ -43516,12 +44111,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudTicketNotifyLoaded.current) return;
       if (ticketNotifyEmails.length === 0) return;
       cloudSave("pcg_ticket_notify_v1", ticketNotifyEmails);
     }, [ticketNotifyEmails]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_ticket_notify_phones_v1").then((data) => {
         cloudTicketNotifyPhonesLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -43532,7 +44127,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhonesLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudTicketNotifyPhonesLoaded.current) return;
       if (skipNextTicketNotifyPhonesSave.current) {
         skipNextTicketNotifyPhonesSave.current = false;
@@ -43541,7 +44136,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ticketNotifyPhones.length === 0) return;
       cloudSave("pcg_ticket_notify_phones_v1", ticketNotifyPhones);
     }, [ticketNotifyPhones]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_ticket_notify_owners_v1").then((data) => {
         cloudTicketNotifyOwnersLoaded.current = true;
         if (Array.isArray(data)) setTicketNotifyEmailOwners(data);
@@ -43555,17 +44150,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhoneOwnersLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudTicketNotifyOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_owners_v1", ticketNotifyEmailOwners);
     }, [ticketNotifyEmailOwners]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_phone_owners_v1", ticketNotifyPhoneOwners);
     }, [ticketNotifyPhoneOwners]);
     const chatPollRef = useRef4(null);
     const chatPollActive = useRef4(false);
-    useEffect4(() => {
+    useEffect5(() => {
       Promise.all([
         cloudLoad("pcg_chat_channels_v1"),
         cloudLoad("pcg_chat_messages_v1"),
@@ -43579,19 +44174,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudChatLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatChannels.length === 0) return;
       cloudSave("pcg_chat_channels_v1", chatChannels);
     }, [chatChannels]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatMessages.length === 0) return;
       cloudSave("pcg_chat_messages_v1", chatMessages);
     }, [chatMessages]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || Object.keys(chatReadState).length === 0) return;
       cloudSave("pcg_chat_read_v1", chatReadState);
     }, [chatReadState]);
-    useEffect4(() => {
+    useEffect5(() => {
       Promise.all([
         cloudLoad("pcg_announcements_v1"),
         cloudLoad("pcg_announcements_dismissed_v1")
@@ -43603,15 +44198,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAnnouncementsLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return;
       cloudSave("pcg_announcements_v1", announcements);
     }, [announcements]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return;
       cloudSave("pcg_announcements_dismissed_v1", announcementsDismissed);
     }, [announcementsDismissed]);
-    useEffect4(() => {
+    useEffect5(() => {
       cloudLoad("pcg_access_overrides_v1").then((ov) => {
         cloudAccessLoaded.current = true;
         if (ov && typeof ov === "object" && !Array.isArray(ov)) setAccessOverrides(ov);
@@ -43619,17 +44214,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAccessLoaded.current = true;
       });
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (chatPollActive.current || !cloudAccessLoaded.current) return;
       cloudSave("pcg_access_overrides_v1", accessOverrides);
     }, [accessOverrides]);
-    useEffect4(() => {
+    useEffect5(() => {
       registerServiceWorker();
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (user && user.pushNotify) subscribeToPush(user.id);
     }, [user?.id]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user) return;
       chatPollRef.current = setInterval(async () => {
         try {
@@ -43665,7 +44260,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return () => clearInterval(chatPollRef.current);
     }, [user]);
     const mentionAlertRef = useRef4({});
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user) return;
       const interval = setInterval(() => {
         const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1e3).toISOString();
@@ -43700,7 +44295,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 5 * 60 * 1e3);
       return () => clearInterval(interval);
     }, [user, chatMessages, chatChannels, chatReadState, users, globalNotifyEmails]);
-    useEffect4(() => {
+    useEffect5(() => {
       const completedIds = new Set(projects.filter((p) => p.completed).map((p) => p.id));
       if (completedIds.size === 0) return;
       setNotifications((prev) => {
@@ -43712,7 +44307,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return prev;
       });
     }, [projects]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!showNotifs) return;
       const handleOutside = (e) => {
         if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false);
@@ -43727,7 +44322,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showNotifs]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!showChatPanel) return;
       const handleOutside = (e) => {
         if (chatPanelRef.current && !chatPanelRef.current.contains(e.target)) setShowChatPanel(false);
@@ -43742,7 +44337,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showChatPanel]);
-    useEffect4(() => {
+    useEffect5(() => {
       const mkId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const checkDeadlines = () => {
         const now = /* @__PURE__ */ new Date();
@@ -43782,7 +44377,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     PROJECT_PHASES.forEach((ph) => ph.items.forEach((it) => {
       itemLabels[it.key] = { label: it.label, type: it.type, phase: ph.label };
     }));
-    useEffect4(() => {
+    useEffect5(() => {
       if (!projectsUserEdited.current) {
         prevProjectsRef.current = projects;
         return;
@@ -43921,10 +44516,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDataAlert({ type, msg });
       setTimeout(() => setDataAlert(null), 3500);
     };
-    const [managerPending, setManagerPending] = useState4({});
+    const [managerPending, setManagerPending] = useState5({});
     const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
     });
-    useEffect4(() => {
+    useEffect5(() => {
       loadManagerPending();
     }, []);
     const dismissManagerPending = async (pc) => {
@@ -43955,7 +44550,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const openStorePcs = React.useMemo(() => new Set(openStores.map((s) => String(s.pc))), [openStores]);
     const managerPendingCount = Object.entries(managerPending).filter(([pc, item]) => openStorePcs.has(String(pc)) && managerPendingIsActionable(item)).length;
-    const [managerReviewPc, setManagerReviewPc] = useState4(null);
+    const [managerReviewPc, setManagerReviewPc] = useState5(null);
     const handleToggle = useCallback(() => {
       const newDark = !dark;
       setLogoAnim(true);
@@ -43974,7 +44569,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setDark(newDark);
       }
     }, [dark]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user || annGateDone || user.userType?.startsWith("kiosk")) return;
       const GATE_MAX_AGE_DAYS = 14;
       const cutoff = Date.now() - GATE_MAX_AGE_DAYS * 864e5;
@@ -43994,7 +44589,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setAnnGateIdx(0);
     }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
     const annBackfillRef = useRef4(false);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!user || annBackfillRef.current || user.userType?.startsWith("kiosk")) return;
       if (!announcements || announcements.length === 0) return;
       annBackfillRef.current = true;
@@ -45201,10 +45796,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "terminations", name: "Terminations", sub: "Who left, by store \u2014 quarter and half-year views from Paycor.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6" }), /* @__PURE__ */ React.createElement("path", { d: "M16 18h6" }), /* @__PURE__ */ React.createElement("path", { d: "M19 15l3 3-3 3" })) },
         // v22.49: HR's Employee Transfer letter, filled from Paycor (name, position, PC#, wage locked).
         { id: "transfer-notice", name: "Transfer Notice", sub: "Fill HR\u2019s Employee Transfer letter from Paycor and download it as a PDF, ready to sign.", show: TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.transferNotice(TOOLS)) },
+        { id: "violation-notice", name: "Violation Notice", sub: "HR\u2019s Violation Notice with the employee filled in from Paycor, signed on screen and sent to HR.", show: VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "violation-notice"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.violationNotice(TOOLS)) },
         { id: "pay-increase", name: "Pay Increase", sub: "HR\u2019s Pay Increase Form filled from Paycor, signed by the Store Manager and the DM or Director, and sent to the office.", show: PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.payIncrease(TOOLS)) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", subtitle: "Quick access to your workplace tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
-    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores: openStores, users, onBack: () => setTab("tools-hub"), setStores, districts, setDistricts, setUsers }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores: openStores, user }), tab === "terminations" && accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations") && /* @__PURE__ */ React.createElement(TerminationsReport, { th, user, isMobile, onBack: () => setTab("tools-hub") }), tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice") && /* @__PURE__ */ React.createElement(TransferNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase") && /* @__PURE__ */ React.createElement(PayIncrease, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores: openStores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores: openStores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores: openStores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores: openStores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores: openStores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "executive" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExecutiveView, { th, user, stores: openStores, isMobile, go: setTab }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { setDistricts, setStores, globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores: openStores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores: openStores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores: openStores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores: openStores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores: openStores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores: openStores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores: openStores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores: openStores, users, onBack: () => setTab("tools-hub"), setStores, districts, setDistricts, setUsers }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores: openStores, user }), tab === "terminations" && accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations") && /* @__PURE__ */ React.createElement(TerminationsReport, { th, user, isMobile, onBack: () => setTab("tools-hub") }), tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice") && /* @__PURE__ */ React.createElement(TransferNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "violation-notice" && VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "violation-notice") && /* @__PURE__ */ React.createElement(ViolationNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase") && /* @__PURE__ */ React.createElement(PayIncrease, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores: openStores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores: openStores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores: openStores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores: openStores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores: openStores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "executive" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExecutiveView, { th, user, stores: openStores, isMobile, go: setTab }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { setDistricts, setStores, globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores: openStores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores: openStores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores: openStores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores: openStores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores: openStores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores: openStores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores: openStores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
 })();
