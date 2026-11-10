@@ -130,6 +130,30 @@ export function buildPayIncreasePdf(jsPDF, fonts, values = {}, images = {}) {
     doc.text(text, x + width / 2, y - 1.5, { align: 'center' });
   }
 
+  // v22.66: a printed "Name:" blank to the right of each signature line, out to the right margin.
+  doc.setFont(F, 'normal'); doc.setFontSize(11);
+  const sigRun = '_____________________________';
+  const runW = doc.getTextWidth(sigRun);
+  const RIGHT = 540;
+  for (const [y, sigX, name] of [[431.1, 200.2, values.smNa ? '' : values.smName], [456.9, secondBlankX, values.dmName]]) {
+    const nameX = Math.max(sigX + runW + 14, 336);
+    doc.setFontSize(11); doc.setFont(F, 'normal');
+    doc.text('Name:', nameX, y);
+    const blankX = nameX + doc.getTextWidth('Name:') + 4.9;
+    let run = '_';
+    while (doc.getTextWidth(run + '_') <= RIGHT - blankX) run += '_';
+    doc.text(run, blankX, y);
+    const text = String(name || '').trim();
+    if (text) {
+      const w = doc.getTextWidth(run);
+      let sz = 11;
+      while (sz > 7 && (doc.setFontSize(sz), doc.getTextWidth(text)) > w - 2) sz -= 0.5;
+      doc.setFontSize(sz);
+      doc.text(text, blankX + w / 2, y - 1.5, { align: 'center' });
+    }
+  }
+  doc.setFontSize(11);
+
   // Reason: written on the box's three ruled rows (shrinks to fit, never below 7pt).
   const R = PAY_BOXES.reason;
   const rowsY = [R.rows[0], R.rows[1], R.rows[2], R.bottom];

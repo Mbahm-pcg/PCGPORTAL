@@ -2359,6 +2359,30 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       doc.setFontSize(s);
       doc.text(text, x + width / 2, y - 1.5, { align: "center" });
     }
+    doc.setFont(F, "normal");
+    doc.setFontSize(11);
+    const sigRun = "_____________________________";
+    const runW = doc.getTextWidth(sigRun);
+    const RIGHT = 540;
+    for (const [y, sigX, name] of [[431.1, 200.2, values.smNa ? "" : values.smName], [456.9, secondBlankX, values.dmName]]) {
+      const nameX = Math.max(sigX + runW + 14, 336);
+      doc.setFontSize(11);
+      doc.setFont(F, "normal");
+      doc.text("Name:", nameX, y);
+      const blankX = nameX + doc.getTextWidth("Name:") + 4.9;
+      let run = "_";
+      while (doc.getTextWidth(run + "_") <= RIGHT - blankX) run += "_";
+      doc.text(run, blankX, y);
+      const text = String(name || "").trim();
+      if (text) {
+        const w = doc.getTextWidth(run);
+        let sz = 11;
+        while (sz > 7 && (doc.setFontSize(sz), doc.getTextWidth(text)) > w - 2) sz -= 0.5;
+        doc.setFontSize(sz);
+        doc.text(text, blankX + w / 2, y - 1.5, { align: "center" });
+      }
+    }
+    doc.setFontSize(11);
     const R = PAY_BOXES.reason;
     const rowsY = [R.rows[0], R.rows[1], R.rows[2], R.bottom];
     if (String(values.reason || "").trim()) {
@@ -2394,7 +2418,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     if (nr > 100) return "That rate looks wrong \u2014 check it.";
     return null;
   }
-  function payFormValues({ employee, pc, position, newRate, reason, date, smSig, dmSig, smNa, secondLabel }) {
+  function payFormValues({ employee, pc, position, newRate, reason, date, smSig, dmSig, smNa, secondLabel, smName, dmName }) {
     return {
       date: date || "",
       pc: employee ? String(pc || "") : "",
@@ -2406,11 +2430,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       smNa: !!smNa,
       secondLabel: secondLabel || "District Manager",
       smSignature: smNa ? "" : smSig?.image || "",
-      dmSignature: dmSig?.image || ""
+      dmSignature: dmSig?.image || "",
+      // v22.66: the printed name next to each signature (none on an N/A Store Manager line).
+      smName: smNa ? "" : String(smName || "").trim(),
+      dmName: String(dmName || "").trim()
     };
   }
   function payFingerprint(v) {
-    return [...["date", "pc", "employeeName", "position", "currentRate", "newRate", "reason"].map((k) => String(v?.[k] ?? "").trim()), v?.smNa ? "SM:N/A" : ""].join("|");
+    return [...["date", "pc", "employeeName", "position", "currentRate", "newRate", "reason", "smName", "dmName"].map((k) => String(v?.[k] ?? "").trim()), v?.smNa ? "SM:N/A" : ""].join("|");
   }
   var has = (v, k) => !!String(v?.[k] ?? "").trim();
   var REASON_MIN = 10;
@@ -2419,9 +2446,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const out = need.filter(([k]) => !has(v, k)).map(([, label]) => label);
     if (String(v?.reason ?? "").trim().length < REASON_MIN) out.splice(3, 0, "Reason for the pay change (at least a sentence)");
     if (role === "manager") {
+      if (!has(v, "smName")) out.push("Store Manager name");
+      if (!has(v, "dmName")) out.push("District Manager name");
       if (!has(v, "smSignature")) out.push("Store Manager signature");
       if (!has(v, "dmSignature")) out.push("District Manager signature");
-    } else if (!has(v, "dmSignature")) out.push("Your signature");
+    } else {
+      if (!has(v, "dmName")) out.push("Your name");
+      if (!has(v, "dmSignature")) out.push("Your signature");
+    }
     return out;
   }
 
@@ -2521,6 +2553,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [sigs, setSigs] = useState3({});
     const [secondLabel, setSecondLabel] = useState3("District Manager");
     const [smNa, setSmNa] = useState3(false);
+    const [smName, setSmName] = useState3("");
+    const [dmName, setDmName] = useState3("");
     const [signing, setSigning] = useState3(null);
     const [busy, setBusy] = useState3(false);
     const [saved, setSaved] = useState3(null);
@@ -2538,6 +2572,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setRole(b.role || null);
       setSecondLabel(b.secondLabel || "District Manager");
       setSmNa(!!b.smNa);
+      if (b.role === "manager") {
+        setSmName((n) => n || b.myName || "");
+        setDmName((n) => n || b.dmNameGuess || "");
+      } else setDmName((n) => n || b.myName || "");
       setListView(!!b.listView);
       setCanApprove(!!b.canApprove);
       if (b.rosterError) setError(b.rosterError);
@@ -2575,11 +2613,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, [picked]);
     const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
     const hourly = employee && /hour/i.test(employee.payType || "Hourly") && employee.payRate > 0;
-    const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel });
+    const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smName, dmName });
     const fp = payFingerprint(base);
     const sigOk = (k) => sigs[k] && sigs[k].fp === fp ? sigs[k] : null;
     const voided = Object.keys(sigs).some((k) => sigs[k] && sigs[k].fp !== fp);
-    const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smSig: sigOk("sm"), dmSig: sigOk("dm") });
+    const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smName, dmName, smSig: sigOk("sm"), dmSig: sigOk("dm") });
     const rateErr = hourly && newRate !== "" ? rateProblem(employee.payRate, newRate) : null;
     const formMissing = missingPayFields(base, role || "dm").filter((m) => !/signature/i.test(m));
     const canSign = hourly && !rateErr && !formMissing.length && !loadingEmp;
@@ -2676,7 +2714,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     };
     const sigRow = (key, label) => {
       const content = key === "sm" && !isManager ? /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.15em", paddingLeft: "0.4em" } }, "N/A") : sigButton(key, label);
-      return /* @__PURE__ */ React.createElement("div", { className: "pi-row", style: { marginTop: "0.7em" } }, /* @__PURE__ */ React.createElement("span", null, label, " Signature:"), /* @__PURE__ */ React.createElement("span", { className: "pi-sigline" }, content));
+      const na = key === "sm" && !isManager;
+      const [nm, setNm] = key === "sm" ? [smName, setSmName] : [dmName, setDmName];
+      return /* @__PURE__ */ React.createElement("div", { className: "pi-row", style: { marginTop: "0.7em" } }, /* @__PURE__ */ React.createElement("span", null, label, " Signature:"), /* @__PURE__ */ React.createElement("span", { className: "pi-sigline" }, content), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "flex-end", gap: "0.4em", marginLeft: "0.8em" } }, "Name:", na ? /* @__PURE__ */ React.createElement("span", { className: "pi-locked pi-empty", style: { minWidth: "10em" } }, "N/A") : /* @__PURE__ */ React.createElement("input", { className: "pi-blank", style: { width: isMobile ? "11em" : "12em" }, value: nm, maxLength: 80, onChange: (e) => setNm(e.target.value), placeholder: `${label} name`, "aria-label": `${label} name` })));
     };
     const LABEL = { sm: "Store Manager", dm: secondLabel };
     return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + PAPER_CSS), listView && view === "form" ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
@@ -27820,7 +27860,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.65";
+  var APP_VERSION = "v22.66";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

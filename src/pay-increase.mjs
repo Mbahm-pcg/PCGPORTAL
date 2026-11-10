@@ -23,7 +23,7 @@ export function rateProblem(currentRate, newRate) {
 
 // Everything the form shows. Name, PC#, current rate come only from Paycor (locked); the
 // position is Paycor's, or typed only when Paycor has none on file.
-export function payFormValues({ employee, pc, position, newRate, reason, date, smSig, dmSig, smNa, secondLabel }) {
+export function payFormValues({ employee, pc, position, newRate, reason, date, smSig, dmSig, smNa, secondLabel, smName, dmName }) {
   return {
     date: date || '',
     pc: employee ? String(pc || '') : '',
@@ -34,13 +34,15 @@ export function payFormValues({ employee, pc, position, newRate, reason, date, s
     reason: String(reason || '').trim(),
     smNa: !!smNa, secondLabel: secondLabel || 'District Manager',
     smSignature: smNa ? '' : (smSig?.image || ''), dmSignature: dmSig?.image || '',
+    // v22.66: the printed name next to each signature (none on an N/A Store Manager line).
+    smName: smNa ? '' : String(smName || '').trim(), dmName: String(dmName || '').trim(),
   };
 }
 
 // The form's text — what the signatures vouch for (including an "N/A" Store Manager line). A
 // signature given on one version is void once any of this changes.
 export function payFingerprint(v) {
-  return [...['date', 'pc', 'employeeName', 'position', 'currentRate', 'newRate', 'reason'].map(k => String(v?.[k] ?? '').trim()), v?.smNa ? 'SM:N/A' : ''].join('|');
+  return [...['date', 'pc', 'employeeName', 'position', 'currentRate', 'newRate', 'reason', 'smName', 'dmName'].map(k => String(v?.[k] ?? '').trim()), v?.smNa ? 'SM:N/A' : ''].join('|');
 }
 
 // The second signature line's title for the person making the form.
@@ -60,9 +62,14 @@ export function missingPayFields(v, role) {
   const out = need.filter(([k]) => !has(v, k)).map(([, label]) => label);
   if (String(v?.reason ?? '').trim().length < REASON_MIN) out.splice(3, 0, 'Reason for the pay change (at least a sentence)');
   if (role === 'manager') {
+    if (!has(v, 'smName')) out.push('Store Manager name');
+    if (!has(v, 'dmName')) out.push('District Manager name');
     if (!has(v, 'smSignature')) out.push('Store Manager signature');
     if (!has(v, 'dmSignature')) out.push('District Manager signature');
-  } else if (!has(v, 'dmSignature')) out.push('Your signature');
+  } else {
+    if (!has(v, 'dmName')) out.push('Your name');
+    if (!has(v, 'dmSignature')) out.push('Your signature');
+  }
   return out;
 }
 
@@ -70,9 +77,11 @@ export function missingPayFields(v, role) {
 export function signatureProblem(role, v) {
   if (role === 'manager') {
     if (!has(v, 'smSignature') || !has(v, 'dmSignature') || v?.smNa) return 'The Store Manager and the District Manager both need to sign.';
+    if (!has(v, 'smName') || !has(v, 'dmName')) return 'Write the name next to each signature.';
     return null;
   }
   if (!has(v, 'dmSignature')) return 'Sign your line.';
+  if (!has(v, 'dmName')) return 'Write your name next to your signature.';
   if (has(v, 'smSignature') || !v?.smNa) return 'The Store Manager line is N/A when you make the form.';
   return null;
 }
@@ -103,7 +112,8 @@ export function payAlertText(v, storeName, submittedBy) {
 // clientId: the store's Paycor Client ID (legal entity), for the office. approvedBy: who approved it.
 export function payEmailHtml(v, storeName, submittedBy, driveLink, clientId, approvedBy) {
   const rows = [['Employee', v.employeeName], ['Store', `${storeName} (PC ${v.pc})${clientId ? ` (Client ID ${clientId})` : ''}`], ['Position', v.position],
-    ['Current rate', money(v.currentRate)], ['New rate', money(v.newRate)], ['Reason', v.reason], ['Form date', usDate(v.date)], ['Sent by', submittedBy], ['Approved by', approvedBy]];
+    ['Current rate', money(v.currentRate)], ['New rate', money(v.newRate)], ['Reason', v.reason], ['Form date', usDate(v.date)],
+    ['Store Manager', v.smName], [v.secondLabel || 'District Manager', v.dmName], ['Sent by', submittedBy], ['Approved by', approvedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
 <p>A pay increase signed by the ${SIGNER_LABEL[v.signer] || 'Store Manager'}${approvedBy ? ` and approved by ${esc(approvedBy)}` : ''} is ready. The signed form is attached — please enter it in Paycor.</p>
 <table cellpadding="6" style="border-collapse:collapse">${rows.filter(r => r[1]).map(([k, val]) => `<tr><td style="color:#666;padding-right:14px;vertical-align:top">${esc(k)}</td><td><b>${esc(val)}</b></td></tr>`).join('')}</table>
@@ -123,7 +133,8 @@ export function approvalAlertText(kind, r, storeName, extra = {}) {
 
 export function approvalEmailHtml(v, storeName, submittedBy, link, clientId, waitingHours = 0) {
   const rows = [['Employee', v.employeeName], ['Store', `${storeName} (PC ${v.pc})${clientId ? ` (Client ID ${clientId})` : ''}`], ['Position', v.position],
-    ['Current rate', money(v.currentRate)], ['New rate', money(v.newRate)], ['Reason', v.reason], ['Form date', usDate(v.date)], ['Sent by', submittedBy]];
+    ['Current rate', money(v.currentRate)], ['New rate', money(v.newRate)], ['Reason', v.reason], ['Form date', usDate(v.date)],
+    ['Store Manager', v.smName], [v.secondLabel || 'District Manager', v.dmName], ['Sent by', submittedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
 <p>${waitingHours ? `<b>Reminder:</b> this has been waiting for your approval for ${waitingHours} hour${waitingHours === 1 ? '' : 's'}. ` : ''}${esc(submittedBy || 'A manager')} sent this pay increase for your approval. Once you approve it, it goes to the office to be entered in Paycor.</p>
 <table cellpadding="6" style="border-collapse:collapse">${rows.filter(r => r[1]).map(([k, val]) => `<tr><td style="color:#666;padding-right:14px;vertical-align:top">${esc(k)}</td><td><b>${esc(val)}</b></td></tr>`).join('')}</table>

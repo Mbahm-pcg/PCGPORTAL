@@ -114,7 +114,8 @@ export async function notifyApprovers(db, row, { reminder = false } = {}) {
   return new Set([...appr.ids, ...appr.emails, ...appr.phones]).size;
 }
 
-const rowValues = (r) => ({ employeeName: r.employee_name, position: r.position, pc: r.pc, currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, date: r.form_date, signer: r.signer });
+const rowValues = (r) => ({ employeeName: r.employee_name, position: r.position, pc: r.pc, currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, date: r.form_date, signer: r.signer,
+  smName: r.sm_name || '', dmName: r.dm_name || '', secondLabel: r.second_label || '' });
 
 export default async (request) => {
   const db = sql();
@@ -150,6 +151,10 @@ export default async (request) => {
   // v22.65: when the approver was last emailed / texted about a pending form (3-hour reminders).
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS reminded_at timestamptz`;
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS reminder_count integer NOT NULL DEFAULT 0`;
+  // v22.66: printed names next to the signatures, and the second line's title.
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS sm_name text`;
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS dm_name text`;
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS second_label text`;
 
   const appr = await approvers(db);
   const canApprove = appr.ids.includes(String(authed.sub));
@@ -173,7 +178,12 @@ export default async (request) => {
         if (!employee) return json(404, { error: 'This employee is no longer active at that store in Paycor.' });
         return json(200, { employee });
       }
-      const out = { canApprove, listView, role: realType, secondLabel: secondLineLabel(realType, me.username), smNa: storeManagerNa(realType), stores: [], employees: [] };
+      const out = { canApprove, listView, role: realType, secondLabel: secondLineLabel(realType, me.username), smNa: storeManagerNa(realType), myName, stores: [], employees: [] };
+      if (realType === 'manager' && me.store_pc) {
+        const st = storeOf(me.store_pc);
+        const dm = st && (await db`SELECT name FROM users WHERE active IS NOT FALSE AND user_type = 'dm' AND district::text = ${String(st.district)} LIMIT 1`)[0];
+        out.dmNameGuess = dm?.name || '';
+      }
       if (listView) {
         const item = (r) => ({ id: r.id, pc: r.pc, storeName: storeOf(r.pc)?.name || '', employeeName: r.employee_name, position: r.position,
           currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, formDate: r.form_date, submittedBy: r.submitted_by_name, createdAt: r.created_at,
@@ -261,8 +271,8 @@ export default async (request) => {
 
     const signer = signerCode(realType, me.username); // who signed, for the office email
     const key = createHash('sha256').update(payFingerprint(v) + '|' + (v.smSignature || '') + '|' + (v.dmSignature || '')).digest('hex').slice(0, 32);
-    const inserted = await db`INSERT INTO pay_increase_forms (form_key, status, signer, pdf, pc, employee_id, employee_name, position, current_rate, new_rate, reason, form_date, submitted_by, submitted_by_name)
-      VALUES (${key}, 'pending', ${signer}, ${pdf}, ${String(store.pc)}, ${emp.id}, ${emp.name}, ${v.position}, ${emp.payRate}, ${Number(Number(v.newRate).toFixed(2))}, ${String(v.reason).slice(0, 600)}, ${v.date}, ${Number(authed.sub) || null}, ${myName})
+    const inserted = await db`INSERT INTO pay_increase_forms (form_key, status, signer, sm_name, dm_name, second_label, pdf, pc, employee_id, employee_name, position, current_rate, new_rate, reason, form_date, submitted_by, submitted_by_name)
+      VALUES (${key}, 'pending', ${signer}, ${String(v.smName || '').slice(0, 80) || null}, ${String(v.dmName || '').slice(0, 80)}, ${secondLineLabel(realType, me.username)}, ${pdf}, ${String(store.pc)}, ${emp.id}, ${emp.name}, ${v.position}, ${emp.payRate}, ${Number(Number(v.newRate).toFixed(2))}, ${String(v.reason).slice(0, 600)}, ${v.date}, ${Number(authed.sub) || null}, ${myName})
       ON CONFLICT (form_key) DO NOTHING RETURNING id`;
     const row = (await db`SELECT id, status FROM pay_increase_forms WHERE form_key = ${key}`)[0];
     // Sending the same signed form again never asks twice; a sent-back form can be sent again.

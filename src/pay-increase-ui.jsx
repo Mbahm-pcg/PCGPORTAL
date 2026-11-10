@@ -131,6 +131,8 @@ export function PayIncrease({ th, isMobile, onBack }) {
   // Manager line is N/A (everyone but a Store Manager).
   const [secondLabel, setSecondLabel] = useState('District Manager');
   const [smNa, setSmNa] = useState(false);
+  const [smName, setSmName] = useState(''); // v22.66: printed name next to each signature
+  const [dmName, setDmName] = useState('');
   const [signing, setSigning] = useState(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(null);
@@ -148,6 +150,9 @@ export function PayIncrease({ th, isMobile, onBack }) {
   const loadMain = () => call().then(b => {
     setStores(b.stores || []); setEmployees(b.employees || []); setRole(b.role || null);
     setSecondLabel(b.secondLabel || 'District Manager'); setSmNa(!!b.smNa);
+    // Pre-fill: your own line gets your name; a Store Manager's District Manager line gets the store's DM.
+    if (b.role === 'manager') { setSmName(n => n || b.myName || ''); setDmName(n => n || b.dmNameGuess || ''); }
+    else setDmName(n => n || b.myName || '');
     setListView(!!b.listView); setCanApprove(!!b.canApprove); if (b.rosterError) setError(b.rosterError);
     setPending(b.listView ? (b.pending || []) : null); setComplete(b.complete || []);
     // ?payIncrease=<id> from the approval email / text opens that form straight away.
@@ -167,11 +172,11 @@ export function PayIncrease({ th, isMobile, onBack }) {
 
   const storeName = (pc) => stores.find(s => s.pc === String(pc))?.name || '';
   const hourly = employee && /hour/i.test(employee.payType || 'Hourly') && employee.payRate > 0;
-  const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel });
+  const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smName, dmName });
   const fp = payFingerprint(base);
   const sigOk = (k) => (sigs[k] && sigs[k].fp === fp ? sigs[k] : null);
   const voided = Object.keys(sigs).some(k => sigs[k] && sigs[k].fp !== fp);
-  const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smSig: sigOk('sm'), dmSig: sigOk('dm') });
+  const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smName, dmName, smSig: sigOk('sm'), dmSig: sigOk('dm') });
   const rateErr = hourly && newRate !== '' ? rateProblem(employee.payRate, newRate) : null;
   const formMissing = missingPayFields(base, role || 'dm').filter(m => !/signature/i.test(m));
   const canSign = hourly && !rateErr && !formMissing.length && !loadingEmp;
@@ -241,9 +246,15 @@ export function PayIncrease({ th, isMobile, onBack }) {
     const content = key === 'sm' && !isManager
       ? <span style={{ paddingBottom: '0.15em', paddingLeft: '0.4em' }}>N/A</span>
       : sigButton(key, label);
+    const na = key === 'sm' && !isManager;
+    const [nm, setNm] = key === 'sm' ? [smName, setSmName] : [dmName, setDmName];
     return (
       <div className="pi-row" style={{ marginTop: '0.7em' }}><span>{label} Signature:</span>
         <span className="pi-sigline">{content}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: '0.4em', marginLeft: '0.8em' }}>Name:
+          {na ? <span className="pi-locked pi-empty" style={{ minWidth: '10em' }}>N/A</span>
+            : <input className="pi-blank" style={{ width: isMobile ? '11em' : '12em' }} value={nm} maxLength={80} onChange={e => setNm(e.target.value)} placeholder={`${label} name`} aria-label={`${label} name`} />}
+        </span>
       </div>
     );
   };

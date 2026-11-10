@@ -23,7 +23,7 @@ test('locked fields come from Paycor; a typed position only counts when Paycor h
 });
 
 test('signatures follow who makes the form', () => {
-  const f = { employee: emp, pc: '332941', newRate: 16.5, reason: 'Great eval', date: '2026-11-09' };
+  const f = { employee: emp, pc: '332941', newRate: 16.5, reason: 'Great eval', date: '2026-11-09', smName: 'Dilara Begum', dmName: 'Nusrat Tanjin' };
   const v = (x) => payFormValues({ ...f, ...x });
   // the second line's title, and the N/A Store Manager line
   assert.equal(secondLineLabel('manager'), 'District Manager');
@@ -75,10 +75,21 @@ test('PDF blanks, file name, alert wording', () => {
 });
 
 test('the reason is required: empty or a token word is refused, a sentence is fine', () => {
-  const f = { employee: emp, pc: '332941', newRate: 16.5, date: '2026-11-09', smSig: sig, dmSig: sig };
+  const f = { employee: emp, pc: '332941', newRate: 16.5, date: '2026-11-09', smSig: sig, dmSig: sig, smName: 'A B', dmName: 'C D' };
   const role = 'manager';
   const need = 'Reason for the pay change (at least a sentence)';
   assert.ok(missingPayFields(payFormValues({ ...f, reason: '' }), role).includes(need));
   assert.ok(missingPayFields(payFormValues({ ...f, reason: '   ok   ' }), role).includes(need));
   assert.deepEqual(missingPayFields(payFormValues({ ...f, reason: 'Passed her 90-day review.' }), role), []);
+});
+
+test('a printed name goes with every signature (none on an N/A line)', () => {
+  const f = { employee: emp, pc: '332941', newRate: 16.5, reason: 'Great eval', date: '2026-11-09', smSig: sig, dmSig: sig };
+  assert.deepEqual(missingPayFields(payFormValues({ ...f, smName: ' ', dmName: 'Nusrat' }), 'manager'), ['Store Manager name']);
+  assert.match(signatureProblem('manager', payFormValues({ ...f, smName: 'A', dmName: '' })), /name/);
+  const dm = payFormValues({ ...f, smSig: null, smNa: true, smName: 'stale', dmName: 'Nusrat Tanjin' });
+  assert.equal(dm.smName, '', 'no name on an N/A line');
+  assert.deepEqual(missingPayFields(dm, 'dm'), []);
+  assert.deepEqual(missingPayFields({ ...dm, dmName: '' }, 'dm'), ['Your name']);
+  assert.notEqual(payFingerprint(dm), payFingerprint({ ...dm, dmName: 'Someone Else' }), 'changing a name voids the signatures');
 });
