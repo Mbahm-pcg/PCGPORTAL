@@ -88,6 +88,9 @@ export async function liveEmployee(store, employeeId) {
     employmentType: readEmploymentType(emp),
     payRate: rate ? Number(rate.payRate ?? rate.rate ?? 0) || null : null,
     payType: rate ? (rate.payType || rate.type || null) : null,
+    // v22.74: salaried people (e.g. Store Managers) — Paycor's payRate is then per paycheck;
+    // annualPayRate is the yearly salary.
+    annualPayRate: rate ? Number(rate.annualPayRate ?? 0) || null : null,
   };
 }
 

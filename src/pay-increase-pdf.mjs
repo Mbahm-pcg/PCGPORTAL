@@ -109,7 +109,9 @@ export function buildPayIncreasePdf(jsPDF, fonts, values = {}, images = {}) {
   doc.setLineWidth(1);
   for (const l of PAY_LINES) { doc.setDrawColor(...l.c); doc.line(l.x1, l.y1, l.x2, l.y2); }
 
-  const v = { ...values, date: formatFormDate(values.date), currentRate: formatRate(values.currentRate), newRate: formatRate(values.newRate) };
+  const sfx = values.payBasis === 'year' ? ' / year' : values.payBasis === 'hour' ? ' / hour' : '';
+  const rate = (x) => { const f = formatRate(x); return f ? (values.payBasis === 'year' ? '$' + Number(String(x).replace(/[^0-9.]/g, '')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : f) + sfx : ''; };
+  const v = { ...values, date: formatFormDate(values.date), currentRate: rate(values.currentRate), newRate: rate(values.newRate) };
   if (values.smNa) v.smSignature = 'N/A'; // store without a Store Manager
   const sign = (img, x, yLine, width, maxH) => {
     const p = doc.getImageProperties(img);

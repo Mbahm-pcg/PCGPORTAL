@@ -5,7 +5,8 @@
 // same rule the labor cron uses, skipping any rate that has already ended.
 export function pickCurrentPayRate(rates, today = new Date().toISOString().slice(0, 10)) {
   const list = (Array.isArray(rates) ? rates : []).filter(Boolean);
-  const start = (r) => String(r.effectiveDate || r.startDate || '').slice(0, 10);
+  // Paycor's field is effectiveStartDate (confirmed 2026-11-10); the older names are kept as fallbacks.
+  const start = (r) => String(r.effectiveStartDate || r.effectiveDate || r.startDate || '').slice(0, 10);
   const end = (r) => String(r.endDate || r.effectiveEndDate || '').slice(0, 10);
   const live = list.filter(r => (!start(r) || start(r) <= today) && (!end(r) || end(r) >= today));
   const pool = live.length ? live : list;

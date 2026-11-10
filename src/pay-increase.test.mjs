@@ -93,3 +93,17 @@ test('a printed name goes with every signature (none on an N/A line)', () => {
   assert.deepEqual(missingPayFields({ ...dm, dmName: '' }, 'dm'), ['Your name']);
   assert.notEqual(payFingerprint(dm), payFingerprint({ ...dm, dmName: 'Someone Else' }), 'changing a name voids the signatures');
 });
+
+test('salaried employees (Store Managers): yearly salary, raise checked against it, shown per year', async () => {
+  const { payBasisOf, currentPayOf, fmtPay } = await import('./pay-increase.mjs');
+  const mgr = { name: 'Joseph Allen', jobTitle: 'Store Managers', payType: 'Salary', payRate: 2000, annualPayRate: 52000 };
+  assert.equal(payBasisOf(mgr), 'year'); assert.equal(currentPayOf(mgr), 52000);
+  assert.equal(payBasisOf(emp), 'hour'); assert.equal(currentPayOf(emp), 15);
+  const v = payFormValues({ employee: mgr, pc: '353047', newRate: 55000, reason: 'Great year', date: '2026-11-10' });
+  assert.equal(v.currentRate, 52000); assert.equal(v.payBasis, 'year');
+  assert.equal(rateProblem(52000, 55000, 'year'), null);
+  assert.match(rateProblem(52000, 2100, 'year'), /higher than the current \$52,000\.00 \/ year/);
+  assert.match(rateProblem(52000, 900000, 'year'), /wrong/);
+  assert.equal(fmtPay(52000, 'year'), '$52,000.00 / year'); assert.equal(fmtPay(15, 'hour'), '$15.00 / hour');
+  assert.notEqual(payFingerprint(v), payFingerprint({ ...v, payBasis: 'hour' }));
+});

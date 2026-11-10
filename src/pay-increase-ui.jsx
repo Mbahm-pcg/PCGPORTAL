@@ -13,7 +13,7 @@ import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles, finMoney } from './finance-ui.jsx';
 import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { buildPayIncreasePdf, PAY_FONT, PAY_CHROME, formatFormDate } from './pay-increase-pdf.mjs';
-import { rateProblem, payFormValues, payFingerprint, missingPayFields, REASON_MIN } from './pay-increase.mjs';
+import { rateProblem, payFormValues, payFingerprint, missingPayFields, REASON_MIN, payBasisOf, currentPayOf, fmtPay } from './pay-increase.mjs';
 
 const { useState, useEffect, useRef } = React;
 const todayIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
@@ -153,7 +153,7 @@ function Review({ th, isMobile, form, onClose, canApprove = true }) {
     <div style={{ ...S.panel, padding: '1rem 1.1rem', marginBottom: '1.4rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
         <div style={{ ...S.panelTitle, fontSize: '1.05rem' }}>{form.employeeName}, {form.storeName}</div>
-        <span style={{ color: th.muted, fontSize: '0.88rem' }}>{finMoney.format(form.currentRate)} to {finMoney.format(form.newRate)}, sent by {form.submittedBy}</span>
+        <span style={{ color: th.muted, fontSize: '0.88rem' }}>{fmtPay(form.currentRate, form.payBasis)} to {fmtPay(form.newRate, form.payBasis)}, sent by {form.submittedBy}</span>
       </div>
       <p style={{ color: th.text, fontSize: '0.9rem', margin: '0.4rem 0 0.8rem' }}>{form.reason}</p>
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -245,13 +245,15 @@ export function PayIncrease({ th, isMobile, onBack }) {
   }, [picked]);
 
   const storeName = (pc) => stores.find(s => s.pc === String(pc))?.name || '';
-  const hourly = employee && /hour/i.test(employee.payType || 'Hourly') && employee.payRate > 0;
+  // v22.74: hourly people by the hour, salaried people (Store Managers) by the year.
+  const basis = payBasisOf(employee);
+  const hourly = employee && Number(currentPayOf(employee)) > 0; // 'has a usable current pay' (name kept for the code below)
   const base = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smName, dmName });
   const fp = payFingerprint(base);
   const sigOk = (k) => (sigs[k] && sigs[k].fp === fp ? sigs[k] : null);
   const voided = Object.keys(sigs).some(k => sigs[k] && sigs[k].fp !== fp);
   const values = payFormValues({ employee: hourly ? employee : null, pc: picked?.pc, position, newRate, reason, date, smNa, secondLabel, smName, dmName, smSig: sigOk('sm'), dmSig: sigOk('dm') });
-  const rateErr = hourly && newRate !== '' ? rateProblem(employee.payRate, newRate) : null;
+  const rateErr = hourly && newRate !== '' ? rateProblem(currentPayOf(employee), newRate, basis) : null;
   const formMissing = missingPayFields(base, role || 'dm').filter(m => !/signature/i.test(m));
   const canSign = hourly && !rateErr && !formMissing.length && !loadingEmp;
   const missing = missingPayFields(values, role || 'dm');
@@ -363,7 +365,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
               {pending.map(f => (
                 <button key={f.id} type="button" className="fin-btn" onClick={() => setReviewing(f)}
                   style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', textAlign: 'left', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${canApprove ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: 'pointer', fontFamily: FONTS.body }}>
-                  <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {finMoney.format(f.currentRate)} to {finMoney.format(f.newRate)}</span>
+                  <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {fmtPay(f.currentRate, f.payBasis)} to {fmtPay(f.newRate, f.payBasis)}</span>
                     <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}, {new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></span>
                   <span style={{ color: canApprove ? O : th.muted, fontWeight: 700, fontSize: '0.85rem', alignSelf: 'center' }}>{canApprove ? 'Review' : 'View'}</span>
                 </button>
@@ -374,7 +376,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
             <div style={{ display: 'grid', gap: '0.5rem' }}>
               {complete.map(f => (
                 <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body }}>
-                  <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {finMoney.format(f.currentRate)} to {finMoney.format(f.newRate)}</span>
+                  <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {fmtPay(f.currentRate, f.payBasis)} to {fmtPay(f.newRate, f.payBasis)}</span>
                     <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}{f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : `, ${new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}</span></span>
                   <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
                     {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View form</button>}
@@ -390,7 +392,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
       <p style={S.lede}>Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, and once he approves it, to the office to be entered in Paycor.</p>
       {role === 'manager' && employees && !employees.length && !error && <FinBanner th={th} tone="warn">Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store.</FinBanner>}
       {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
-      {employee && !hourly && <FinBanner th={th} tone="warn">Paycor has no hourly rate for {employee.name}{employee.payType ? ` (pay type: ${employee.payType})` : ''}, so this form can't be made. Fix the rate in Paycor first.</FinBanner>}
+      {employee && !hourly && <FinBanner th={th} tone="warn">Paycor has no current {basis === 'year' ? 'salary' : 'hourly rate'} for {employee.name}{employee.payType ? ` (pay type: ${employee.payType})` : ''}, so this form can't be made. Fix it in Paycor first.</FinBanner>}
       {voided && <FinBanner th={th} tone="warn">The form changed after it was signed, so those signatures no longer count. Sign again.</FinBanner>}
 
       <div className="pi-paper" style={{ borderRadius: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)', padding: isMobile ? '1.2rem 1rem 1.6rem' : '1.6rem 4.2rem 2.4rem', fontSize: isMobile ? '15px' : '16px', lineHeight: 1.5, marginBottom: '1.2rem',
@@ -407,8 +409,8 @@ export function PayIncrease({ th, isMobile, onBack }) {
           {row('Employee Position:', employee && !employee.jobTitle
             ? <input className="pi-blank" style={{ width: '11em' }} list="pi-positions" value={position} onChange={e => setPosition(e.target.value)} placeholder="position" aria-label="Employee position" title="Paycor has no job title for this employee — fill it in" />
             : <Locked value={employee?.jobTitle || ''} placeholder={loadingEmp ? '…' : 'from Paycor'} />)}
-          {row('Current Pay Rate:', <Locked value={hourly ? finMoney.format(employee.payRate) : ''} placeholder={loadingEmp ? '…' : 'from Paycor'} />)}
-          {row('New Pay Rate:', <span style={{ display: 'inline-flex', alignItems: 'flex-end' }}>$<input type="number" inputMode="decimal" step="0.05" min="0" className="pi-blank" style={{ width: '6.5em' }} value={newRate} onChange={e => setNewRate(e.target.value)} placeholder="0.00" aria-label="New pay rate" /></span>)}
+          {row('Current Pay Rate:', <Locked value={hourly ? fmtPay(currentPayOf(employee), basis) : ''} placeholder={loadingEmp ? '…' : 'from Paycor'} />)}
+          {row('New Pay Rate:', <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: '0.3em' }}>$<input type="number" inputMode="decimal" step={basis === 'year' ? '100' : '0.05'} min="0" className="pi-blank" style={{ width: basis === 'year' ? '8.5em' : '6.5em' }} value={newRate} onChange={e => setNewRate(e.target.value)} placeholder={basis === 'year' ? '00,000' : '0.00'} aria-label={basis === 'year' ? 'New yearly salary' : 'New pay rate per hour'} />{employee && <span style={{ fontSize: '0.9em' }}>{basis === 'year' ? '/ year' : '/ hour'}</span>}</span>)}
         </div>
         <datalist id="pi-positions">{POSITIONS.map(p => <option key={p} value={p} />)}</datalist>
 

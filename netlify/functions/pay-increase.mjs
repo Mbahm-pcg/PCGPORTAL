@@ -28,7 +28,7 @@ import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 import { syncDistricts } from './_shared/store-status.mjs';
 import { loadRoster, liveEmployee, saveToDrive, emailWithPdf } from './transfer-notice.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
-import { rateProblem, missingPayFields, signatureProblem, secondLineLabel, storeManagerNa, signerCode, payFingerprint, payFileName, payAlertText, payEmailHtml, approvalAlertText, approvalEmailHtml } from '../../src/pay-increase.mjs';
+import { payBasisOf, currentPayOf, rateProblem, missingPayFields, signatureProblem, secondLineLabel, storeManagerNa, signerCode, payFingerprint, payFileName, payAlertText, payEmailHtml, approvalAlertText, approvalEmailHtml } from '../../src/pay-increase.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const blobs = () => getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
@@ -114,7 +114,7 @@ export async function notifyApprovers(db, row, { reminder = false } = {}) {
   return new Set([...appr.ids, ...appr.emails, ...appr.phones]).size;
 }
 
-const rowValues = (r) => ({ employeeName: r.employee_name, position: r.position, pc: r.pc, currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, date: r.form_date, signer: r.signer,
+const rowValues = (r) => ({ payBasis: r.pay_basis || 'hour', employeeName: r.employee_name, position: r.position, pc: r.pc, currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, date: r.form_date, signer: r.signer,
   smName: r.sm_name || '', dmName: r.dm_name || '', secondLabel: r.second_label || '' });
 
 export default async (request) => {
@@ -155,6 +155,8 @@ export default async (request) => {
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS sm_name text`;
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS dm_name text`;
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS second_label text`;
+  // v22.74: 'hour' or 'year' (salaried) — what current_rate / new_rate are per.
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS pay_basis text`;
 
   const appr = await approvers(db);
   const canApprove = appr.ids.includes(String(authed.sub));
@@ -186,12 +188,12 @@ export default async (request) => {
       }
       if (listView) {
         const item = (r) => ({ id: r.id, pc: r.pc, storeName: storeOf(r.pc)?.name || '', employeeName: r.employee_name, position: r.position,
-          currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, formDate: r.form_date, submittedBy: r.submitted_by_name, createdAt: r.created_at,
+          payBasis: r.pay_basis || 'hour', currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, formDate: r.form_date, submittedBy: r.submitted_by_name, createdAt: r.created_at,
           approvedBy: r.decided_by_name || null, approvedAt: r.decided_at || null, driveLink: r.drive_link || null, hasPdf: !!r.has_pdf });
-        out.pending = (await db`SELECT id, pc, employee_name, position, current_rate, new_rate, reason, form_date, submitted_by_name, created_at, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf
+        out.pending = (await db`SELECT id, pc, employee_name, position, current_rate, new_rate, pay_basis, reason, form_date, submitted_by_name, created_at, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf
           FROM pay_increase_forms WHERE status = 'pending' ORDER BY created_at`).map(item);
         // Complete = approved, plus forms sent before the approval step existed (status NULL).
-        out.complete = (await db`SELECT id, pc, employee_name, position, current_rate, new_rate, reason, form_date, submitted_by_name, created_at, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf
+        out.complete = (await db`SELECT id, pc, employee_name, position, current_rate, new_rate, pay_basis, reason, form_date, submitted_by_name, created_at, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf
           FROM pay_increase_forms WHERE status = 'approved' OR status IS NULL ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 300`).map(item);
       }
       if (allowed === null || allowed.size) {
@@ -261,18 +263,20 @@ export default async (request) => {
     // The locked fields must be what Paycor says right now — never what the browser says.
     const emp = await liveEmployee(store, String(body.employeeId || ''));
     if (!emp) return json(404, { error: 'This employee is no longer active at that store in Paycor.' });
-    if (emp.name !== v.employeeName || Math.abs(Number(emp.payRate) - Number(v.currentRate)) > 0.004 || (emp.jobTitle && emp.jobTitle !== v.position)) {
+    const basis = payBasisOf(emp), currentPay = Number(currentPayOf(emp));
+    if (basis !== (v.payBasis || 'hour')) return json(409, { error: "Paycor's pay type for this employee changed — pick the employee again." });
+    if (emp.name !== v.employeeName || Math.abs(currentPay - Number(v.currentRate)) > 0.004 || (emp.jobTitle && emp.jobTitle !== v.position)) {
       return json(409, { error: "Paycor's details for this employee changed while the form was open — pick the employee again and re-sign." });
     }
-    const problem = rateProblem(emp.payRate, v.newRate);
+    const problem = rateProblem(currentPay, v.newRate, basis);
     if (problem) return json(400, { error: problem });
     const pdf = Buffer.from(String(body.pdf || '').replace(/^data:[^,]*,/, ''), 'base64');
     if (pdf.length < 1000 || pdf.length > 8e6 || pdf.subarray(0, 5).toString() !== '%PDF-') return json(400, { error: 'The PDF did not come through — try again.' });
 
     const signer = signerCode(realType, me.username); // who signed, for the office email
     const key = createHash('sha256').update(payFingerprint(v) + '|' + (v.smSignature || '') + '|' + (v.dmSignature || '')).digest('hex').slice(0, 32);
-    const inserted = await db`INSERT INTO pay_increase_forms (form_key, status, signer, sm_name, dm_name, second_label, pdf, pc, employee_id, employee_name, position, current_rate, new_rate, reason, form_date, submitted_by, submitted_by_name)
-      VALUES (${key}, 'pending', ${signer}, ${String(v.smName || '').slice(0, 80) || null}, ${String(v.dmName || '').slice(0, 80)}, ${secondLineLabel(realType, me.username)}, ${pdf}, ${String(store.pc)}, ${emp.id}, ${emp.name}, ${v.position}, ${emp.payRate}, ${Number(Number(v.newRate).toFixed(2))}, ${String(v.reason).slice(0, 600)}, ${v.date}, ${Number(authed.sub) || null}, ${myName})
+    const inserted = await db`INSERT INTO pay_increase_forms (form_key, status, signer, sm_name, dm_name, second_label, pay_basis, pdf, pc, employee_id, employee_name, position, current_rate, new_rate, reason, form_date, submitted_by, submitted_by_name)
+      VALUES (${key}, 'pending', ${signer}, ${String(v.smName || '').slice(0, 80) || null}, ${String(v.dmName || '').slice(0, 80)}, ${secondLineLabel(realType, me.username)}, ${basis}, ${pdf}, ${String(store.pc)}, ${emp.id}, ${emp.name}, ${v.position}, ${currentPay}, ${Number(Number(v.newRate).toFixed(2))}, ${String(v.reason).slice(0, 600)}, ${v.date}, ${Number(authed.sub) || null}, ${myName})
       ON CONFLICT (form_key) DO NOTHING RETURNING id`;
     const row = (await db`SELECT id, status FROM pay_increase_forms WHERE form_key = ${key}`)[0];
     // Sending the same signed form again never asks twice; a sent-back form can be sent again.

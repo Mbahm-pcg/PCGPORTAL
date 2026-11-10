@@ -11,13 +11,20 @@
 // "Director of Operations". An executive → N/A + "Vice President" for Mike, "Executive" otherwise.
 // IT is treated like a DM.
 
-// New rate must be a real raise: more than today's Paycor rate, at most $100/hr.
-export function rateProblem(currentRate, newRate) {
+// v22.74: hourly people are paid per hour; salaried people (e.g. Store Managers) per year.
+// Paycor marks them type "Salary" — its payRate is then per paycheck, annualPayRate the year.
+export const payBasisOf = (employee) => (/salar/i.test(String(employee?.payType || '')) ? 'year' : 'hour');
+export const currentPayOf = (employee) => (payBasisOf(employee) === 'year' ? employee?.annualPayRate : employee?.payRate);
+export const BASIS_SUFFIX = { hour: '/ hour', year: '/ year' };
+export const fmtPay = (n, basis = 'hour') => (Number(n) > 0 ? `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${BASIS_SUFFIX[basis] || ''}`.trim() : '');
+
+// New pay must be a real raise: more than today's Paycor pay; at most $100/hr or $500,000/yr.
+export function rateProblem(currentRate, newRate, basis = 'hour') {
   const cur = Number(currentRate), nr = Number(newRate);
-  if (!(nr > 0)) return 'Enter the new pay rate.';
-  if (!(cur > 0)) return 'Paycor has no current hourly rate for this employee.';
-  if (nr <= cur) return `The new rate has to be higher than the current $${cur.toFixed(2)}.`;
-  if (nr > 100) return 'That rate looks wrong — check it.';
+  if (!(nr > 0)) return basis === 'year' ? 'Enter the new yearly salary.' : 'Enter the new pay rate.';
+  if (!(cur > 0)) return basis === 'year' ? 'Paycor has no current salary for this employee.' : 'Paycor has no current hourly rate for this employee.';
+  if (nr <= cur) return `The new ${basis === 'year' ? 'salary' : 'rate'} has to be higher than the current ${fmtPay(cur, basis)}.`;
+  if (nr > (basis === 'year' ? 500000 : 100)) return 'That amount looks wrong — check it.';
   return null;
 }
 
@@ -29,7 +36,8 @@ export function payFormValues({ employee, pc, position, newRate, reason, date, s
     pc: employee ? String(pc || '') : '',
     employeeName: employee?.name || '',
     position: employee?.jobTitle || (employee ? String(position || '').trim() : ''),
-    currentRate: employee?.payRate ?? '',
+    currentRate: currentPayOf(employee) ?? '',
+    payBasis: payBasisOf(employee),
     newRate: newRate === '' || newRate == null ? '' : Number(newRate),
     reason: String(reason || '').trim(),
     smNa: !!smNa, secondLabel: secondLabel || 'District Manager',
@@ -42,7 +50,7 @@ export function payFormValues({ employee, pc, position, newRate, reason, date, s
 // The form's text — what the signatures vouch for (including an "N/A" Store Manager line). A
 // signature given on one version is void once any of this changes.
 export function payFingerprint(v) {
-  return [...['date', 'pc', 'employeeName', 'position', 'currentRate', 'newRate', 'reason', 'smName', 'dmName'].map(k => String(v?.[k] ?? '').trim()), v?.smNa ? 'SM:N/A' : ''].join('|');
+  return [...['date', 'pc', 'employeeName', 'position', 'currentRate', 'payBasis', 'newRate', 'reason', 'smName', 'dmName'].map(k => String(v?.[k] ?? '').trim()), v?.smNa ? 'SM:N/A' : ''].join('|');
 }
 
 // The second signature line's title for the person making the form.
@@ -94,7 +102,7 @@ export const signerCode = (role, username) => role === 'manager' ? 'sm_dm' : rol
   : role === 'executive' ? (String(username || '').toLowerCase() === 'mike.bahm' ? 'vp' : 'exec') : 'dm';
 
 export const usDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || ''); };
-const money = (n) => (Number(n) > 0 ? `$${Number(n).toFixed(2)}` : '');
+const money = (n, basis) => fmtPay(n, basis);
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export function payFileName(v, storeName) {
@@ -112,7 +120,7 @@ export function payAlertText(v, storeName, submittedBy) {
 // clientId: the store's Paycor Client ID (legal entity), for the office. approvedBy: who approved it.
 export function payEmailHtml(v, storeName, submittedBy, driveLink, clientId, approvedBy) {
   const rows = [['Employee', v.employeeName], ['Store', `${storeName} (PC ${v.pc})${clientId ? ` (Client ID ${clientId})` : ''}`], ['Position', v.position],
-    ['Current rate', money(v.currentRate)], ['New rate', money(v.newRate)], ['Reason', v.reason], ['Form date', usDate(v.date)],
+    ['Current pay', money(v.currentRate, v.payBasis)], ['New pay', money(v.newRate, v.payBasis)], ['Reason', v.reason], ['Form date', usDate(v.date)],
     ['Store Manager', v.smName], [v.secondLabel || 'District Manager', v.dmName], ['Sent by', submittedBy], ['Approved by', approvedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
 <p>A pay increase signed by the ${SIGNER_LABEL[v.signer] || 'Store Manager'}${approvedBy ? ` and approved by ${esc(approvedBy)}` : ''} is ready. The signed form is attached — please enter it in Paycor.</p>
@@ -133,7 +141,7 @@ export function approvalAlertText(kind, r, storeName, extra = {}) {
 
 export function approvalEmailHtml(v, storeName, submittedBy, link, clientId, waitingHours = 0) {
   const rows = [['Employee', v.employeeName], ['Store', `${storeName} (PC ${v.pc})${clientId ? ` (Client ID ${clientId})` : ''}`], ['Position', v.position],
-    ['Current rate', money(v.currentRate)], ['New rate', money(v.newRate)], ['Reason', v.reason], ['Form date', usDate(v.date)],
+    ['Current pay', money(v.currentRate, v.payBasis)], ['New pay', money(v.newRate, v.payBasis)], ['Reason', v.reason], ['Form date', usDate(v.date)],
     ['Store Manager', v.smName], [v.secondLabel || 'District Manager', v.dmName], ['Sent by', submittedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
 <p>${waitingHours ? `<b>Reminder:</b> this has been waiting for your approval for ${waitingHours} hour${waitingHours === 1 ? '' : 's'}. ` : ''}${esc(submittedBy || 'A manager')} sent this pay increase for your approval. Once you approve it, it goes to the office to be entered in Paycor.</p>
