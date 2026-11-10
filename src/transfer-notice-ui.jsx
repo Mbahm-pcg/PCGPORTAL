@@ -27,6 +27,26 @@ const api = async (qs = '') => {
 
 // The letter's font, fetched once per page load (for the PDF; the page uses @font-face).
 let fontsPromise = null;
+// v22.70: never download before sending. On an iPhone (especially the home-screen app) a download
+// replaces the portal with the PDF, so the page was gone before the form was ever sent, and the
+// sessionStorage login went with it — confirmed with a Director's Pay Increase, 2026-11-10. On
+// phones we don't auto-download at all: after the send, a button opens the PDF in its own tab.
+export const isPhoneLike = () => {
+  try {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true
+      || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  } catch { return false; }
+};
+// After a successful send: computers download as before; phones get a URL for the "Open the signed PDF" button.
+export function deliverPdf(doc, fileName) {
+  if (!isPhoneLike()) { doc.save(fileName); return null; }
+  return URL.createObjectURL(doc.output('blob'));
+}
+export function PdfOpenButton({ url, style }) {
+  if (!url) return null;
+  return <a href={url} target="_blank" rel="noopener" className="fin-btn" style={{ display: 'inline-block', textDecoration: 'none', ...style }}>Open the signed PDF</a>;
+}
+
 export const toB64 = (buf) => { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
 const loadFonts = () => fontsPromise || (fontsPromise = Promise.all([TRANSFER_FONT.regular, TRANSFER_FONT.italic].map(f =>
   fetch('/fonts/' + f).then(r => { if (!r.ok) throw new Error('font ' + f); return r.arrayBuffer(); }).then(toB64)))
@@ -200,9 +220,10 @@ export function TransferNotice({ th, isMobile, onBack }) {
       if (!JsPDF) throw new Error('PDF library did not load — refresh the page.');
       const [fonts, watermark] = await Promise.all([loadFonts(), loadSeal()]);
       const doc = buildTransferNoticePdf(JsPDF, fonts, values, { watermark });
-      doc.save(`Transfer-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`);
-      // v22.54: file it in Google Drive + alert the Admin · Notifications list. The download
-      // above already happened, so a failed save never costs the DM the signed letter.
+      const fileName = `Transfer-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`;
+      // v22.54: file it in Google Drive + alert the Admin · Notifications list.
+      // v22.70: send FIRST, then hand over the PDF (see deliverPdf) — even if the send fails, the
+      // signed letter is still offered, so it's never lost.
       setSaved({ state: 'saving' });
       try {
         const res = await fetch('/.netlify/functions/transfer-notice', {
@@ -211,15 +232,15 @@ export function TransferNotice({ th, isMobile, onBack }) {
         });
         const b = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
-        setSaved({ state: 'done', ...b });
-      } catch (e) { setSaved({ state: 'failed', error: e.message }); }
+        setSaved({ state: 'done', ...b, pdfUrl: deliverPdf(doc, fileName) });
+      } catch (e) { setSaved({ state: 'failed', error: e.message, pdfUrl: deliverPdf(doc, fileName) }); }
     } catch (e) { setError(e.message); }
     setBusy(false);
   };
   const savedLine = () => {
     if (!saved) return null;
     if (saved.state === 'saving') return <span style={{ color: th.muted }}>Saving to Google Drive and sending the alert…</span>;
-    if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Downloaded, but not saved to Drive: {saved.error}. Press the button again to retry.</span>;
+    if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Not saved to Drive: {saved.error}. Press the button again to retry.</span>;
     const d = saved.drive || {}, a = saved.alert || {};
     return (
       <span style={{ color: d.saved && !a.error ? '#16a34a' : '#d97706' }}>
@@ -340,7 +361,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
           {busy ? 'Saving…' : 'Save & download signed PDF'}
         </button>
       </div>
-      {saved && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginTop: '-1.4rem', marginBottom: '2rem' }}>{savedLine()}</div>}
+      {saved && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginTop: '-1.4rem', marginBottom: '2rem' }}>{savedLine()}{saved.pdfUrl && <div style={{ marginTop: '0.6rem' }}><PdfOpenButton url={saved.pdfUrl} style={{ ...S.ghost }} /></div>}</div>}
 
       {signing && (
         <SignatureModal th={th} title={signing === 'employee' ? `Employee signature — ${employee?.name || ''}` : `District Manager signature — ${dmName}`}

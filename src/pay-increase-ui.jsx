@@ -11,7 +11,7 @@
 import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles, finMoney } from './finance-ui.jsx';
-import { SignatureModal, toB64 } from './transfer-notice-ui.jsx';
+import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { buildPayIncreasePdf, PAY_FONT, PAY_CHROME, formatFormDate } from './pay-increase-pdf.mjs';
 import { rateProblem, payFormValues, payFingerprint, missingPayFields, REASON_MIN } from './pay-increase.mjs';
 
@@ -270,17 +270,19 @@ export function PayIncrease({ th, isMobile, onBack }) {
       if (!JsPDF) throw new Error('PDF library did not load — refresh the page.');
       const { fonts, images } = await loadAssets();
       const doc = buildPayIncreasePdf(JsPDF, fonts, values, images);
-      doc.save(`Pay-Increase-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`);
+      const fileName = `Pay-Increase-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`;
+      // v22.70: send FIRST, then hand over the PDF (deliverPdf) — a phone download used to replace
+      // the portal before the send happened, so the approver was never told.
       setSaved({ state: 'saving' });
-      try { setSaved({ state: 'done', ...(await call('', { values, employeeId: employee.id, pdf: doc.output('datauristring') })) }); if (pending) loadMain(); }
-      catch (e) { setSaved({ state: 'failed', error: e.message }); }
+      try { const b = await call('', { values, employeeId: employee.id, pdf: doc.output('datauristring') }); setSaved({ state: 'done', ...b, pdfUrl: deliverPdf(doc, fileName) }); if (pending) loadMain(); }
+      catch (e) { setSaved({ state: 'failed', error: e.message, pdfUrl: deliverPdf(doc, fileName) }); }
     } catch (e) { setError(e.message); }
     setBusy(false);
   };
   const savedLine = () => {
     if (!saved) return null;
     if (saved.state === 'saving') return <span style={{ color: th.muted }}>Sending for approval…</span>;
-    if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Downloaded, but not sent: {saved.error}. Press the button again to retry.</span>;
+    if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Not sent: {saved.error}. Press the button again to retry.</span>;
     if (saved.already) return <span style={{ color: '#16a34a' }}>This form was already sent, so there's nothing more to do.</span>;
     return <span style={{ color: '#16a34a' }}>Sent for approval. Once it's approved, it goes to the office{saved.notified ? '' : ' (no approver is set up yet, tell IT)'}. You'll get a notification either way.</span>;
   };
@@ -440,7 +442,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
           {busy ? 'Sending…' : 'Send for approval & download'}
         </button>
       </div>
-      {saved && saved.state !== 'decided' && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginBottom: '2rem' }}>{savedLine()}</div>}
+      {saved && saved.state !== 'decided' && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginBottom: '2rem' }}>{savedLine()}{saved.pdfUrl && <div style={{ marginTop: '0.6rem' }}><PdfOpenButton url={saved.pdfUrl} style={{ ...S.ghost }} /></div>}</div>}
       </>)}
 
       {signing && (
