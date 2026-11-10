@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { timecardHours } from './tips-report-cron-background.mjs';
+import { timecardHours } from '../netlify/functions/tips-report-cron-background.mjs';
 
 const p = (t) => ({ punchDateTime: t });
 
