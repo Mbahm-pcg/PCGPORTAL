@@ -265,6 +265,23 @@ export async function fetchAllIdentifyingData(legalEntityId) {
 
 // Same fallback chain as labor-cron.mjs's computeHoursFromPunches — not every
 // punch carries a pre-computed hours field.
+// v22.71: Paycor's timecard copy (/employees/{id}/employeePunches) is a list of individual clock
+// times — { punchDateTime, activityTypeId, ... } — with NO hours field, so punchHours() reads 0.
+// Pair them in time order: in→out, in→out (a meal break is out + back in). A trailing unmatched
+// punch (still clocked in / missing clock-out) is ignored. Only punches on busDt count.
+export function timecardHours(records, busDt) {
+  const times = (Array.isArray(records) ? records : [])
+    .map(r => String(r?.punchDateTime || ''))
+    .filter(t => t && (!busDt || t.slice(0, 10) === busDt))
+    .sort();
+  let hours = 0;
+  for (let i = 0; i + 1 < times.length; i += 2) {
+    const a = Date.parse(times[i]), b = Date.parse(times[i + 1]);
+    if (b > a && b - a < 20 * 3600e3) hours += (b - a) / 3600e3;
+  }
+  return Math.round(hours * 100) / 100;
+}
+
 export function punchHours(p) {
   if (p.hourAmount != null) return p.hourAmount;
   if (p.hoursAmount != null) return p.hoursAmount;
@@ -850,12 +867,48 @@ const MANUALLY_EXCLUDED_EMPLOYEE_IDS = new Set(MANUALLY_EXCLUDED_EMPLOYEES.map(e
 // the tip pool can be divided by hours worked, not headcount. Module-scope
 // (not a closure) so tips-report-morning-sweep.mjs can reuse it to retry a
 // specific store without re-running the whole nightly function.
+// v22.71: the raw punch feed (/legalentities/{id}/punches) came back empty or erroring for some
+// stores on 11/5–11/6/2026 while Paycor's timecard copy had everyone who worked. When the raw feed
+// fails or is empty, rebuild the day's punches from each active employee's timecard instead.
+async function timecardPunches(empList, busDt) {
+  const active = empList.filter(e => e && e.id && (e.statusData?.status || e.status) === 'Active');
+  const out = [];
+  let failed = 0;
+  for (let i = 0; i < active.length; i += 4) {
+    await Promise.all(active.slice(i, i + 4).map(async (e) => {
+      try {
+        const raw = await callPaycorProxy('employeePunches', { employeeId: e.id, startDate: busDt, endDate: busDt });
+        const body = JSON.parse(raw || '{}');
+        if (!Array.isArray(body.records) && !Array.isArray(body) && (body.Title || body.CorrelationId)) throw new Error(body.Title || 'Paycor error');
+        const hours = timecardHours(Array.isArray(body.records) ? body.records : (Array.isArray(body) ? body : []), busDt);
+        if (hours > 0) out.push({ employeeId: e.id, hourAmount: hours, fromTimecard: true });
+      } catch { failed++; }
+    }));
+  }
+  // Too many lookups failing means we can't trust a partial crew — treat it as an error.
+  if (failed > Math.max(2, active.length / 4)) throw new Error(`timecard fallback: ${failed}/${active.length} lookups failed`);
+  return out;
+}
+
 export async function fetchStoreCrew(s, busDt) {
   let crew = [], crewStatus = 'error';
   try {
-    const punchesRaw = await callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt });
     const empList = await fetchAllEmployees(s.paycor);
-    const punchData = JSON.parse(punchesRaw || '{}');
+    let punchesRaw = null, rawErr = null;
+    try { punchesRaw = await callPaycorProxy('punches', { legalEntityId: s.paycor, startDate: busDt, endDate: busDt }); }
+    catch (e) { rawErr = e; }
+    let punchData = {};
+    try { punchData = JSON.parse(punchesRaw || '{}'); } catch { punchData = {}; }
+    const rawBad = rawErr || (!Array.isArray(punchData.records) && !Array.isArray(punchData));
+    const rawEmpty = !rawBad && (Array.isArray(punchData.records) ? punchData.records : punchData).length === 0;
+    if (rawBad || rawEmpty) {
+      const fromTimecard = await timecardPunches(empList, busDt).catch(e => { console.error(`[tips-report-cron] ${s.name} timecard fallback failed:`, e.message); return null; });
+      if (fromTimecard && fromTimecard.length) {
+        console.log(`[tips-report-cron] ${s.name} ${busDt}: raw punches ${rawBad ? 'failed' : 'empty'} — used the timecard copy (${fromTimecard.length} people)`);
+        punchData = { records: fromTimecard };
+      } else if (rawErr) throw rawErr;
+      else if (fromTimecard === null) throw new Error('raw punches empty and the timecard fallback failed');
+    }
     // Paycor error responses (e.g. "Forbidden — this Access Token does not
     // have access to Legal Entity ID X", confirmed directly on Hatboro,
     // 2026-08-12) are valid parseable JSON with no `records` array at all —
