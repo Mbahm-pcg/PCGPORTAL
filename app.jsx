@@ -10,6 +10,7 @@ import { TransferNotice } from './src/transfer-notice-ui.jsx';
 import { PayIncrease } from './src/pay-increase-ui.jsx';
 import { ViolationNotice } from './src/violation-notice-ui.jsx';
 import { TimeOffRequest } from './src/time-off-request-ui.jsx';
+import { ResignationLetter } from './src/resignation-letter-ui.jsx';
 import { RemoteSignPage } from './src/remote-sign-ui.jsx';
 import { JoyLeaderboard, JoyMobileTile } from './src/joy-leaderboard-ui.jsx';
 import { isDirector, parseDistricts } from './src/director-scope.mjs';
@@ -3359,6 +3360,8 @@ const STORES_SEED = [
   // though the underlying data was never actually duplicated.
   { id:47, pc:"345222", paycor:"", legal:"Om Ganadevaya Namah LLC", name:"Allentown GS", address:"3655 Route 378", city:"Bethlehem", state:"PA", zip:"18015", isNextGen:false, baseAsset:"GS", isBaskin:false, isBridge:false, mgr:"", mgrPhone:"", email:"345222@peoplecapitalgroup.com", district:null, dmName:"", dmEmail:"", status:"Permanently Closed", closedDate:"2025-11-26", employees:0, sales:0 },
 ];
+// v22.87: "9834 Bustleton Ave, Philadelphia, PA 19114" by PC# — pre-fills the Resignation Letter's store address.
+const STORE_ADDRESSES = Object.fromEntries(STORES_SEED.map(st => [String(st.pc), [st.address, st.city, [st.state, st.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')]));
 
 const DISTRICTS_SEED = {
   1: { num:1, name:"Taylor Cormier", email:"taylor@peoplecapitalgroup.com" },
@@ -20355,6 +20358,7 @@ const NOTIFY_ICONS = {
   newHires: <><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6M16 11h6"/></>,
   transferNotice: <><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/></>,
   violationNotice: <><path d="M12 3 2.5 20h19Z"/><path d="M12 10v4M12 17h.01"/></>,
+  resignationLetter: <><path d="M6 3h9l4 4v14H6Z"/><path d="M9 8h4M9 11h7"/><path d="M8.5 17.5c1.2-2.2 2.2.6 3.4-.9 1-1.3 1.7.9 3.6-.1"/></>,
   payIncrease: <><path d="M12 20V6M7 11l5-5 5 5"/><path d="M5 20h14"/></>,
   payIncreaseApprovers: <><path d="M20 6 9 17l-5-5"/></>,
   violationApprovers: <><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></>,
@@ -20371,7 +20375,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
-  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals',
+  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -20705,7 +20709,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [notifSubTab, setNotifSubTab] = useState('project');
   // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
   // here, then kept live by each ManualNotifyListPanel's onCountChange.
-  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1' };
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1', resignationLetter: 'pcg_resignation_notify_v1' };
   const [notifCounts, setNotifCounts] = useState({});
   useEffect(() => {
     Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -20947,6 +20951,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               { id: 'transferNotice', label: 'Transfer Notice', count: notifCounts.transferNotice },
               { id: 'violationApprovers', label: 'Violation Notice approval', count: notifCounts.violationApprovers },
               { id: 'violationNotice', label: 'Violation Notice', count: notifCounts.violationNotice },
+              { id: 'resignationLetter', label: 'Resignation Letter', count: notifCounts.resignationLetter },
               { id: 'timeOffRequest', label: 'Time Off Request', count: notifCounts.timeOffRequest },
               { id: 'payIncreaseApprovers', label: 'Pay Increase approval', count: notifCounts.payIncreaseApprovers },
               { id: 'payIncrease', label: 'Pay Increase (office)', count: notifCounts.payIncrease },
@@ -21137,6 +21142,13 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_violation_notice_notify_v1" tagKey="violationNotice" onCountChange={setNotifCount('violationNotice')}
           description="These people get every signed Violation Notice (Tools · Violation Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
           smsLabel="Violation Notice SMS Numbers" />
+      )}
+      {/* Resignation Letter — full admins only. Read by resignation-letter.mjs once the employee has
+          signed: email (PDF attached) + text to this list; push + bell to anyone added by name. v22.87 */}
+      {notifSubTab === 'resignationLetter' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_resignation_notify_v1" tagKey="resignationLetter" onCountChange={setNotifCount('resignationLetter')}
+          description="These people get every signed Resignation Letter (Tools · Resignation Letter): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
+          smsLabel="Resignation Letter SMS Numbers" />
       )}
       {notifSubTab === 'transferNotice' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_transfer_notice_notify_v1" tagKey="transferNotice" onCountChange={setNotifCount('transferNotice')}
@@ -25143,6 +25155,7 @@ const HUB_SUBITEMS = {
     { id: 'terminations', label: 'Terminations' },
     { id: 'transfer-notice', label: 'Transfer Notice' },
     { id: 'violation-notice', label: 'Violation Notice' },
+    { id: 'resignation-letter', label: 'Resignation Letter' },
     { id: 'time-off-request', label: 'Time Off Request' },
     { id: 'pay-increase', label: 'Pay Increase' },
   ],
@@ -25204,6 +25217,8 @@ const TRANSFER_NOTICE_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 
 const VIOLATION_NOTICE_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
 // v22.80: Store Managers, DMs, Directors and exec request their OWN time off (user, 2026-11-11).
 const TIME_OFF_REQUEST_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
+// v22.87 Resignation Letter: same people as Violation Notice; who they can pick is scoped server-side.
+const RESIGNATION_LETTER_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
 // v22.60 Pay Increase: a Store Manager or DM makes it and signs their own line; it goes to the
 // approver (Mike) and, once approved, to the office.
 const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
@@ -31010,6 +31025,7 @@ const computeRoleTabs = (user) => {
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
+    { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
     { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
@@ -31058,6 +31074,7 @@ const computeRoleTabs = (user) => {
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
+    { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
     { id: "tasks",     label: "Tasks",     icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
     { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -31105,6 +31122,7 @@ const computeRoleTabs = (user) => {
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
+    { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
     { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
@@ -31134,6 +31152,7 @@ const computeRoleTabs = (user) => {
     { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
+    { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
     { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
@@ -32515,7 +32534,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.86";
+const APP_VERSION = "v22.88";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -58303,6 +58322,7 @@ function PCGPortal() {
               // v22.49: HR's Employee Transfer letter, filled from Paycor (name, position, PC#, wage locked).
               { id: 'transfer-notice', name: 'Transfer Notice', sub: 'Fill HR’s Employee Transfer letter from Paycor and download it as a PDF, ready to sign.', show: TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'transfer-notice'), icon: <>{ICONS.transferNotice(TOOLS)}</> },
               { id: 'violation-notice', name: 'Violation Notice', sub: 'HR’s Violation Notice with the employee filled in from Paycor, signed on screen and sent to HR.', show: VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'violation-notice'), icon: <>{ICONS.violationNotice(TOOLS)}</> },
+              { id: 'resignation-letter', name: 'Resignation Letter', sub: 'HR’s resignation letter filled in from Paycor; the employee signs here or from an emailed link, and it’s filed in Drive.', show: RESIGNATION_LETTER_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'resignation-letter'), icon: <>{ICONS.resignationLetter(TOOLS)}</> },
               { id: 'time-off-request', name: 'Time Off Request', sub: 'Request your own time off: your details and Paycor balance filled in, signed on screen and sent straight to HR.', show: TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'time-off-request'), icon: <>{ICONS.timeOffRequest(TOOLS)}</> },
               { id: 'pay-increase', name: 'Pay Increase', sub: 'HR’s Pay Increase Form filled from Paycor, signed by the Store Manager and the DM or Director, and sent to the office.', show: PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'pay-increase'), icon: <>{ICONS.payIncrease(TOOLS)}</> },
             ].filter(t => t.show);
@@ -58322,6 +58342,7 @@ function PCGPortal() {
           {tab === "terminations" && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations') && <TerminationsReport th={th} user={user} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'transfer-notice') && <TransferNotice th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "violation-notice" && VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'violation-notice') && <ViolationNotice th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
+          {tab === "resignation-letter" && RESIGNATION_LETTER_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'resignation-letter') && <ResignationLetter th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} storeAddresses={STORE_ADDRESSES} />}
           {tab === "time-off-request" && TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'time-off-request') && <TimeOffRequest th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'pay-increase') && <PayIncrease th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "pnl" && canPnl && <AdminPnL stores={openStores} th={th} user={user} drillInStore={drillInStore} onClearDrillIn={() => setDrillInStore(null)} />}

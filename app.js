@@ -85,6 +85,7 @@
     payIncrease: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6" }), /* @__PURE__ */ React.createElement("path", { d: "M8 8h6" }), /* @__PURE__ */ React.createElement("path", { d: "M8 12h3" }), /* @__PURE__ */ React.createElement("path", { d: "M18 21v-8" }), /* @__PURE__ */ React.createElement("path", { d: "M15 16l3-3 3 3" })),
     timeOffRequest: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "m9.5 13.5 5 5M14.5 13.5l-5 5" })),
     violationNotice: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 3v6h6" }), /* @__PURE__ */ React.createElement("path", { d: "M12 12v3M12 18h.01" })),
+    resignationLetter: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M6 3h9l4 4v14H6Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 8h4M9 11h7" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 17.5c1.2-2.2 2.2.6 3.4-.9 1-1.3 1.7.9 3.6-.1" })),
     terminations: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6" }), /* @__PURE__ */ React.createElement("path", { d: "M16 18h6" }), /* @__PURE__ */ React.createElement("path", { d: "M19 15l3 3-3 3" }))
   };
   var BTN = {
@@ -2408,18 +2409,18 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     }
     doc.setFontSize(11);
-    const R2 = PAY_BOXES.reason;
-    const rowsY = [R2.rows[0], R2.rows[1], R2.rows[2], R2.bottom];
+    const R3 = PAY_BOXES.reason;
+    const rowsY = [R3.rows[0], R3.rows[1], R3.rows[2], R3.bottom];
     if (String(values.reason || "").trim()) {
       let s = 10, lines;
       for (; ; ) {
         doc.setFontSize(s);
-        lines = wrap(doc, values.reason, R2.right - R2.left - 12);
+        lines = wrap(doc, values.reason, R3.right - R3.left - 12);
         if (lines.length <= 3 || s <= 7) break;
         s -= 0.5;
       }
       if (lines.length > 3) lines = [...lines.slice(0, 2), lines.slice(2).join(" ")];
-      lines.slice(0, 3).forEach((ln, i) => doc.text(ln, R2.left + 6, rowsY[i + 1] - 4.5));
+      lines.slice(0, 3).forEach((ln, i) => doc.text(ln, R3.left + 6, rowsY[i + 1] - 4.5));
     }
     const O2 = PAY_BOXES.office;
     const cellX = O2.split + (O2.right - O2.split) / 2;
@@ -3538,12 +3539,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBackBusy(null);
     };
     if (listView && view === "letter") {
-      const L2 = letter;
+      const L3 = letter;
       const set = (patch) => setLetter((x) => ({ ...x, ...patch }));
-      const phoneDigits = L2.phone.replace(/\D/g, "");
+      const phoneDigits = L3.phone.replace(/\D/g, "");
       const okPhone = phoneDigits.length === 10 || phoneDigits.length === 11 && phoneDigits[0] === "1";
-      const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(L2.email.trim());
-      const need = [...!L2.file ? ["the letter"] : [], ...!picked ? ["the employee"] : [], ...!L2.date ? ["the letter date"] : [], ...!okEmail ? ["the employee's email"] : [], ...!okPhone ? ["the employee's cell"] : []];
+      const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(L3.email.trim());
+      const need = [...!L3.file ? ["the letter"] : [], ...!picked ? ["the employee"] : [], ...!L3.date ? ["the letter date"] : [], ...!okEmail ? ["the employee's email"] : [], ...!okPhone ? ["the employee's cell"] : []];
       const takeFile = async (file) => {
         if (!file) return;
         if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(file.type)) {
@@ -3563,10 +3564,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         set({ file: { name: file.name, type: file.type, size: file.size, data }, error: null, result: null });
       };
       const sendLetter = async () => {
-        if (need.length || L2.busy) return;
+        if (need.length || L3.busy) return;
         set({ busy: true, error: null, result: null });
         try {
-          const b = await call2({ action: "uploadLetter", employeeId: picked.id, pc: picked.pc, letterDate: L2.date, email: L2.email.trim(), phone: L2.phone, file: { name: L2.file.name, type: L2.file.type, data: L2.file.data } });
+          const b = await call2({ action: "uploadLetter", employeeId: picked.id, pc: picked.pc, letterDate: L3.date, email: L3.email.trim(), phone: L3.phone, file: { name: L3.file.name, type: L3.file.type, data: L3.file.data } });
           const s = b.sign || {};
           set({ busy: false, result: b.already ? "This letter was already sent." : s.sent ? `Sent. ${picked.name} was emailed the letter with a link to acknowledge it${s.texted ? ", plus a reminder text" : ""}${s.textNote ? ` (${s.textNote.toLowerCase()})` : ""}. Once they sign, it's filed in Google Drive and you'll be told. It's under Waiting on signatures until then.` : "Saved, but the email to the employee did not go through. Use Resend link under Waiting on signatures." });
           loadMain();
@@ -3578,12 +3579,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 760, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
         setView("list");
         loadMain();
-      }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Violation Notices"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Upload a warning letter"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Drop in your letter on company letterhead. It's emailed to the employee with a link to read it and sign an acknowledgment page that's added at the end. Once they sign, the letter and their acknowledgment are filed together in the Violation Notices Google Drive under their store."), L2.error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, L2.error), L2.result && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, L2.result), /* @__PURE__ */ React.createElement(
+      }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Violation Notices"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Upload a warning letter"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Drop in your letter on company letterhead. It's emailed to the employee with a link to read it and sign an acknowledgment page that's added at the end. Once they sign, the letter and their acknowledgment are filed together in the Violation Notices Google Drive under their store."), L3.error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, L3.error), L3.result && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, L3.result), /* @__PURE__ */ React.createElement(
         "label",
         {
           onDragOver: (e) => {
             e.preventDefault();
-            if (!L2.drag) set({ drag: true });
+            if (!L3.drag) set({ drag: true });
           },
           onDragLeave: () => set({ drag: false }),
           onDrop: (e) => {
@@ -3591,14 +3592,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
             set({ drag: false });
             takeFile(e.dataTransfer.files && e.dataTransfer.files[0]);
           },
-          style: { display: "block", cursor: "pointer", textAlign: "center", padding: L2.file ? "1.1rem" : "2.4rem 1rem", borderRadius: 14, border: `2px dashed ${L2.drag ? O : th.cardBorder}`, background: L2.drag ? "rgba(255,103,31,0.06)" : th.card, color: th.text, marginBottom: "1rem", transition: "border-color 0.15s, background-color 0.15s" }
+          style: { display: "block", cursor: "pointer", textAlign: "center", padding: L3.file ? "1.1rem" : "2.4rem 1rem", borderRadius: 14, border: `2px dashed ${L3.drag ? O : th.cardBorder}`, background: L3.drag ? "rgba(255,103,31,0.06)" : th.card, color: th.text, marginBottom: "1rem", transition: "border-color 0.15s, background-color 0.15s" }
         },
         /* @__PURE__ */ React.createElement("input", { type: "file", accept: "application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png", style: S.srOnly, onChange: (e) => {
           takeFile(e.target.files && e.target.files[0]);
           e.target.value = "";
         } }),
-        L2.file ? /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", null, L2.file.name), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", fmtSize2(L2.file.size), ")"), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: O, fontSize: "0.85rem", marginTop: 4, fontWeight: 700 } }, "Drop or click to use a different file")) : /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: "1.05rem" } }, "Drag and drop the letter here"), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.88rem", marginTop: 4 } }, "or click to choose it. PDF, or a JPG / PNG photo, up to 4 MB"))
-      ), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", display: "grid", gap: "0.9rem", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(2, minmax(0,1fr))", overflow: "visible" } }, /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, gridColumn: isMobile ? void 0 : "1 / -1" } }, "Employee (from Paycor)", /* @__PURE__ */ React.createElement("span", { className: "vn-paper", style: { background: "transparent", fontSize: "0.95rem" } }, empSearch), picked && /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, picked.name, picked.jobTitle ? `, ${picked.jobTitle}` : "", " at ", storeName(picked.pc), " (PC ", picked.pc, ")")), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Date on the letter", /* @__PURE__ */ React.createElement("input", { type: "date", style: S.input, value: L2.date, max: todayIso4(), onChange: (e) => set({ date: e.target.value }) })), /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's email (the letter goes here)", /* @__PURE__ */ React.createElement("input", { type: "email", inputMode: "email", autoComplete: "off", style: S.input, value: L2.email, maxLength: 120, onChange: (e) => set({ email: e.target.value }) })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's cell (reminder text + sign-in check)", /* @__PURE__ */ React.createElement("input", { type: "tel", inputMode: "tel", autoComplete: "off", style: S.input, value: L2.phone, maxLength: 20, placeholder: "(215) 555-0100", onChange: (e) => set({ phone: e.target.value }) }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", margin: "1rem 0 2rem" } }, need.length > 0 && !L2.busy && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", need.join(", ")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: !!need.length || L2.busy, onClick: sendLetter, style: { ...S.primary, opacity: need.length || L2.busy ? 0.5 : 1, cursor: need.length || L2.busy ? "not-allowed" : "pointer" } }, L2.busy ? "Sending\u2026" : "Send to the employee")));
+        L3.file ? /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", null, L3.file.name), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", fmtSize2(L3.file.size), ")"), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: O, fontSize: "0.85rem", marginTop: 4, fontWeight: 700 } }, "Drop or click to use a different file")) : /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: "1.05rem" } }, "Drag and drop the letter here"), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.88rem", marginTop: 4 } }, "or click to choose it. PDF, or a JPG / PNG photo, up to 4 MB"))
+      ), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", display: "grid", gap: "0.9rem", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(2, minmax(0,1fr))", overflow: "visible" } }, /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, gridColumn: isMobile ? void 0 : "1 / -1" } }, "Employee (from Paycor)", /* @__PURE__ */ React.createElement("span", { className: "vn-paper", style: { background: "transparent", fontSize: "0.95rem" } }, empSearch), picked && /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, picked.name, picked.jobTitle ? `, ${picked.jobTitle}` : "", " at ", storeName(picked.pc), " (PC ", picked.pc, ")")), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Date on the letter", /* @__PURE__ */ React.createElement("input", { type: "date", style: S.input, value: L3.date, max: todayIso4(), onChange: (e) => set({ date: e.target.value }) })), /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's email (the letter goes here)", /* @__PURE__ */ React.createElement("input", { type: "email", inputMode: "email", autoComplete: "off", style: S.input, value: L3.email, maxLength: 120, onChange: (e) => set({ email: e.target.value }) })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's cell (reminder text + sign-in check)", /* @__PURE__ */ React.createElement("input", { type: "tel", inputMode: "tel", autoComplete: "off", style: S.input, value: L3.phone, maxLength: 20, placeholder: "(215) 555-0100", onChange: (e) => set({ phone: e.target.value }) }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", margin: "1rem 0 2rem" } }, need.length > 0 && !L3.busy && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", need.join(", ")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: !!need.length || L3.busy, onClick: sendLetter, style: { ...S.primary, opacity: need.length || L3.busy ? 0.5 : 1, cursor: need.length || L3.busy ? "not-allowed" : "pointer" } }, L3.busy ? "Sending\u2026" : "Send to the employee")));
     }
     if (employees === null && !error) return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026"));
     if (listView && view === "list") {
@@ -4077,9 +4078,412 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
 
-  // src/remote-sign-ui.jsx
-  var { useState: useState6, useEffect: useEffect6, useRef: useRef4 } = React;
+  // src/resignation-letter.mjs
+  var clean3 = (s, n = 160) => String(s ?? "").trim().slice(0, n);
+  var has4 = (v, k) => !!String(v?.[k] ?? "").trim();
+  function resignationValues(f = {}) {
+    return {
+      employeeName: clean3(f.employee?.name, 80),
+      position: clean3(f.employee?.jobTitle || f.position, 80),
+      pc: clean3(f.employee ? f.pc : "", 10),
+      storeAddress: clean3(f.storeAddress, 160),
+      lastDay: clean3(f.lastDay, 10),
+      date: clean3(f.date, 10),
+      supervisorName: clean3(f.supervisorName, 80),
+      supervisorTitle: clean3(f.supervisorTitle, 60),
+      employeeSignature: f.employeeSig?.image || "",
+      employeeSignedDate: f.employeeSig?.date || "",
+      supervisorSignature: f.supervisorSig?.image || "",
+      supervisorSignedDate: f.supervisorSig?.date || ""
+    };
+  }
+  function resignationFingerprint(v) {
+    return ["employeeName", "position", "pc", "storeAddress", "lastDay", "date", "supervisorName", "supervisorTitle"].map((k) => String(v?.[k] ?? "").trim()).join("|");
+  }
+  function missingResignationFields(v) {
+    const out = [];
+    if (!has4(v, "employeeName")) out.push("Employee");
+    if (!has4(v, "storeAddress")) out.push("Store address");
+    if (!has4(v, "lastDay")) out.push("Last day of employment");
+    if (!has4(v, "supervisorName")) out.push("Supervisor name");
+    if (!has4(v, "supervisorTitle")) out.push("Supervisor title");
+    if (!has4(v, "supervisorSignature")) out.push("Supervisor signature");
+    return out;
+  }
+  var usDate2 = (iso) => {
+    const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || "");
+  };
+
+  // src/resignation-letter-pdf.mjs
+  var RES_FONT = { family: "Caladea", regular: "Caladea-Regular.ttf", bold: "Caladea-Bold.ttf" };
+  var RES_CHROME = { logo: { src: "pcg-logo-form.jpg", x: 246, y: 26, w: 120, h: 62 }, watermark: { x: 71, y: 175, size: 470, src: "pcg-watermark.png" } };
+  var L2 = 72;
+  var R2 = 540;
+  var SIG = { x0: 72, x1: 276, dx0: 316, dx1: 430 };
+  var RES_Y = { sig: 452, print: 494, supSig: 610, supPrint: 652 };
+  var RES_SPOTS = { employee: { x0: SIG.x0, x1: SIG.x1, baseline: RES_Y.sig, dateX: (SIG.dx0 + SIG.dx1) / 2, dateY: RES_Y.sig - 3, auditY: 22, label: "Employee" } };
+  function buildResignationPdf(jsPDF, fonts, v = {}, opts = {}) {
+    const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
+    const F = RES_FONT.family;
+    doc.addFileToVFS(RES_FONT.regular, fonts.regular);
+    doc.addFont(RES_FONT.regular, F, "normal");
+    doc.addFileToVFS(RES_FONT.bold, fonts.bold);
+    doc.addFont(RES_FONT.bold, F, "bold");
+    doc.setProperties({ title: "Resignation Letter", creator: "PCG Portal" });
+    const W2 = RES_CHROME.watermark;
+    if (opts.watermark) doc.addImage(opts.watermark, "PNG", W2.x, W2.y, W2.size, W2.size, "seal", "FAST");
+    const Lg = RES_CHROME.logo;
+    if (opts.logo) doc.addImage(opts.logo, "JPEG", Lg.x, Lg.y, Lg.w, Lg.h, "logo", "FAST");
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(F, "normal");
+    doc.setFontSize(12);
+    ["People Capital Group LLC", "Human Resources Department", "2200 Michener St STE 4 Philadelphia, PA 19115"].forEach((t, i) => doc.text(t, L2, 128 + i * 16));
+    doc.text("Dear HR Administrator:", L2, 206);
+    const segs = [
+      ["Please accept this letter as a formal notification that I am voluntarily resigning from my position as a Dunkin\u2019 Donuts"],
+      [v.position || " ", 1],
+      ["(position) at PC#"],
+      [v.pc || " ", 1],
+      [", located at"],
+      [v.storeAddress || " ", 1],
+      ["(store address). I understand that two weeks\u2019 notice is standard. I would appreciate it if you release me from my employment with the Company effective"],
+      [usDate2(v.lastDay) || " ", 1],
+      ["(last day of employment)."]
+    ];
+    const words = [];
+    for (const [t, u] of segs) {
+      if (u) words.push({ t: String(t).trim() || "        ", u: true });
+      else for (const w of String(t).split(/\s+/).filter(Boolean)) words.push({ t: w, u: false });
+    }
+    let x = L2, y = 254;
+    const lh = 21, space = doc.getTextWidth(" ");
+    words.forEach((w) => {
+      const glue = !w.u && /^[,.]/.test(w.t);
+      const width = doc.getTextWidth(w.t) + (w.u ? 8 : 0);
+      if (x > L2 && x + (glue ? 0 : space) + width > R2) {
+        x = L2;
+        y += lh;
+      } else if (x > L2 && !glue) x += space;
+      else if (glue) x -= 3;
+      if (w.u) {
+        doc.text(w.t, x + 4, y);
+        doc.setLineWidth(0.6);
+        doc.line(x, y + 2.5, x + width, y + 2.5);
+      } else doc.text(w.t, x, y);
+      x += width;
+    });
+    doc.text("Sincerely,", L2, 392);
+    const sigBlock = (yy, image, date, sigLabel, dateLabel2, title = "") => {
+      doc.setLineWidth(0.7);
+      doc.line(SIG.x0, yy, SIG.x1, yy);
+      doc.line(SIG.dx0, yy, SIG.dx1, yy);
+      doc.setFontSize(12);
+      doc.text(sigLabel, SIG.x0, yy + 14);
+      doc.text(dateLabel2, SIG.dx0 + 20, yy + 14);
+      let tw = 0;
+      if (title) {
+        doc.setFontSize(9);
+        tw = doc.getTextWidth(title) + 6;
+        doc.text(title, SIG.x1 - 2, yy - 3, { align: "right" });
+        doc.setFontSize(12);
+      }
+      if (image) {
+        const p = doc.getImageProperties(image);
+        const s = Math.min((SIG.x1 - SIG.x0 - 8 - tw) / p.width, 30 / p.height);
+        doc.addImage(image, "PNG", SIG.x0 + 4, yy - 1 - p.height * s, p.width * s, p.height * s, void 0, "FAST");
+      }
+      if (date) doc.text(usDate2(date), (SIG.dx0 + SIG.dx1) / 2, yy - 3, { align: "center" });
+    };
+    const printBlock = (yy, name, label) => {
+      doc.setLineWidth(0.7);
+      doc.line(SIG.x0, yy, SIG.x1 + 60, yy);
+      doc.setFontSize(12);
+      doc.text(label, SIG.x0, yy + 14);
+      if (name) doc.text(name, SIG.x0 + 4, yy - 4);
+    };
+    sigBlock(RES_Y.sig, v.employeeSignature, v.employeeSignature ? v.employeeSignedDate : "", "(Signature)", "(Date)");
+    printBlock(RES_Y.print, v.employeeName, "(Print Name)");
+    doc.text("Acknowledged by:", L2, 568);
+    sigBlock(RES_Y.supSig, v.supervisorSignature, v.supervisorSignature ? v.supervisorSignedDate : "", "(Supervisor Signature / Title)", "(Date)", v.supervisorTitle ? `/ ${v.supervisorTitle}` : "");
+    printBlock(RES_Y.supPrint, v.supervisorName, "(Supervisor - Print Name)");
+    return doc;
+  }
+
+  // src/resignation-letter-ui.jsx
+  var { useState: useState6, useEffect: useEffect6 } = React;
+  var todayIso6 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  var FN3 = "/.netlify/functions/resignation-letter";
   var call4 = async (body) => {
+    const res = await fetch(FN3, { method: body ? "POST" : "GET", credentials: "include", headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() }, body: body ? JSON.stringify(body) : void 0 });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+    return b;
+  };
+  var assetsPromise4 = null;
+  var fetchB644 = (path) => fetch(path).then((r) => {
+    if (!r.ok) throw new Error("load " + path);
+    return r.arrayBuffer();
+  }).then(toB64);
+  var loadAssets4 = () => assetsPromise4 || (assetsPromise4 = Promise.all([fetchB644("/fonts/" + RES_FONT.regular), fetchB644("/fonts/" + RES_FONT.bold), fetchB644("/" + RES_CHROME.watermark.src), fetchB644("/" + RES_CHROME.logo.src)]).then(([regular, bold, seal, logo]) => ({ fonts: { regular, bold }, watermark: "data:image/png;base64," + seal, logo: "data:image/jpeg;base64," + logo })).catch((e) => {
+    assetsPromise4 = null;
+    throw e;
+  }));
+  var INK5 = "#111";
+  var FILL4 = "#fdf3ea";
+  var CSS2 = `
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
+.rl-paper { font-family: 'Caladea', Cambria, Georgia, serif; color: ${INK5}; background: #fff; }
+.rl-paper p { margin: 0; }
+.rl-blank { font: inherit; color: ${INK5}; border: none; border-bottom: 1px solid ${INK5}; border-radius: 0; background: ${FILL4}; padding: 0 0.3em; min-height: 1.4em; line-height: 1.4; text-align: center; -webkit-appearance: none; appearance: none; max-width: 100%; }
+.rl-blank::placeholder { color: #9a8f86; font-style: italic; }
+.rl-locked { display: inline-block; border-bottom: 1px solid ${INK5}; padding: 0 0.3em; text-align: center; line-height: 1.4; min-width: 8em; }
+.rl-locked.rl-empty { color: #9a8f86; font-style: italic; }
+.rl-when { color: #9a8f86; font-style: italic; font-size: 0.85em; }
+.rl-sig { display: grid; grid-template-columns: minmax(0, 22em) minmax(0, 8em); gap: 0.4em 2.4em; align-items: end; margin-top: 1.6em; }
+.rl-line { border-bottom: 1px solid ${INK5}; min-height: 2.5em; display: flex; align-items: flex-end; }
+.rl-cap { font-size: 0.92em; }
+.rl-sigbtn { white-space: nowrap; font: inherit; font-family: ${FONTS.body}; font-size: 0.8rem; color: ${O}; font-weight: 700; background: ${FILL4}; border: 1px dashed ${O}; border-radius: 6px; padding: 0.25rem 0.65rem; margin: 0 0 0.2rem 0.2rem; cursor: pointer; }
+.rl-sigimg { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: flex-end; }
+.rl-check { display: inline-flex; align-items: center; gap: 0.35em; cursor: pointer; font-family: ${FONTS.body}; font-size: 0.82rem; }
+.rl-check input { width: 1.05em; height: 1.05em; accent-color: ${O}; cursor: pointer; }
+.rl-blank:focus-visible, .rl-sigbtn:focus-visible, .rl-sigimg:focus-visible, .rl-check input:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }`;
+  var Locked3 = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `rl-locked${value ? "" : " rl-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
+  function ResignationLetter({ th, isMobile, onBack, storeAddresses = {} }) {
+    const S = finStyles(th);
+    const [stores, setStores] = useState6([]);
+    const [employees, setEmployees] = useState6(null);
+    const [error, setError] = useState6(null);
+    const [query, setQuery] = useState6("");
+    const [listOpen, setListOpen] = useState6(false);
+    const [picked, setPicked] = useState6(null);
+    const [storeAddress, setStoreAddress] = useState6("");
+    const [lastDay, setLastDay] = useState6("");
+    const [date] = useState6(todayIso6());
+    const [supervisorName, setSupervisorName] = useState6("");
+    const [supervisorTitle, setSupervisorTitle] = useState6("");
+    const [remote, setRemoteState] = useState6({ on: false, phone: "", email: "" });
+    const setRemote = (patch) => setRemoteState((r) => ({ ...r, ...patch }));
+    const [sigs, setSigs] = useState6({});
+    const [signing, setSigning] = useState6(null);
+    const [busy, setBusy] = useState6(false);
+    const [saved, setSaved] = useState6(null);
+    const [lists, setLists] = useState6({ waiting: [], complete: [] });
+    const [seeAll, setSeeAll] = useState6(false);
+    const [view, setView] = useState6("list");
+    const [listTab, setListTab] = useState6("waiting");
+    const [viewing, setViewing] = useState6(null);
+    const [msg, setMsg] = useState6(null);
+    const [rowBusy, setRowBusy] = useState6(null);
+    const loadMain = () => call4().then((b) => {
+      setStores(b.stores || []);
+      setEmployees(b.employees || []);
+      setSupervisorName((s) => s || b.myName || "");
+      setSupervisorTitle((s) => s || b.myTitle || "");
+      if (b.rosterError) setError(b.rosterError);
+      setSeeAll(!!b.seeAll);
+      setLists({ waiting: b.waiting || [], complete: b.complete || [] });
+    }).catch((e) => {
+      setError(e.message);
+      setEmployees([]);
+    });
+    useEffect6(() => {
+      loadMain();
+    }, []);
+    const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
+    const form = { employee: picked, pc: picked?.pc, storeAddress, lastDay, date, supervisorName, supervisorTitle };
+    const base = resignationValues(form);
+    const fp = resignationFingerprint(base);
+    const sigOk = (k) => sigs[k] && sigs[k].fp === fp ? sigs[k] : null;
+    const voided = Object.keys(sigs).some((k) => sigs[k] && sigs[k].fp !== fp);
+    const values = resignationValues({ ...form, employeeSig: sigOk("employee"), supervisorSig: sigOk("supervisor") });
+    const canSign = !missingResignationFields({ ...base, supervisorSignature: "x" }).length;
+    const remoteOn = remote.on && !sigOk("employee");
+    const phoneOk = (p) => {
+      const d = p.replace(/\D/g, "");
+      return d.length === 10 || d.length === 11 && d[0] === "1";
+    };
+    const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+    const missing = [
+      ...missingResignationFields(values),
+      ...!values.employeeSignature && !remoteOn ? ["Employee signature (or email them a link)"] : [],
+      ...remoteOn && !emailOk(remote.email) ? ["Employee's email for the signing link"] : [],
+      ...remoteOn && !phoneOk(remote.phone) ? ["Employee's cell number"] : []
+    ];
+    const ready = !missing.length && !busy;
+    useEffect6(() => {
+      setSaved(null);
+    }, [fp]);
+    const q = query.trim().toLowerCase();
+    const matches = q && employees ? employees.filter((e) => e.name.toLowerCase().includes(q) || storeName(e.pc).toLowerCase().includes(q) || e.pc.includes(q)).slice(0, 40) : [];
+    const pick = (e) => {
+      setPicked(e);
+      setQuery(e.name);
+      setListOpen(false);
+      setStoreAddress(storeAddresses[String(e.pc)] || "");
+    };
+    const reset = () => {
+      setPicked(null);
+      setQuery("");
+      setStoreAddress("");
+      setLastDay("");
+      setSigs({});
+      setRemoteState({ on: false, phone: "", email: "" });
+      setSaved(null);
+    };
+    const send = async () => {
+      if (!ready) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const JsPDF = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
+        if (!JsPDF) throw new Error("PDF library did not load \u2014 refresh the page.");
+        const assets = await loadAssets4();
+        const doc = buildResignationPdf(JsPDF, assets.fonts, values, { watermark: assets.watermark, logo: assets.logo });
+        const fileName = `Resignation-Letter-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
+        setSaved({ state: "saving" });
+        try {
+          const b = await call4({ values, employeeId: picked.id, pdf: doc.output("datauristring"), remoteSign: remoteOn ? { phone: remote.phone, email: remote.email.trim() } : null });
+          setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
+          loadMain();
+        } catch (e) {
+          setSaved({ state: "failed", error: e.message, pdfUrl: deliverPdf(doc, fileName) });
+        }
+      } catch (e) {
+        setError(e.message);
+      }
+      setBusy(false);
+    };
+    const savedLine = () => {
+      if (!saved) return null;
+      if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Saving and sending\u2026");
+      if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Not saved: ", saved.error, ". Press the button again to retry.");
+      if (saved.status === "signed") {
+        const d = saved.drive || {}, a = saved.alert || {};
+        return /* @__PURE__ */ React.createElement("span", { style: { color: d.saved ? "#16a34a" : "#d97706" } }, d.saved ? "Signed and filed in Google Drive" : `Signed, but not filed in Google Drive yet (${d.error || "error"}). Retry it from Complete`, a.recipients ? "; HR was alerted." : ".");
+      }
+      const s = saved.sign || {};
+      return /* @__PURE__ */ React.createElement("span", { style: { color: s.sent ? s.textNote ? "#d97706" : "#16a34a" : "#dc2626" } }, s.error ? `Saved, but the signing link was not sent: ${s.error}. Use Resend link under Waiting on signature.` : s.already ? "The signing link was just sent." : s.sent ? `Saved. Signing link emailed to ${picked?.name || "the employee"} (${s.email})${s.texted ? `, with a reminder text to ${s.phone}` : ""}. It expires ${new Date(s.expiresAt).toLocaleDateString("en-US")}. Once they sign it's filed and you're told.${s.textNote ? ` ${s.textNote}.` : ""}` : "Saved, but the signing email did not go through. Use Resend link under Waiting on signature.");
+    };
+    const rowAction = async (item, action) => {
+      setRowBusy(item.id);
+      setMsg(null);
+      try {
+        const b = await call4({ action, id: item.id });
+        if (action === "resendLink") setMsg({ tone: b.sign?.sent ? "success" : "error", text: b.sign?.sent ? `New signing link emailed to ${item.employeeName}${b.sign.texted ? ", with a reminder text" : ""}. The old link no longer works.` : "The signing email did not go through." });
+        else setMsg({ tone: b.ok ? "success" : "error", text: b.ok ? `Filed ${item.employeeName}'s letter in Google Drive.` : `Still could not file it: ${b.drive?.error || "error"}.` });
+        loadMain();
+      } catch (e) {
+        setMsg({ tone: "error", text: e.message });
+      }
+      setRowBusy(null);
+    };
+    if (employees === null && !error) return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Resignation Letter"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026"));
+    if (view === "list") {
+      const day = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const rowStyle = { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", textAlign: "left", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body };
+      const who = (f) => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, f.position ? `, ${f.position}` : ""));
+      const items = listTab === "waiting" ? lists.waiting : lists.complete;
+      return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS2), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Resignation Letter"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "HR's resignation letter, filled in from Paycor. The employee signs here or from an emailed link, you sign as acknowledged, and it's filed in Google Drive under their store and name. ", seeAll ? "You see every letter." : "You see the letters you sent."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), msg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: msg.tone }, msg.text), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "Resignation letters", style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, [["waiting", `Waiting on signature${lists.waiting.length ? ` (${lists.waiting.length})` : ""}`], ["complete", "Complete"]].map(([k, label]) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: k,
+          type: "button",
+          role: "tab",
+          "aria-selected": listTab === k,
+          className: "fin-btn",
+          onClick: () => setListTab(k),
+          style: { ...S.ghost, minHeight: 36, padding: "0.4rem 0.95rem", background: listTab === k ? O : th.card3, color: listTab === k ? "#fff" : th.text }
+        },
+        label
+      ))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
+        reset();
+        setMsg(null);
+        setView("form");
+      } }, "Start a resignation letter")), items.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, items.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Last day ", usDate2(f.lastDay), ". ", seeAll ? `From ${f.submittedBy}, ` : "Sent ", day(f.createdAt), listTab === "waiting" ? ": waiting on the employee to sign from their email link" : f.driveError && !f.driveLink ? ": signed, NOT filed in Google Drive yet" : f.signedAt ? `: signed ${day(f.signedAt)}` : "")), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View"), listTab === "waiting" && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: rowBusy === f.id, onClick: () => rowAction(f, "resendLink"), style: { ...S.link, color: O } }, rowBusy === f.id ? "Sending\u2026" : "Resend link"), listTab === "complete" && f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"), listTab === "complete" && !f.driveLink && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: rowBusy === f.id, onClick: () => rowAction(f, "refile"), style: { ...S.link, color: O } }, rowBusy === f.id ? "Filing\u2026" : "Retry filing"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, listTab === "waiting" ? "Nothing waiting on a signature." : "No signed resignation letters yet."), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `${FN3}?pdf=${viewing.id}`, title: `Resignation letter for ${viewing.employeeName}`, onClose: () => setViewing(null) }));
+    }
+    const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "rl-blank",
+        style: { width: isMobile ? "14em" : "16em" },
+        value: query,
+        role: "combobox",
+        "aria-expanded": listOpen && matches.length > 0,
+        "aria-controls": "rl-emp-list",
+        autoComplete: "off",
+        "aria-label": "Employee name",
+        placeholder: employees ? "Search employee name" : "Loading from Paycor\u2026",
+        disabled: !employees,
+        onChange: (e) => {
+          setQuery(e.target.value);
+          setListOpen(true);
+          if (picked) setPicked(null);
+        },
+        onFocus: () => setListOpen(true),
+        onBlur: () => setTimeout(() => setListOpen(false), 150),
+        onKeyDown: (e) => {
+          if (e.key === "Enter" && matches[0]) {
+            e.preventDefault();
+            pick(matches[0]);
+          }
+          if (e.key === "Escape") setListOpen(false);
+        }
+      }
+    ), listOpen && matches.length > 0 && /* @__PURE__ */ React.createElement("span", { id: "rl-emp-list", role: "listbox", style: { position: "absolute", zIndex: 30, left: 0, top: "100%", marginTop: 4, width: "min(420px, 82vw)", maxHeight: 300, overflowY: "auto", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.15)", textAlign: "left" } }, matches.map((e) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: e.pc + e.id,
+        type: "button",
+        role: "option",
+        "aria-selected": "false",
+        className: "fin-btn",
+        onMouseDown: (ev) => ev.preventDefault(),
+        onClick: () => pick(e),
+        style: { display: "flex", width: "100%", justifyContent: "space-between", gap: "0.8rem", padding: "0.6rem 0.9rem", background: "none", border: "none", borderBottom: `1px solid ${th.cardBorder}`, color: th.text, textAlign: "left", cursor: "pointer", fontFamily: FONTS.body, fontSize: "0.88rem" }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, e.name, e.jobTitle && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \u2014 ", e.jobTitle)),
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, whiteSpace: "nowrap" } }, storeName(e.pc), " \xB7 ", e.pc)
+    ))));
+    const sigLine = (key, label) => {
+      const s = sigOk(key);
+      if (key === "employee" && remoteOn) return /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.2em", paddingLeft: "0.4em", color: "#6b6158", fontStyle: "italic" } }, "Will sign by email link");
+      if (s) return /* @__PURE__ */ React.createElement("button", { type: "button", className: "rl-sigimg", onClick: () => setSigning(key), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: s.image, alt: `${label} signature`, style: { maxHeight: "2.3em", maxWidth: "12em", objectFit: "contain" } }));
+      return /* @__PURE__ */ React.createElement("button", { type: "button", className: "rl-sigbtn", disabled: !canSign, onClick: () => setSigning(key), style: { opacity: canSign ? 1 : 0.45, cursor: canSign ? "pointer" : "not-allowed" } }, canSign ? `Tap to sign \u2014 ${label}` : "Fill in the letter first");
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 820, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS2), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
+      setView("list");
+      loadMain();
+    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Resignation Letters"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Resignation Letter"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Pick the employee (their position and PC# come from Paycor), check the store address and enter their last day. They sign here, or from an emailed link if they aren't there, and you sign as acknowledged. Once they've signed it's filed in Google Drive."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The letter changed after it was signed, so those signatures no longer count. Sign again."), employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "There's no one you can pick yet. If you're a Store Manager, ask IT to link your account to your store."), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "0.9rem 1.1rem", marginBottom: "1rem", overflow: "visible" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee who is resigning (from Paycor)", /* @__PURE__ */ React.createElement("span", { className: "rl-paper", style: { background: "transparent", fontSize: "0.95rem" } }, empSearch), picked && /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, picked.name, picked.jobTitle ? `, ${picked.jobTitle}` : "", " at ", storeName(picked.pc), " (PC ", picked.pc, ")"))), /* @__PURE__ */ React.createElement("div", { className: "rl-paper", style: {
+      borderRadius: 6,
+      boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
+      padding: isMobile ? "1.2rem 1rem 1.6rem" : "2rem 3.2rem 2.6rem",
+      fontSize: isMobile ? "14.5px" : "15.5px",
+      lineHeight: 1.6,
+      marginBottom: "1.2rem",
+      backgroundImage: `url('/${RES_CHROME.watermark.src}')`,
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "center 45%",
+      backgroundSize: "72%"
+    } }, /* @__PURE__ */ React.createElement("img", { src: `/${RES_CHROME.logo.src}`, alt: "People Capital Group", style: { display: "block", height: 64, margin: "0 auto 1.4em" } }), /* @__PURE__ */ React.createElement("p", null, "People Capital Group LLC"), /* @__PURE__ */ React.createElement("p", null, "Human Resources Department"), /* @__PURE__ */ React.createElement("p", null, "2200 Michener St STE 4 Philadelphia, PA 19115"), /* @__PURE__ */ React.createElement("p", { style: { margin: "1.6em 0 1.2em" } }, "Dear HR Administrator:"), /* @__PURE__ */ React.createElement("p", { style: { lineHeight: 2.1 } }, "Please accept this letter as a formal notification that I am voluntarily resigning from my position as a Dunkin' Donuts", " ", /* @__PURE__ */ React.createElement(Locked3, { value: picked?.jobTitle || "", placeholder: "position" }), " (position) at PC# ", /* @__PURE__ */ React.createElement(Locked3, { value: picked?.pc || "", w: "5.5em" }), ", located at", " ", /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: isMobile ? "100%" : "24em" }, value: storeAddress, maxLength: 160, onChange: (e) => setStoreAddress(e.target.value), placeholder: "store address", "aria-label": "Store address" }), " ", "(store address). I understand that two weeks' notice is standard. I would appreciate it if you release me from my employment with the Company effective", " ", /* @__PURE__ */ React.createElement("input", { type: "date", className: "rl-blank", style: { width: "9.5em" }, value: lastDay, onChange: (e) => setLastDay(e.target.value), "aria-label": "Last day of employment" }), " (last day of employment)."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em" } }, "Sincerely,"), /* @__PURE__ */ React.createElement("div", { className: "rl-sig" }, /* @__PURE__ */ React.createElement("span", { className: "rl-line" }, sigLine("employee", "Employee")), /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "center", paddingBottom: "0.15em" } }, sigOk("employee") ? usDate2(sigOk("employee").date) : /* @__PURE__ */ React.createElement("span", { className: "rl-when" }, remoteOn ? "when they sign" : "on signing")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Signature)"), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Date)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.9em", maxWidth: "18em" } }, /* @__PURE__ */ React.createElement("div", { className: "rl-line", style: { minHeight: "1.8em", paddingLeft: "0.3em" } }, picked?.name || /* @__PURE__ */ React.createElement("span", { style: { color: "#9a8f86", fontStyle: "italic" } }, "pick the employee above")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Print Name)")), !sigOk("employee") && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.7em", fontFamily: FONTS.body, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("label", { className: "rl-check" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: remote.on, onChange: (e) => setRemote({ on: e.target.checked }) }), " Employee isn't here: email them a link to sign"), remote.on && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5em 1.2em", marginTop: "0.4em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", gap: "0.35em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("b", null, "Employee email:"), /* @__PURE__ */ React.createElement("input", { className: "rl-blank", type: "email", inputMode: "email", autoComplete: "off", style: { width: "13em", ...remote.email && !emailOk(remote.email) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: remote.email, maxLength: 120, onChange: (e) => setRemote({ email: e.target.value }) })), /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", gap: "0.35em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("b", null, "Employee cell:"), /* @__PURE__ */ React.createElement("input", { className: "rl-blank", type: "tel", inputMode: "tel", autoComplete: "off", style: { width: "9.5em", ...remote.phone && !phoneOk(remote.phone) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: remote.phone, maxLength: 20, placeholder: "(215) 555-0100", onChange: (e) => setRemote({ phone: e.target.value }) })), /* @__PURE__ */ React.createElement("span", { style: { color: "#6b6158", flexBasis: "100%" } }, `On "Save & send" they're emailed a private link (expires in 3 days) and get a text telling them to check their email. They confirm the last 4 digits of this cell number, read the letter and sign; then it's filed and you're told.`))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2em" } }, "Acknowledged by:"), /* @__PURE__ */ React.createElement("div", { className: "rl-sig", style: { marginTop: "0.6em" } }, /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "space-between" } }, sigLine("supervisor", "Supervisor"), /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.15em", fontSize: "0.85em" } }, "/ ", /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: "11.5em", fontSize: "1em" }, value: supervisorTitle, maxLength: 60, onChange: (e) => setSupervisorTitle(e.target.value), placeholder: "your title", "aria-label": "Supervisor title" }))), /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "center", paddingBottom: "0.15em" } }, sigOk("supervisor") ? usDate2(sigOk("supervisor").date) : /* @__PURE__ */ React.createElement("span", { className: "rl-when" }, "on signing")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Supervisor Signature / Title)"), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Date)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.9em", maxWidth: "18em" } }, /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: "100%", textAlign: "left", background: FILL4 }, value: supervisorName, maxLength: 80, onChange: (e) => setSupervisorName(e.target.value), "aria-label": "Supervisor print name" }), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Supervisor - Print Name)"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && missing.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", missing.join(", ")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send }, busy ? "Saving\u2026" : "Save & send")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
+      SignatureModal,
+      {
+        th,
+        title: `${signing === "employee" ? "Employee" : "Supervisor"} signature \u2014 ${signing === "employee" ? picked?.name || "" : supervisorName}`,
+        onCancel: () => setSigning(null),
+        onDone: (image) => {
+          setSigs((x) => ({ ...x, [signing]: { image, date: todayIso6(), fp } }));
+          if (signing === "employee") setRemote({ on: false });
+          setSigning(null);
+        }
+      }
+    ));
+  }
+
+  // src/remote-sign-ui.jsx
+  var { useState: useState7, useEffect: useEffect7, useRef: useRef4 } = React;
+  var call5 = async (body) => {
     const res = await fetch("/.netlify/functions/violation-sign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const b = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -4097,8 +4501,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   };
   function PdfPages({ b64, width }) {
     const ref = useRef4(null);
-    const [err, setErr] = useState6(null);
-    useEffect6(() => {
+    const [err, setErr] = useState7(null);
+    useEffect7(() => {
       let live = true;
       (async () => {
         const lib = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
@@ -4120,7 +4524,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           c.style.height = `${vp.height / dpr}px`;
           c.style.display = "block";
           c.style.background = "#fff";
-          c.setAttribute("aria-label", `Violation Notice page ${n}`);
+          c.setAttribute("aria-label", `Page ${n}`);
           host.appendChild(c);
           await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
         }
@@ -4135,19 +4539,19 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   function RemoteSignPage({ token }) {
     const th = getTheme(false);
     const S = finStyles(th);
-    const [hello, setHello] = useState6(null);
-    const [error, setError] = useState6(null);
-    const [fatal, setFatal] = useState6(null);
-    const [last4, setLast4] = useState6("");
-    const [doc, setDoc] = useState6(null);
-    const [read, setRead] = useState6(false);
-    const [signing, setSigning] = useState6(false);
-    const [busy, setBusy] = useState6(false);
-    const [done, setDone] = useState6(null);
+    const [hello, setHello] = useState7(null);
+    const [error, setError] = useState7(null);
+    const [fatal, setFatal] = useState7(null);
+    const [last4, setLast4] = useState7("");
+    const [doc, setDoc] = useState7(null);
+    const [read, setRead] = useState7(false);
+    const [signing, setSigning] = useState7(false);
+    const [busy, setBusy] = useState7(false);
+    const [done, setDone] = useState7(null);
     const width = Math.min(820, (typeof window !== "undefined" ? window.innerWidth : 820) - 32);
-    useEffect6(() => {
+    useEffect7(() => {
       document.title = "Review and sign \xB7 PCG";
-      call4({ token, action: "hello" }).then(setHello).catch((e) => setFatal(e.message));
+      call5({ token, action: "hello" }).then(setHello).catch((e) => setFatal(e.message));
     }, []);
     const open = async (e) => {
       e.preventDefault();
@@ -4158,7 +4562,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBusy(true);
       setError(null);
       try {
-        setDoc(await call4({ token, last4, action: "open" }));
+        setDoc(await call5({ token, last4, action: "open" }));
       } catch (err) {
         if (/locked|expired|replaced|signed/.test(err.message)) setFatal(err.message);
         else setError(err.message);
@@ -4170,7 +4574,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBusy(true);
       setError(null);
       try {
-        const b = await call4({ token, last4, action: "sign", signature });
+        const b = await call5({ token, last4, action: "sign", signature });
         setDone({ url: URL.createObjectURL(new Blob([b64ToBytes(b.pdf)], { type: "application/pdf" })) });
       } catch (err) {
         if (err.done) setDone({});
@@ -4183,7 +4587,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     if (fatal) return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, textAlign: "center" } }, "This link can't be used"), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, textAlign: "center", margin: "0 auto" } }, fatal)));
     if (!hello) return shell(/* @__PURE__ */ React.createElement("p", { style: { color: th.muted, textAlign: "center" } }, "Loading\u2026"));
     if (!doc) return shell(
-      /* @__PURE__ */ React.createElement("form", { onSubmit: open, style: { ...S.panel, padding: "1.3rem 1.2rem", maxWidth: 440, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, fontSize: "1.3rem" } }, "Hi ", hello.firstName), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: "1rem" } }, hello.kind === "letter" ? `People Capital Group has a warning letter from ${hello.storeName} for you to read and acknowledge.` : hello.role === "witness" ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.` : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`, " To open it, enter the last 4 digits of the cell number your supervisor has for you."), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Last 4 digits of your phone", /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement("form", { onSubmit: open, style: { ...S.panel, padding: "1.3rem 1.2rem", maxWidth: 440, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, fontSize: "1.3rem" } }, "Hi ", hello.firstName), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: "1rem" } }, hello.kind === "resignation" ? `People Capital Group has your resignation letter for ${hello.storeName} ready for you to review and sign.` : hello.kind === "letter" ? `People Capital Group has a warning letter from ${hello.storeName} for you to read and acknowledge.` : hello.role === "witness" ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.` : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`, " To open it, enter the last 4 digits of the cell number your supervisor has for you."), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Last 4 digits of your phone", /* @__PURE__ */ React.createElement(
         "input",
         {
           style: { ...S.input, fontSize: "1.3rem", letterSpacing: "0.3em", textAlign: "center", fontVariantNumeric: "lining-nums tabular-nums" },
@@ -4195,9 +4599,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           "aria-label": "Last 4 digits of your phone",
           autoFocus: true
         }
-      )), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement("button", { type: "submit", className: "fin-btn", disabled: busy, style: { ...S.primary, width: "100%", marginTop: "1rem" } }, busy ? "Checking\u2026" : "Open the notice"))
+      )), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement("button", { type: "submit", className: "fin-btn", disabled: busy, style: { ...S.primary, width: "100%", marginTop: "1rem" } }, busy ? "Checking\u2026" : hello.kind === "resignation" || hello.kind === "letter" ? "Open the letter" : "Open the notice"))
     );
-    return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: S.title }, doc.kind === "letter" ? "Your warning letter" : doc.role === "witness" ? `Witness: ${doc.employeeName}'s Violation Notice` : "Your Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, doc.kind === "letter" ? "Read the letter below. The last page is an acknowledgment of receipt; sign it at the bottom. Signing confirms you received the letter; it does not mean you agree with it." : doc.role === "witness" ? "Read the notice below, then sign at the bottom as the witness." : "Read the notice below, then sign at the bottom. Signing confirms you received it and discussed it with your manager; it does not mean you agree with it."), /* @__PURE__ */ React.createElement(PdfPages, { b64: doc.pdf, width }), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1.1rem 1.2rem", marginTop: "1.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.6rem", alignItems: "flex-start", fontSize: "0.95rem", lineHeight: 1.45, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: read, onChange: (e) => setRead(e.target.checked), style: { accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 } }), doc.kind === "letter" ? `I, ${doc.signerName}, have read this warning letter.` : doc.role === "witness" ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement(
+    return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: S.title }, doc.kind === "resignation" ? "Your resignation letter" : doc.kind === "letter" ? "Your warning letter" : doc.role === "witness" ? `Witness: ${doc.employeeName}'s Violation Notice` : "Your Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, doc.kind === "resignation" ? "Read your resignation letter below. If it is correct, sign it at the bottom. If anything is wrong (your position, store or last day), do not sign; tell your supervisor so they can fix it and send a new one." : doc.kind === "letter" ? "Read the letter below. The last page is an acknowledgment of receipt; sign it at the bottom. Signing confirms you received the letter; it does not mean you agree with it." : doc.role === "witness" ? "Read the notice below, then sign at the bottom as the witness." : "Read the notice below, then sign at the bottom. Signing confirms you received it and discussed it with your manager; it does not mean you agree with it."), /* @__PURE__ */ React.createElement(PdfPages, { b64: doc.pdf, width }), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1.1rem 1.2rem", marginTop: "1.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.6rem", alignItems: "flex-start", fontSize: "0.95rem", lineHeight: 1.45, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: read, onChange: (e) => setRead(e.target.checked), style: { accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 } }), doc.kind === "resignation" ? `I, ${doc.signerName}, have read this resignation letter and it is correct.` : doc.kind === "letter" ? `I, ${doc.signerName}, have read this warning letter.` : doc.role === "witness" ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -4206,12 +4610,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         onClick: () => setSigning(true),
         style: { ...S.primary, width: "100%", marginTop: "1rem", opacity: read && !busy ? 1 : 0.5, cursor: read && !busy ? "pointer" : "not-allowed" }
       },
-      busy ? "Signing\u2026" : doc.kind === "letter" ? "Sign the acknowledgment" : "Sign the notice"
+      busy ? "Signing\u2026" : doc.kind === "resignation" ? "Sign the letter" : doc.kind === "letter" ? "Sign the acknowledgment" : "Sign the notice"
     )), signing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: `Your signature \u2014 ${doc.signerName}`, onCancel: () => setSigning(false), onDone: sign })));
   }
 
   // src/joy-leaderboard-ui.jsx
-  var { useState: useState7, useEffect: useEffect7 } = React;
+  var { useState: useState8, useEffect: useEffect8 } = React;
   var FONT_H = "'Raleway'";
   var FONT_B = "'Source Sans 3'";
   var NUM = { fontVariantNumeric: "lining-nums tabular-nums" };
@@ -4235,14 +4639,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var HeartIcon = ({ color }) => /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M12 20s-7-4.4-9.2-8.6C1.3 8.4 3.2 5 6.6 5c2 0 3.4 1.1 4.4 2.6C12 6.1 13.4 5 15.4 5c3.4 0 5.3 3.4 3.8 6.4C17 15.6 12 20 12 20Z" }));
   var Chevron = ({ dir, color }) => /* @__PURE__ */ React.createElement("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: dir === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6" }));
   function JoyLeaderboard({ th, isMobile }) {
-    const [data, setData] = useState7(null);
-    const [err, setErr] = useState7(null);
-    const [date, setDate] = useState7(null);
-    const [mode, setMode] = useState7("day");
-    const [month, setMonth] = useState7(null);
-    const [loading, setLoading] = useState7(false);
-    const [showAll, setShowAll] = useState7(false);
-    useEffect7(() => {
+    const [data, setData] = useState8(null);
+    const [err, setErr] = useState8(null);
+    const [date, setDate] = useState8(null);
+    const [mode, setMode] = useState8("day");
+    const [month, setMonth] = useState8(null);
+    const [loading, setLoading] = useState8(false);
+    const [showAll, setShowAll] = useState8(false);
+    useEffect8(() => {
       let live = true;
       const load = () => {
         setLoading(true);
@@ -4327,9 +4731,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return /* @__PURE__ */ React.createElement("section", { style: cardStyle, "aria-label": "Joy in Childhood leaderboard" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(HeartIcon, { color: O }), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontFamily: FONT_H, fontWeight: 800, fontSize: "1.02rem", color: th.text } }, "Joy in Childhood"), data?.updatedAt && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontFamily: FONT_B } }, "Updated ", ago(data.updatedAt)))), data && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", fontFamily: FONT_B, flexWrap: "wrap", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("span", { role: "group", "aria-label": "Show one day or the whole month", style: { display: "inline-flex", gap: 2, padding: 2, borderRadius: 999, border: `1px solid ${th.cardBorder}` } }, seg("day", "Day"), seg("month", "Month")), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, arrow("left", canBack, () => step(-1), isMonth ? "Previous month" : "Previous day"), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { minWidth: "7.5em", textAlign: "center", fontWeight: 700, color: th.text, fontSize: "0.9rem", opacity: loading ? 0.6 : 1 } }, isMonth ? monthLabel(shownMonth, data.thisMonth) : dayLabel(shown, today)), arrow("right", canFwd, () => step(1), isMonth ? "Next month" : "Next day")))), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: "#dc2626", fontFamily: FONT_B, padding: "0.3rem 0" } }, err), data && isStore && rows[0] && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.6rem", padding: "0.4rem 0.2rem", fontFamily: FONT_B, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_H, fontWeight: 900, fontSize: "2.4rem", color: O, lineHeight: 1, ...NUM } }, rows[0].noData ? "\u2014" : rows[0].cnt.toLocaleString()), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, rows[0].noData ? `no data yet for ${rows[0].name}` : `donation${rows[0].cnt === 1 ? "" : "s"} at ${rows[0].name}`), !rows[0].noData && rows[0].ttl > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "$", rows[0].ttl.toLocaleString(void 0, { maximumFractionDigits: 2 }), " raised for Joy in Childhood")), data && isStore && !rows[0] && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, fontFamily: FONT_B } }, "Your account isn't linked to a store yet."), data && !isStore && /* @__PURE__ */ React.createElement(React.Fragment, null, rows.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, fontFamily: FONT_B, marginBottom: "0.3rem" } }, data.total.toLocaleString(), " donations across ", rows.filter((r) => !r.noData).length, " stores"), rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, fontFamily: FONT_B, padding: "0.4rem 0.2rem" } }, "No numbers for this ", isMonth ? "month" : "day", " yet. They fill in every hour."), !rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("ol", { style: { listStyle: "none", margin: 0, padding: 0 } }, rows.slice(0, limit).map((r) => /* @__PURE__ */ React.createElement("li", { key: r.pc, style: { display: "grid", gridTemplateColumns: isMobile ? "1.6rem minmax(0, 1.7fr) minmax(0, 1fr) 3rem" : "2rem minmax(0, 1fr) minmax(0, 1.4fr) 3.5rem", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.2rem", borderTop: `1px solid ${th.cardBorder}`, fontFamily: FONT_B } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_H, fontWeight: 900, color: r.rank && r.rank <= 3 ? O : th.muted, fontSize: "0.95rem", ...NUM } }, r.rank || ""), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.name, !isMobile && /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: th.muted, fontSize: "0.78rem" } }, " D", r.district)), /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { height: 8, borderRadius: 4, background: th.cardBorder, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "block", height: "100%", width: `${r.noData ? 0 : Math.max(2, r.cnt / max * 100)}%`, background: O, borderRadius: 4 } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", fontWeight: 800, color: th.text, ...NUM } }, r.noData ? "\u2014" : r.cnt.toLocaleString())))), data.scope === "all" && rows.length > 5 && !rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("div", { style: { paddingTop: "0.55rem", textAlign: "center" } }, linkBtn(showAll ? "Show top 5" : `Show all ${rows.length} stores`, () => setShowAll((v) => !v)))));
   }
   function JoyMobileTile({ cardStyle, mono, display, muted, secondary }) {
-    const [today, setToday] = useState7(null);
-    const [month, setMonth] = useState7(null);
-    useEffect7(() => {
+    const [today, setToday] = useState8(null);
+    const [month, setMonth] = useState8(null);
+    useEffect8(() => {
       let live = true;
       const get = (qs) => fetch("/.netlify/functions/joy" + qs, { credentials: "include", headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).catch(() => null);
       const load = () => Promise.all([get(""), get(`?month=${(/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" }).slice(0, 7)}`)]).then(([d, m2]) => {
@@ -5143,7 +5547,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // app.jsx
-  var { useState: useState8, useRef: useRef5, useCallback, useEffect: useEffect8 } = React;
+  var { useState: useState9, useRef: useRef5, useCallback, useEffect: useEffect9 } = React;
   var Guard = class extends React.Component {
     constructor(props) {
       super(props);
@@ -5166,8 +5570,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
   var GOOGLE_ALLOWED_DOMAINS = ["peoplecapitalgroup.com", "rgi.life", "Raogroupinc.com"];
   function useIsMobile() {
-    const [isMobile, setIsMobile] = useState8(() => window.innerWidth <= 768);
-    useEffect8(() => {
+    const [isMobile, setIsMobile] = useState9(() => window.innerWidth <= 768);
+    useEffect9(() => {
       const handler = () => setIsMobile(window.innerWidth <= 768);
       window.addEventListener("resize", handler);
       return () => window.removeEventListener("resize", handler);
@@ -5175,8 +5579,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return isMobile;
   }
   function useNoHoverDevice() {
-    const [noHover, setNoHover] = useState8(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
-    useEffect8(() => {
+    const [noHover, setNoHover] = useState9(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
+    useEffect9(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mq = window.matchMedia("(hover: none)");
       const handler = () => setNoHover(mq.matches);
@@ -5188,8 +5592,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return noHover;
   }
   function useFrameHeight(frameRef, min = 360, gutter = 20, dep) {
-    const [frameH, setFrameH] = useState8(null);
-    useEffect8(() => {
+    const [frameH, setFrameH] = useState9(null);
+    useEffect9(() => {
       const measure = () => {
         const el = frameRef.current;
         if (!el) return;
@@ -6107,9 +6511,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return secret;
   }
   function base32ToBytes(secret) {
-    const clean3 = String(secret || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
+    const clean4 = String(secret || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
     let bits = "";
-    for (const char of clean3) {
+    for (const char of clean4) {
       const value = TOTP_BASE32_ALPHABET.indexOf(char);
       if (value >= 0) bits += value.toString(2).padStart(5, "0");
     }
@@ -6287,50 +6691,50 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Login({ onLogin, dark, toggleDark, users }) {
     const th = getTheme(dark);
-    const [form, setForm] = useState8({ u: (() => {
+    const [form, setForm] = useState9({ u: (() => {
       try {
         return localStorage.getItem("pcg_remember_username") || "";
       } catch {
         return "";
       }
     })(), p: "" });
-    const [rememberMe, setRememberMe] = useState8(() => {
+    const [rememberMe, setRememberMe] = useState9(() => {
       try {
         return !!localStorage.getItem("pcg_remember_username");
       } catch {
         return false;
       }
     });
-    const [authStage, setAuthStage] = useState8("password");
-    const [pendingUser, setPendingUser] = useState8(null);
-    const [twoFactorCode, setTwoFactorCode] = useState8("");
-    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState8("");
-    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState8(false);
-    const [trustDevice, setTrustDevice] = useState8(true);
-    const [err, setErr] = useState8("");
-    const [show, setShow] = useState8(false);
-    const [logoAnim, setLogoAnim] = useState8(false);
-    const [shake, setShake] = useState8(false);
-    const [loading, setLoading] = useState8(false);
-    const [exiting, setExiting] = useState8(false);
-    const [focusField, setFocusField] = useState8(null);
-    const [now, setNow] = useState8(/* @__PURE__ */ new Date());
-    const [mounted, setMounted] = useState8(false);
-    const [showItModal, setShowItModal] = useState8(false);
-    const [narrow, setNarrow] = useState8(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
-    const [tinyScreen, setTinyScreen] = useState8(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
+    const [authStage, setAuthStage] = useState9("password");
+    const [pendingUser, setPendingUser] = useState9(null);
+    const [twoFactorCode, setTwoFactorCode] = useState9("");
+    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState9("");
+    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState9(false);
+    const [trustDevice, setTrustDevice] = useState9(true);
+    const [err, setErr] = useState9("");
+    const [show, setShow] = useState9(false);
+    const [logoAnim, setLogoAnim] = useState9(false);
+    const [shake, setShake] = useState9(false);
+    const [loading, setLoading] = useState9(false);
+    const [exiting, setExiting] = useState9(false);
+    const [focusField, setFocusField] = useState9(null);
+    const [now, setNow] = useState9(/* @__PURE__ */ new Date());
+    const [mounted, setMounted] = useState9(false);
+    const [showItModal, setShowItModal] = useState9(false);
+    const [narrow, setNarrow] = useState9(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
+    const [tinyScreen, setTinyScreen] = useState9(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
     const toggleBtnRef = useRef5(null);
     const logoRef = useRef5(null);
     const googleBtnRef = useRef5(null);
     const tokenClientRef = useRef5(null);
-    const [bioAvailable, setBioAvailable] = useState8(false);
-    const [bioLoading, setBioLoading] = useState8(false);
-    const [bioAutoPrompting, setBioAutoPrompting] = useState8(false);
+    const [bioAvailable, setBioAvailable] = useState9(false);
+    const [bioLoading, setBioLoading] = useState9(false);
+    const [bioAutoPrompting, setBioAutoPrompting] = useState9(false);
     const bioAutoTriedRef = useRef5(false);
-    useEffect8(() => {
+    useEffect9(() => {
       webauthnAvailable().then(setBioAvailable);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       const onResize = () => {
         setNarrow(window.innerWidth < 900);
         setTinyScreen(window.innerWidth < 420);
@@ -6342,15 +6746,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         window.removeEventListener("orientationchange", onResize);
       };
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       const t = setInterval(() => setNow(/* @__PURE__ */ new Date()), 1e3);
       return () => clearInterval(t);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       const t = setTimeout(() => setMounted(true), 30);
       return () => clearTimeout(t);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       fetch("/.netlify/functions/portal-auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6546,7 +6950,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBioLoading(false);
       await handleBiometricResult(res, false);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (bioAutoTriedRef.current) return;
       if (!bioAvailable || !webauthnDeviceEnrolled()) return;
       bioAutoTriedRef.current = true;
@@ -6557,7 +6961,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         await handleBiometricResult(res, true);
       })();
     }, [bioAvailable]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
       let tries = 0;
       const init = () => {
@@ -7418,15 +7822,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ))));
   }
   function LinksHub({ links, setLinks, th, user }) {
-    const [search, setSearch] = useState8("");
-    const [editMode, setEditMode] = useState8(false);
-    const [addMode, setAddMode] = useState8(false);
-    const [editingLink, setEditingLink] = useState8(null);
-    const [newLink, setNewLink] = useState8({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
-    const [editForm, setEditForm] = useState8({ name: "", url: "", desc: "", cat: "", visibility: "all" });
-    const [dragId, setDragId] = useState8(null);
-    const [dragCat, setDragCat] = useState8(null);
-    const [dragOverId, setDragOverId] = useState8(null);
+    const [search, setSearch] = useState9("");
+    const [editMode, setEditMode] = useState9(false);
+    const [addMode, setAddMode] = useState9(false);
+    const [editingLink, setEditingLink] = useState9(null);
+    const [newLink, setNewLink] = useState9({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
+    const [editForm, setEditForm] = useState9({ name: "", url: "", desc: "", cat: "", visibility: "all" });
+    const [dragId, setDragId] = useState9(null);
+    const [dragCat, setDragCat] = useState9(null);
+    const [dragOverId, setDragOverId] = useState9(null);
     const canAdmin = isFullAdmin(user) || user?.userType === "office_staff";
     const isFieldUser = user?.userType === "dm" || user?.userType === "manager";
     const allCats = Object.keys(links);
@@ -7699,12 +8103,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         [user.id]: typeof updater === "function" ? updater(prev[user.id] || []) : updater
       }));
     };
-    const [editing, setEditing] = useState8(null);
-    const [form, setForm] = useState8({ title: "", body: "" });
-    const [adding, setAdding] = useState8(false);
-    const [recording, setRecording] = useState8(false);
-    const [interimText, setInterimText] = useState8("");
-    const [recordError, setRecordError] = useState8("");
+    const [editing, setEditing] = useState9(null);
+    const [form, setForm] = useState9({ title: "", body: "" });
+    const [adding, setAdding] = useState9(false);
+    const [recording, setRecording] = useState9(false);
+    const [interimText, setInterimText] = useState9("");
+    const [recordError, setRecordError] = useState9("");
     const recognitionRef = useRef5(null);
     const baseBodyRef = useRef5("");
     const finalChunksRef = useRef5("");
@@ -7776,7 +8180,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     const recordingRef = useRef5(false);
-    useEffect8(() => {
+    useEffect9(() => {
       return () => {
         recordingRef.current = false;
         try {
@@ -8101,13 +8505,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Todos({ todos, setTodos, user, users, th, deepLinkRef }) {
     const emptyForm = { text: "", priority: "Medium", assigneeIds: [user.id], dueDate: "", note: "" };
-    const [form, setForm] = useState8(emptyForm);
-    const [addOpen, setAddOpen] = useState8(false);
-    const [viewTab, setViewTab] = useState8("mine");
-    const [detailId, setDetailId] = useState8(null);
-    const [assignDropOpen, setAssignDropOpen] = useState8(false);
+    const [form, setForm] = useState9(emptyForm);
+    const [addOpen, setAddOpen] = useState9(false);
+    const [viewTab, setViewTab] = useState9("mine");
+    const [detailId, setDetailId] = useState9(null);
+    const [assignDropOpen, setAssignDropOpen] = useState9(false);
     const getUserById = (id) => users.find((u) => u.id === id);
-    useEffect8(() => {
+    useEffect9(() => {
       if (deepLinkRef?.current) {
         const task = todos.find((t) => t.id === deepLinkRef.current);
         if (task) {
@@ -8119,7 +8523,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         deepLinkRef.current = null;
       }
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       const needsMigration = todos.some((t) => t.assigneeId !== void 0 && !t.assigneeIds);
       if (needsMigration) {
         setTodos((ts) => ts.map((t) => {
@@ -8510,6 +8914,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     // though the underlying data was never actually duplicated.
     { id: 47, pc: "345222", paycor: "", legal: "Om Ganadevaya Namah LLC", name: "Allentown GS", address: "3655 Route 378", city: "Bethlehem", state: "PA", zip: "18015", isNextGen: false, baseAsset: "GS", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "345222@peoplecapitalgroup.com", district: null, dmName: "", dmEmail: "", status: "Permanently Closed", closedDate: "2025-11-26", employees: 0, sales: 0 }
   ];
+  var STORE_ADDRESSES = Object.fromEntries(STORES_SEED.map((st) => [String(st.pc), [st.address, st.city, [st.state, st.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")]));
   var DISTRICTS_SEED = {
     1: { num: 1, name: "Taylor Cormier", email: "taylor@peoplecapitalgroup.com" },
     2: { num: 2, name: "Jay Patel", email: "jay@peoplecapitalgroup.com" },
@@ -8550,21 +8955,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         return st;
       }));
     };
-    const [view, setView] = useState8("list");
-    const [editId, setEditId] = useState8(null);
-    const [showPw, setShowPw] = useState8(false);
-    const [form, setForm] = useState8({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
-    const [search, setSearch] = useState8("");
-    const [welcomeSent, setWelcomeSent] = useState8(null);
-    const [saveFlash, setSaveFlash] = useState8(false);
-    const [confirmDeleteId, setConfirmDeleteId] = useState8(null);
+    const [view, setView] = useState9("list");
+    const [editId, setEditId] = useState9(null);
+    const [showPw, setShowPw] = useState9(false);
+    const [form, setForm] = useState9({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
+    const [search, setSearch] = useState9("");
+    const [welcomeSent, setWelcomeSent] = useState9(null);
+    const [saveFlash, setSaveFlash] = useState9(false);
+    const [confirmDeleteId, setConfirmDeleteId] = useState9(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const canLinkTimeOff = isFullAdmin(currentUser);
-    const [timeOff, setTimeOff] = useState8({});
-    const [timeOffSync, setTimeOffSync] = useState8(null);
-    const [timeOffSyncing, setTimeOffSyncing] = useState8(false);
-    const [linkTarget, setLinkTarget] = useState8(null);
+    const [timeOff, setTimeOff] = useState9({});
+    const [timeOffSync, setTimeOffSync] = useState9(null);
+    const [timeOffSyncing, setTimeOffSyncing] = useState9(false);
+    const [linkTarget, setLinkTarget] = useState9(null);
     const loadTimeOff = useCallback(() => {
       timeOffApi("users").then((j) => setTimeOff(j.users || {})).catch(() => {
       });
@@ -8595,7 +9000,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       loadTimeOff();
       setTimeOffSyncing(false);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       loadTimeOff().then((last) => {
         if (!canLinkTimeOff || last === void 0) return;
         const now = Date.now();
@@ -8607,11 +9012,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, [loadTimeOff]);
     const nextId = () => Math.max(0, ...users.map((u) => u.id)) + 1;
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-    const [emailAction, setEmailAction] = useState8(null);
-    const [revokeAction, setRevokeAction] = useState8(null);
-    const [statusFilter, setStatusFilter] = useState8("all");
-    const [flashUserKey, setFlashUserKey] = useState8(null);
-    const [leavingUserIds, setLeavingUserIds] = useState8([]);
+    const [emailAction, setEmailAction] = useState9(null);
+    const [revokeAction, setRevokeAction] = useState9(null);
+    const [statusFilter, setStatusFilter] = useState9("all");
+    const [flashUserKey, setFlashUserKey] = useState9(null);
+    const [leavingUserIds, setLeavingUserIds] = useState9([]);
     const prevUserIdsRef = useRef5(/* @__PURE__ */ new Set());
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
@@ -8850,8 +9255,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
     const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development", "Field Operations Auditor"] : ["District Manager", "Store Manager", "Construction & Development"];
     const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
-    const [roleFilter, setRoleFilter] = useState8("all");
-    const [isMobileUsers, setIsMobileUsers] = useState8(() => window.innerWidth < 700);
+    const [roleFilter, setRoleFilter] = useState9("all");
+    const [isMobileUsers, setIsMobileUsers] = useState9(() => window.innerWidth < 700);
     React.useEffect(() => {
       const fn = () => setIsMobileUsers(window.innerWidth < 700);
       window.addEventListener("resize", fn);
@@ -8862,7 +9267,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
     const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
     const displayUsers = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username || "").toLowerCase().includes(search.toLowerCase())).filter((u) => roleFilter === "all" || u.userType === roleFilter).filter((u) => statusFilter === "all" || (statusFilter === "active" ? u.active !== false : statusFilter === "inactive" ? u.active === false : !!u.locked)).sort((a, b) => (b.active === false ? 1 : 0) - (a.active === false ? 1 : 0));
-    useEffect8(() => {
+    useEffect9(() => {
       prevUserIdsRef.current = new Set(displayUsers.map((u) => u.id));
     });
     const rc = roleColor(form.userType || "manager");
@@ -9426,10 +9831,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setTimeout(() => mapRef.current && mapRef.current.invalidateSize(), 350);
     }, [!!selectedStore]);
     React.useEffect(() => {
-      const L2 = window.L;
-      if (!L2 || !containerRef.current || mapRef.current) return;
-      mapRef.current = L2.map(containerRef.current, { zoomControl: true, scrollWheelZoom: true, attributionControl: false }).setView([40.12, -75.18], 11);
-      tileRef.current = L2.tileLayer(
+      const L3 = window.L;
+      if (!L3 || !containerRef.current || mapRef.current) return;
+      mapRef.current = L3.map(containerRef.current, { zoomControl: true, scrollWheelZoom: true, attributionControl: false }).setView([40.12, -75.18], 11);
+      tileRef.current = L3.tileLayer(
         th.dark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         th.dark ? { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \xA9 <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 19, subdomains: "abcd", detectRetina: true } : { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18 }
       ).addTo(mapRef.current);
@@ -9445,20 +9850,20 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         tileSwapReady.current = true;
         return;
       }
-      const L2 = window.L;
-      if (!L2 || !mapRef.current) return;
+      const L3 = window.L;
+      if (!L3 || !mapRef.current) return;
       if (tileRef.current) {
         tileRef.current.remove();
         tileRef.current = null;
       }
-      tileRef.current = L2.tileLayer(
+      tileRef.current = L3.tileLayer(
         th.dark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         th.dark ? { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \xA9 <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 19, subdomains: "abcd", detectRetina: true } : { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18 }
       ).addTo(mapRef.current);
     }, [th.dark]);
     React.useEffect(() => {
-      const L2 = window.L;
-      if (!L2 || !mapRef.current) return;
+      const L3 = window.L;
+      if (!L3 || !mapRef.current) return;
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       heatRef.current.forEach((m) => m.remove());
@@ -9500,8 +9905,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           }
           const pulse = intensity >= 0.3 ? `animation:heatCloudPulse 3.4s ease-in-out infinite;` : "";
           const cloudHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;pointer-events:none;background:radial-gradient(circle, rgba(${rgb},${a1}) 0%, rgba(${rgb},${a2}) 45%, rgba(${rgb},0) 72%);${pulse}"></div>`;
-          const cloudIcon = L2.divIcon({ className: "", html: cloudHtml, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
-          const cloud = L2.marker([c.lat, c.lng], { icon: cloudIcon, interactive: false, keyboard: false, zIndexOffset: -1e3 }).addTo(mapRef.current);
+          const cloudIcon = L3.divIcon({ className: "", html: cloudHtml, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+          const cloud = L3.marker([c.lat, c.lng], { icon: cloudIcon, interactive: false, keyboard: false, zIndexOffset: -1e3 }).addTo(mapRef.current);
           heatRef.current.push(cloud);
         }
         let color;
@@ -9521,8 +9926,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.5);"></div>
         ${hasAlert ? `<div style="position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:#ef4444;border:1.5px solid #fff;"></div>` : ""}
       </div>`;
-        const icon = L2.divIcon({ className: "", html: pinHtml, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -12] });
-        const marker = L2.marker([c.lat, c.lng], { icon }).addTo(mapRef.current).on("click", () => {
+        const icon = L3.divIcon({ className: "", html: pinHtml, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -12] });
+        const marker = L3.marker([c.lat, c.lng], { icon }).addTo(mapRef.current).on("click", () => {
           if (selectRef.current) selectRef.current(s);
           mapRef.current.panTo([c.lat, c.lng], { animate: true, duration: 0.4 });
         });
@@ -9667,17 +10072,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var openStoreList = () => LIVE_OPEN_STORES || STORES_SEED.filter((s) => s.status !== PERMANENTLY_CLOSED);
   function ClosestToFinder({ th, onClose }) {
     const O2 = "#FF671F";
-    const [addr, setAddr] = useState8("");
-    const [origin, setOrigin] = useState8(null);
-    const [ranked, setRanked] = useState8([]);
-    const [drive, setDrive] = useState8({});
-    const [busy, setBusy] = useState8(false);
-    const [status, setStatus] = useState8("");
-    const [hoverPc, setHoverPc] = useState8(null);
-    const [suggestions, setSuggestions] = useState8([]);
-    const [showSuggestions, setShowSuggestions] = useState8(false);
-    const [suggestLoading, setSuggestLoading] = useState8(false);
-    const [activeSugIdx, setActiveSugIdx] = useState8(-1);
+    const [addr, setAddr] = useState9("");
+    const [origin, setOrigin] = useState9(null);
+    const [ranked, setRanked] = useState9([]);
+    const [drive, setDrive] = useState9({});
+    const [busy, setBusy] = useState9(false);
+    const [status, setStatus] = useState9("");
+    const [hoverPc, setHoverPc] = useState9(null);
+    const [suggestions, setSuggestions] = useState9([]);
+    const [showSuggestions, setShowSuggestions] = useState9(false);
+    const [suggestLoading, setSuggestLoading] = useState9(false);
+    const [activeSugIdx, setActiveSugIdx] = useState9(-1);
     const suggestTimer = useRef5(null);
     const mapDiv = useRef5(null);
     const mapRef = useRef5(null);
@@ -9797,16 +10202,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setDrive((d) => ({ ...d, [row.pc]: "err" }));
       }
     }
-    useEffect8(() => {
+    useEffect9(() => {
       if (!mapDiv.current || !window.L) return;
-      const L2 = window.L;
+      const L3 = window.L;
       if (!mapRef.current) {
-        mapRef.current = L2.map(mapDiv.current, { attributionControl: false }).setView([40, -75.18], 9);
-        L2.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(mapRef.current);
+        mapRef.current = L3.map(mapDiv.current, { attributionControl: false }).setView([40, -75.18], 9);
+        L3.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(mapRef.current);
       }
       const map = mapRef.current;
       map.eachLayer((l) => {
-        if (!(l instanceof L2.TileLayer)) map.removeLayer(l);
+        if (!(l instanceof L3.TileLayer)) map.removeLayer(l);
       });
       markersRef.current = {};
       const top = new Set(ranked.map((r) => r.pc));
@@ -9814,7 +10219,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const c = STORE_COORDS[s.pc];
         if (!c) return;
         const hot = top.has(s.pc);
-        markersRef.current[s.pc] = L2.circleMarker([c.lat, c.lng], {
+        markersRef.current[s.pc] = L3.circleMarker([c.lat, c.lng], {
           radius: hot ? 7 : 5,
           color: hot ? O2 : "#888",
           weight: 2,
@@ -9823,18 +10228,18 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         }).addTo(map).bindPopup(`<b>${s.name}</b><br>${s.address}, ${s.city}`);
       });
       if (origin) {
-        L2.marker([origin.lat, origin.lng]).addTo(map).bindPopup(`<b>Your address</b><br>${origin.label}`);
+        L3.marker([origin.lat, origin.lng]).addTo(map).bindPopup(`<b>Your address</b><br>${origin.label}`);
         const pts = [[origin.lat, origin.lng], ...ranked.map((r) => [STORE_COORDS[r.pc].lat, STORE_COORDS[r.pc].lng])];
         if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40] });
         else map.setView([origin.lat, origin.lng], 12);
       }
       setTimeout(() => map.invalidateSize(), 60);
     }, [ranked, origin]);
-    useEffect8(() => {
+    useEffect9(() => {
       const m = hoverPc && markersRef.current[hoverPc];
       if (m && m.openPopup) m.openPopup();
     }, [hoverPc]);
-    useEffect8(() => () => {
+    useEffect9(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -9881,30 +10286,30 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
     const mgrOf = (s) => storeMgrName(s, users);
-    const [laborData, setLaborData] = useState8(null);
-    useEffect8(() => {
+    const [laborData, setLaborData] = useState9(null);
+    useEffect9(() => {
       cloudLoad("pcg_labor_v1").then((d) => {
         if (d?.stores) setLaborData(d.stores);
       }).catch(() => {
       });
     }, []);
     const employeeCountOf = (s) => laborData?.[s.pc]?.today?.employees;
-    const [filterState, setFilterState] = useState8("All");
-    const [filterStatus, setFilterStatus] = useState8("All");
-    const [filterDistrict, setFilterDistrict] = useState8("All");
-    const [filterNxt, setFilterNxt] = useState8(false);
-    const [filterBaskin, setFilterBaskin] = useState8(false);
-    const [search, setSearch] = useState8("");
-    const [editStore, setEditStore] = useState8(null);
-    const [addMode, setAddMode] = useState8(false);
-    const [selectedStore, setSelectedStore] = useState8(null);
-    const [sortCol, setSortCol] = useState8("pc");
-    const [sortDir, setSortDir] = useState8("asc");
-    const [copiedId, setCopiedId] = useState8(null);
-    const [cityData, setCityData] = useState8(null);
-    const [cityLoading, setCityLoading] = useState8(false);
-    const [foodLicenses, setFoodLicenses] = useState8({});
-    const [foodLicensesLoading, setFoodLicensesLoading] = useState8(false);
+    const [filterState, setFilterState] = useState9("All");
+    const [filterStatus, setFilterStatus] = useState9("All");
+    const [filterDistrict, setFilterDistrict] = useState9("All");
+    const [filterNxt, setFilterNxt] = useState9(false);
+    const [filterBaskin, setFilterBaskin] = useState9(false);
+    const [search, setSearch] = useState9("");
+    const [editStore, setEditStore] = useState9(null);
+    const [addMode, setAddMode] = useState9(false);
+    const [selectedStore, setSelectedStore] = useState9(null);
+    const [sortCol, setSortCol] = useState9("pc");
+    const [sortDir, setSortDir] = useState9("asc");
+    const [copiedId, setCopiedId] = useState9(null);
+    const [cityData, setCityData] = useState9(null);
+    const [cityLoading, setCityLoading] = useState9(false);
+    const [foodLicenses, setFoodLicenses] = useState9({});
+    const [foodLicensesLoading, setFoodLicensesLoading] = useState9(false);
     const loadFoodLicenses = async () => {
       setFoodLicensesLoading(true);
       try {
@@ -9920,17 +10325,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setFoodLicensesLoading(false);
     };
-    const [toolsOpen, setToolsOpen] = useState8(false);
-    const [activeTool, setActiveTool] = useState8(null);
-    const [viewMode, setViewMode] = useState8("list");
-    useEffect8(() => {
+    const [toolsOpen, setToolsOpen] = useState9(false);
+    const [activeTool, setActiveTool] = useState9(null);
+    const [viewMode, setViewMode] = useState9("list");
+    useEffect9(() => {
       onMapModeChange?.(viewMode === "map");
       return () => onMapModeChange?.(false);
     }, [viewMode]);
-    const [isNarrow, setIsNarrow] = useState8(() => typeof window !== "undefined" && window.innerWidth < 760);
+    const [isNarrow, setIsNarrow] = useState9(() => typeof window !== "undefined" && window.innerWidth < 760);
     const frameRef = useRef5(null);
     const frameH = useFrameHeight(frameRef, 340, 16);
-    useEffect8(() => {
+    useEffect9(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -9969,7 +10374,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     const emptyStore = { pc: "", paycor: "", legal: "", name: "", address: "", city: "", state: "PA", zip: "", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "", district: "", dmName: "", dmEmail: "", status: "Coming Soon", closedDate: "", employees: 0, sales: 0 };
-    const [newStore, setNewStore] = useState8(emptyStore);
+    const [newStore, setNewStore] = useState9(emptyStore);
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
     const isDM = user?.userType === "dm";
@@ -11176,12 +11581,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
-    const [editDist, setEditDist] = useState8(null);
-    const [distForm, setDistForm] = useState8({});
-    const [addMode, setAddMode] = useState8(false);
-    const [newDist, setNewDist] = useState8({ num: "", name: "", email: "" });
-    const [expandedDist, setExpandedDist] = useState8(null);
-    const [moveStore, setMoveStore] = useState8(null);
+    const [editDist, setEditDist] = useState9(null);
+    const [distForm, setDistForm] = useState9({});
+    const [addMode, setAddMode] = useState9(false);
+    const [newDist, setNewDist] = useState9({ num: "", name: "", email: "" });
+    const [expandedDist, setExpandedDist] = useState9(null);
+    const [moveStore, setMoveStore] = useState9(null);
     const distList = Object.values(districts).sort((a, b) => a.num - b.num);
     const mgrOf = (s) => storeMgrName(s, users);
     const saveEdit = () => {
@@ -11581,14 +11986,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const canUpload = user?.username === "mike.bahm";
     const isDMViewer = user?.userType === "dm";
     const dmDistrict = isDMViewer ? user?.district || null : null;
-    const [uploading, setUploading] = useState8(false);
-    const [uploadErr, setUploadErr] = useState8(null);
-    const [selWeek, setSelWeek] = useState8(0);
-    const [sortCol, setSortCol] = useState8("lwSale");
-    const [sortDir, setSortDir] = useState8(-1);
-    const [distFilter, setDistFilter] = useState8(isDMViewer ? dmDistrict || 0 : 0);
-    const [debugLines, setDebugLines] = useState8(null);
-    const [showDebug, setShowDebug] = useState8(false);
+    const [uploading, setUploading] = useState9(false);
+    const [uploadErr, setUploadErr] = useState9(null);
+    const [selWeek, setSelWeek] = useState9(0);
+    const [sortCol, setSortCol] = useState9("lwSale");
+    const [sortDir, setSortDir] = useState9(-1);
+    const [distFilter, setDistFilter] = useState9(isDMViewer ? dmDistrict || 0 : 0);
+    const [debugLines, setDebugLines] = useState9(null);
+    const [showDebug, setShowDebug] = useState9(false);
     const fileRef = useRef5(null);
     const detailTableRef = useRef5(null);
     const fmtSales = (n) => {
@@ -11852,33 +12257,33 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     "Other": { color: "#aaa", bg: "#aaa18" }
   };
   function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, currentUser, th }) {
-    const [search, setSearch] = useState8("");
-    const [modal, setModal] = useState8(null);
-    const [editItem, setEditItem] = useState8(null);
-    const [form, setForm] = useState8({});
-    const [deptDropOpen, setDeptDropOpen] = useState8(false);
-    const [showInternal, setShowInternal] = useState8(() => {
+    const [search, setSearch] = useState9("");
+    const [modal, setModal] = useState9(null);
+    const [editItem, setEditItem] = useState9(null);
+    const [form, setForm] = useState9({});
+    const [deptDropOpen, setDeptDropOpen] = useState9(false);
+    const [showInternal, setShowInternal] = useState9(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_internal") ?? "true");
       } catch {
         return true;
       }
     });
-    const [showVendors, setShowVendors] = useState8(() => {
+    const [showVendors, setShowVendors] = useState9(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_vendors") ?? "true");
       } catch {
         return true;
       }
     });
-    const [dragId, setDragId] = useState8(null);
-    useEffect8(() => {
+    const [dragId, setDragId] = useState9(null);
+    useEffect9(() => {
       localStorage.setItem("pcg_show_internal", JSON.stringify(showInternal));
     }, [showInternal]);
-    useEffect8(() => {
+    useEffect9(() => {
       localStorage.setItem("pcg_show_vendors", JSON.stringify(showVendors));
     }, [showVendors]);
-    useEffect8(() => {
+    useEffect9(() => {
       const needsMigration = contacts.some((c) => c.dept !== void 0 && !c.depts);
       if (needsMigration) {
         setContacts((cs) => cs.map((c) => {
@@ -13055,9 +13460,9 @@ ${pendingEmail.emails.join("\n")}`,
     }, user, standalone: true, txnDeepLinkRef, initialTab: initialTab || "sales" }));
   }
   function AdminSchedule({ stores, th, user }) {
-    const [selectedStore, setSelectedStore] = useState8(null);
-    const [search, setSearch] = useState8("");
-    const [filterDistrict, setFilterDistrict] = useState8("All");
+    const [selectedStore, setSelectedStore] = useState9(null);
+    const [search, setSearch] = useState9("");
+    const [filterDistrict, setFilterDistrict] = useState9("All");
     const isDM = user?.userType === "dm";
     const visibleStores = React.useMemo(() => {
       if (isDM && user?.district != null) return (stores || []).filter((s) => String(s.district) === String(user.district));
@@ -13095,7 +13500,7 @@ ${pendingEmail.emails.join("\n")}`,
     ))));
   }
   function ManagerSchedule({ stores, th, user }) {
-    const [mode, setMode] = useState8("build");
+    const [mode, setMode] = useState9("build");
     const store = getManagerStore(stores, user);
     if (!store?.pc) {
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "No store is linked to your account yet. Ask an admin to assign one.");
@@ -15817,7 +16222,7 @@ ${pendingEmail.emails.join("\n")}`,
   function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
     const G = "#00d084";
     const isMobile = useIsMobile();
-    const [laborData, setLaborData] = useState8(null);
+    const [laborData, setLaborData] = useState9(null);
     const fetchLaborData = useCallback(async () => {
       try {
         const data = await cloudLoad("pcg_labor_v1");
@@ -15825,10 +16230,10 @@ ${pendingEmail.emails.join("\n")}`,
       } catch {
       }
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect8(() => {
+    useEffect9(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -15836,30 +16241,30 @@ ${pendingEmail.emails.join("\n")}`,
       const d = /* @__PURE__ */ new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     })();
-    const [busDt, setBusDt] = useState8(todayStr);
-    const [storeData, setStoreData] = useState8({});
-    const [loading, setLoading] = useState8(false);
-    const [progress, setProgress] = useState8(0);
-    const [lastRefresh, setLastRefresh] = useState8(null);
-    const [countdown, setCountdown] = useState8(300);
+    const [busDt, setBusDt] = useState9(todayStr);
+    const [storeData, setStoreData] = useState9({});
+    const [loading, setLoading] = useState9(false);
+    const [progress, setProgress] = useState9(0);
+    const [lastRefresh, setLastRefresh] = useState9(null);
+    const [countdown, setCountdown] = useState9(300);
     const isDMUser = user?.userType === "dm";
     const dmDistrict = isDMUser && user?.district ? Number(user.district) : 0;
-    const [distFilter, setDistFilter] = useState8(dmDistrict);
-    const [autoRefresh, setAutoRefresh] = useState8(true);
-    const [testResult, setTestResult] = useState8(null);
-    const [testing, setTesting] = useState8(false);
-    const [dateCache, setDateCache] = useState8({});
-    const [lyCache, setLyCache] = useState8({});
-    const [wtdLoading, setWtdLoading] = useState8(false);
-    const [viewMode, setViewMode] = useState8("day");
-    const [weekStoreData, setWeekStoreData] = useState8({});
-    const [weekLoading, setWeekLoading] = useState8(false);
-    const [dayStoreCache, setDayStoreCache] = useState8({});
-    const [comparisonsLoading, setComparisonsLoading] = useState8(false);
-    const [hourlyHistories, setHourlyHistories] = useState8(null);
-    const [collapsed, setCollapsed] = useState8(/* @__PURE__ */ new Set());
-    const [tipsSnapshot, setTipsSnapshot] = useState8(null);
-    useEffect8(() => {
+    const [distFilter, setDistFilter] = useState9(dmDistrict);
+    const [autoRefresh, setAutoRefresh] = useState9(true);
+    const [testResult, setTestResult] = useState9(null);
+    const [testing, setTesting] = useState9(false);
+    const [dateCache, setDateCache] = useState9({});
+    const [lyCache, setLyCache] = useState9({});
+    const [wtdLoading, setWtdLoading] = useState9(false);
+    const [viewMode, setViewMode] = useState9("day");
+    const [weekStoreData, setWeekStoreData] = useState9({});
+    const [weekLoading, setWeekLoading] = useState9(false);
+    const [dayStoreCache, setDayStoreCache] = useState9({});
+    const [comparisonsLoading, setComparisonsLoading] = useState9(false);
+    const [hourlyHistories, setHourlyHistories] = useState9(null);
+    const [collapsed, setCollapsed] = useState9(/* @__PURE__ */ new Set());
+    const [tipsSnapshot, setTipsSnapshot] = useState9(null);
+    useEffect9(() => {
       let alive = true;
       setTipsSnapshot(null);
       cloudLoad(`pcg_tips_snapshot_${busDt}`).then((d) => {
@@ -15876,8 +16281,8 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [busDt]);
-    const [laborDailyByStore, setLaborDailyByStore] = useState8({});
-    useEffect8(() => {
+    const [laborDailyByStore, setLaborDailyByStore] = useState9({});
+    useEffect9(() => {
       let alive = true;
       Promise.all((stores || []).map(
         (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => [s.pc, Array.isArray(d?.daily) ? d.daily : []]).catch(() => [s.pc, []])
@@ -15910,16 +16315,16 @@ ${pendingEmail.emails.join("\n")}`,
       if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
       return daily ? daily.find((e) => e.date === busDt) || null : null;
     }, [laborDailyByStore, viewMode, busDt, todayStr, laborData]);
-    const [pulseView, setPulseView] = useState8(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
-    const [weatherForecast, setWeatherForecast] = useState8(null);
-    const [networkReviews, setNetworkReviews] = useState8(null);
+    const [pulseView, setPulseView] = useState9(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
+    const [weatherForecast, setWeatherForecast] = useState9(null);
+    const [networkReviews, setNetworkReviews] = useState9(null);
     const cdRef = useRef5(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
     const dmStoreCount = activePCs.length;
     const pulseDistrictNums = districtNumbers(stores.filter((s) => s.status === "Open"));
-    useEffect8(() => {
+    useEffect9(() => {
       let alive = true;
       Promise.all(activePCs.map(
         (pc) => cloudLoad(`pcg_hourly_history_${pc}`).then((d) => Array.isArray(d) ? d : null).catch(() => null)
@@ -15930,13 +16335,13 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [activePCs.join(",")]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (drillInStore) {
         setPulseView({ level: "store", pc: drillInStore });
         if (onClearDrillIn) onClearDrillIn();
       }
     }, [drillInStore]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (pulseView !== "network") {
         window.scrollTo(0, 0);
         frameRef.current?.scrollTo(0, 0);
@@ -16128,11 +16533,11 @@ ${t2.slice(0, 300)}`);
     };
     const wtdAutoLoaded = useRef5(false);
     const lastWtdWeek = useRef5("");
-    useEffect8(() => {
+    useEffect9(() => {
       loadAll();
       if (!drillInStore) setPulseView("network");
     }, [busDt]);
-    useEffect8(() => {
+    useEffect9(() => {
       const d = /* @__PURE__ */ new Date(busDt + "T12:00:00");
       const sun = new Date(d);
       sun.setDate(d.getDate() - d.getDay());
@@ -16142,19 +16547,19 @@ ${t2.slice(0, 300)}`);
         lastWtdWeek.current = weekKey;
       }
     }, [busDt]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!loading && Object.keys(storeData).length > 0 && !wtdAutoLoaded.current) {
         wtdAutoLoaded.current = true;
         loadWTD();
         loadLYWeek();
       }
     }, [loading, storeData]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (loading) return;
       if (!Object.keys(storeData).length) return;
       loadComparisons();
     }, [busDt, viewMode, loading]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (autoRefresh) {
         cdRef.current = setInterval(() => {
           setCountdown((c) => {
@@ -16168,15 +16573,15 @@ ${t2.slice(0, 300)}`);
       }
       return () => clearInterval(cdRef.current);
     }, [autoRefresh, busDt]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (viewMode !== "week") return;
       loadWeekGrid();
     }, [viewMode, busDt]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (viewMode !== "week" || loading) return;
       loadWeekGrid();
     }, [storeData]);
-    useEffect8(() => {
+    useEffect9(() => {
       (async () => {
         try {
           const fRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) });
@@ -16916,7 +17321,7 @@ ${t2.slice(0, 300)}`);
     const drawWind = (cx, cy, size) => {
       setDraw([120, 140, 160]);
       doc.setLineWidth(0.035);
-      [{ y: cy - size * 0.3, w: 0.85 }, { y: cy, w: 1 }, { y: cy + size * 0.35, w: 0.7 }].forEach((L2) => doc.line(cx - size * L2.w, L2.y, cx + size * L2.w * 0.7, L2.y));
+      [{ y: cy - size * 0.3, w: 0.85 }, { y: cy, w: 1 }, { y: cy + size * 0.35, w: 0.7 }].forEach((L3) => doc.line(cx - size * L3.w, L3.y, cx + size * L3.w * 0.7, L3.y));
     };
     const drawWeatherIcon = (conditions, cx, cy, size) => {
       const c = (conditions || "").toLowerCase();
@@ -17188,10 +17593,10 @@ ${t2.slice(0, 300)}`);
     return doc;
   }
   function ReportPhotoRestore({ th, showAlert: showAlert2 }) {
-    const [open, setOpen] = useState8(false);
-    const [busy, setBusy] = useState8(null);
-    const [status, setStatus] = useState8(null);
-    const call5 = async (mode, extra = {}) => {
+    const [open, setOpen] = useState9(false);
+    const [busy, setBusy] = useState9(null);
+    const [status, setStatus] = useState9(null);
+    const call6 = async (mode, extra = {}) => {
       setBusy(mode);
       let before = null;
       try {
@@ -17235,21 +17640,21 @@ ${t2.slice(0, 300)}`);
       {
         disabled: !!busy,
         onClick: () => {
-          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call5("undo", { undoKey: status.undoKey });
+          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call6("undo", { undoKey: status.undoKey });
         },
         style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text }
       },
       "Undo restore"
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call5("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
-      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call5("restore");
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call6("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
+      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call6("restore");
     }, style: { ...btn(th) } }, "Restore ", plan.photos, " photos"))))));
   }
   function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert: showAlert2, editable }) {
     const dailyReports = _dr2 || [];
-    const [drView, setDrView] = useState8("list");
-    const [editReport, setEditReport] = useState8(null);
-    const [rForm, setRForm] = useState8({ ...EMPTY_DAILY_REPORT });
-    const [wxLoading, setWxLoading] = useState8(false);
+    const [drView, setDrView] = useState9("list");
+    const [editReport, setEditReport] = useState9(null);
+    const [rForm, setRForm] = useState9({ ...EMPTY_DAILY_REPORT });
+    const [wxLoading, setWxLoading] = useState9(false);
     const fileInputRefs = useRef5({});
     const projReports = dailyReports.filter((r) => r.projectId === project.id).sort((a, b) => b.date.localeCompare(a.date));
     const nextId = () => {
@@ -17377,12 +17782,12 @@ ${t2.slice(0, 300)}`);
     const totalWorkers = (r) => (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
     const totalHrs = (r) => (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
     const pdfImportRef = useRef5(null);
-    const [pdfImporting, setPdfImporting] = useState8(false);
-    const [forceSyncState, setForceSyncState] = useState8("idle");
-    const [forceSyncMsg, setForceSyncMsg] = useState8("");
-    const [backupState, setBackupState] = useState8("idle");
-    const [lastBackupTime, setLastBackupTime] = useState8(null);
-    useEffect8(() => {
+    const [pdfImporting, setPdfImporting] = useState9(false);
+    const [forceSyncState, setForceSyncState] = useState9("idle");
+    const [forceSyncMsg, setForceSyncMsg] = useState9("");
+    const [backupState, setBackupState] = useState9("idle");
+    const [lastBackupTime, setLastBackupTime] = useState9(null);
+    useEffect9(() => {
       const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
       cloudLoad(`pcg_daily_reports_backup_${date}`).then((data) => {
         if (data?.[0] || Array.isArray(data)) {
@@ -17533,12 +17938,12 @@ ${t2.slice(0, 300)}`);
         if (pdfImportRef.current) pdfImportRef.current.value = "";
       }
     };
-    const [pdfLoading, setPdfLoading] = useState8(false);
-    const [emailModal, setEmailModal] = useState8(false);
-    const [emailTo, setEmailTo] = useState8("");
-    const [emailSubject, setEmailSubject] = useState8("");
-    const [emailSending, setEmailSending] = useState8(false);
-    const [lightbox, setLightbox] = useState8(null);
+    const [pdfLoading, setPdfLoading] = useState9(false);
+    const [emailModal, setEmailModal] = useState9(false);
+    const [emailTo, setEmailTo] = useState9("");
+    const [emailSubject, setEmailSubject] = useState9("");
+    const [emailSending, setEmailSending] = useState9(false);
+    const [lightbox, setLightbox] = useState9(null);
     const buildNativePdf = (report, projOverride) => buildReportPdf(report, projOverride || project);
     const _legacyPdfBody = async (report, project2) => {
       const _proj = project2;
@@ -17694,8 +18099,8 @@ ${t2.slice(0, 300)}`);
           { y: cy, w: 1 },
           { y: cy + size * 0.35, w: 0.7 }
         ];
-        for (const L2 of lines) {
-          doc.line(cx - size * L2.w, L2.y, cx + size * L2.w * 0.7, L2.y);
+        for (const L3 of lines) {
+          doc.line(cx - size * L3.w, L3.y, cx + size * L3.w * 0.7, L3.y);
         }
       };
       const drawWeatherIcon = (conditions, cx, cy, size) => {
@@ -18754,32 +19159,32 @@ ${t2.slice(0, 300)}`);
   }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
-    const [view, setView] = useState8("table");
+    const [view, setView] = useState9("table");
     const tableFrameRef = useRef5(null);
     const isMobile = useIsMobile();
     const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
-    const [selectedProject, setSelectedProject] = useState8(null);
-    const [detailTab, setDetailTab] = useState8("checklist");
-    const [addMode, setAddMode] = useState8(false);
-    const [editId, setEditId] = useState8(null);
-    const [form, setForm] = useState8({ ...EMPTY_PROJECT });
-    const [filterType, setFilterType] = useState8("All");
-    const [filterPhase, setFilterPhase] = useState8("All");
-    const [search, setSearch] = useState8("");
-    const [manualAddr, setManualAddr] = useState8(false);
-    const [sortCol, setSortCol] = useState8("priority");
-    const [sortDir, setSortDir] = useState8("asc");
-    const [reorderLocked, setReorderLocked] = useState8(true);
-    const [dragIdx, setDragIdx] = useState8(null);
-    const [dragOverIdx, setDragOverIdx] = useState8(null);
-    const [zoningOverlay, setZoningOverlay] = useState8(null);
-    const [zoningLoading, setZoningLoading] = useState8(false);
-    const [zoningData, setZoningData] = useState8(null);
-    const [permitUploading, setPermitUploading] = useState8(null);
-    const [permitDetailData, setPermitDetailData] = useState8(null);
-    const [docViewerData, setDocViewerData] = useState8(null);
-    const [docBlobUrl, setDocBlobUrl] = useState8(null);
-    useEffect8(() => {
+    const [selectedProject, setSelectedProject] = useState9(null);
+    const [detailTab, setDetailTab] = useState9("checklist");
+    const [addMode, setAddMode] = useState9(false);
+    const [editId, setEditId] = useState9(null);
+    const [form, setForm] = useState9({ ...EMPTY_PROJECT });
+    const [filterType, setFilterType] = useState9("All");
+    const [filterPhase, setFilterPhase] = useState9("All");
+    const [search, setSearch] = useState9("");
+    const [manualAddr, setManualAddr] = useState9(false);
+    const [sortCol, setSortCol] = useState9("priority");
+    const [sortDir, setSortDir] = useState9("asc");
+    const [reorderLocked, setReorderLocked] = useState9(true);
+    const [dragIdx, setDragIdx] = useState9(null);
+    const [dragOverIdx, setDragOverIdx] = useState9(null);
+    const [zoningOverlay, setZoningOverlay] = useState9(null);
+    const [zoningLoading, setZoningLoading] = useState9(false);
+    const [zoningData, setZoningData] = useState9(null);
+    const [permitUploading, setPermitUploading] = useState9(null);
+    const [permitDetailData, setPermitDetailData] = useState9(null);
+    const [docViewerData, setDocViewerData] = useState9(null);
+    const [docBlobUrl, setDocBlobUrl] = useState9(null);
+    useEffect9(() => {
       if (!docViewerData?.data || docViewerData.type && docViewerData.type.startsWith("image/")) {
         setDocBlobUrl(null);
         return;
@@ -18797,15 +19202,15 @@ ${t2.slice(0, 300)}`);
         setDocBlobUrl(null);
       }
     }, [docViewerData]);
-    const [planUploading, setPlanUploading] = useState8(null);
-    const [projCityData, setProjCityData] = useState8(null);
-    const [projCityLoading, setProjCityLoading] = useState8(false);
+    const [planUploading, setPlanUploading] = useState9(null);
+    const [projCityData, setProjCityData] = useState9(null);
+    const [projCityLoading, setProjCityLoading] = useState9(false);
     const pros = professionals || DEFAULT_PROFESSIONALS;
-    useEffect8(() => {
+    useEffect9(() => {
       setProjCityData(null);
       setZoningData(null);
     }, [selectedProject?.id]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (deepLinkRef?.current) {
         const proj = projects.find((p) => p.id === deepLinkRef.current);
         if (proj) {
@@ -20421,12 +20826,12 @@ ${t2.slice(0, 300)}`);
   var accIco = (k, c, s = 18) => /* @__PURE__ */ React.createElement(HubIcon, { d: ACCESS_ICONS[k], color: c, size: s });
   var initialsOf = (name) => String(name || "?").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "?";
   function PnlAccessPanel({ th, user, users, showAlert: showAlert2 }) {
-    const [allowed, setAllowed] = useState8(null);
-    const [query, setQuery] = useState8("");
-    const [adding, setAdding] = useState8(false);
-    const [addQuery, setAddQuery] = useState8("");
-    const [saving, setSaving] = useState8(false);
-    useEffect8(() => {
+    const [allowed, setAllowed] = useState9(null);
+    const [query, setQuery] = useState9("");
+    const [adding, setAdding] = useState9(false);
+    const [addQuery, setAddQuery] = useState9("");
+    const [saving, setSaving] = useState9(false);
+    useEffect9(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => setAllowed(Array.isArray(d?.allowed) ? d.allowed : [...DEFAULT_PNL_ALLOWED])).catch(() => setAllowed([...DEFAULT_PNL_ALLOWED]));
     }, []);
     const persist = async (next) => {
@@ -20529,9 +20934,9 @@ ${t2.slice(0, 300)}`);
     });
     const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
     const ov = accessOverrides || {};
-    const [expandedHubs, setExpandedHubs] = useState8(/* @__PURE__ */ new Set());
-    const [openRoles, setOpenRoles] = useState8(/* @__PURE__ */ new Set());
-    const [showMore, setShowMore] = useState8(false);
+    const [expandedHubs, setExpandedHubs] = useState9(/* @__PURE__ */ new Set());
+    const [openRoles, setOpenRoles] = useState9(/* @__PURE__ */ new Set());
+    const [showMore, setShowMore] = useState9(false);
     const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
       const next = new Set(prev);
       if (next.has(hubId)) next.delete(hubId);
@@ -20658,7 +21063,7 @@ ${t2.slice(0, 300)}`);
     );
   }
   function WeeklyReportSendNow({ th, showAlert: showAlert2 }) {
-    const [state, setState] = useState8("idle");
+    const [state, setState] = useState9("idle");
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const today = /* @__PURE__ */ new Date();
     const daysSinceSat = (today.getDay() + 1) % 7 || 7;
@@ -20707,21 +21112,21 @@ ${t2.slice(0, 300)}`);
   var irIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS[k] || NOTIFY_ICONS[k], color: c, size: s });
   function InterviewRemindersPanel({ th, showAlert: showAlert2, users }) {
     const O2 = "#FF671F";
-    const [data, setData] = useState8(null);
-    const [err, setErr] = useState8(null);
-    const [running, setRunning] = useState8(false);
-    const [ivQ, setIvQ] = useState8("");
-    const [ivStatus, setIvStatus] = useState8("all");
-    const [ivRange, setIvRange] = useState8("today");
-    const [ivShowAll, setIvShowAll] = useState8(false);
-    const [peopleOpen, setPeopleOpen] = useState8(true);
-    const [activityOpen, setActivityOpen] = useState8(false);
-    const [peopleQ, setPeopleQ] = useState8("");
-    const [peopleRole, setPeopleRole] = useState8("all");
-    const [picked, setPicked] = useState8([]);
-    const [savingMuted, setSavingMuted] = useState8(false);
-    const [savingSource, setSavingSource] = useState8(false);
-    const [pxCheck, setPxCheck] = useState8(null);
+    const [data, setData] = useState9(null);
+    const [err, setErr] = useState9(null);
+    const [running, setRunning] = useState9(false);
+    const [ivQ, setIvQ] = useState9("");
+    const [ivStatus, setIvStatus] = useState9("all");
+    const [ivRange, setIvRange] = useState9("today");
+    const [ivShowAll, setIvShowAll] = useState9(false);
+    const [peopleOpen, setPeopleOpen] = useState9(true);
+    const [activityOpen, setActivityOpen] = useState9(false);
+    const [peopleQ, setPeopleQ] = useState9("");
+    const [peopleRole, setPeopleRole] = useState9("all");
+    const [picked, setPicked] = useState9([]);
+    const [savingMuted, setSavingMuted] = useState9(false);
+    const [savingSource, setSavingSource] = useState9(false);
+    const [pxCheck, setPxCheck] = useState9(null);
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -20733,7 +21138,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const ivSourceNow = data?.config?.source === "paradox" ? "paradox" : "email";
@@ -20907,13 +21312,13 @@ ${t2.slice(0, 300)}`);
     ), activityOpen && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column" } }, (st?.sent || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No reminders sent yet."), (st?.sent || []).slice(0, 25).map((s, i, arr) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.5rem 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtAgo(s.at)), " \xB7 ", s.kind === "hour" ? "1-hour reminder" : "1-day reminder", " \xB7 ", s.store, " \xB7 ", s.candidate || "candidate", " \xB7 ", s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`, " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: s.smsSent ? "#16a34a" : "#dc2626" } }, s.smsSent ? "text sent" : "no text"), s.emails ? " \xB7 email sent" : "")))));
   }
   function NewHiresPanel({ th, showAlert: showAlert2, users }) {
-    const [data, setData] = useState8(null);
-    const [err, setErr] = useState8(null);
-    const [running, setRunning] = useState8(false);
-    const [testing, setTesting] = useState8(null);
-    const [draft, setDraft] = useState8(null);
-    const [savingCfg, setSavingCfg] = useState8(false);
-    const [pickQ, setPickQ] = useState8("");
+    const [data, setData] = useState9(null);
+    const [err, setErr] = useState9(null);
+    const [running, setRunning] = useState9(false);
+    const [testing, setTesting] = useState9(null);
+    const [draft, setDraft] = useState9(null);
+    const [savingCfg, setSavingCfg] = useState9(false);
+    const [pickQ, setPickQ] = useState9("");
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -20925,7 +21330,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const runNow = async () => {
@@ -20961,7 +21366,7 @@ ${t2.slice(0, 300)}`);
       }
       setTesting(null);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [], source: data.hiresConfig.source || "email" });
     }, [data, draft]);
     const savedCfg = data?.hiresConfig || { live: false, recipients: [], source: "email" };
@@ -21106,6 +21511,7 @@ ${t2.slice(0, 300)}`);
     newHires: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "8", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 20a6.5 6.5 0 0 1 13 0" }), /* @__PURE__ */ React.createElement("path", { d: "M19 8v6M16 11h6" })),
     transferNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 8h13M13 4l4 4-4 4" }), /* @__PURE__ */ React.createElement("path", { d: "M20 16H7M11 12l-4 4 4 4" })),
     violationNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 2.5 20h19Z" }), /* @__PURE__ */ React.createElement("path", { d: "M12 10v4M12 17h.01" })),
+    resignationLetter: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M6 3h9l4 4v14H6Z" }), /* @__PURE__ */ React.createElement("path", { d: "M9 8h4M9 11h7" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 17.5c1.2-2.2 2.2.6 3.4-.9 1-1.3 1.7.9 3.6-.1" })),
     payIncrease: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 20V6M7 11l5-5 5 5" }), /* @__PURE__ */ React.createElement("path", { d: "M5 20h14" })),
     payIncreaseApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M20 6 9 17l-5-5" })),
     violationApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z" }), /* @__PURE__ */ React.createElement("path", { d: "m8.5 12 2.5 2.5 4.5-5" })),
@@ -21131,7 +21537,8 @@ ${t2.slice(0, 300)}`);
     payIncrease: "Pay increases",
     payIncreaseApprovers: "Pay increase approvals",
     timeOffRequest: "Time off requests",
-    violationApprovers: "Violation notice approvals"
+    violationApprovers: "Violation notice approvals",
+    resignationLetter: "Resignation letters"
   };
   var nIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: NOTIFY_ICONS[k], color: c, size: s });
   var recipientInitials = (value, users) => {
@@ -21176,16 +21583,16 @@ ${t2.slice(0, 300)}`);
     ), children);
   }
   function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel, seedUserTypes, tagKey = "mail", onCountChange }) {
-    const [emails, setEmails] = useState8(null);
-    const [phones, setPhones] = useState8(null);
-    const [emailOwners, setEmailOwners] = useState8(null);
-    const [phoneOwners, setPhoneOwners] = useState8(null);
-    const [newEmail, setNewEmail] = useState8("");
-    const [newPhone, setNewPhone] = useState8("");
-    const [nameQuery, setNameQuery] = useState8("");
-    const [showSuggestions, setShowSuggestions] = useState8(false);
-    const [saving, setSaving] = useState8(false);
-    useEffect8(() => {
+    const [emails, setEmails] = useState9(null);
+    const [phones, setPhones] = useState9(null);
+    const [emailOwners, setEmailOwners] = useState9(null);
+    const [phoneOwners, setPhoneOwners] = useState9(null);
+    const [newEmail, setNewEmail] = useState9("");
+    const [newPhone, setNewPhone] = useState9("");
+    const [nameQuery, setNameQuery] = useState9("");
+    const [showSuggestions, setShowSuggestions] = useState9(false);
+    const [saving, setSaving] = useState9(false);
+    useEffect9(() => {
       cloudLoad(blobKey).then((d) => {
         if (!d?.updatedAt && seedUserTypes && (users || []).length) {
           const seed = (users || []).filter((u) => u.active !== false && u.email && seedUserTypes.includes(u.userType));
@@ -21307,7 +21714,7 @@ ${t2.slice(0, 300)}`);
       setNameQuery("");
       setShowSuggestions(false);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!users || emails === null || phones === null) return;
       let changed = false;
       const nextEmails = (emails || []).map((e, i) => {
@@ -21332,7 +21739,7 @@ ${t2.slice(0, 300)}`);
       });
       if (changed) persist(nextEmails, nextPhones, emailOwners, phoneOwners);
     }, [users, emails, phones, emailOwners, phoneOwners]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (emails !== null && onCountChange) onCountChange(emails.length);
     }, [emails]);
     if (emails === null) return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading recipients\u2026");
@@ -21392,20 +21799,20 @@ ${t2.slice(0, 300)}`);
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey, tagText: NOTIFY_TAGS[tagKey] || "Notifications", onRemove: () => removeEmail(idx), disabled: saving }))), smsLabel && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "SMS", onRemove: () => removePhone(idx), disabled: saving })))));
   }
   function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
-    const [newEmail, setNewEmail] = useState8("");
-    const [newTicketEmail, setNewTicketEmail] = useState8("");
-    const [newTicketPhone, setNewTicketPhone] = useState8("");
-    const [ticketNameQuery, setTicketNameQuery] = useState8("");
-    const [ticketShowSuggestions, setTicketShowSuggestions] = useState8(false);
-    const [notifyLog, setNotifyLog] = useState8(null);
-    const [logLoading, setLogLoading] = useState8(false);
-    const [logOpen, setLogOpen] = useState8(false);
-    const [pushSubs, setPushSubs] = useState8(null);
-    const [notifyInfoOpen, setNotifyInfoOpen] = useState8(false);
-    const [notifSubTab, setNotifSubTab] = useState8("project");
-    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1" };
-    const [notifCounts, setNotifCounts] = useState8({});
-    useEffect8(() => {
+    const [newEmail, setNewEmail] = useState9("");
+    const [newTicketEmail, setNewTicketEmail] = useState9("");
+    const [newTicketPhone, setNewTicketPhone] = useState9("");
+    const [ticketNameQuery, setTicketNameQuery] = useState9("");
+    const [ticketShowSuggestions, setTicketShowSuggestions] = useState9(false);
+    const [notifyLog, setNotifyLog] = useState9(null);
+    const [logLoading, setLogLoading] = useState9(false);
+    const [logOpen, setLogOpen] = useState9(false);
+    const [pushSubs, setPushSubs] = useState9(null);
+    const [notifyInfoOpen, setNotifyInfoOpen] = useState9(false);
+    const [notifSubTab, setNotifSubTab] = useState9("project");
+    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1", resignationLetter: "pcg_resignation_notify_v1" };
+    const [notifCounts, setNotifCounts] = useState9({});
+    useEffect9(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
         cloudLoad(key).then((d) => {
           let n = Array.isArray(d?.emails) ? d.emails.length : 0;
@@ -21416,11 +21823,11 @@ ${t2.slice(0, 300)}`);
       });
     }, [(users || []).length > 0]);
     const setNotifCount = (id) => (n) => setNotifCounts((c) => c[id] === n ? c : { ...c, [id]: n });
-    const [userNotifsOpen, setUserNotifsOpen] = useState8(false);
-    const [reportSettings, setReportSettings] = useState8(null);
-    const [reportLoading, setReportLoading] = useState8(false);
-    const [reportOpen, setReportOpen] = useState8(false);
-    const [newReportCC, setNewReportCC] = useState8("");
+    const [userNotifsOpen, setUserNotifsOpen] = useState9(false);
+    const [reportSettings, setReportSettings] = useState9(null);
+    const [reportLoading, setReportLoading] = useState9(false);
+    const [reportOpen, setReportOpen] = useState9(false);
+    const [newReportCC, setNewReportCC] = useState9("");
     const loadReportSettings = async () => {
       setReportLoading(true);
       try {
@@ -21477,7 +21884,7 @@ ${t2.slice(0, 300)}`);
       setNewEmail("");
       showAlert2("success", "Email added to global notify list");
     };
-    const [projectShowSuggestions, setProjectShowSuggestions] = useState8(false);
+    const [projectShowSuggestions, setProjectShowSuggestions] = useState9(false);
     const projectTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim()) ? newEmail.trim() : null;
     const projectNameMatches = (users || []).filter((u) => newEmail.trim().length > 0 && !projectTypedEmail && (u.name || "").toLowerCase().includes(newEmail.trim().toLowerCase()) && u.email).slice(0, 8);
     const removeEmail = (idx) => {
@@ -21569,7 +21976,7 @@ ${t2.slice(0, 300)}`);
       setTicketNameQuery("");
       setTicketShowSuggestions(false);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!users) return;
       (ticketNotifyEmailOwners || []).forEach((ownerId, i) => {
         if (ownerId == null) return;
@@ -21622,6 +22029,7 @@ ${t2.slice(0, 300)}`);
         { id: "transferNotice", label: "Transfer Notice", count: notifCounts.transferNotice },
         { id: "violationApprovers", label: "Violation Notice approval", count: notifCounts.violationApprovers },
         { id: "violationNotice", label: "Violation Notice", count: notifCounts.violationNotice },
+        { id: "resignationLetter", label: "Resignation Letter", count: notifCounts.resignationLetter },
         { id: "timeOffRequest", label: "Time Off Request", count: notifCounts.timeOffRequest },
         { id: "payIncreaseApprovers", label: "Pay Increase approval", count: notifCounts.payIncreaseApprovers },
         { id: "payIncrease", label: "Pay Increase (office)", count: notifCounts.payIncrease },
@@ -21805,6 +22213,19 @@ ${t2.slice(0, 300)}`);
         onCountChange: setNotifCount("violationNotice"),
         description: "These people get every signed Violation Notice (Tools \xB7 Violation Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone.",
         smsLabel: "Violation Notice SMS Numbers"
+      }
+    ), notifSubTab === "resignationLetter" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_resignation_notify_v1",
+        tagKey: "resignationLetter",
+        onCountChange: setNotifCount("resignationLetter"),
+        description: "These people get every signed Resignation Letter (Tools \xB7 Resignation Letter): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone.",
+        smsLabel: "Resignation Letter SMS Numbers"
       }
     ), notifSubTab === "transferNotice" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
       ManualNotifyListPanel,
@@ -24267,6 +24688,7 @@ ${t2.slice(0, 300)}`);
       { id: "terminations", label: "Terminations" },
       { id: "transfer-notice", label: "Transfer Notice" },
       { id: "violation-notice", label: "Violation Notice" },
+      { id: "resignation-letter", label: "Resignation Letter" },
       { id: "time-off-request", label: "Time Off Request" },
       { id: "pay-increase", label: "Pay Increase" }
     ],
@@ -24313,6 +24735,7 @@ ${t2.slice(0, 300)}`);
   var TRANSFER_NOTICE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
   var VIOLATION_NOTICE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
   var TIME_OFF_REQUEST_ROLES = /* @__PURE__ */ new Set(["executive", "it", "dm", "director", "manager"]);
+  var RESIGNATION_LETTER_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
   var PAY_INCREASE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "dm", "director", "manager"]);
   var accessSubOn = (overrides, rt, hubId, subId) => overrides?.[rt]?.[`${hubId}:${subId}`] !== false;
   var TASK_SHIFTS = ["", "1 AM", "5 AM", "9 AM", "1 PM", "5 PM", "9 PM", "AM", "Noon", "PM"];
@@ -24322,18 +24745,18 @@ ${t2.slice(0, 300)}`);
   var TASK_TYPES = ["shift", "general"];
   var NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
   function AdminTaskManager({ th, user, stores, showAlert: showAlert2 }) {
-    const [templates, setTemplates] = useState8(null);
-    const [loading, setLoading] = useState8(false);
-    const [q, setQ] = useState8("");
-    const [catFilter, setCatFilter] = useState8("all");
-    const [activeFilter, setActiveFilter] = useState8("all");
-    const [editing, setEditing] = useState8(null);
-    const [locFor, setLocFor] = useState8(null);
-    const [locPcs, setLocPcs] = useState8([]);
-    const [itemsFor, setItemsFor] = useState8(null);
-    const [templateItems, setTemplateItems] = useState8([]);
-    const [templateEquip, setTemplateEquip] = useState8([]);
-    const [busy, setBusy] = useState8(false);
+    const [templates, setTemplates] = useState9(null);
+    const [loading, setLoading] = useState9(false);
+    const [q, setQ] = useState9("");
+    const [catFilter, setCatFilter] = useState9("all");
+    const [activeFilter, setActiveFilter] = useState9("all");
+    const [editing, setEditing] = useState9(null);
+    const [locFor, setLocFor] = useState9(null);
+    const [locPcs, setLocPcs] = useState9([]);
+    const [itemsFor, setItemsFor] = useState9(null);
+    const [templateItems, setTemplateItems] = useState9([]);
+    const [templateEquip, setTemplateEquip] = useState9([]);
+    const [busy, setBusy] = useState9(false);
     const api2 = useCallback(async (action, payload = {}) => {
       const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
       return r.json();
@@ -24347,7 +24770,7 @@ ${t2.slice(0, 300)}`);
         setLoading(false);
       }
     }, [api2]);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const frameRef = useRef5(null);
@@ -24671,16 +25094,16 @@ ${t2.slice(0, 300)}`);
     })));
   }
   function AdminSensors({ th, user, stores }) {
-    const [shellyDevices, setShellyDevices] = useState8(null);
+    const [shellyDevices, setShellyDevices] = useState9(null);
     const loadShellyTemp = () => {
       setShellyDevices(null);
       fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
     };
-    useEffect8(() => {
+    useEffect9(() => {
       loadShellyTemp();
     }, []);
-    const [shellyDeviceMap, setShellyDeviceMap] = useState8({});
-    useEffect8(() => {
+    const [shellyDeviceMap, setShellyDeviceMap] = useState9({});
+    useEffect9(() => {
       cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
       });
     }, []);
@@ -24957,15 +25380,15 @@ ${t2.slice(0, 300)}`);
     })))), displayed.length > PAGE && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAll((s) => !s), style: { ...btn(th, { padding: "0.3rem 1rem", fontSize: "0.75rem" }) } }, showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", textAlign: "right" } }, "Showing ", visibleRows.length, " of ", displayed.length, " event", displayed.length !== 1 ? "s" : ""))));
   }
   function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert: showAlert2, users }) {
-    const [editingId, setEditingId] = useState8(null);
-    const [editForm, setEditForm] = useState8({ title: "", message: "" });
-    const [addMode, setAddMode] = useState8(false);
-    const [newTitle, setNewTitle] = useState8("");
-    const [newMsg, setNewMsg] = useState8("");
-    const [newTargets, setNewTargets] = useState8([]);
-    const [newUserTargets, setNewUserTargets] = useState8([]);
-    const [newForceAll, setNewForceAll] = useState8(false);
-    const [expandedRole, setExpandedRole] = useState8(null);
+    const [editingId, setEditingId] = useState9(null);
+    const [editForm, setEditForm] = useState9({ title: "", message: "" });
+    const [addMode, setAddMode] = useState9(false);
+    const [newTitle, setNewTitle] = useState9("");
+    const [newMsg, setNewMsg] = useState9("");
+    const [newTargets, setNewTargets] = useState9([]);
+    const [newUserTargets, setNewUserTargets] = useState9([]);
+    const [newForceAll, setNewForceAll] = useState9(false);
+    const [expandedRole, setExpandedRole] = useState9(null);
     const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
     const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
     const ANN_ROLES = [
@@ -26239,8 +26662,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: save, style: { ...btn(th), minHeight: 40 } }, "Save signature"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clear, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Clear")));
   }
   function SafeAuditsPane({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState8("list");
-    const [sel, setSel] = useState8(null);
+    const [view, setView] = useState9("list");
+    const [sel, setSel] = useState9(null);
     const openConduct = (id, storePC) => {
       setSel({ id, storePC });
       setView("conduct");
@@ -26285,11 +26708,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
   }
   function SafeAuditList({ user, th, stores, showAlert: showAlert2, onConduct, onViewReport }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState8(null);
-    const [err, setErr] = useState8(false);
-    const [picking, setPicking] = useState8(false);
-    const [pickStore, setPickStore] = useState8("");
-    const [starting, setStarting] = useState8(false);
+    const [audits, setAudits] = useState9(null);
+    const [err, setErr] = useState9(false);
+    const [picking, setPicking] = useState9(false);
+    const [pickStore, setPickStore] = useState9("");
+    const [starting, setStarting] = useState9(false);
     const canConduct = safeCanConduct(user);
     const load = useCallback(() => {
       setErr(false);
@@ -26298,7 +26721,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setErr(true);
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -26377,14 +26800,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const storeName = store?.name || storePC;
     const storeDistrict = store?.district ?? null;
     const localKey = "pcg_safe_draft_" + auditId;
-    const [loading, setLoading] = useState8(true);
-    const [loadErr, setLoadErr] = useState8(false);
-    const [setting, setSetting] = useState8(null);
-    const [savingExpected, setSavingExpected] = useState8(false);
-    const [submitting, setSubmitting] = useState8(false);
-    const [submitted, setSubmitted] = useState8(null);
+    const [loading, setLoading] = useState9(true);
+    const [loadErr, setLoadErr] = useState9(false);
+    const [setting, setSetting] = useState9(null);
+    const [savingExpected, setSavingExpected] = useState9(false);
+    const [submitting, setSubmitting] = useState9(false);
+    const [submitted, setSubmitted] = useState9(null);
     const didHydrate = useRef5(false);
-    const [f, setF] = useState8({
+    const [f, setF] = useState9({
       reason: "",
       safeCode: "",
       codeLastChanged: "",
@@ -26405,7 +26828,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       notes: ""
     });
     const set = (patch) => setF((prev) => ({ ...prev, ...patch }));
-    useEffect8(() => {
+    useEffect9(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -26492,7 +26915,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       managerAckName: f.managerAckName,
       notes: f.notes
     });
-    useEffect8(() => {
+    useEffect9(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -26669,9 +27092,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function SafeSigImage({ sigKey, th, label }) {
-    const [src, setSrc] = useState8(null);
-    const [loading, setLoading] = useState8(!!sigKey);
-    useEffect8(() => {
+    const [src, setSrc] = useState9(null);
+    const [loading, setLoading] = useState9(!!sigKey);
+    useEffect9(() => {
       let cancelled = false;
       if (!sigKey) {
         setSrc(null);
@@ -27321,12 +27744,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const store = stores?.find((s) => String(s.pc) === String(storePC));
     const storeName = store?.name || storePC;
     const storeAddress = store ? [store.address, store.city, store.state, store.zip].filter(Boolean).join(", ") : "";
-    const [audit, setAudit] = useState8(null);
-    const [err, setErr] = useState8(false);
-    const [lightbox, setLightbox] = useState8(null);
-    const [exporting, setExporting] = useState8(false);
+    const [audit, setAudit] = useState9(null);
+    const [err, setErr] = useState9(false);
+    const [lightbox, setLightbox] = useState9(null);
+    const [exporting, setExporting] = useState9(false);
     const printRef = useRef5(null);
-    useEffect8(() => {
+    useEffect9(() => {
       let cancelled = false;
       setAudit(null);
       setErr(false);
@@ -27382,16 +27805,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Back to safe audits"), /* @__PURE__ */ React.createElement("button", { onClick: exportPdf, disabled: exporting, style: { ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 } }, exporting ? "Exporting\u2026" : "\u2913 Export PDF")), /* @__PURE__ */ React.createElement("div", { ref: printRef }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "flex-start", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: pageTitle(th) }, storeName, " ", storePC ? `(${storePC})` : ""), storeAddress && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", marginTop: "0.15rem" } }, storeAddress), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Auditor: ", audit.auditorName || "\u2014", audit.auditorRole ? ` (${audit.auditorRole})` : ""), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginTop: "0.25rem" } }, "Started ", audit.startedAt ? new Date(audit.startedAt).toLocaleString() : "\u2014", " \xB7 Submitted ", audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "\u2014", durationLabel ? ` \xB7 Duration ${durationLabel}` : "")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.4rem" } }, "Accounted ", fmtSafeMoney(audit.accountedTotal), " vs Expected ", fmtSafeMoney(audit.expectedPettyCash))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "General Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Reason for audit", value: audit.reason || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Current safe code", value: audit.safeCode || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Code last changed", value: audit.codeLastChanged || "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Store Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store manager", value: audit.storeManagerName || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: audit.district != null ? districtLabel(audit.district) : "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Petty Cash Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Expected petty cash", value: fmtSafeMoney(audit.expectedPettyCash), th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts in safe", value: audit.hasReceipts ? "Yes" : "No", th }), audit.hasReceipts && /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts total", value: fmtSafeMoney(audit.receiptsTotal), th })), audit.hasReceipts && audit.receiptPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Receipt photos (", audit.receiptPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.receiptPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "left" } }, "Denomination"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Count"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Value"))), /* @__PURE__ */ React.createElement("tbody", null, SAFE_BILLS.map((d) => denomRow(d, "billCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Bills"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.billsTotal))), SAFE_COINS.map((d) => denomRow(d, "coinCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Coins"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.coinsTotal))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, "Counted Total"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, fmtSafeMoney(audit.countedTotal)))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between", marginTop: "0.9rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 700 } }, "Accounted total (counted + receipts): ", fmtSafeMoney(audit.accountedTotal)), /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.9rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: audit.hasCounterfeit ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit cash found", value: audit.hasCounterfeit ? "Yes" : "No", color: audit.hasCounterfeit ? "#ef4444" : void 0, th }), audit.hasCounterfeit && /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit total", value: fmtSafeMoney(audit.counterfeitTotal), color: "#ef4444", th })), audit.hasCounterfeit && audit.counterfeitPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Counterfeit photos (", audit.counterfeitPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.counterfeitPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Signatures"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem" } }, /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.conductorSigKey, th, label: `Conductor \u2014 ${audit.auditorName || "\u2014"}` }), /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.managerSigKey, th, label: `Store manager / witness${audit.managerAckName ? ` \u2014 ${audit.managerAckName}` : ""}` }))), audit.notes && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, whiteSpace: "pre-wrap" } }, audit.notes))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
   }
   function SystemHealth({ th, user }) {
-    const [snap, setSnap] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    const [refreshing, setRefreshing] = useState8(false);
+    const [snap, setSnap] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    const [refreshing, setRefreshing] = useState9(false);
     const load = useCallback(async () => {
       setLoading(true);
       const d = await cloudLoad("pcg_system_health_v1");
       setSnap(d || null);
       setLoading(false);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const refreshNow = async () => {
@@ -27431,7 +27854,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function AuditsTab({ user, th, stores, showAlert: showAlert2, setTab }) {
     const canFieldOps = auditCanView(user);
     const canSafe = safeCanView(user);
-    const [mode, setMode] = useState8(canFieldOps ? "field" : "safe");
+    const [mode, setMode] = useState9(canFieldOps ? "field" : "safe");
     const both = canFieldOps && canSafe;
     const effectiveMode = canFieldOps ? mode : "safe";
     const seg = both ? /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", padding: 3, gap: 3, borderRadius: 999, background: th.card2, border: `1px solid ${th.cardBorder}` } }, [["field", "Field Ops"], ["safe", "Safe"]].map(([m, lbl]) => /* @__PURE__ */ React.createElement(
@@ -27446,13 +27869,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, seg, effectiveMode === "safe" ? /* @__PURE__ */ React.createElement(SafeAuditsPane, { user, th, stores, showAlert: showAlert2, setTab }) : /* @__PURE__ */ React.createElement(FieldOpsAudits, { user, th, stores, showAlert: showAlert2, setTab }));
   }
   function FieldOpsAudits({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState8(null);
-    const [conduct, setConduct] = useState8(null);
+    const [view, setView] = useState9(null);
+    const [conduct, setConduct] = useState9(null);
     const canConduct = auditCanAudit(user);
     const canSeeCapBoard = auditCanView(user);
     const canSeeDashboard = canSeeCapBoard;
     const dashboardIsDefault = auditCanAudit(user);
-    useEffect8(() => {
+    useEffect9(() => {
       let cancelled = false;
       if (!dashboardIsDefault) {
         setView("list");
@@ -27547,11 +27970,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function AuditList({ user, th, stores, showAlert: showAlert2, canConduct, canSeeCapBoard, canSeeDashboard, onConduct, onViewReport, onOpenCapBoard, onOpenDashboard }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState8(null);
-    const [err, setErr] = useState8(false);
-    const [picking, setPicking] = useState8(false);
-    const [pickStore, setPickStore] = useState8("");
-    const [starting, setStarting] = useState8(false);
+    const [audits, setAudits] = useState9(null);
+    const [err, setErr] = useState9(false);
+    const [picking, setPicking] = useState9(false);
+    const [pickStore, setPickStore] = useState9("");
+    const [starting, setStarting] = useState9(false);
     const load = useCallback(() => {
       setErr(false);
       auditsApi("list").then((j) => setAudits(Array.isArray(j.audits) ? j.audits : [])).catch(() => {
@@ -27559,7 +27982,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -27623,18 +28046,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeDashboard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenDashboard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Dashboard"), canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
   }
   function AuditConduct({ user, th, stores, showAlert: showAlert2, auditId, storePC, onExit, onViewReport }) {
-    const [template, setTemplate] = useState8(null);
-    const [results, setResults] = useState8({});
-    const [secIdx, setSecIdx] = useState8(0);
-    const [loading, setLoading] = useState8(true);
-    const [loadErr, setLoadErr] = useState8(false);
-    const [submitting, setSubmitting] = useState8(false);
-    const [submitted, setSubmitted] = useState8(null);
-    const [gpsStatus, setGpsStatus] = useState8("");
+    const [template, setTemplate] = useState9(null);
+    const [results, setResults] = useState9({});
+    const [secIdx, setSecIdx] = useState9(0);
+    const [loading, setLoading] = useState9(true);
+    const [loadErr, setLoadErr] = useState9(false);
+    const [submitting, setSubmitting] = useState9(false);
+    const [submitted, setSubmitted] = useState9(null);
+    const [gpsStatus, setGpsStatus] = useState9("");
     const didHydrate = useRef5(false);
     const localKey = "pcg_audit_draft_" + auditId;
     const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
-    useEffect8(() => {
+    useEffect9(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -27667,7 +28090,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [auditId]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -27886,9 +28309,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   };
   var capStatusMeta = (s) => CAP_STATUS_META[s] || { label: s || "\u2014", color: "#6b7280" };
   function AuditPhotoThumb({ photoKey, th, onZoom, size = 64 }) {
-    const [src, setSrc] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    useEffect8(() => {
+    const [src, setSrc] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    useEffect9(() => {
       let cancelled = false;
       setLoading(true);
       cloudLoadFile(photoKey).then((f) => {
@@ -27913,10 +28336,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", cursor: "zoom-out" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "Full size", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "100%", borderRadius: "0.75rem", objectFit: "contain", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.25rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"));
   }
   function CapResolveForm({ th, user, cap, showAlert: showAlert2, onDone, onCancel }) {
-    const [note, setNote] = useState8("");
-    const [photoKeys, setPhotoKeys] = useState8([]);
-    const [uploading, setUploading] = useState8(false);
-    const [saving, setSaving] = useState8(false);
+    const [note, setNote] = useState9("");
+    const [photoKeys, setPhotoKeys] = useState9([]);
+    const [uploading, setUploading] = useState9(false);
+    const [saving, setSaving] = useState9(false);
     const addPhotos = async (fileList) => {
       const files = Array.from(fileList || []);
       if (!files.length) return;
@@ -27983,13 +28406,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function AuditReport({ user, th, stores, showAlert: showAlert2, auditId, storePC, onBack }) {
-    const [audit, setAudit] = useState8(null);
-    const [items, setItems] = useState8([]);
-    const [caps, setCaps] = useState8([]);
-    const [loading, setLoading] = useState8(true);
-    const [err, setErr] = useState8(false);
-    const [lightbox, setLightbox] = useState8(null);
-    const [exporting, setExporting] = useState8(false);
+    const [audit, setAudit] = useState9(null);
+    const [items, setItems] = useState9([]);
+    const [caps, setCaps] = useState9([]);
+    const [loading, setLoading] = useState9(true);
+    const [err, setErr] = useState9(false);
+    const [lightbox, setLightbox] = useState9(null);
+    const [exporting, setExporting] = useState9(false);
     const printRef = useRef5(null);
     const load = useCallback(() => {
       setLoading(true);
@@ -28000,7 +28423,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setCaps(Array.isArray(j.caps) ? j.caps : []);
       }).catch(() => setErr(true)).finally(() => setLoading(false));
     }, [auditId]);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const store = (stores || []).find((s) => String(s.pc) === String(storePC));
@@ -28076,16 +28499,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function CapBoard({ user, th, stores, showAlert: showAlert2, onBack }) {
     const isMobile = useIsMobile();
-    const [rows, setRows] = useState8(null);
-    const [err, setErr] = useState8(false);
-    const [statusFilter, setStatusFilter] = useState8("all");
-    const [districtFilter, setDistrictFilter] = useState8("all");
-    const [ownerFilter, setOwnerFilter] = useState8("all");
-    const [expanded, setExpanded] = useState8(null);
-    const [rejectFor, setRejectFor] = useState8(null);
-    const [rejectNote, setRejectNote] = useState8("");
-    const [busyId, setBusyId] = useState8(null);
-    const [lightbox, setLightbox] = useState8(null);
+    const [rows, setRows] = useState9(null);
+    const [err, setErr] = useState9(false);
+    const [statusFilter, setStatusFilter] = useState9("all");
+    const [districtFilter, setDistrictFilter] = useState9("all");
+    const [ownerFilter, setOwnerFilter] = useState9("all");
+    const [expanded, setExpanded] = useState9(null);
+    const [rejectFor, setRejectFor] = useState9(null);
+    const [rejectNote, setRejectNote] = useState9("");
+    const [busyId, setBusyId] = useState9(null);
+    const [lightbox, setLightbox] = useState9(null);
     const canAudit = auditCanAudit(user);
     const load = useCallback(() => {
       setErr(false);
@@ -28094,7 +28517,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const storeInfo = (pc) => (stores || []).find((s) => String(s.pc) === String(pc));
@@ -28210,8 +28633,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var DISTRICT_TREND_COLORS = ["#3b82f6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#14b8a6", "#eab308", "#ec4899"];
   function AuditDashboard({ user, th, stores, showAlert: showAlert2, onOpenReport, onGoList, onGoCaps }) {
-    const [data, setData] = useState8(null);
-    const [err, setErr] = useState8(false);
+    const [data, setData] = useState9(null);
+    const [err, setErr] = useState9(false);
     const isFull = auditCanView(user) && user?.userType !== "dm";
     const isDm = user?.userType === "dm";
     const canSeeManagerRanking = auditCanAudit(user);
@@ -28222,7 +28645,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     const visibleStores = React.useMemo(() => {
@@ -28288,7 +28711,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       for (const m of trend) Object.keys(m.byDistrict || {}).forEach((d) => set.add(d));
       return [...set].sort((a, b) => Number(a) - Number(b));
     }, [trend, isFull]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chartRef.current) {
         chartRef.current.destroy();
         chartRef.current = null;
@@ -28379,9 +28802,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ManagerCapCard({ user, th, stores, showAlert: showAlert2 }) {
     const store = getManagerStore(stores, user);
-    const [caps, setCaps] = useState8(null);
-    const [err, setErr] = useState8(false);
-    const [expanded, setExpanded] = useState8(null);
+    const [caps, setCaps] = useState9(null);
+    const [err, setErr] = useState9(false);
+    const [expanded, setExpanded] = useState9(null);
     const load = useCallback(() => {
       if (!store?.pc) {
         setCaps([]);
@@ -28402,7 +28825,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, [store?.pc]);
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [load]);
     if (!store?.pc) return null;
@@ -28460,6 +28883,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
       { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
+      { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
       { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
       { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
@@ -28507,6 +28931,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
       { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
+      { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
       { id: "analytics", label: "Analytics", icon: (c) => ICONS.analytics(c) },
@@ -28551,6 +28976,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
       { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
+      { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
       { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
       { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
@@ -28579,6 +29005,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "terminations", label: "Terminations", icon: (c) => ICONS.terminations(c) },
       { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
       { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
+      { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
       { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
       { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
@@ -28641,9 +29068,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return visible;
   };
   function ManagerOrionBrief({ pc, storeName, th }) {
-    const [brief, setBrief] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    const [err, setErr] = useState8(false);
+    const [brief, setBrief] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    const [err, setErr] = useState9(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -28663,7 +29090,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect8(() => {
+    useEffect9(() => {
       load(false);
     }, [pc]);
     return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem", borderLeft: "3px solid #b197fc" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", paddingBottom: "0.6rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 18 }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text, whiteSpace: "nowrap" } }, "Orion \xB7 Store Brief"), storeName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "\xB7 ", storeName)), /* @__PURE__ */ React.createElement(
@@ -28678,9 +29105,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Reading your store\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Brief unavailable right now \u2014 try again shortly.") : brief && brief.content ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(brief.content, th)) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "No brief yet \u2014 not enough data for this store."));
   }
   function ForecastPrePlanCard({ pc, storeName, th }) {
-    const [plan, setPlan] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    const [err, setErr] = useState8(false);
+    const [plan, setPlan] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    const [err, setErr] = useState9(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -28700,7 +29127,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect8(() => {
+    useEffect9(() => {
       load(false);
     }, [pc]);
     const fc = plan && plan.forecast;
@@ -28720,14 +29147,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Building your game plan\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Pre-plan unavailable right now \u2014 try again shortly.") : !fc ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Not enough history yet \u2014 the model is still collecting data.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.8rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.66rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high), fc.holidayName ? ` \xB7 \u{1F389} ${fc.holidayName}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginTop: "0.7rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 7, padding: "0.4rem 0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.5rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.72rem", marginTop: "0.15rem" } }, f(v))))), par && (par.donut || par.munchkin) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.55rem", fontSize: "0.62rem", color: th.muted } }, par.donut && /* @__PURE__ */ React.createElement("span", null, "\u{1F369} Donut par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.donut.par)), par.munchkin && /* @__PURE__ */ React.createElement("span", null, "\xB7 Munchkin par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.munchkin.par))), plan && plan.content && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.78rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(plan.content, th))));
   }
   function StoreForecastTab({ pc, date, actualHourly, th }) {
-    const [mode, setMode] = useState8("day");
-    const [data, setData] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    const [err, setErr] = useState8(false);
-    const [week, setWeek] = useState8(null);
-    const [weekLoading, setWeekLoading] = useState8(false);
-    const [weekErr, setWeekErr] = useState8(false);
-    useEffect8(() => {
+    const [mode, setMode] = useState9("day");
+    const [data, setData] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    const [err, setErr] = useState9(false);
+    const [week, setWeek] = useState9(null);
+    const [weekLoading, setWeekLoading] = useState9(false);
+    const [weekErr, setWeekErr] = useState9(false);
+    useEffect9(() => {
       if (!pc) {
         setLoading(false);
         return;
@@ -28754,7 +29181,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [pc, date]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (mode !== "week" || !pc) return;
       let cancelled = false;
       setWeekLoading(true);
@@ -28938,37 +29365,37 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 364);
       return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     })();
-    const [sales, setSales] = useState8(null);
-    const [tappedHour, setTappedHour] = useState8(null);
-    const [salesYesterday, setSalesYesterday] = useState8(null);
-    const [salesLastYear, setSalesLastYear] = useState8(null);
-    const [labor, setLabor] = useState8(null);
-    const [hourly, setHourly] = useState8(null);
-    const [workers, setWorkers] = useState8([]);
-    const [lwDaySales, setLwDaySales] = useState8(null);
-    const [carouselPage, setCarouselPage] = useState8(0);
+    const [sales, setSales] = useState9(null);
+    const [tappedHour, setTappedHour] = useState9(null);
+    const [salesYesterday, setSalesYesterday] = useState9(null);
+    const [salesLastYear, setSalesLastYear] = useState9(null);
+    const [labor, setLabor] = useState9(null);
+    const [hourly, setHourly] = useState9(null);
+    const [workers, setWorkers] = useState9([]);
+    const [lwDaySales, setLwDaySales] = useState9(null);
+    const [carouselPage, setCarouselPage] = useState9(0);
     const touchStartX = useRef5(null);
     const carouselInnerRef = useRef5(null);
     const fetchTokenRef = useRef5(0);
-    const [loading, setLoading] = useState8(true);
-    const [refreshing, setRefreshing] = useState8(false);
-    const [lastRefresh, setLastRefresh] = useState8(null);
-    const [showStoreInfo, setShowStoreInfo] = useState8(false);
-    const [showUserMenu, setShowUserMenu] = useState8(false);
-    const [dayOffset, setDayOffset] = useState8(0);
-    const [storeBlob, setStoreBlob] = useState8(null);
-    const [histHourly, setHistHourly] = useState8(null);
-    const [liveHistCache, setLiveHistCache] = useState8({});
-    const [histLoading, setHistLoading] = useState8(false);
-    const [storeTickets, setStoreTickets] = useState8([]);
-    const [taskSummary, setTaskSummary] = useState8(null);
-    const [mgrCaps, setMgrCaps] = useState8(null);
-    const [mgrCapsErr, setMgrCapsErr] = useState8(false);
-    const [expandedCap, setExpandedCap] = useState8(null);
+    const [loading, setLoading] = useState9(true);
+    const [refreshing, setRefreshing] = useState9(false);
+    const [lastRefresh, setLastRefresh] = useState9(null);
+    const [showStoreInfo, setShowStoreInfo] = useState9(false);
+    const [showUserMenu, setShowUserMenu] = useState9(false);
+    const [dayOffset, setDayOffset] = useState9(0);
+    const [storeBlob, setStoreBlob] = useState9(null);
+    const [histHourly, setHistHourly] = useState9(null);
+    const [liveHistCache, setLiveHistCache] = useState9({});
+    const [histLoading, setHistLoading] = useState9(false);
+    const [storeTickets, setStoreTickets] = useState9([]);
+    const [taskSummary, setTaskSummary] = useState9(null);
+    const [mgrCaps, setMgrCaps] = useState9(null);
+    const [mgrCapsErr, setMgrCapsErr] = useState9(false);
+    const [expandedCap, setExpandedCap] = useState9(null);
     const toggleBtnRef = useRef5(null);
-    const [voiceState, setVoiceState] = useState8("idle");
-    const [voiceTranscript, setVoiceTranscript] = useState8("");
-    const [voiceReply, setVoiceReply] = useState8("");
+    const [voiceState, setVoiceState] = useState9("idle");
+    const [voiceTranscript, setVoiceTranscript] = useState9("");
+    const [voiceReply, setVoiceReply] = useState9("");
     const recogRef = useRef5(null);
     const handleToggle = useCallback(() => {
       const btn2 = toggleBtnRef.current;
@@ -29126,17 +29553,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     }, [pc, todayStr]);
-    useEffect8(() => {
+    useEffect9(() => {
       fetchAll();
       return () => {
         fetchTokenRef.current++;
       };
     }, [fetchAll]);
-    useEffect8(() => {
+    useEffect9(() => {
       const t = setInterval(fetchAll, 10 * 60 * 1e3);
       return () => clearInterval(t);
     }, [fetchAll]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (dayOffset === 0) {
         setHistHourly(null);
         return;
@@ -29183,7 +29610,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [dayOffset, pc]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!pc) return;
       try {
         const raw = localStorage.getItem("pcg_tickets_v1");
@@ -29539,7 +29966,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.86";
+  var APP_VERSION = "v22.88";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29625,22 +30052,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     reader.readAsText(file);
   }
   function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert: showAlert2, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores, onDrillIn }) {
-    const [chatView, setChatView] = useState8(initialChannelId ? "thread" : "list");
-    const [activeChannelId, setActiveChannelId] = useState8(initialChannelId || null);
-    const [msgText, setMsgText] = useState8("");
-    const [searchTerm, setSearchTerm] = useState8("");
-    const [pendingAttachments, setPendingAttachments] = useState8([]);
-    const [mentionQuery, setMentionQuery] = useState8(null);
-    const [groupName, setGroupName] = useState8("");
-    const [groupMembers, setGroupMembers] = useState8([]);
-    const [dmSearch, setDmSearch] = useState8("");
-    const [orionThinking, setOrionThinking] = useState8(false);
-    const [replyToThread, setReplyToThread] = useState8(null);
-    const [expandedThreads, setExpandedThreads] = useState8(/* @__PURE__ */ new Set());
-    const [orionFeedback, setOrionFeedback] = useState8({});
-    const [editMembers, setEditMembers] = useState8(null);
-    const [chatMenuOpen, setChatMenuOpen] = useState8(false);
-    const [chatConfirm, setChatConfirm] = useState8(null);
+    const [chatView, setChatView] = useState9(initialChannelId ? "thread" : "list");
+    const [activeChannelId, setActiveChannelId] = useState9(initialChannelId || null);
+    const [msgText, setMsgText] = useState9("");
+    const [searchTerm, setSearchTerm] = useState9("");
+    const [pendingAttachments, setPendingAttachments] = useState9([]);
+    const [mentionQuery, setMentionQuery] = useState9(null);
+    const [groupName, setGroupName] = useState9("");
+    const [groupMembers, setGroupMembers] = useState9([]);
+    const [dmSearch, setDmSearch] = useState9("");
+    const [orionThinking, setOrionThinking] = useState9(false);
+    const [replyToThread, setReplyToThread] = useState9(null);
+    const [expandedThreads, setExpandedThreads] = useState9(/* @__PURE__ */ new Set());
+    const [orionFeedback, setOrionFeedback] = useState9({});
+    const [editMembers, setEditMembers] = useState9(null);
+    const [chatMenuOpen, setChatMenuOpen] = useState9(false);
+    const [chatConfirm, setChatConfirm] = useState9(null);
     const sendOrionFeedback = (messageId, rating) => {
       if (!messageId) return;
       setOrionFeedback((prev) => ({ ...prev, [messageId]: rating }));
@@ -29651,7 +30078,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!pendingOrionQuestion) return;
       const analystChId = `analyst_${user.id}`;
       setActiveChannelId(analystChId);
@@ -29680,7 +30107,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [pendingOrionQuestion]);
     const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
     const personalAnalystId = `analyst_${user.id}`;
-    useEffect8(() => {
+    useEffect9(() => {
       if (!isAnalystUser) return;
       setChannels((prev) => {
         if (prev.some((c) => c.id === personalAnalystId)) return prev;
@@ -29688,7 +30115,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
     }, [user?.id]);
     const sanitizedRef = useRef5(false);
-    useEffect8(() => {
+    useEffect9(() => {
       if (sanitizedRef.current || !channels || channels.length === 0) return;
       if (!users || users.length === 0) return;
       const removedIds = /* @__PURE__ */ new Set();
@@ -29859,7 +30286,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setOrionThinking(false);
     };
-    const [logFilters, setLogFilters] = useState8({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
+    const [logFilters, setLogFilters] = useState9({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
     const messagesEndRef = useRef5(null);
     const inputRef = useRef5(null);
     const fileRef = useRef5(null);
@@ -30195,12 +30622,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const mentionSuggestions = mentionQuery ? activeUsers.filter(
       (u) => u.id !== user.id && (u.username.toLowerCase().includes(mentionQuery.query) || u.name.toLowerCase().includes(mentionQuery.query))
     ).slice(0, 6) : [];
-    useEffect8(() => {
+    useEffect9(() => {
       if (initialChannelId && activeChannelId === initialChannelId) {
         setReadState((prev) => ({ ...prev, [`${user.id}_${initialChannelId}`]: (/* @__PURE__ */ new Date()).toISOString() }));
       }
     }, [initialChannelId]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chatView === "thread") messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, chatView, activeChannelId]);
     const getSeenBy = (msg) => {
@@ -30214,7 +30641,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const activeChannel = channels.find((ch) => ch.id === activeChannelId);
     const threadMessages = activeChannelId ? messages.filter((m) => m.channelId === activeChannelId).sort((a, b) => a.timestamp.localeCompare(b.timestamp)) : [];
-    useEffect8(() => {
+    useEffect9(() => {
       setReplyToThread(null);
       setChatMenuOpen(false);
     }, [activeChannelId]);
@@ -30643,8 +31070,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: () => setChatView("list"), style: { color: th.muted, cursor: "pointer" } }, "\u2190 Back to Chat");
   }
   function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
-    const [uploading, setUploading] = useState8(false);
-    const [uploadMsg, setUploadMsg] = useState8(null);
+    const [uploading, setUploading] = useState9(false);
+    const [uploadMsg, setUploadMsg] = useState9(null);
     const fileRef = useRef5(null);
     const handleUpload = async (e) => {
       const file = e.target.files?.[0];
@@ -30688,8 +31115,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     } }, uploadMsg.text), currentWeek && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.5rem", padding: "1rem", background: th.card2, borderRadius: "0.5rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Currently Loaded"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", color: th.text, fontWeight: 700 } }, "Week #", currentWeek.weekNum, " \u2014 ", currentWeek.weekEnd, currentWeek.isDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#ffa94d", fontWeight: 700, marginLeft: "0.4rem", fontSize: "0.65rem", border: "1px solid #ffa94d", borderRadius: "4px", padding: "1px 6px" } }, "DRAFT") : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, currentWeek.stores.length, " stores")), salesWeeks.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Previous Weeks"), salesWeeks.slice(1).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.25rem 0" } }, "Week #", w.weekNum, " \u2014 ", w.weekEnd, w.isDraft ? " (Draft)" : "", " (", w.stores.length, " stores)")))));
   }
   function BiometricEnrollPrompt({ th, onDone }) {
-    const [busy, setBusy] = useState8(false);
-    const [err, setErr] = useState8("");
+    const [busy, setBusy] = useState9(false);
+    const [err, setErr] = useState9("");
     const enable = async () => {
       setBusy(true);
       setErr("");
@@ -30712,8 +31139,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), maxWidth: 380, width: "100%", padding: "1.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 28, color: O })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Enable Face ID / Fingerprint?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" } }, "Skip typing your password next time you sign in on this device."), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.75rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted, flex: 1 }), onClick: decline, disabled: busy }, "Not now"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { flex: 1 }), onClick: enable, disabled: busy }, busy ? "Enabling..." : "Enable"))));
   }
   function FirstLoginSetup({ user, setUser, setUsers, th }) {
-    const [step, setStep] = useState8(1);
-    const [form, setForm] = useState8({
+    const [step, setStep] = useState9(1);
+    const [form, setForm] = useState9({
       newPassword: "",
       confirmPassword: "",
       showNew: false,
@@ -30724,7 +31151,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       smsNotify: false,
       pushNotify: false
     });
-    const [err, setErr] = useState8("");
+    const [err, setErr] = useState9("");
     const handleStep1 = () => {
       setErr("");
       if (!isSharedDeviceType(user.userType)) {
@@ -30849,8 +31276,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return j;
   }
   function MyTimeOffCard({ th }) {
-    const [data, setData] = useState8(null);
-    useEffect8(() => {
+    const [data, setData] = useState9(null);
+    useEffect9(() => {
       timeOffApi("mine").then(setData).catch(() => setData({ linked: false, balances: [] }));
     }, []);
     if (!data || !data.linked) return null;
@@ -30879,10 +31306,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), canLink && /* @__PURE__ */ React.createElement("button", { onClick: onLink, title: "Change the linked Paycor employee", style: { fontSize: "0.62rem", color: th.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" } }, "change"));
   }
   function TimeOffLinkPicker({ th, target, onClose, onSaved, showAlert: showAlert2 }) {
-    const [q, setQ] = useState8("");
-    const [list, setList] = useState8(null);
-    const [saving, setSaving] = useState8(false);
-    useEffect8(() => {
+    const [q, setQ] = useState9("");
+    const [list, setList] = useState9(null);
+    const [saving, setSaving] = useState9(false);
+    useEffect9(() => {
       let cancelled = false;
       const t = setTimeout(() => {
         timeOffApi("candidates", { userId: target.id, q }).then((j) => {
@@ -30929,7 +31356,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     );
   }
   function ProfileModal({ user, setUser, setUsers, th, onClose }) {
-    const [profileForm, setProfileForm] = useState8({
+    const [profileForm, setProfileForm] = useState9({
       email: user.email || "",
       phone: user.phone || "",
       emailNotify: user.emailNotify !== false,
@@ -30942,12 +31369,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       showNew: false,
       showConfirm: false
     });
-    const [profileMsg, setProfileMsg] = useState8(null);
-    const [bioAvailable, setBioAvailable] = useState8(false);
-    const [bioCreds, setBioCreds] = useState8([]);
-    const [bioBusy, setBioBusy] = useState8(false);
+    const [profileMsg, setProfileMsg] = useState9(null);
+    const [bioAvailable, setBioAvailable] = useState9(false);
+    const [bioCreds, setBioCreds] = useState9([]);
+    const [bioBusy, setBioBusy] = useState9(false);
     const refreshBioCreds = () => webauthnList().then(setBioCreds);
-    useEffect8(() => {
+    useEffect9(() => {
       webauthnAvailable().then(setBioAvailable);
       refreshBioCreds();
     }, []);
@@ -31149,11 +31576,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [actionLog, setActionLog] = React.useState([]);
     const logLoadedRef = React.useRef(false);
     const cleanAcked = (raw) => {
-      const now = Date.now(), clean3 = {};
+      const now = Date.now(), clean4 = {};
       Object.entries(raw || {}).forEach(([k, ts]) => {
-        if (now - ts < 4 * 36e5) clean3[k] = ts;
+        if (now - ts < 4 * 36e5) clean4[k] = ts;
       });
-      return clean3;
+      return clean4;
     };
     const [acked, setAcked] = React.useState(() => {
       try {
@@ -31787,8 +32214,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const firstName2 = (user?.name || "").split(" ")[0];
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    const [weather, setWeather] = useState8(null);
-    const [showWeekWeather, setShowWeekWeather] = useState8(false);
+    const [weather, setWeather] = useState9(null);
+    const [showWeekWeather, setShowWeekWeather] = useState9(false);
     const weatherRectRef = useRef5(null);
     const weatherCloseTimer = useRef5(null);
     const openWeekWeather = (e) => {
@@ -31809,13 +32236,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (weatherCloseTimer.current) clearTimeout(weatherCloseTimer.current);
       weatherCloseTimer.current = setTimeout(() => setShowWeekWeather(false), 150);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!showWeekWeather) return;
       const close = () => setShowWeekWeather(false);
       window.addEventListener("scroll", close, { passive: true });
       return () => window.removeEventListener("scroll", close);
     }, [showWeekWeather]);
-    useEffect8(() => {
+    useEffect9(() => {
       (async () => {
         try {
           let lat = 40.084, lon = -75.0524;
@@ -31986,7 +32413,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))));
   }
   function DashboardHeadlines({ th, isMobile, dailyFeed }) {
-    const [newsTab, setNewsTab] = useState8("general");
+    const [newsTab, setNewsTab] = useState9("general");
     return /* @__PURE__ */ React.createElement(React.Fragment, null, dailyFeed?.news && Object.values(dailyFeed.news).some((arr) => Array.isArray(arr) && arr.length > 0) && (() => {
       const SOURCE_COLORS = {
         "Fox News": "#003366",
@@ -32152,8 +32579,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return all;
     }, [stores, user, isDM, isManager]);
     const { actions, acknowledge, delegate, delegating } = useActionQueue({ stores: scopedStores, user, users, showAlert: showAlert2, enabled: opsRole });
-    const [foodSafety, setFoodSafety] = useState8(null);
-    useEffect8(() => {
+    const [foodSafety, setFoodSafety] = useState9(null);
+    useEffect9(() => {
       if (!opsRole) return;
       if (isManager && !scopedStores.length) return;
       const district = isDM ? user?.district : isManager ? scopedStores[0]?.district : null;
@@ -32187,9 +32614,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [opsRole, scopedStores.length]);
-    const [cases, setCases] = useState8(null);
-    const [showAllCases, setShowAllCases] = useState8(false);
-    useEffect8(() => {
+    const [cases, setCases] = useState9(null);
+    const [showAllCases, setShowAllCases] = useState9(false);
+    useEffect9(() => {
       if (!isExecIT) return;
       fetch("/.netlify/functions/analyst", {
         method: "POST",
@@ -32199,15 +32626,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [isExecIT]);
     const CLOSED_CASE = /* @__PURE__ */ new Set(["Done", "Dismissed", "Rejected", "Closed"]);
     const openCases = (cases || []).filter((c) => !CLOSED_CASE.has(c.status)).sort((a, b) => (b.dollarOpportunity || 0) - (a.dollarOpportunity || 0));
-    const [dailyFeed, setDailyFeed] = useState8(null);
-    useEffect8(() => {
+    const [dailyFeed, setDailyFeed] = useState9(null);
+    useEffect9(() => {
       fetch("/.netlify/functions/daily-feed").then((r) => r.ok ? r.json() : null).then((d) => {
         if (d) setDailyFeed(d);
       }).catch(() => {
       });
     }, []);
-    const [showAllAttention, setShowAllAttention] = useState8(false);
-    const [showBrief, setShowBrief] = useState8(false);
+    const [showAllAttention, setShowAllAttention] = useState9(false);
+    const [showBrief, setShowBrief] = useState9(false);
     const now = /* @__PURE__ */ new Date();
     const sevRank = { High: 0, Medium: 1, Low: 2 };
     const ICON_STORE = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M3 9h18M9 20v-6h6v6" }));
@@ -32458,19 +32885,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return d.getDay() === 0;
   }
   function SalesReconciliation({ th, user, showAlert: showAlert2 }) {
-    const [busDt, setBusDt] = useState8(() => {
+    const [busDt, setBusDt] = useState9(() => {
       const d = /* @__PURE__ */ new Date();
       d.setDate(d.getDate() - 1);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     });
-    const [snapping, setSnapping] = useState8(false);
-    const [comparing, setComparing] = useState8(false);
-    const [result, setResult] = useState8(null);
-    const [history, setHistory] = useState8(null);
-    const [wtdSnapshots, setWtdSnapshots] = useState8(null);
-    const [wtdHistory, setWtdHistory] = useState8(null);
-    const [wtdDetail, setWtdDetail] = useState8(null);
-    const [view, setView] = useState8("main");
+    const [snapping, setSnapping] = useState9(false);
+    const [comparing, setComparing] = useState9(false);
+    const [result, setResult] = useState9(null);
+    const [history, setHistory] = useState9(null);
+    const [wtdSnapshots, setWtdSnapshots] = useState9(null);
+    const [wtdHistory, setWtdHistory] = useState9(null);
+    const [wtdDetail, setWtdDetail] = useState9(null);
+    const [view, setView] = useState9("main");
     const callRecon = async (action, extra = {}) => {
       const res = await fetch("/.netlify/functions/reconciliation", {
         method: "POST",
@@ -32529,7 +32956,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setComparing(false);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       loadHistory();
     }, []);
     const fmtD = (v) => "$" + Math.abs(v || 0).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -32585,25 +33012,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function CashManagement({ user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }) {
     const G = "#22c55e";
-    const R2 = "#ef4444";
+    const R3 = "#ef4444";
     const Y = "#fbbf24";
     const canUpload = user?.userType === "executive" || user?.userType === "it" || user?.userType === "office_staff";
     const canEdit = isCashAdmin(user);
     const isDM = user?.userType === "dm";
     const dmDistrict = isDM ? user?.district : null;
-    const [noteModal, setNoteModal] = useState8(null);
-    const [noteText, setNoteText] = useState8("");
-    const [editDep, setEditDep] = useState8(null);
-    const [editForm, setEditForm] = useState8({ depositDate: "", amount: "" });
-    const [posLoading, setPosLoading] = useState8(false);
-    const [posProgress, setPosProgress] = useState8(0);
+    const [noteModal, setNoteModal] = useState9(null);
+    const [noteText, setNoteText] = useState9("");
+    const [editDep, setEditDep] = useState9(null);
+    const [editForm, setEditForm] = useState9({ depositDate: "", amount: "" });
+    const [posLoading, setPosLoading] = useState9(false);
+    const [posProgress, setPosProgress] = useState9(0);
     const fileRef = useRef5(null);
-    const [uploading, setUploading] = useState8(false);
-    const [uploadErr, setUploadErr] = useState8(null);
-    const [view, setView] = useState8("alerts");
-    const [weekOffset, setWeekOffset] = useState8(0);
-    const [storeFilter, setStoreFilter] = useState8(null);
-    const [distFilter, setDistFilter] = useState8(isDM ? dmDistrict : 0);
+    const [uploading, setUploading] = useState9(false);
+    const [uploadErr, setUploadErr] = useState9(null);
+    const [view, setView] = useState9("alerts");
+    const [weekOffset, setWeekOffset] = useState9(0);
+    const [storeFilter, setStoreFilter] = useState9(null);
+    const [distFilter, setDistFilter] = useState9(isDM ? dmDistrict : 0);
     const fmtUSD = (v) => "$" + (Math.round(v * 100) / 100).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtUSDRound = (v) => "$" + Math.round(v).toLocaleString();
     const fmtShort = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
@@ -32857,7 +33284,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!silent) showAlert2 && showAlert2("success", `POS cash totals loaded (${targets.length} fetched)`);
     };
     const posAutoLoadedRef = useRef5("");
-    useEffect8(() => {
+    useEffect9(() => {
       if (view !== "recon") return;
       const key = `${weekOffset}|${distFilter}|${view}`;
       if (posAutoLoadedRef.current === key) return;
@@ -33017,9 +33444,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         style: btn(th, { background: G, color: "#fff", padding: "0.6rem 1.2rem", fontSize: "0.85rem", fontWeight: 700 })
       },
       uploading ? "\u23F3 Parsing..." : "\u2B06 Upload Spreadsheet"
-    ))), uploadErr && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", padding: "0.5rem 0.75rem", borderRadius: "0.375rem", background: `${R2}18`, color: R2, fontSize: "0.75rem", fontWeight: 600 } }, "\u26A0\uFE0F ", uploadErr)), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
+    ))), uploadErr && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", padding: "0.5rem 0.75rem", borderRadius: "0.375rem", background: `${R3}18`, color: R3, fontSize: "0.75rem", fontWeight: 600 } }, "\u26A0\uFE0F ", uploadErr)), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
       { label: "Week Total Deposits", value: fmtUSDRound(rangeTotal), color: G, glow: true },
-      { label: "Missing Deposits", value: missing.length, color: missing.length > 0 ? R2 : G, glow: missing.length > 0 },
+      { label: "Missing Deposits", value: missing.length, color: missing.length > 0 ? R3 : G, glow: missing.length > 0 },
       { label: "Stores Deposited", value: `${uniqueStoresDeposited}/${visibleStores.length}`, color: "#74c0fc" },
       { label: "Transactions", value: rangeDeposits.length, color: "#b197fc" }
     ].map((k) => /* @__PURE__ */ React.createElement(
@@ -33165,28 +33592,28 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       padding: "1rem 1.25rem",
       marginBottom: "1rem",
       borderRadius: "0.75rem",
-      background: `${R2}12`,
-      border: `1px solid ${R2}44`,
-      borderLeft: `4px solid ${R2}`,
+      background: `${R3}12`,
+      border: `1px solid ${R3}44`,
+      borderLeft: `4px solid ${R3}`,
       display: "flex",
       alignItems: "center",
       gap: "1rem",
       flexWrap: "wrap"
-    } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem" } }, "\u{1F6A8}"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: R2 } }, missing.length, " Missing Deposit", missing.length !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.2rem" } }, "Across ", missingDistricts.length, " district", missingDistricts.length !== 1 ? "s" : "", " \xB7 ", new Set(missing.map((m) => m.pc)).size, " store", new Set(missing.map((m) => m.pc)).size !== 1 ? "s" : "", " affected"))), missingDistricts.map((dist) => /* @__PURE__ */ React.createElement("div", { key: dist.district, style: { ...card(th), padding: "1.25rem", marginBottom: "0.875rem", borderLeft: `3px solid ${R2}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, districtLabel(dist.district)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.15rem" } }, "DM: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, dist.dmName || "Unassigned"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, color: R2, background: `${R2}18`, padding: "0.25rem 0.625rem", borderRadius: "1rem" } }, dist.items.length, " missing")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.5rem" } }, dist.items.map((m, i) => {
+    } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem" } }, "\u{1F6A8}"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: R3 } }, missing.length, " Missing Deposit", missing.length !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.2rem" } }, "Across ", missingDistricts.length, " district", missingDistricts.length !== 1 ? "s" : "", " \xB7 ", new Set(missing.map((m) => m.pc)).size, " store", new Set(missing.map((m) => m.pc)).size !== 1 ? "s" : "", " affected"))), missingDistricts.map((dist) => /* @__PURE__ */ React.createElement("div", { key: dist.district, style: { ...card(th), padding: "1.25rem", marginBottom: "0.875rem", borderLeft: `3px solid ${R3}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, districtLabel(dist.district)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.15rem" } }, "DM: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, dist.dmName || "Unassigned"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, color: R3, background: `${R3}18`, padding: "0.25rem 0.625rem", borderRadius: "1rem" } }, dist.items.length, " missing")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.5rem" } }, dist.items.map((m, i) => {
       const itemNotes = getNotesFor(m.pc, m.businessDate);
       const lastAction = itemNotes.filter((n) => n.action).pop();
       return /* @__PURE__ */ React.createElement("div", { key: i, style: {
         background: th.card2,
         borderRadius: "0.5rem",
         padding: "0.75rem 0.875rem",
-        borderLeft: `3px solid ${m.daysLate >= 2 ? R2 : m.daysLate >= 1 ? Y : R2 + "88"}`
+        borderLeft: `3px solid ${m.daysLate >= 2 ? R3 : m.daysLate >= 1 ? Y : R3 + "88"}`
       } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: th.text } }, m.storeName), /* @__PURE__ */ React.createElement("div", { style: {
         fontSize: "0.62rem",
         fontWeight: 700,
         padding: "0.15rem 0.5rem",
         borderRadius: "0.25rem",
-        background: m.daysLate >= 2 ? `${R2}22` : m.daysLate >= 1 ? `${Y}22` : `${R2}11`,
-        color: m.daysLate >= 2 ? R2 : m.daysLate >= 1 ? "#d97706" : R2,
+        background: m.daysLate >= 2 ? `${R3}22` : m.daysLate >= 1 ? `${Y}22` : `${R3}11`,
+        color: m.daysLate >= 2 ? R3 : m.daysLate >= 1 ? "#d97706" : R3,
         whiteSpace: "nowrap"
       } }, m.daysLate === 0 ? "Due Today" : m.daysLate === 1 ? "1 Day Late" : `${m.daysLate} Days Late`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.15rem" } }, "PC# ", m.pc, m.city ? " \xB7 " + m.city : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted } }, "Business date: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, (/* @__PURE__ */ new Date(m.businessDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: itemNotes.length > 0 ? "0.4rem" : 0 } }, "Expected deposit: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, (/* @__PURE__ */ new Date(m.expectedDepositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))), itemNotes.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: `1px dashed ${th.cardBorder}` } }, itemNotes.slice(-2).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { fontSize: "0.62rem", color: th.muted, marginBottom: "0.2rem", lineHeight: 1.4, display: "flex", alignItems: "flex-start", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: n.action ? "#74c0fc" : th.muted, flexShrink: 0 } }, n.action === "dm_alerted" ? "\u{1F4E2}" : n.action === "store_called" ? "\u{1F4DE}" : n.action === "manager_replied" ? "\u{1F4AC}" : n.action === "confirmed_en_route" ? "\u{1F69A}" : "\u270E"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.createdByName), " \xB7 ", /* @__PURE__ */ React.createElement("span", null, new Date(n.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })), n.text && /* @__PURE__ */ React.createElement("div", { style: { color: th.text, marginTop: "0.1rem" } }, n.text)))), itemNotes.length > 2 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, fontStyle: "italic" } }, "+", itemNotes.length - 2, " earlier note", itemNotes.length - 2 !== 1 ? "s" : "")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", display: "flex", gap: "0.35rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
         "button",
@@ -33295,7 +33722,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
               }
             },
             fmtUSD(dep.amount)
-          ))) : closed ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2014") : isFuture ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2014") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: R2, fontWeight: 700 } }, "\u2717"));
+          ))) : closed ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2014") : isFuture ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2014") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: R3, fontWeight: 700 } }, "\u2717"));
         }), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.65rem", textAlign: "right", fontWeight: 800, color: weekTotal > 0 ? G : th.muted, fontSize: "0.85rem" } }, weekTotal > 0 ? fmtUSD(weekTotal) : "\u2014"));
       }))));
     })(), view === "recon" && (() => {
@@ -33350,7 +33777,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           style: btn(th, { background: "#74c0fc22", color: "#74c0fc", border: "1px solid #74c0fc55", padding: "0.5rem 1rem", fontSize: "0.8rem", fontWeight: 700 })
         },
         posLoading ? `\u23F3 Loading ${posProgress}%` : "\u26A1 Refresh POS Cash"
-      )), posLoading && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card3, borderRadius: 4, height: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: "#74c0fc", width: posProgress + "%", transition: "width .3s" } }))), !loaded && !posLoading ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.5rem", marginBottom: "0.75rem" } }, "\u{1F4B5}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Loading Reconciliation\u2026"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted } }, "Fetching POS cash totals for the current and prior week\u2026")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalExactMatches), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Exact Matches")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${Y}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: Y, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalVarianceMatches), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Variance Matches")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${totalMissing > 0 ? R2 : G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: totalMissing > 0 ? R2 : G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalMissing), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Unmatched Cash Days")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${totalUnmatchedDeps > 0 ? "#b197fc" : G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: totalUnmatchedDeps > 0 ? "#b197fc" : G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalUnmatchedDeps), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Unmatched Deposits")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${R2}`, minWidth: 0, gridColumn: "span 2" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: R2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, fmtUSD(totalMissingAmt)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Missing Cash $")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${Math.abs(totalVarianceAmt) < 0.01 ? G : Y}`, minWidth: 0, gridColumn: "span 2" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: Math.abs(totalVarianceAmt) < 0.01 ? G : Y, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalVarianceAmt >= 0 ? "+" : "", fmtUSD(totalVarianceAmt)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Net Match Variance"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, storeReports.filter((r) => r.hasPOSLoaded && (r.matches.length > 0 || r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0)).sort((a, b) => {
+      )), posLoading && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card3, borderRadius: 4, height: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: "#74c0fc", width: posProgress + "%", transition: "width .3s" } }))), !loaded && !posLoading ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.5rem", marginBottom: "0.75rem" } }, "\u{1F4B5}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Loading Reconciliation\u2026"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted } }, "Fetching POS cash totals for the current and prior week\u2026")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalExactMatches), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Exact Matches")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${Y}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: Y, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalVarianceMatches), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Variance Matches")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${totalMissing > 0 ? R3 : G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: totalMissing > 0 ? R3 : G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalMissing), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Unmatched Cash Days")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${totalUnmatchedDeps > 0 ? "#b197fc" : G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: totalUnmatchedDeps > 0 ? "#b197fc" : G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalUnmatchedDeps), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Unmatched Deposits")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${R3}`, minWidth: 0, gridColumn: "span 2" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: R3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, fmtUSD(totalMissingAmt)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Missing Cash $")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${Math.abs(totalVarianceAmt) < 0.01 ? G : Y}`, minWidth: 0, gridColumn: "span 2" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: Math.abs(totalVarianceAmt) < 0.01 ? G : Y, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalVarianceAmt >= 0 ? "+" : "", fmtUSD(totalVarianceAmt)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Net Match Variance"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, storeReports.filter((r) => r.hasPOSLoaded && (r.matches.length > 0 || r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0)).sort((a, b) => {
         const aProblems = a.missingBizDates.length + a.unmatchedDeposits.length;
         const bProblems = b.missingBizDates.length + b.unmatchedDeposits.length;
         if (aProblems !== bProblems) return bProblems - aProblems;
@@ -33358,12 +33785,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).map((r) => {
         const hasProblems = r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0;
         const allExact = r.matches.every((m) => m.tolerance === "exact");
-        const borderColor = hasProblems ? R2 : allExact ? G : Y;
-        return /* @__PURE__ */ React.createElement("div", { key: r.store.pc, style: { ...card(th), padding: "1rem 1.25rem", borderLeft: `3px solid ${borderColor}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, r.store.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, "PC# ", r.store.pc, " \xB7 D", r.store.district, " \xB7 ", r.store.dmName)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.375rem", flexWrap: "wrap" } }, r.matches.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: `${G}22`, color: G } }, "\u2713 ", r.matches.length, " matched"), r.missingBizDates.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: `${R2}22`, color: R2 } }, "\u26A0\uFE0F ", r.missingBizDates.length, " missing"), r.unmatchedDeposits.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#b197fc22", color: "#b197fc" } }, "? ", r.unmatchedDeposits.length, " unmatched"))), r.matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "Matched Pairs"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.matches.sort((a, b) => a.bizDate.localeCompare(b.bizDate)).map((m, i) => {
+        const borderColor = hasProblems ? R3 : allExact ? G : Y;
+        return /* @__PURE__ */ React.createElement("div", { key: r.store.pc, style: { ...card(th), padding: "1rem 1.25rem", borderLeft: `3px solid ${borderColor}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, r.store.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, "PC# ", r.store.pc, " \xB7 D", r.store.district, " \xB7 ", r.store.dmName)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.375rem", flexWrap: "wrap" } }, r.matches.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: `${G}22`, color: G } }, "\u2713 ", r.matches.length, " matched"), r.missingBizDates.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: `${R3}22`, color: R3 } }, "\u26A0\uFE0F ", r.missingBizDates.length, " missing"), r.unmatchedDeposits.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#b197fc22", color: "#b197fc" } }, "? ", r.unmatchedDeposits.length, " unmatched"))), r.matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "Matched Pairs"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.matches.sort((a, b) => a.bizDate.localeCompare(b.bizDate)).map((m, i) => {
           const tolColor = m.tolerance === "exact" ? G : m.tolerance === "dollar" ? Y : m.tolerance === "sum" ? "#74c0fc" : Y;
           const tolLabel = m.tolerance === "exact" ? "\u2713 Exact" : m.tolerance === "dollar" ? "~ Within $1" : m.tolerance === "sum" ? "\u2211 Sum" : "~ Within $5";
-          return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: th.card2, borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: "0.25rem", background: tolColor + "22", color: tolColor, whiteSpace: "nowrap" } }, tolLabel), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(m.bizDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " cash"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(m.posCash)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2194"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(m.deposit.depositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " deposit"), /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, fmtUSD(m.deposit.amount), m.partnerDeposit ? " + " + fmtUSD(m.partnerDeposit.amount) : ""), Math.abs(m.delta) >= 0.01 && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.65rem", fontWeight: 700, color: m.delta < 0 ? R2 : Y } }, m.delta > 0 ? "+" : "", fmtUSD(m.delta)));
-        }))), r.missingBizDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: r.unmatchedDeposits.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: R2, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "\u26A0\uFE0F Unmatched Cash (needs a deposit)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.missingBizDates.sort((a, b) => a.bizDate.localeCompare(b.bizDate)).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: `${R2}11`, borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: R2, fontWeight: 700 } }, "MISSING"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(b.bizDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " cash"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(b.posCash)), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", color: th.muted, fontSize: "0.65rem" } }, "No deposit matched this amount"))))), r.unmatchedDeposits.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: "#b197fc", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "? Unmatched Deposits (possibly from outside 2-week window)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.unmatchedDeposits.map((d, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: "#b197fc11", borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#b197fc", fontWeight: 700 } }, "NO MATCH"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(d.depositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " deposit"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(d.amount)), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", color: th.muted, fontSize: "0.65rem" } }, "No POS cash matches this amount"))))));
+          return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: th.card2, borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: "0.25rem", background: tolColor + "22", color: tolColor, whiteSpace: "nowrap" } }, tolLabel), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(m.bizDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " cash"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(m.posCash)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2194"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(m.deposit.depositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " deposit"), /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, fmtUSD(m.deposit.amount), m.partnerDeposit ? " + " + fmtUSD(m.partnerDeposit.amount) : ""), Math.abs(m.delta) >= 0.01 && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.65rem", fontWeight: 700, color: m.delta < 0 ? R3 : Y } }, m.delta > 0 ? "+" : "", fmtUSD(m.delta)));
+        }))), r.missingBizDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: r.unmatchedDeposits.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: R3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "\u26A0\uFE0F Unmatched Cash (needs a deposit)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.missingBizDates.sort((a, b) => a.bizDate.localeCompare(b.bizDate)).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: `${R3}11`, borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: R3, fontWeight: 700 } }, "MISSING"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(b.bizDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " cash"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(b.posCash)), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", color: th.muted, fontSize: "0.65rem" } }, "No deposit matched this amount"))))), r.unmatchedDeposits.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: "#b197fc", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "? Unmatched Deposits (possibly from outside 2-week window)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.unmatchedDeposits.map((d, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: "#b197fc11", borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#b197fc", fontWeight: 700 } }, "NO MATCH"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(d.depositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " deposit"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(d.amount)), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", color: th.muted, fontSize: "0.65rem" } }, "No POS cash matches this amount"))))));
       }), storeReports.filter((r) => r.hasPOSLoaded).every((r) => r.matches.length === 0 && r.missingBizDates.length === 0 && r.unmatchedDeposits.length === 0) && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No cash activity found in the current week."))));
     })(), view === "history" && /* @__PURE__ */ React.createElement("div", null, cashUploads.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center", color: th.muted } }, 'No uploads yet. Click "Upload Spreadsheet" to get started.') : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.625rem" } }, cashUploads.map((u) => /* @__PURE__ */ React.createElement("div", { key: u.id, style: { ...card(th), padding: "1rem 1.25rem", borderLeft: `3px solid ${G}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: th.text } }, u.filename), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.2rem" } }, "Uploaded by ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, u.uploadedByName || "Unknown"), " \xB7 ", new Date(u.uploadedAt).toLocaleString())), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: G, fontSize: "0.95rem" } }, u.newDeposits), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "New")), u.duplicatesSkipped > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.muted, fontSize: "0.95rem" } }, u.duplicatesSkipped), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Dupes")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, fontSize: "0.95rem" } }, fmtUSDRound(u.totalAmount)), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Total")))))))), noteModal && /* @__PURE__ */ React.createElement(
       "div",
@@ -33379,7 +33806,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         maxWidth: 520,
         border: `1px solid ${th.cardBorder}`,
         boxShadow: "0 24px 64px rgba(0,0,0,0.5)"
-      } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.25rem" } }, "Add Note \u2014 ", noteModal.storeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "1rem" } }, "PC# ", noteModal.pc, " \xB7 Business date ", (/* @__PURE__ */ new Date(noteModal.businessDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })), getNotesFor(noteModal.pc, noteModal.businessDate).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem", maxHeight: 200, overflowY: "auto", background: th.card2, borderRadius: "0.5rem", padding: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.5rem" } }, "Existing Notes"), getNotesFor(noteModal.pc, noteModal.businessDate).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { fontSize: "0.72rem", marginBottom: "0.5rem", paddingBottom: "0.5rem", borderBottom: `1px dashed ${th.cardBorder}`, display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, n.action === "dm_alerted" ? "\u{1F4E2}" : n.action === "store_called" ? "\u{1F4DE}" : n.action === "manager_replied" ? "\u{1F4AC}" : n.action === "confirmed_en_route" ? "\u{1F69A}" : "\u270E"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.text } }, n.text), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, marginTop: "0.15rem" } }, n.createdByName, " \xB7 ", new Date(n.createdAt).toLocaleString())), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: () => deleteNote(n.id), style: { background: "none", border: "none", color: R2, cursor: "pointer", fontSize: "0.7rem", padding: 0 } }, "\xD7")))), /* @__PURE__ */ React.createElement(
+      } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.25rem" } }, "Add Note \u2014 ", noteModal.storeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "1rem" } }, "PC# ", noteModal.pc, " \xB7 Business date ", (/* @__PURE__ */ new Date(noteModal.businessDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })), getNotesFor(noteModal.pc, noteModal.businessDate).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem", maxHeight: 200, overflowY: "auto", background: th.card2, borderRadius: "0.5rem", padding: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.5rem" } }, "Existing Notes"), getNotesFor(noteModal.pc, noteModal.businessDate).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { fontSize: "0.72rem", marginBottom: "0.5rem", paddingBottom: "0.5rem", borderBottom: `1px dashed ${th.cardBorder}`, display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, n.action === "dm_alerted" ? "\u{1F4E2}" : n.action === "store_called" ? "\u{1F4DE}" : n.action === "manager_replied" ? "\u{1F4AC}" : n.action === "confirmed_en_route" ? "\u{1F69A}" : "\u270E"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.text } }, n.text), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, marginTop: "0.15rem" } }, n.createdByName, " \xB7 ", new Date(n.createdAt).toLocaleString())), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: () => deleteNote(n.id), style: { background: "none", border: "none", color: R3, cursor: "pointer", fontSize: "0.7rem", padding: 0 } }, "\xD7")))), /* @__PURE__ */ React.createElement(
         "textarea",
         {
           value: noteText,
@@ -33445,7 +33872,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             deleteDeposit(editDep);
             setEditDep(null);
           },
-          style: btn(th, { background: `${R2}22`, color: R2, border: `1px solid ${R2}55` })
+          style: btn(th, { background: `${R3}22`, color: R3, border: `1px solid ${R3}55` })
         },
         "\u{1F5D1} Delete"
       ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
@@ -33580,10 +34007,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var SCHEDULE_DESKTOP_BREAKPOINT = 1024;
   function useIsDesktopViewport() {
-    const [isDesktop, setIsDesktop] = useState8(
+    const [isDesktop, setIsDesktop] = useState9(
       () => typeof window !== "undefined" ? window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT : true
     );
-    useEffect8(() => {
+    useEffect9(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mql = window.matchMedia(`(min-width: ${SCHEDULE_DESKTOP_BREAKPOINT}px)`);
       const onChange = (e) => setIsDesktop(e.matches);
@@ -33671,9 +34098,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setUTCDate(d.getUTCDate() + i);
       return d;
     });
-    const [hoveredCell, setHoveredCell] = useState8(null);
-    const [clipboard, setClipboard] = useState8(null);
-    useEffect8(() => {
+    const [hoveredCell, setHoveredCell] = useState9(null);
+    const [clipboard, setClipboard] = useState9(null);
+    useEffect9(() => {
       const onKeyDown = (e) => {
         if (e.key === "Escape") setClipboard(null);
       };
@@ -33697,8 +34124,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const handleAddShift = (employeeId, dayOffset) => {
       onCardsChange(addShiftToEmployee(cards, employeeId, { dayOffset, startTime: "09:00", endTime: "17:00" }));
     };
-    const [editingShift, setEditingShift] = useState8(null);
-    const [editDraft, setEditDraft] = useState8({ startTime: "", endTime: "", reassignTo: "" });
+    const [editingShift, setEditingShift] = useState9(null);
+    const [editDraft, setEditDraft] = useState9({ startTime: "", endTime: "", reassignTo: "" });
     const openEdit = (employeeId, shift) => {
       setEditingShift({ employeeId, shift });
       setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: "" });
@@ -33774,8 +34201,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "sticky", top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.85rem 1.1rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Projected Weekly Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color } }, "$", weeklyTotal.totalDollars.toFixed(2), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 600 } }, "(", pct.toFixed(1), "%)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, weeklyTotal.totalHours.toFixed(1), " total hours"), overtimeEmployees.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b", fontWeight: 600 } }, "\u26A0 ", overtimeEmployees.length, " employee(s) over 40h this week"));
   }
   function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmployees = [], onReassign, startInEdit = false }) {
-    const [editing, setEditing] = useState8(startInEdit);
-    const [draftShifts, setDraftShifts] = useState8(cardData.shifts || []);
+    const [editing, setEditing] = useState9(startInEdit);
+    const [draftShifts, setDraftShifts] = useState9(cardData.shifts || []);
     const updateShift = (idx, field, value) => {
       setDraftShifts((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
     };
@@ -33809,17 +34236,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ScheduleBuilder({ store, th, mode }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [weekStart, setWeekStart] = useState8("");
-    const [loading, setLoading] = useState8(false);
-    const [error, setError] = useState8(null);
-    const [cards, setCards] = useState8(null);
-    const [cardIndex, setCardIndex] = useState8(0);
-    const [approvedCards, setApprovedCards] = useState8([]);
-    const [payRates, setPayRates] = useState8({});
-    const [openShiftGroups, setOpenShiftGroups] = useState8([]);
-    const [submitResult, setSubmitResult] = useState8(null);
-    const [showBuildPreview, setShowBuildPreview] = useState8(false);
-    const [reopenEmployeeId, setReopenEmployeeId] = useState8(null);
+    const [weekStart, setWeekStart] = useState9("");
+    const [loading, setLoading] = useState9(false);
+    const [error, setError] = useState9(null);
+    const [cards, setCards] = useState9(null);
+    const [cardIndex, setCardIndex] = useState9(0);
+    const [approvedCards, setApprovedCards] = useState9([]);
+    const [payRates, setPayRates] = useState9({});
+    const [openShiftGroups, setOpenShiftGroups] = useState9([]);
+    const [submitResult, setSubmitResult] = useState9(null);
+    const [showBuildPreview, setShowBuildPreview] = useState9(false);
+    const [reopenEmployeeId, setReopenEmployeeId] = useState9(null);
     const load = async () => {
       if (!weekStart) return;
       setLoading(true);
@@ -34077,21 +34504,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
-    const [activeTab, setActiveTab] = useState8("hourly");
-    const [laborHoverHr, setLaborHoverHr] = useState8(null);
-    const [punches, setPunches] = useState8([]);
-    const [employees, setEmployees] = useState8([]);
-    const [storeHistory, setStoreHistory] = useState8(null);
-    const [hourlySales, setHourlySales] = useState8({});
-    const [scheduleShifts, setScheduleShifts] = useState8([]);
-    const [livePunches, setLivePunches] = useState8({});
-    const [liveSummary, setLiveSummary] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    const [fetchError, setFetchError] = useState8(false);
-    const [empExpanded, setEmpExpanded] = useState8(false);
-    const [weekSchedule, setWeekSchedule] = useState8(null);
-    const [expandedDay, setExpandedDay] = useState8(null);
-    const [empHourAdj, setEmpHourAdj] = useState8({});
+    const [activeTab, setActiveTab] = useState9("hourly");
+    const [laborHoverHr, setLaborHoverHr] = useState9(null);
+    const [punches, setPunches] = useState9([]);
+    const [employees, setEmployees] = useState9([]);
+    const [storeHistory, setStoreHistory] = useState9(null);
+    const [hourlySales, setHourlySales] = useState9({});
+    const [scheduleShifts, setScheduleShifts] = useState9([]);
+    const [livePunches, setLivePunches] = useState9({});
+    const [liveSummary, setLiveSummary] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    const [fetchError, setFetchError] = useState9(false);
+    const [empExpanded, setEmpExpanded] = useState9(false);
+    const [weekSchedule, setWeekSchedule] = useState9(null);
+    const [expandedDay, setExpandedDay] = useState9(null);
+    const [empHourAdj, setEmpHourAdj] = useState9({});
     const storeInfo = stores.find((s) => s.pc === store.pc) || {};
     const mgrName = storeMgrName(storeInfo, users) || "Unassigned";
     const todayStr = localDateStr(/* @__PURE__ */ new Date());
@@ -34102,7 +34529,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() + diff);
       return localDateStr(d);
     })();
-    useEffect8(() => {
+    useEffect9(() => {
       async function loadAll() {
         setLoading(true);
         const legalEntityId = store.paycor || storeInfo.paycor;
@@ -34224,7 +34651,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       loadAll();
     }, [store.pc, store.paycor]);
-    useEffect8(() => {
+    useEffect9(() => {
       setWeekSchedule(null);
       setExpandedDay(null);
       setEmpHourAdj({});
@@ -34466,7 +34893,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 3 } }, hrLong), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: O, marginRight: 6 } }), "Sales ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.sales))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: clr, marginRight: 6 } }), "Labor ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.labor)), h.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", pct.toFixed(1), "%")))
       );
     }
-    useEffect8(() => {
+    useEffect9(() => {
       if (activeTab !== "optimizer" || weekSchedule !== null) return;
       cloudLoad("pcg_schedule_" + store.pc).then((data) => {
         setWeekSchedule(data || {});
@@ -34697,21 +35124,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return Math.floor(hrs / 24) + "d ago";
   }
   function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn, users }) {
-    const [laborData, setLaborData] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    const [error, setError] = useState8(null);
-    const [selectedStore, setSelectedStore] = useState8(null);
-    useEffect8(() => {
+    const [laborData, setLaborData] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    const [error, setError] = useState9(null);
+    const [selectedStore, setSelectedStore] = useState9(null);
+    useEffect9(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
-    const [timeFilter, setTimeFilter] = useState8("today");
-    const [districtFilter, setDistrictFilter] = useState8("all");
-    const [storeQuery, setStoreQuery] = useState8("");
-    const [viewDate, setViewDate] = useState8("");
-    const [dayData, setDayData] = useState8(null);
-    const [dayLoading, setDayLoading] = useState8(false);
-    const [dayError, setDayError] = useState8(null);
-    useEffect8(() => {
+    const [timeFilter, setTimeFilter] = useState9("today");
+    const [districtFilter, setDistrictFilter] = useState9("all");
+    const [storeQuery, setStoreQuery] = useState9("");
+    const [viewDate, setViewDate] = useState9("");
+    const [dayData, setDayData] = useState9(null);
+    const [dayLoading, setDayLoading] = useState9(false);
+    const [dayError, setDayError] = useState9(null);
+    useEffect9(() => {
       if (!viewDate) {
         setDayData(null);
         setDayError(null);
@@ -34740,7 +35167,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [viewDate]);
-    const [forecastData, setForecastData] = useState8({});
+    const [forecastData, setForecastData] = useState9({});
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const next7Days = React.useMemo(() => {
@@ -34758,10 +35185,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
     }, []);
     const todayStr = next7Days.find((d) => d.isToday)?.dateStr;
-    useEffect8(() => {
+    useEffect9(() => {
       if (isDM && user.district) setDistrictFilter(String(user.district));
     }, [isDM, user]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (drillInStore) {
         const store = stores.find((s) => s.pc === drillInStore);
         if (store) {
@@ -34784,10 +35211,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setLoading(false);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect8(() => {
+    useEffect9(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -34795,7 +35222,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!isManager) return /* @__PURE__ */ new Set();
       return new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
     }, [isManager, stores, user]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!laborData?.stores) return;
       const pcs = Object.keys(laborData.stores);
       let cancelled = false;
@@ -35017,13 +35444,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })));
   }
   function PnLStoreDetail({ store, th, onClose }) {
-    const [history, setHistory] = useState8(null);
+    const [history, setHistory] = useState9(null);
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad(`pcg_pnl_store_${store.pc}`).then((d) => setHistory(d?.daily || [])).catch(() => setHistory([]));
     }, [store.pc]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !history?.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -35168,58 +35595,58 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
       return f.format(/* @__PURE__ */ new Date());
     };
-    const [view, setView] = useState8(isManager ? "tasks" : "dashboard");
+    const [view, setView] = useState9(isManager ? "tasks" : "dashboard");
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef, 420, 20, view);
-    const [storePc, setStorePc] = useState8(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
-    const [date, setDate] = useState8(todayET());
-    const [seg, setSeg] = useState8("open");
-    const [data, setData] = useState8(null);
-    const [dash, setDash] = useState8(null);
-    const [rollup, setRollup] = useState8(null);
-    const [loading, setLoading] = useState8(false);
-    const [busyId, setBusyId] = useState8(null);
-    const [openEntry, setOpenEntry] = useState8(null);
-    const [entryVal, setEntryVal] = useState8("");
-    const [keypad, setKeypad] = useState8(null);
-    const [expandedId, setExpandedId] = useState8(null);
-    const [localAnswers, setLocalAnswers] = useState8({});
-    const [cas, setCas] = useState8(null);
-    const [caFilter, setCaFilter] = useState8("open");
-    const [loadingCAs, setLoadingCAs] = useState8(false);
-    const [gpsRows, setGpsRows] = useState8(null);
-    const [gpsLoading, setGpsLoading] = useState8(false);
-    const [gpsDays, setGpsDays] = useState8(7);
-    const [gpsTab, setGpsTab] = useState8("list");
+    const [storePc, setStorePc] = useState9(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
+    const [date, setDate] = useState9(todayET());
+    const [seg, setSeg] = useState9("open");
+    const [data, setData] = useState9(null);
+    const [dash, setDash] = useState9(null);
+    const [rollup, setRollup] = useState9(null);
+    const [loading, setLoading] = useState9(false);
+    const [busyId, setBusyId] = useState9(null);
+    const [openEntry, setOpenEntry] = useState9(null);
+    const [entryVal, setEntryVal] = useState9("");
+    const [keypad, setKeypad] = useState9(null);
+    const [expandedId, setExpandedId] = useState9(null);
+    const [localAnswers, setLocalAnswers] = useState9({});
+    const [cas, setCas] = useState9(null);
+    const [caFilter, setCaFilter] = useState9("open");
+    const [loadingCAs, setLoadingCAs] = useState9(false);
+    const [gpsRows, setGpsRows] = useState9(null);
+    const [gpsLoading, setGpsLoading] = useState9(false);
+    const [gpsDays, setGpsDays] = useState9(7);
+    const [gpsTab, setGpsTab] = useState9("list");
     const gpsMapDiv = useRef5(null);
     const gpsMapRef = useRef5(null);
     const gpsLayerRef = useRef5(null);
-    const [auditData, setAuditData] = useState8(null);
-    const [auditLoading, setAuditLoading] = useState8(false);
-    const [auditStore, setAuditStore] = useState8("");
-    const [auditFrom, setAuditFrom] = useState8("");
-    const [auditTo, setAuditTo] = useState8("");
-    const [auditPhotos, setAuditPhotos] = useState8(false);
-    const [auditPhotoUrls, setAuditPhotoUrls] = useState8({});
-    const [auditExporting, setAuditExporting] = useState8(false);
+    const [auditData, setAuditData] = useState9(null);
+    const [auditLoading, setAuditLoading] = useState9(false);
+    const [auditStore, setAuditStore] = useState9("");
+    const [auditFrom, setAuditFrom] = useState9("");
+    const [auditTo, setAuditTo] = useState9("");
+    const [auditPhotos, setAuditPhotos] = useState9(false);
+    const [auditPhotoUrls, setAuditPhotoUrls] = useState9({});
+    const [auditExporting, setAuditExporting] = useState9(false);
     const auditRef = useRef5(null);
-    const [photoLightbox, setPhotoLightbox] = useState8(null);
-    const [photoUrls, setPhotoUrls] = useState8({});
-    const [merch, setMerch] = useState8(null);
-    const [merchPage, setMerchPage] = useState8(1);
-    const [merchLoading, setMerchLoading] = useState8(false);
-    const [merchAllDates, setMerchAllDates] = useState8(false);
+    const [photoLightbox, setPhotoLightbox] = useState9(null);
+    const [photoUrls, setPhotoUrls] = useState9({});
+    const [merch, setMerch] = useState9(null);
+    const [merchPage, setMerchPage] = useState9(1);
+    const [merchLoading, setMerchLoading] = useState9(false);
+    const [merchAllDates, setMerchAllDates] = useState9(false);
     const MERCH_PAGE_SIZE = 8;
-    const [rangeDays, setRangeDays] = useState8(14);
-    const [reportData, setReportData] = useState8(null);
-    const [reportLoading, setReportLoading] = useState8(false);
-    const [hist, setHist] = useState8(null);
-    const [histLoading, setHistLoading] = useState8(false);
-    const [histPage, setHistPage] = useState8(1);
-    const [histStatus, setHistStatus] = useState8("all");
-    const [tempLog, setTempLog] = useState8(null);
-    const [tempLoading, setTempLoading] = useState8(false);
-    const [tempPage, setTempPage] = useState8(1);
+    const [rangeDays, setRangeDays] = useState9(14);
+    const [reportData, setReportData] = useState9(null);
+    const [reportLoading, setReportLoading] = useState9(false);
+    const [hist, setHist] = useState9(null);
+    const [histLoading, setHistLoading] = useState9(false);
+    const [histPage, setHistPage] = useState9(1);
+    const [histStatus, setHistStatus] = useState9("all");
+    const [tempLog, setTempLog] = useState9(null);
+    const [tempLoading, setTempLoading] = useState9(false);
+    const [tempPage, setTempPage] = useState9(1);
     const byName = user?.name || user?.email || "user";
     const SHIFT_WINDOWS_CLIENT = {
       "1 AM": 0,
@@ -35249,7 +35676,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const geoRef = useRef5(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
     const locDefaultOn = user?.userType === "store_tablet";
-    const [shareLoc, setShareLoc] = useState8(() => {
+    const [shareLoc, setShareLoc] = useState9(() => {
       try {
         const v = localStorage.getItem("pcg_share_location");
         if (v === "1") return true;
@@ -35259,21 +35686,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return locDefaultOn;
       }
     });
-    const [locAsked, setLocAsked] = useState8(() => {
+    const [locAsked, setLocAsked] = useState9(() => {
       try {
         return localStorage.getItem("pcg_share_location") != null;
       } catch {
         return true;
       }
     });
-    const [locDenied, setLocDenied] = useState8(false);
+    const [locDenied, setLocDenied] = useState9(false);
     const persistLoc = (on) => {
       try {
         localStorage.setItem("pcg_share_location", on ? "1" : "0");
       } catch {
       }
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!navigator.permissions?.query) return;
       let perm;
       navigator.permissions.query({ name: "geolocation" }).then((p) => {
@@ -35428,22 +35855,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setMerchLoading(false);
       }
     }, [api2, scopeStores, merchPage, date, merchAllDates]);
-    useEffect8(() => {
+    useEffect9(() => {
       setMerchPage(1);
     }, [date, merchAllDates]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "tasks" || view === "dashboard") loadStore();
     }, [view, loadStore]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "stores") loadRollup();
     }, [view, loadRollup]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "cas") loadCAs();
     }, [view, loadCAs]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "gps") loadGps();
     }, [view, gpsDays]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "merchandising") loadMerch();
     }, [view, loadMerch]);
     const rangeFromTo = useCallback(() => {
@@ -35481,39 +35908,39 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setTempLoading(false);
       }
     }, [api2, scopePcs, rangeFromTo, tempPage, user]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "reports") loadReports();
     }, [view, loadReports]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "history") loadHistory();
     }, [view, loadHistory]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "temp") loadTemp();
     }, [view, loadTemp]);
-    useEffect8(() => {
+    useEffect9(() => {
       setHistPage(1);
       setTempPage(1);
     }, [rangeDays]);
-    useEffect8(() => {
+    useEffect9(() => {
       setHistPage(1);
     }, [histStatus]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view !== "gps" || gpsTab !== "map" || !gpsRows || !gpsMapDiv.current || !window.L) return;
-      const L2 = window.L;
+      const L3 = window.L;
       if (!gpsMapRef.current) {
-        gpsMapRef.current = L2.map(gpsMapDiv.current, { attributionControl: false, zoomControl: true, scrollWheelZoom: true }).setView([40.05, -75.18], 9);
-        L2.tileLayer(`https://{s}.basemaps.cartocdn.com/${th.dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, { subdomains: "abcd", maxZoom: 19 }).addTo(gpsMapRef.current);
-        gpsLayerRef.current = L2.layerGroup().addTo(gpsMapRef.current);
+        gpsMapRef.current = L3.map(gpsMapDiv.current, { attributionControl: false, zoomControl: true, scrollWheelZoom: true }).setView([40.05, -75.18], 9);
+        L3.tileLayer(`https://{s}.basemaps.cartocdn.com/${th.dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, { subdomains: "abcd", maxZoom: 19 }).addTo(gpsMapRef.current);
+        gpsLayerRef.current = L3.layerGroup().addTo(gpsMapRef.current);
       }
       gpsLayerRef.current.clearLayers();
       const bounds = [];
       (gpsRows.points || []).forEach((p) => {
         const color = p.onsite === true ? "#2f9e44" : p.onsite === false ? "#e8590c" : "#9ca3af";
-        const icon = L2.divIcon({ className: "", html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1.5px ${color}"></div>`, iconSize: [13, 13], iconAnchor: [6.5, 6.5] });
+        const icon = L3.divIcon({ className: "", html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1.5px ${color}"></div>`, iconSize: [13, 13], iconAnchor: [6.5, 6.5] });
         const nm = (stores || []).find((s) => String(s.pc) === String(p.store_pc));
         const dist = p.dist_m != null ? p.dist_m >= 1e3 ? (p.dist_m / 1e3).toFixed(1) + "km" : Math.round(p.dist_m) + "m" : "";
         const verdict = p.onsite === true ? "\u25CF On-site" : p.onsite === false ? "\u26A0 Off-site" + (dist ? " \xB7 " + dist : "") : "\u25CF Unverified (no store coords)";
-        L2.marker([p.lat, p.lng], { icon }).addTo(gpsLayerRef.current).bindPopup(`<b>${nm?.name || p.store_pc}</b><br>${p.name}<br>${verdict}${p.by ? " \xB7 " + p.by : ""}`);
+        L3.marker([p.lat, p.lng], { icon }).addTo(gpsLayerRef.current).bindPopup(`<b>${nm?.name || p.store_pc}</b><br>${p.name}<br>${verdict}${p.by ? " \xB7 " + p.by : ""}`);
         bounds.push([p.lat, p.lng]);
       });
       if (bounds.length) {
@@ -35529,7 +35956,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       }, 150);
     }, [view, gpsTab, gpsRows, th.dark, stores]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (view === "gps" && gpsTab === "map") return;
       if (gpsMapRef.current) {
         try {
@@ -35540,7 +35967,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         gpsLayerRef.current = null;
       }
     }, [view, gpsTab]);
-    useEffect8(() => () => {
+    useEffect9(() => () => {
       if (gpsMapRef.current) {
         try {
           gpsMapRef.current.remove();
@@ -35551,7 +35978,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     }, []);
     const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    useEffect8(() => {
+    useEffect9(() => {
       if (view !== "audit" || auditTo) return;
       const to = todayET();
       const d = /* @__PURE__ */ new Date(to + "T12:00:00");
@@ -35572,7 +35999,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditLoading(false);
       }
     }, [api2, auditStore, auditFrom, auditTo]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!auditPhotos || !auditData) return;
       const need = (auditData.tasks || []).filter((t) => t.has_photo && auditPhotoUrls[t.id] === void 0);
       if (!need.length) return;
@@ -35602,7 +36029,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditExporting(false);
       }
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (view !== "tasks" && view !== "dashboard") return;
       const id = setInterval(() => loadStore(true), 25e3);
       return () => clearInterval(id);
@@ -36151,23 +36578,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), photoLightbox && /* @__PURE__ */ React.createElement("div", { onClick: () => setPhotoLightbox(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoLightbox(null), style: { position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: photoLightbox, alt: "Full size photo", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } }))))));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
-    const [eventAddr, setEventAddr] = useState8("2310 W Passyunk Ave, Philadelphia, PA 19145");
-    const [eventLatLng, setEventLatLng] = useState8(null);
-    const [eventDate, setEventDate] = useState8("2025-12-28");
-    const [weeksBefore, setWeeksBefore] = useState8(13);
-    const [weeksAfter, setWeeksAfter] = useState8("");
-    const [coords, setCoords] = useState8(null);
-    const [ranked, setRanked] = useState8([]);
-    const [impactedPc, setImpactedPc] = useState8(null);
-    const [controlPcs, setControlPcs] = useState8([]);
-    const [status, setStatus] = useState8("");
-    const [busy, setBusy] = useState8(false);
-    const [results, setResults] = useState8(null);
+    const [eventAddr, setEventAddr] = useState9("2310 W Passyunk Ave, Philadelphia, PA 19145");
+    const [eventLatLng, setEventLatLng] = useState9(null);
+    const [eventDate, setEventDate] = useState9("2025-12-28");
+    const [weeksBefore, setWeeksBefore] = useState9(13);
+    const [weeksAfter, setWeeksAfter] = useState9("");
+    const [coords, setCoords] = useState9(null);
+    const [ranked, setRanked] = useState9([]);
+    const [impactedPc, setImpactedPc] = useState9(null);
+    const [controlPcs, setControlPcs] = useState9([]);
+    const [status, setStatus] = useState9("");
+    const [busy, setBusy] = useState9(false);
+    const [results, setResults] = useState9(null);
     const chartCanvas = useRef5(null);
     const chartRef = useRef5(null);
     const mapDiv = useRef5(null);
     const mapRef = useRef5(null);
-    const [radiusMi, setRadiusMi] = useState8(1);
+    const [radiusMi, setRadiusMi] = useState9(1);
     const histCache = useRef5(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
@@ -36325,7 +36752,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       doc.text("Source: Dunkin\u2019 Pulse POS net sales. Distances are geocoded centroid estimates (US Census).", margin, 10.7);
       doc.save(`impact-${imp.name.replace(/\s+/g, "-")}-${eventDate}.pdf`);
     }
-    useEffect8(() => {
+    useEffect9(() => {
       (async () => {
         let c = await cloudLoad(COORDS_BLOB);
         if (!c || Object.keys(c).length < STORES_SEED.length) {
@@ -36372,7 +36799,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setBusy(false);
     }
-    useEffect8(() => {
+    useEffect9(() => {
       if (!eventLatLng || !coords) return;
       const rows = openStoreList().filter((s) => coords[s.pc]).map((s) => ({
         pc: s.pc,
@@ -36386,7 +36813,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
       }
     }, [eventLatLng, coords]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!results || !chartCanvas.current || !window.Chart) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -36422,7 +36849,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       };
     }, [results, dark]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!eventLatLng || !mapDiv.current || !window.L) return;
       if (!mapRef.current) {
         mapRef.current = window.L.map(mapDiv.current).setView([eventLatLng.lat, eventLatLng.lng], 13);
@@ -36462,7 +36889,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       map.setView([eventLatLng.lat, eventLatLng.lng], 13);
     }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
-    useEffect8(() => () => {
+    useEffect9(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -36476,22 +36903,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })(), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", color: th.muted, fontSize: 12 } }, /* @__PURE__ */ React.createElement("th", { style: { padding: 6 } }, "Store"), /* @__PURE__ */ React.createElement("th", null, "Distance"), /* @__PURE__ */ React.createElement("th", null, "Before $/wk"), /* @__PURE__ */ React.createElement("th", null, "After $/wk"), /* @__PURE__ */ React.createElement("th", null, "%\u0394"), /* @__PURE__ */ React.createElement("th", null, "Weeks"))), /* @__PURE__ */ React.createElement("tbody", null, [results.impacted, ...results.controls].map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: row.pc, style: { borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: 6 } }, row.name, i === 0 ? " (impacted)" : ""), /* @__PURE__ */ React.createElement("td", null, row.distance != null ? `${row.distance.toFixed(1)} mi` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgBefore)), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgAfter)), /* @__PURE__ */ React.createElement("td", { style: { color: row.deltaPct < -15 ? "#dc2626" : row.deltaPct < -7 ? "#d97706" : th.text } }, fmtPct(row.deltaPct)), /* @__PURE__ */ React.createElement("td", { style: { color: row.weeksBeforeUsed < weeksBefore ? "#d97706" : th.muted } }, row.weeksBeforeUsed, "/", row.weeksAfterUsed, row.weeksBeforeUsed < weeksBefore ? " \u26A0" : ""))))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 11, marginTop: 8 } }, "Source: ", results.impacted.source === "scorecard" ? `uploaded weekly scorecards (${results.impacted.weeksAvailable} wks available for the impacted store)` : `Pulse net sales via labor blobs (~13-week retention; ${results.impacted.weeksAvailable} wks available)`, ". \u26A0 = fewer weeks than requested.")));
   }
   function AdminNdcp({ th, user }) {
-    const [orders, setOrders] = useState8(null);
-    const [err, setErr] = useState8(null);
-    const [q, setQ] = useState8("");
-    const [storeFilter, setStoreFilter] = useState8("");
-    const [sel, setSel] = useState8(null);
-    const [detail, setDetail] = useState8(null);
-    const [detailLoading, setDetailLoading] = useState8(false);
+    const [orders, setOrders] = useState9(null);
+    const [err, setErr] = useState9(null);
+    const [q, setQ] = useState9("");
+    const [storeFilter, setStoreFilter] = useState9("");
+    const [sel, setSel] = useState9(null);
+    const [detail, setDetail] = useState9(null);
+    const [detailLoading, setDetailLoading] = useState9(false);
     const todayISO = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const ago2 = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-    const [from, setFrom] = useState8(ago2(13 * 7));
-    const [to, setTo] = useState8(todayISO);
-    const [view, setView] = useState8("weekly");
-    const [summary, setSummary] = useState8(null);
-    const [labor, setLabor] = useState8(null);
-    const [expandWeek, setExpandWeek] = useState8(null);
-    const [expandDist, setExpandDist] = useState8(null);
+    const [from, setFrom] = useState9(ago2(13 * 7));
+    const [to, setTo] = useState9(todayISO);
+    const [view, setView] = useState9("weekly");
+    const [summary, setSummary] = useState9(null);
+    const [labor, setLabor] = useState9(null);
+    const [expandWeek, setExpandWeek] = useState9(null);
+    const [expandDist, setExpandDist] = useState9(null);
     const dcpPct = (spend, sales) => {
       if (spend == null || sales == null) return null;
       const sp = +spend, sl = +sales;
@@ -36503,7 +36930,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }).then((r) => r.json());
-    useEffect8(() => {
+    useEffect9(() => {
       setOrders(null);
       setErr(null);
       const f = (action, extra = {}) => api2({ action, from, to, ...extra });
@@ -36518,7 +36945,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setOrders([]);
       });
     }, [from, to]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_labor_v1").then(setLabor).catch(() => {
       });
     }, []);
@@ -36689,7 +37116,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
     const weeks = React.useMemo(() => Object.entries(summary && summary.byWeek || {}).sort((a, b) => a[0].localeCompare(b[0])), [summary]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !weeks.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -36792,65 +37219,65 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
     const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
     const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
-    const [deals, setDeals] = useState8([]);
-    const [loading, setLoading] = useState8(true);
-    const [error, setError] = useState8(null);
-    const [view, setView] = useState8("kanban");
-    const [filterBrand, setFilterBrand] = useState8("all");
-    const [filterType, setFilterType] = useState8("all");
-    const [filterState, setFilterState] = useState8("all");
-    const [filterStage, setFilterStage] = useState8("all");
-    const [filterLead, setFilterLead] = useState8("all");
-    const [sortCol, setSortCol] = useState8("name");
-    const [sortDir, setSortDir] = useState8("asc");
-    const [selectedDeal, setSelectedDeal] = useState8(null);
-    const [detailDeal, setDetailDeal] = useState8(null);
-    const [detailDates, setDetailDates] = useState8([]);
-    const [detailNotes, setDetailNotes] = useState8([]);
-    const [detailLoading, setDetailLoading] = useState8(false);
-    const [detailError, setDetailError] = useState8(null);
-    const [editFields, setEditFields] = useState8({});
-    const [saving, setSaving] = useState8(false);
-    const [saveMsg, setSaveMsg] = useState8(null);
-    const [newNote, setNewNote] = useState8("");
-    const [addingNote, setAddingNote] = useState8(false);
-    const [noteErr, setNoteErr] = useState8(null);
-    const [actionErr, setActionErr] = useState8(null);
-    const [showCreate, setShowCreate] = useState8(false);
-    const [createForm, setCreateForm] = useState8({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
-    const [creating, setCreating] = useState8(false);
-    const [createError, setCreateError] = useState8(null);
-    const [docs, setDocs] = useState8([]);
-    const [docVersions, setDocVersions] = useState8([]);
-    const [docBusy, setDocBusy] = useState8(false);
-    const [docErr, setDocErr] = useState8(null);
-    const [newDocType, setNewDocType] = useState8("loi");
-    const [allDates, setAllDates] = useState8([]);
-    const [newDateType, setNewDateType] = useState8(DATE_TYPES[0]?.id || "");
-    const [newDateDue, setNewDateDue] = useState8("");
-    const [newDateTiers, setNewDateTiers] = useState8(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
-    const [newDateNotes, setNewDateNotes] = useState8("");
-    const [newDateRecurring, setNewDateRecurring] = useState8("");
-    const [dateAdding, setDateAdding] = useState8(false);
-    const [dateErr, setDateErr] = useState8(null);
-    const [showAccess, setShowAccess] = useState8(false);
-    const [accessRows, setAccessRows] = useState8(null);
-    const [accessInput, setAccessInput] = useState8("");
-    const [accessRole, setAccessRole] = useState8("view");
-    const [accessBusy, setAccessBusy] = useState8(false);
-    const [accessErr, setAccessErr] = useState8(null);
-    const [dealLeads, setDealLeads] = useState8([]);
-    const [newLeadName, setNewLeadName] = useState8("");
-    const [deadFor, setDeadFor] = useState8(null);
-    const [deadReason, setDeadReason] = useState8(DEAD_REASONS[0]);
-    const [deadNote, setDeadNote] = useState8("");
-    const [deadBusy, setDeadBusy] = useState8(false);
-    const [deadErr, setDeadErr] = useState8(null);
-    const [remindFor, setRemindFor] = useState8(null);
-    const [remindPhone, setRemindPhone] = useState8("");
-    const [remindMsg, setRemindMsg] = useState8("");
-    const [remindBusy, setRemindBusy] = useState8(false);
-    const [remindStatus, setRemindStatus] = useState8(null);
+    const [deals, setDeals] = useState9([]);
+    const [loading, setLoading] = useState9(true);
+    const [error, setError] = useState9(null);
+    const [view, setView] = useState9("kanban");
+    const [filterBrand, setFilterBrand] = useState9("all");
+    const [filterType, setFilterType] = useState9("all");
+    const [filterState, setFilterState] = useState9("all");
+    const [filterStage, setFilterStage] = useState9("all");
+    const [filterLead, setFilterLead] = useState9("all");
+    const [sortCol, setSortCol] = useState9("name");
+    const [sortDir, setSortDir] = useState9("asc");
+    const [selectedDeal, setSelectedDeal] = useState9(null);
+    const [detailDeal, setDetailDeal] = useState9(null);
+    const [detailDates, setDetailDates] = useState9([]);
+    const [detailNotes, setDetailNotes] = useState9([]);
+    const [detailLoading, setDetailLoading] = useState9(false);
+    const [detailError, setDetailError] = useState9(null);
+    const [editFields, setEditFields] = useState9({});
+    const [saving, setSaving] = useState9(false);
+    const [saveMsg, setSaveMsg] = useState9(null);
+    const [newNote, setNewNote] = useState9("");
+    const [addingNote, setAddingNote] = useState9(false);
+    const [noteErr, setNoteErr] = useState9(null);
+    const [actionErr, setActionErr] = useState9(null);
+    const [showCreate, setShowCreate] = useState9(false);
+    const [createForm, setCreateForm] = useState9({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
+    const [creating, setCreating] = useState9(false);
+    const [createError, setCreateError] = useState9(null);
+    const [docs, setDocs] = useState9([]);
+    const [docVersions, setDocVersions] = useState9([]);
+    const [docBusy, setDocBusy] = useState9(false);
+    const [docErr, setDocErr] = useState9(null);
+    const [newDocType, setNewDocType] = useState9("loi");
+    const [allDates, setAllDates] = useState9([]);
+    const [newDateType, setNewDateType] = useState9(DATE_TYPES[0]?.id || "");
+    const [newDateDue, setNewDateDue] = useState9("");
+    const [newDateTiers, setNewDateTiers] = useState9(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
+    const [newDateNotes, setNewDateNotes] = useState9("");
+    const [newDateRecurring, setNewDateRecurring] = useState9("");
+    const [dateAdding, setDateAdding] = useState9(false);
+    const [dateErr, setDateErr] = useState9(null);
+    const [showAccess, setShowAccess] = useState9(false);
+    const [accessRows, setAccessRows] = useState9(null);
+    const [accessInput, setAccessInput] = useState9("");
+    const [accessRole, setAccessRole] = useState9("view");
+    const [accessBusy, setAccessBusy] = useState9(false);
+    const [accessErr, setAccessErr] = useState9(null);
+    const [dealLeads, setDealLeads] = useState9([]);
+    const [newLeadName, setNewLeadName] = useState9("");
+    const [deadFor, setDeadFor] = useState9(null);
+    const [deadReason, setDeadReason] = useState9(DEAD_REASONS[0]);
+    const [deadNote, setDeadNote] = useState9("");
+    const [deadBusy, setDeadBusy] = useState9(false);
+    const [deadErr, setDeadErr] = useState9(null);
+    const [remindFor, setRemindFor] = useState9(null);
+    const [remindPhone, setRemindPhone] = useState9("");
+    const [remindMsg, setRemindMsg] = useState9("");
+    const [remindBusy, setRemindBusy] = useState9(false);
+    const [remindStatus, setRemindStatus] = useState9(null);
     const loadList = () => {
       setLoading(true);
       return dealApi(token, { action: "list", status: "active" }).then((r) => {
@@ -36859,7 +37286,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setError(null);
       }).catch((e) => setError(e.message)).finally(() => setLoading(false));
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!token) {
         setLoading(false);
         return;
@@ -36872,7 +37299,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setAccessErr(null);
       dealApi(token, { action: "listAccess" }).then((r) => setAccessRows(r.access || [])).catch((e) => setAccessErr(e.message));
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (showAccess) loadAccess();
     }, [showAccess]);
     const doSetAccess = (key, r) => {
@@ -37696,16 +38123,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ));
   }
   function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
-    const [pnl, setPnl] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    const [error, setError] = useState8(null);
-    const [selectedStore, setSelectedStore] = useState8(null);
-    useEffect8(() => {
+    const [pnl, setPnl] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    const [error, setError] = useState9(null);
+    const [selectedStore, setSelectedStore] = useState9(null);
+    useEffect9(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) {
           setPnl(d);
@@ -37738,7 +38165,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const p = (n) => a.revenue > 0 ? n / a.revenue * 100 : 0;
       return { ...a, marginPct: p(a.contribution), laborPct: p(a.labor), cogsPct: p(a.cogs) };
     }, [ranked]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (drillInStore && pnl?.stores) {
         const match = pnl.stores.find((s) => String(s.pc) === String(drillInStore));
         if (match) setSelectedStore(match);
@@ -37898,8 +38325,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var QUICKFIND_HUB_LABELS = { "ops-hub": "Operations", "team-hub": "Team & Sites", "system-hub": "System", "tools-hub": "Tools", finance: "Finance" };
   function QuickFindBar({ th, tabs, onNavigate, compact }) {
-    const [query, setQuery] = useState8("");
-    const [showSuggestions, setShowSuggestions] = useState8(false);
+    const [query, setQuery] = useState9("");
+    const [showSuggestions, setShowSuggestions] = useState9(false);
     const matches = React.useMemo(() => {
       const q = query.trim().toLowerCase();
       if (!q) return [];
@@ -38035,11 +38462,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
     const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
-    const [viewMode, setViewMode] = useState8("overview");
-    const [hubQuery, setHubQuery] = useState8("");
-    const [pnlOv, setPnlOv] = useState8(null);
-    const [expPending, setExpPending] = useState8(null);
-    useEffect8(() => {
+    const [viewMode, setViewMode] = useState9("overview");
+    const [hubQuery, setHubQuery] = useState9("");
+    const [pnlOv, setPnlOv] = useState9(null);
+    const [expPending, setExpPending] = useState9(null);
+    useEffect9(() => {
       if (viewMode !== "overview") return;
       if (canPnl && !pnlOv) cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) setPnlOv(d);
@@ -38323,21 +38750,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function TipsReportBuilder({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [periodStart, setPeriodStart] = useState8("");
-    const [loading, setLoading] = useState8(false);
-    const [error, setError] = useState8(null);
-    const [dayInfo, setDayInfo] = useState8(null);
-    const [snapshots, setSnapshots] = useState8(null);
-    const [grandTotal, setGrandTotal] = useState8(0);
+    const [periodStart, setPeriodStart] = useState9("");
+    const [loading, setLoading] = useState9(false);
+    const [error, setError] = useState9(null);
+    const [dayInfo, setDayInfo] = useState9(null);
+    const [snapshots, setSnapshots] = useState9(null);
+    const [grandTotal, setGrandTotal] = useState9(0);
     const canPushToPaycor = canPaycorPush(user);
-    const [paycorCfg, setPaycorCfg] = useState8({});
-    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState8(false);
-    const [paycorPush, setPaycorPush] = useState8(null);
-    const [singleSendPc, setSingleSendPc] = useState8("");
-    const [singleSending, setSingleSending] = useState8(false);
-    const [refreshingDates, setRefreshingDates] = useState8(() => /* @__PURE__ */ new Set());
-    const [refreshingStores, setRefreshingStores] = useState8(() => /* @__PURE__ */ new Set());
-    useEffect8(() => {
+    const [paycorCfg, setPaycorCfg] = useState9({});
+    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState9(false);
+    const [paycorPush, setPaycorPush] = useState9(null);
+    const [singleSendPc, setSingleSendPc] = useState9("");
+    const [singleSending, setSingleSending] = useState9(false);
+    const [refreshingDates, setRefreshingDates] = useState9(() => /* @__PURE__ */ new Set());
+    const [refreshingStores, setRefreshingStores] = useState9(() => /* @__PURE__ */ new Set());
+    useEffect9(() => {
       if (!canPushToPaycor || paycorCfgLoaded) return;
       cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
       }).finally(() => setPaycorCfgLoaded(true));
@@ -38353,12 +38780,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return next;
       });
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!canPushToPaycor || !paycorCfgLoaded || !snapshots) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
       fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc));
     }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
-    const [missingCheck, setMissingCheck] = useState8(null);
+    const [missingCheck, setMissingCheck] = useState9(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
     const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 864e5) : 0;
@@ -38750,9 +39177,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   var teHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
-    const [shown, setShown] = useState8(target);
+    const [shown, setShown] = useState9(target);
     const fromRef = useRef5(target);
-    useEffect8(() => {
+    useEffect9(() => {
       const from = fromRef.current;
       if (teReducedMotion() || Math.abs(from - target) < 5e-3) {
         fromRef.current = target;
@@ -38870,20 +39297,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 14);
       return tipsFormatISODate(d);
     })();
-    const [storePc, setStorePc] = useState8("");
-    const [roster, setRoster] = useState8(null);
-    const [rosterLoading, setRosterLoading] = useState8(false);
-    const [personQuery, setPersonQuery] = useState8("");
-    const [person, setPerson] = useState8(null);
-    const [startDate, setStartDate] = useState8(twoWeeksAgo);
-    const [endDate, setEndDate] = useState8(yesterday);
-    const [days, setDays] = useState8(null);
-    const [edits, setEdits] = useState8({});
-    const [loading, setLoading] = useState8(false);
-    const [saving, setSaving] = useState8(false);
-    const [error, setError] = useState8(null);
-    const [result, setResult] = useState8(null);
-    const [reason, setReason] = useState8("");
+    const [storePc, setStorePc] = useState9("");
+    const [roster, setRoster] = useState9(null);
+    const [rosterLoading, setRosterLoading] = useState9(false);
+    const [personQuery, setPersonQuery] = useState9("");
+    const [person, setPerson] = useState9(null);
+    const [startDate, setStartDate] = useState9(twoWeeksAgo);
+    const [endDate, setEndDate] = useState9(yesterday);
+    const [days, setDays] = useState9(null);
+    const [edits, setEdits] = useState9({});
+    const [loading, setLoading] = useState9(false);
+    const [saving, setSaving] = useState9(false);
+    const [error, setError] = useState9(null);
+    const [result, setResult] = useState9(null);
+    const [reason, setReason] = useState9("");
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const api2 = async (body) => {
       const res = await fetch("/.netlify/functions/tips-manual-edit", {
@@ -39022,25 +39449,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.88rem", fontWeight: 600, color: th.text, marginBottom: "0.35rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("textarea", { rows: 2, className: "te-input", placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: FONTS.body, fontSize: "0.92rem" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.84rem", color: th.muted, marginRight: "auto" } }, /* @__PURE__ */ React.createElement(TeTicker, { value: checkedDays.length, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
   }
   function TipsEditor({ th, stores, user, onGoToReport }) {
-    const [mode, setMode] = useState8("day");
+    const [mode, setMode] = useState9("day");
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState8("");
-    const [dateStr, setDateStr] = useState8(todayStr);
-    const [loading, setLoading] = useState8(false);
-    const [error, setError] = useState8(null);
-    const [store, setStore] = useState8(null);
-    const [crew, setCrew] = useState8([]);
-    const [saving, setSaving] = useState8(false);
-    const [savedMsg, setSavedMsg] = useState8(null);
-    const [reason, setReason] = useState8("");
-    const [roster, setRoster] = useState8(null);
-    const [rosterLoading, setRosterLoading] = useState8(false);
-    const [rosterQuery, setRosterQuery] = useState8("");
-    const [showRoster, setShowRoster] = useState8(false);
-    const [hoverKey, setHoverKey] = useState8(null);
-    const [leavingKeys, setLeavingKeys] = useState8([]);
-    const [justSaved, setJustSaved] = useState8(false);
-    const [addedKeys, setAddedKeys] = useState8([]);
+    const [storePc, setStorePc] = useState9("");
+    const [dateStr, setDateStr] = useState9(todayStr);
+    const [loading, setLoading] = useState9(false);
+    const [error, setError] = useState9(null);
+    const [store, setStore] = useState9(null);
+    const [crew, setCrew] = useState9([]);
+    const [saving, setSaving] = useState9(false);
+    const [savedMsg, setSavedMsg] = useState9(null);
+    const [reason, setReason] = useState9("");
+    const [roster, setRoster] = useState9(null);
+    const [rosterLoading, setRosterLoading] = useState9(false);
+    const [rosterQuery, setRosterQuery] = useState9("");
+    const [showRoster, setShowRoster] = useState9(false);
+    const [hoverKey, setHoverKey] = useState9(null);
+    const [leavingKeys, setLeavingKeys] = useState9([]);
+    const [justSaved, setJustSaved] = useState9(false);
+    const [addedKeys, setAddedKeys] = useState9([]);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const pool = tipsRound2(store?.tipPool || 0);
     const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
@@ -39229,13 +39656,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function EmployeeHoursReport({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState8("");
-    const [startDate, setStartDate] = useState8("");
-    const [endDate, setEndDate] = useState8("");
-    const [status, setStatus] = useState8(null);
-    const [step, setStep] = useState8("");
-    const [error, setError] = useState8(null);
-    const [result, setResult] = useState8(null);
+    const [storePc, setStorePc] = useState9("");
+    const [startDate, setStartDate] = useState9("");
+    const [endDate, setEndDate] = useState9("");
+    const [status, setStatus] = useState9(null);
+    const [step, setStep] = useState9("");
+    const [error, setError] = useState9(null);
+    const [result, setResult] = useState9(null);
     const pollRef = useRef5(null);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     React.useEffect(() => () => {
@@ -39426,13 +39853,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return React.createElement("div", { style: { fontFamily: "'Source Sans 3'", fontSize: "0.875rem" } }, elements);
   }
   function AskBar({ user, stores, th, onNavigate }) {
-    const [open, setOpen] = useState8(false);
-    const [query, setQuery] = useState8("");
-    const [answer, setAnswer] = useState8(null);
-    const [loading, setLoading] = useState8(false);
-    const [feedback, setFeedback] = useState8(null);
+    const [open, setOpen] = useState9(false);
+    const [query, setQuery] = useState9("");
+    const [answer, setAnswer] = useState9(null);
+    const [loading, setLoading] = useState9(false);
+    const [feedback, setFeedback] = useState9(null);
     const inputRef = useRef5(null);
-    useEffect8(() => {
+    useEffect9(() => {
       const handler = (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") {
           e.preventDefault();
@@ -39448,7 +39875,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       window.addEventListener("keydown", handler);
       return () => window.removeEventListener("keydown", handler);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (open && inputRef.current) inputRef.current.focus();
     }, [open]);
     const ask = async () => {
@@ -39567,14 +39994,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         y = margin;
       }
       if (line.startsWith("\u2022") || line.startsWith("-")) {
-        const clean3 = line.replace(/^[•\-]\s*/, "").replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
-        const parts = clean3.split("\xB7");
+        const clean4 = line.replace(/^[•\-]\s*/, "").replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
+        const parts = clean4.split("\xB7");
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
         doc.setTextColor(30, 30, 30);
         doc.setFillColor(...br);
         doc.circle(margin + 0.07, y - 0.04, 0.035, "F");
-        const wrapped = doc.splitTextToSize(clean3, contentW - 0.25);
+        const wrapped = doc.splitTextToSize(clean4, contentW - 0.25);
         if (y + wrapped.length * 0.175 > pageH - 1.2) {
           doc.addPage();
           y = margin;
@@ -39583,8 +40010,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         y += wrapped.length * 0.175 + 0.14;
       } else if (line.toLowerCase().includes("watch today")) {
         y += 0.08;
-        const clean3 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").replace(/^[^\w]*/, "").trim();
-        const label = clean3.match(/^watch today/i) ? clean3 : "Watch today: " + clean3;
+        const clean4 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").replace(/^[^\w]*/, "").trim();
+        const label = clean4.match(/^watch today/i) ? clean4 : "Watch today: " + clean4;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         const wrapped = doc.splitTextToSize(label, contentW - 0.4);
@@ -39601,15 +40028,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         doc.text(wrapped, margin + 0.18, y + 0.1);
         y += boxH + 0.1;
       } else {
-        const clean3 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
-        if (!clean3) {
+        const clean4 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
+        if (!clean4) {
           y += 0.08;
           continue;
         }
-        doc.setFont("helvetica", clean3.length < 60 ? "bold" : "normal");
+        doc.setFont("helvetica", clean4.length < 60 ? "bold" : "normal");
         doc.setFontSize(10);
         doc.setTextColor(50, 50, 50);
-        const wrapped = doc.splitTextToSize(clean3, contentW);
+        const wrapped = doc.splitTextToSize(clean4, contentW);
         doc.text(wrapped, margin, y);
         y += wrapped.length * 0.175 + 0.08;
       }
@@ -39831,11 +40258,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     doc.save(`business_cases_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.pdf`);
   }
   function TodayBrief({ user, th, setAnnouncements, showAlert: showAlert2, announcementsDismissed, setAnnouncementsDismissed }) {
-    const [brief, setBrief] = useState8(null);
-    const [loading, setLoading] = useState8(true);
-    const [refreshing, setRefreshing] = useState8(false);
-    const [collapsed, setCollapsed] = useState8(false);
-    const [posting, setPosting] = useState8(false);
+    const [brief, setBrief] = useState9(null);
+    const [loading, setLoading] = useState9(true);
+    const [refreshing, setRefreshing] = useState9(false);
+    const [collapsed, setCollapsed] = useState9(false);
+    const [posting, setPosting] = useState9(false);
     const fetchBrief = async (refresh) => {
       if (refresh) setRefreshing(true);
       else setLoading(true);
@@ -39853,7 +40280,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setLoading(false);
       setRefreshing(false);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       fetchBrief(false);
     }, []);
     if (loading) return /* @__PURE__ */ React.createElement("div", { style: { background: `linear-gradient(135deg, ${O}12, ${O}06)`, border: `1px solid ${O}33`, borderRadius: "0.75rem", padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", color: O, fontSize: "0.75rem", fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", null, "\u{1F52E}"), " Loading Orion's brief..."));
@@ -39882,16 +40309,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, collapsed ? "\u25BC" : "\u25B2"))), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem" } }, renderAnalystMarkdown(brief.content, th)));
   }
   function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnouncements, showAlert: showAlert2 }) {
-    const [cases, setCases] = useState8([]);
-    const [totalOpp, setTotalOpp] = useState8(0);
-    const [byStatus, setByStatus] = useState8({});
-    const [loading, setLoading] = useState8(true);
-    const [expanded, setExpanded] = useState8(null);
-    const [caseAction, setCaseAction] = useState8({});
-    const [reasonPrompt, setReasonPrompt] = useState8(null);
-    const [decisionLog, setDecisionLog] = useState8([]);
-    const [showDecisionLog, setShowDecisionLog] = useState8(false);
-    useEffect8(() => {
+    const [cases, setCases] = useState9([]);
+    const [totalOpp, setTotalOpp] = useState9(0);
+    const [byStatus, setByStatus] = useState9({});
+    const [loading, setLoading] = useState9(true);
+    const [expanded, setExpanded] = useState9(null);
+    const [caseAction, setCaseAction] = useState9({});
+    const [reasonPrompt, setReasonPrompt] = useState9(null);
+    const [decisionLog, setDecisionLog] = useState9([]);
+    const [showDecisionLog, setShowDecisionLog] = useState9(false);
+    useEffect9(() => {
       (async () => {
         try {
           const district = user.userType === "dm" ? user.district : null;
@@ -40710,19 +41137,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const CAT_COLORS = { "Setup Guide": "#3b82f6", "SOP": "#8b5cf6", "Training": "#22c55e", "Policy": "#ef4444", "Reference": "#f59e0b" };
     const isAdmin = user && (user.userType === "executive" || user.userType === "it");
     const [kbSection, setKbSection] = React.useState("articles");
-    const [articles, setArticles] = useState8([]);
-    const [selectedArticle, setSelectedArticle] = useState8(null);
-    const [articleContent, setArticleContent] = useState8(null);
-    const [loading, setLoading] = useState8(true);
+    const [articles, setArticles] = useState9([]);
+    const [selectedArticle, setSelectedArticle] = useState9(null);
+    const [articleContent, setArticleContent] = useState9(null);
+    const [loading, setLoading] = useState9(true);
     const kbContentRef = useRef5(null);
-    const [search, setSearch] = useState8("");
-    const [catFilter, setCatFilter] = useState8("All");
-    const [showForm, setShowForm] = useState8(false);
-    const [showPdfModal, setShowPdfModal] = useState8(false);
-    const [editing, setEditing] = useState8(false);
-    const [editForm, setEditForm] = useState8({ title: "", category: "", description: "", content: "" });
-    const [form, setForm] = useState8({ title: "", category: "Setup Guide", description: "", content: "" });
-    useEffect8(() => {
+    const [search, setSearch] = useState9("");
+    const [catFilter, setCatFilter] = useState9("All");
+    const [showForm, setShowForm] = useState9(false);
+    const [showPdfModal, setShowPdfModal] = useState9(false);
+    const [editing, setEditing] = useState9(false);
+    const [editForm, setEditForm] = useState9({ title: "", category: "", description: "", content: "" });
+    const [form, setForm] = useState9({ title: "", category: "Setup Guide", description: "", content: "" });
+    useEffect9(() => {
       if (!kbContentRef.current || !articleContent) return;
       kbContentRef.current.querySelectorAll("script").forEach((old) => {
         const s = document.createElement("script");
@@ -40731,7 +41158,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         old.parentNode.replaceChild(s, old);
       });
     }, [articleContent]);
-    useEffect8(() => {
+    useEffect9(() => {
       (async () => {
         setLoading(true);
         const data = await cloudLoad("pcg_kb_articles");
@@ -40739,7 +41166,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setLoading(false);
       })();
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       const draft = takePendingKbDraft();
       if (draft) {
         setForm({
@@ -41234,14 +41661,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     );
   }
   function EmailTab({ th, user }) {
-    const [emails, setEmails] = useState8([]);
-    const [loading, setLoading] = useState8(true);
-    const [filter, setFilter] = useState8("all");
-    const [selectedEmail, setSelectedEmail] = useState8(null);
-    const [composing, setComposing] = useState8(false);
-    const [composeData, setComposeData] = useState8({ to: "", cc: "", subject: "", body: "" });
-    const [sending, setSending] = useState8(false);
-    const [lastSync, setLastSync] = useState8(null);
+    const [emails, setEmails] = useState9([]);
+    const [loading, setLoading] = useState9(true);
+    const [filter, setFilter] = useState9("all");
+    const [selectedEmail, setSelectedEmail] = useState9(null);
+    const [composing, setComposing] = useState9(false);
+    const [composeData, setComposeData] = useState9({ to: "", cc: "", subject: "", body: "" });
+    const [sending, setSending] = useState9(false);
+    const [lastSync, setLastSync] = useState9(null);
     const loadEmails = async () => {
       setLoading(true);
       try {
@@ -41260,7 +41687,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setLoading(false);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       loadEmails();
     }, []);
     const filtered = filter === "all" ? emails : emails.filter((e) => e.category === filter);
@@ -42445,17 +42872,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   };
   function ConstructionMobileView({ th, user, stores, projects, setProjects, todos, setTodos, onFullPortal, onOpenChat, onLogout }) {
     const O2 = "#FF671F";
-    const [navTab, setNavTab] = useState8("projects");
-    const [screen, setScreen] = useState8("list");
-    const [detailTab, setDetailTab] = useState8("reports");
-    const [calWeekOffset, setCalWeekOffset] = useState8(0);
-    const [calSelectedDay, setCalSelectedDay] = useState8(() => {
+    const [navTab, setNavTab] = useState9("projects");
+    const [screen, setScreen] = useState9("list");
+    const [detailTab, setDetailTab] = useState9("reports");
+    const [calWeekOffset, setCalWeekOffset] = useState9(0);
+    const [calSelectedDay, setCalSelectedDay] = useState9(() => {
       const d = /* @__PURE__ */ new Date();
       d.setHours(0, 0, 0, 0);
       return d;
     });
-    const [calSchedules, setCalSchedules] = useState8([]);
-    useEffect8(() => {
+    const [calSchedules, setCalSchedules] = useState9([]);
+    useEffect9(() => {
       const load = () => cloudLoad(typeof MAINT_SCHEDULE_KEY !== "undefined" ? MAINT_SCHEDULE_KEY : "pcg_maint_schedules_v1").then((d) => {
         if (Array.isArray(d)) setCalSchedules(d);
       }).catch(() => {
@@ -42464,9 +42891,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const id = setInterval(load, 6e4);
       return () => clearInterval(id);
     }, []);
-    const [selectedProject, setSelectedProject] = useState8(null);
-    const [dailyReports, setDailyReports] = useState8([]);
-    const [loadingReports, setLoadingReports] = useState8(false);
+    const [selectedProject, setSelectedProject] = useState9(null);
+    const [dailyReports, setDailyReports] = useState9([]);
+    const [loadingReports, setLoadingReports] = useState9(false);
     const EMPTY_LOG = { name: "", description: "", quantity: "", totalHours: "", hoursToDate: "", photos: [] };
     const SURVEY_KEYS = ["accidents", "scheduleDelays", "weatherDelays", "visitors", "blockedAreas", "rentedEquipment"];
     const SURVEY_LABELS = {
@@ -42482,7 +42909,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { time: "12:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" },
       { time: "4:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" }
     ];
-    const [rForm, setRForm] = useState8({
+    const [rForm, setRForm] = useState9({
       date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
       preparedBy: user?.name || "",
       jobNumber: "",
@@ -42494,8 +42921,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       survey: Object.fromEntries(SURVEY_KEYS.map((k) => [k, null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map((k) => [k, ""]))
     });
-    const [rSaving, setRSaving] = useState8(false);
-    const [wxLoading, setWxLoading] = useState8(false);
+    const [rSaving, setRSaving] = useState9(false);
+    const [wxLoading, setWxLoading] = useState9(false);
     const autoFillWeather = async (proj, date) => {
       const zip = proj?.zip;
       if (!zip) {
@@ -42519,17 +42946,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setWxLoading(false);
     };
-    const [syncing, setSyncing] = useState8(false);
-    const [syncMsg, setSyncMsg] = useState8("");
-    const [selectedReport, setSelectedReport] = useState8(null);
-    const [loadingReport, setLoadingReport] = useState8(false);
-    const [lightboxSrc, setLightboxSrc] = useState8(null);
-    const [expandedLogs, setExpandedLogs] = useState8({});
-    const [pdfLoading, setPdfLoading] = useState8(false);
-    const [emailModal, setEmailModal] = useState8(false);
-    const [emailTo, setEmailTo] = useState8("");
-    const [emailSubject, setEmailSubject] = useState8("");
-    const [emailSending, setEmailSending] = useState8(false);
+    const [syncing, setSyncing] = useState9(false);
+    const [syncMsg, setSyncMsg] = useState9("");
+    const [selectedReport, setSelectedReport] = useState9(null);
+    const [loadingReport, setLoadingReport] = useState9(false);
+    const [lightboxSrc, setLightboxSrc] = useState9(null);
+    const [expandedLogs, setExpandedLogs] = useState9({});
+    const [pdfLoading, setPdfLoading] = useState9(false);
+    const [emailModal, setEmailModal] = useState9(false);
+    const [emailTo, setEmailTo] = useState9("");
+    const [emailSubject, setEmailSubject] = useState9("");
+    const [emailSending, setEmailSending] = useState9(false);
     const mobileGeneratePdf = async (r, proj, download = true) => {
       setPdfLoading(true);
       try {
@@ -42759,7 +43186,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setRSaving(false);
       }
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (screen !== "detail" || !selectedProject) return;
       setLoadingReports(true);
       cloudLoad(DR_INDEX_KEY).then((idx) => {
@@ -43335,8 +43762,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const deleteSchedule = (id) => saveSchedules(schedules.filter((s) => s.id !== id));
     const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
     const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const [isNarrow, setIsNarrow] = useState8(() => typeof window !== "undefined" && window.innerWidth < 760);
-    useEffect8(() => {
+    const [isNarrow, setIsNarrow] = useState9(() => typeof window !== "undefined" && window.innerWidth < 760);
+    useEffect9(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -43394,7 +43821,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   }
   function DunkinRunnerScene({ dark }) {
     const hostRef = useRef5(null);
-    useEffect8(() => {
+    useEffect9(() => {
       const host = hostRef.current;
       if (!host) return;
       const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -43703,24 +44130,24 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const store = (stores || []).find((s) => String(s.pc) === String(pc));
     const storeName = store?.name || pc;
     const existingUsernames = users.map((u) => u.username);
-    const [selectedCandidateId, setSelectedCandidateId] = useState8(
+    const [selectedCandidateId, setSelectedCandidateId] = useState9(
       item.kind === "needsReview" ? null : item.candidate?.employeeId || null
     );
     const candidate = item.kind === "needsReview" ? (item.candidates || []).find((c) => c.employeeId === selectedCandidateId) || null : item.kind === "vacant" ? null : item.candidate;
     const existingAccount = item.kind === "replace" ? item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId) : null : users.find((u) => u.userType === "manager" && u.active !== false && String(u.storePC) === String(pc));
     const oldAlreadyDeactivated = existingAccount ? existingAccount.active === false : true;
-    const [deactivateOld, setDeactivateOld] = useState8(true);
-    const [form, setForm] = useState8({
+    const [deactivateOld, setDeactivateOld] = useState9(true);
+    const [form, setForm] = useState9({
       name: candidate?.name || "",
       username: candidate ? suggestUsername(candidate.name, existingUsernames) : "",
       password: generatePassword(),
       email: `${pc}@peoplecapitalgroup.com`,
       role: ""
     });
-    const [showPw, setShowPw] = useState8(false);
-    const [saving, setSaving] = useState8(false);
+    const [showPw, setShowPw] = useState9(false);
+    const [saving, setSaving] = useState9(false);
     const prevCandidateName = useRef5(candidate?.name || null);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!candidate || candidate.name === prevCandidateName.current) return;
       prevCandidateName.current = candidate.name;
       setForm((f) => ({ ...f, name: candidate.name, username: suggestUsername(candidate.name, existingUsernames) }));
@@ -43812,12 +44239,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 } }, "Dismiss")))))));
   }
   function PCGPortal() {
-    const [rawUser, setUser] = useState8(null);
+    const [rawUser, setUser] = useState9(null);
     const user = React.useMemo(() => {
       if (!rawUser || !isDirector(rawUser)) return rawUser;
       return { ...rawUser, userType: "director", realUserType: "director", district: null, districts: parseDistricts(rawUser.districts) };
     }, [rawUser]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (user || !getSessionToken()) return;
       let cancelled = false;
       portalMe().then((u) => {
@@ -43828,8 +44255,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    const [managerMode, setManagerMode] = useState8(null);
-    const [preferFullPortal, setPreferFullPortal] = useState8(() => {
+    const [managerMode, setManagerMode] = useState9(null);
+    const [preferFullPortal, setPreferFullPortal] = useState9(() => {
       try {
         return localStorage.getItem("pcg_prefer_full_portal") === "true";
       } catch {
@@ -43852,7 +44279,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setPreferFullPortal(full);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user) return;
       const onMobile = window.innerWidth <= 768;
       if (onMobile && (user.userType === "manager" || user.userType === "maintenance" || user.userType === "office_staff") && preferFullPortal) {
@@ -43878,18 +44305,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setPreferFullPortal(false);
       setUser(null);
     };
-    const [tab, setTab] = useState8("dashboard");
-    const [pulseInitialTab, setPulseInitialTab] = useState8("sales");
-    useEffect8(() => {
+    const [tab, setTab] = useState9("dashboard");
+    const [pulseInitialTab, setPulseInitialTab] = useState9("sales");
+    useEffect9(() => {
       window.scrollTo(0, 0);
     }, [tab]);
-    const [pendingOrionQuestion, setPendingOrionQuestion] = useState8(null);
-    const [orionIntent, setOrionIntent] = useState8(false);
-    useEffect8(() => {
+    const [pendingOrionQuestion, setPendingOrionQuestion] = useState9(null);
+    const [orionIntent, setOrionIntent] = useState9(false);
+    useEffect9(() => {
       if (tab !== "chat" && orionIntent) setOrionIntent(false);
     }, [tab, orionIntent]);
-    const [drillInStore, setDrillInStore] = useState8(null);
-    const [locationsMapMode, setLocationsMapMode] = useState8(false);
+    const [drillInStore, setDrillInStore] = useState9(null);
+    const [locationsMapMode, setLocationsMapMode] = useState9(false);
     const handleDrillIn = (storePC, targetTab) => {
       setDrillInStore(storePC);
       setTab(targetTab);
@@ -43898,7 +44325,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const isGoingBackRef = useRef5(false);
     const sidebarNavRef = useRef5(null);
     const sidebarScrollPos = useRef5(0);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState8(() => {
+    const [sidebarCollapsed, setSidebarCollapsed] = useState9(() => {
       try {
         const v = localStorage.getItem("pcg_sidebar_collapsed");
         return v === null ? true : v === "true";
@@ -43906,8 +44333,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return true;
       }
     });
-    const [pinnedTabIds, setPinnedTabIds] = useState8(null);
-    useEffect8(() => {
+    const [pinnedTabIds, setPinnedTabIds] = useState9(null);
+    useEffect9(() => {
       if (!user?.id) {
         setPinnedTabIds(null);
         return;
@@ -43958,7 +44385,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, [user?.id]);
-    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState8(() => {
+    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState9(() => {
       try {
         const s = localStorage.getItem("pcg_sidebar_sections");
         if (s) return JSON.parse(s);
@@ -43966,21 +44393,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return {};
     });
-    const [managingFavorites, setManagingFavorites] = useState8(false);
-    const [links, setLinks] = useState8(() => {
+    const [managingFavorites, setManagingFavorites] = useState9(false);
+    const [links, setLinks] = useState9(() => {
       const s = loadFromStorage();
       return s?.links || INIT_LINKS;
     });
-    const [notes, setNotes] = useState8(() => {
+    const [notes, setNotes] = useState9(() => {
       const s = loadFromStorage();
       return s?.notes || {};
     });
-    const [todos, setTodos] = useState8(() => {
+    const [todos, setTodos] = useState9(() => {
       const s = loadFromStorage();
       return s?.todos || [];
     });
-    const [users, setUsers] = useState8([]);
-    const [stores, setStores] = useState8(() => {
+    const [users, setUsers] = useState9([]);
+    const [stores, setStores] = useState9(() => {
       const s = loadFromStorage();
       return s?.stores || STORES_SEED;
     });
@@ -43993,10 +44420,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return open;
     }, [stores, user?.realUserType, (user?.districts || []).join(",")]);
-    useEffect8(() => {
+    useEffect9(() => {
       LIVE_OPEN_STORES = openStores;
     }, [openStores]);
-    const [districts, setDistricts] = useState8(() => {
+    const [districts, setDistricts] = useState9(() => {
       const s = loadFromStorage();
       return s?.districts || DISTRICTS_SEED;
     });
@@ -44004,15 +44431,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     React.useEffect(() => {
       setDistrictsRef(districts);
     }, [districts]);
-    const [contacts, setContacts] = useState8(() => {
+    const [contacts, setContacts] = useState9(() => {
       const s = loadFromStorage();
       return s?.contacts || CONTACTS_SEED;
     });
-    const [vendors, setVendors] = useState8(() => {
+    const [vendors, setVendors] = useState9(() => {
       const s = loadFromStorage();
       return s?.vendors || VENDORS_SEED;
     });
-    const [dark, setDark] = useState8(() => {
+    const [dark, setDark] = useState9(() => {
       try {
         const v = localStorage.getItem("pcg_dark_mode");
         if (v !== null) return JSON.parse(v);
@@ -44021,58 +44448,58 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.dark ?? false;
     });
-    const [projects, setProjects] = useState8(() => {
+    const [projects, setProjects] = useState9(() => {
       const s = loadFromStorage();
       const p = s?.projects;
       return p && p.length > 0 ? p : PROJECTS_SEED;
     });
-    const [notifications, setNotifications] = useState8(() => {
+    const [notifications, setNotifications] = useState9(() => {
       const s = loadFromStorage();
       return s?.notifications || [];
     });
-    const [dailyReports, setDailyReports] = useState8(() => {
+    const [dailyReports, setDailyReports] = useState9(() => {
       const s = loadFromStorage();
       return s?.dailyReports || [];
     });
     const DEFAULT_GLOBAL_NOTIFY = ["Mike@peoplecapitalgroup.com", "Bill@Raogroupinc.com", "Sam@peoplecapitalgroup.com", "Casey@peoplecapitalgroup.com"];
-    const [globalNotifyEmails, setGlobalNotifyEmails] = useState8(() => {
+    const [globalNotifyEmails, setGlobalNotifyEmails] = useState9(() => {
       const s = loadFromStorage();
       return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY;
     });
     const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter((e) => e.toLowerCase() !== "sam@peoplecapitalgroup.com");
-    const [ticketNotifyEmails, setTicketNotifyEmails] = useState8(() => {
+    const [ticketNotifyEmails, setTicketNotifyEmails] = useState9(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY;
     });
-    const [ticketNotifyPhones, setTicketNotifyPhones] = useState8(() => {
+    const [ticketNotifyPhones, setTicketNotifyPhones] = useState9(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhones || [];
     });
-    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState8(() => {
+    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState9(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmailOwners || ticketNotifyEmails.map(() => null);
     });
-    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState8(() => {
+    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState9(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhoneOwners || ticketNotifyPhones.map(() => null);
     });
-    const [chatChannels, setChatChannels] = useState8([]);
-    const [chatMessages, setChatMessages] = useState8([]);
-    const [chatReadState, setChatReadState] = useState8({});
-    const [announcements, setAnnouncements] = useState8([]);
-    const [announcementsDismissed, setAnnouncementsDismissed] = useState8({});
-    const [annGateQueue, setAnnGateQueue] = useState8([]);
-    const [annGateIdx, setAnnGateIdx] = useState8(0);
-    const [annGateDone, setAnnGateDone] = useState8(false);
-    const [bioPromptDone, setBioPromptDone] = useState8(false);
-    const [bioPromptEligible, setBioPromptEligible] = useState8(false);
-    useEffect8(() => {
+    const [chatChannels, setChatChannels] = useState9([]);
+    const [chatMessages, setChatMessages] = useState9([]);
+    const [chatReadState, setChatReadState] = useState9({});
+    const [announcements, setAnnouncements] = useState9([]);
+    const [announcementsDismissed, setAnnouncementsDismissed] = useState9({});
+    const [annGateQueue, setAnnGateQueue] = useState9([]);
+    const [annGateIdx, setAnnGateIdx] = useState9(0);
+    const [annGateDone, setAnnGateDone] = useState9(false);
+    const [bioPromptDone, setBioPromptDone] = useState9(false);
+    const [bioPromptEligible, setBioPromptEligible] = useState9(false);
+    useEffect9(() => {
       if (!user) return;
       webauthnAvailable().then((avail) => {
         setBioPromptEligible(avail && !webauthnDeviceEnrolled() && !webauthnDeviceDeclined());
       });
     }, [user?.id]);
-    const [accessOverrides, setAccessOverrides] = useState8({});
+    const [accessOverrides, setAccessOverrides] = useState9({});
     const cloudAccessLoaded = useRef5(false);
     const cloudProjectsLoaded = useRef5(false);
     const cloudDailyReportsLoaded = useRef5(false);
@@ -44095,8 +44522,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const projectsUserEdited = useRef5(false);
     const dailyReportsUserEdited = useRef5(false);
     const prevDailyReportsRef = useRef5([]);
-    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState8({});
-    useEffect8(() => {
+    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState9({});
+    useEffect9(() => {
       const handler = (e) => {
         const pending = Object.values(dailyReportSyncStatus).some((s) => s === "syncing" || s === "failed");
         if (pending) {
@@ -44108,36 +44535,36 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       window.addEventListener("beforeunload", handler);
       return () => window.removeEventListener("beforeunload", handler);
     }, [dailyReportSyncStatus]);
-    useEffect8(() => {
+    useEffect9(() => {
       try {
         localStorage.setItem("pcg_dark_mode", JSON.stringify(dark));
       } catch {
       }
     }, [dark]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
-    const [showNotifs, setShowNotifs] = useState8(false);
+    const [showNotifs, setShowNotifs] = useState9(false);
     const notifRef = useRef5(null);
     const chatPanelRef = useRef5(null);
-    const [showChatPanel, setShowChatPanel] = useState8(false);
-    const [chatQuickReply, setChatQuickReply] = useState8({ channelId: null, text: "" });
-    const [salesWeeks, setSalesWeeks] = useState8([]);
-    const [cashDeposits, setCashDeposits] = useState8([]);
-    const [cashUploads, setCashUploads] = useState8([]);
-    const [cashNotes, setCashNotes] = useState8([]);
-    const [cashPOS, setCashPOS] = useState8({});
+    const [showChatPanel, setShowChatPanel] = useState9(false);
+    const [chatQuickReply, setChatQuickReply] = useState9({ channelId: null, text: "" });
+    const [salesWeeks, setSalesWeeks] = useState9([]);
+    const [cashDeposits, setCashDeposits] = useState9([]);
+    const [cashUploads, setCashUploads] = useState9([]);
+    const [cashNotes, setCashNotes] = useState9([]);
+    const [cashPOS, setCashPOS] = useState9({});
     const cloudCashLoaded = useRef5(false);
-    const [professionals, setProfessionals] = useState8(DEFAULT_PROFESSIONALS);
+    const [professionals, setProfessionals] = useState9(DEFAULT_PROFESSIONALS);
     const cloudProfessionalsLoaded = useRef5(false);
-    const [showProfile, setShowProfile] = useState8(false);
-    const [cloudStatus, setCloudStatus] = useState8("idle");
-    const [logoAnim, setLogoAnim] = useState8(false);
-    const [showTimeoutWarning, setShowTimeoutWarning] = useState8(false);
-    const [timeoutCountdown, setTimeoutCountdown] = useState8(60);
+    const [showProfile, setShowProfile] = useState9(false);
+    const [cloudStatus, setCloudStatus] = useState9("idle");
+    const [logoAnim, setLogoAnim] = useState9(false);
+    const [showTimeoutWarning, setShowTimeoutWarning] = useState9(false);
+    const [timeoutCountdown, setTimeoutCountdown] = useState9(60);
     const lastActivityRef = useRef5(Date.now());
     const warningActiveRef = useRef5(false);
-    const [dataAlert, setDataAlert] = useState8(null);
+    const [dataAlert, setDataAlert] = useState9(null);
     const importRef = useRef5(null);
     const logoRef = useRef5(null);
     const toggleBtnRef = useRef5(null);
@@ -44147,8 +44574,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const txnDeepLinkRef = useRef5(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
-    const [pnlAllowed, setPnlAllowed] = useState8(DEFAULT_PNL_ALLOWED);
-    useEffect8(() => {
+    const [pnlAllowed, setPnlAllowed] = useState9(DEFAULT_PNL_ALLOWED);
+    useEffect9(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => {
         if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed);
       }).catch(() => {
@@ -44156,8 +44583,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, []);
     const canPnl = canViewPnl(user, pnlAllowed);
     const canManagePnl = canManagePnlAccess(user);
-    const [dealAuth, setDealAuth] = useState8({ token: null, role: null, loaded: false });
-    useEffect8(() => {
+    const [dealAuth, setDealAuth] = useState9({ token: null, role: null, loaded: false });
+    useEffect9(() => {
       if (!user) {
         setDealAuth({ token: null, role: null, loaded: false });
         return;
@@ -44233,12 +44660,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return null;
     };
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user || !tab || tab === MOBILE_LAUNCHER_TAB_ID) return;
       const ids = tabsForUser(user).map((t) => t.id);
       if (!ids.includes(tab)) setTab(ids[0] || "dashboard");
     }, [accessOverrides, tab, user?.userType]);
-    useEffect8(() => {
+    useEffect9(() => {
       const hiddenAt = { t: null };
       const TIMEOUT_MS = 15 * 60 * 1e3;
       const onVisibility = () => {
@@ -44278,7 +44705,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.removeEventListener("pageshow", onPageShow);
       };
     }, [user]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       let cancelled = false;
       const forceOut = (reason) => {
@@ -44309,7 +44736,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       const WARN_AFTER = 29 * 60 * 1e3 + 45 * 1e3;
       const LOGOUT_AFTER = 30 * 60 * 1e3;
@@ -44351,7 +44778,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user || !isTwoFactorRequired(user)) return;
       const check = async () => {
         if (!user.twoFactorSecret) return;
@@ -44378,7 +44805,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", onVisibility);
       };
     }, [user]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (isGoingBackRef.current) {
         isGoingBackRef.current = false;
         return;
@@ -44394,7 +44821,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       isGoingBackRef.current = true;
       setTab(next[next.length - 1]);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!isMobile) return;
       let startX = 0, startY = 0, edgeSwipe = false;
       const onStart = (e) => {
@@ -44416,7 +44843,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("touchend", onEnd);
       };
     }, [isMobile, goBack]);
-    useEffect8(() => {
+    useEffect9(() => {
       try {
         localStorage.setItem("pcg_sidebar_collapsed", sidebarCollapsed);
       } catch {
@@ -44514,13 +44941,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return missing;
     }, [cashDeposits, cashUploads, stores, user]);
-    useEffect8(() => {
+    useEffect9(() => {
       fetch("/.netlify/functions/users?action=list", { headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).then((data) => {
         if (Array.isArray(data) && data.length > 0) setUsers(data);
       }).catch(() => {
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       let updated = [...projects];
       let changed = false;
       for (const seed of PROJECTS_SEED) {
@@ -44542,7 +44969,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       if (changed) setProjects(updated);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const projId = parseInt(params.get("project"));
@@ -44559,7 +44986,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTab("reports");
       }
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const ticketParam = params.get("ticket");
@@ -44587,10 +45014,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.history.replaceState({}, "", window.location.pathname);
       }
     }, [user]);
-    useEffect8(() => {
+    useEffect9(() => {
       saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners });
     }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
-    useEffect8(() => {
+    useEffect9(() => {
       setCloudStatus("loading");
       cloudLoadOrThrow("pcg_sales_v1").then((data) => {
         if (Array.isArray(data)) {
@@ -44610,7 +45037,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setCloudStatus("error");
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (salesWeeks.length === 0) return;
       setCloudStatus("saving");
       try {
@@ -44622,7 +45049,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTimeout(() => setCloudStatus("idle"), 2500);
       });
     }, [salesWeeks]);
-    useEffect8(() => {
+    useEffect9(() => {
       let cancelled = false;
       (async () => {
         let legacy = null;
@@ -44650,7 +45077,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       Promise.all([
         cloudLoad("pcg_cash_deposits_v1"),
         cloudLoad("pcg_cash_uploads_v1"),
@@ -44664,22 +45091,22 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudCashLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudCashLoaded.current) return;
       if (cashDeposits.length === 0) return;
       cloudSave("pcg_cash_deposits_v1", cashDeposits);
     }, [cashDeposits]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudCashLoaded.current) return;
       if (cashUploads.length === 0) return;
       cloudSave("pcg_cash_uploads_v1", cashUploads);
     }, [cashUploads]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudCashLoaded.current) return;
       if (cashNotes.length === 0) return;
       cloudSave("pcg_cash_notes_v1", cashNotes);
     }, [cashNotes]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_projects_v1").then((cloudData) => {
         cloudProjectsLoaded.current = true;
         if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
@@ -44704,7 +45131,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudProjectsLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudProjectsLoaded.current) return;
       if (!projectsUserEdited.current) return;
       if (projects.length === 0) return;
@@ -44738,7 +45165,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const full = await cloudLoadReport(id);
       return full || null;
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       (async () => {
         try {
           const [index, legacy] = await Promise.all([
@@ -44797,7 +45224,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       const interval = setInterval(async () => {
         if (dailyReportsUserEdited.current) return;
         try {
@@ -44833,7 +45260,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 3e4);
       return () => clearInterval(interval);
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!dailyReportsUserEdited.current) return;
       if (!cloudDailyReportsLoaded.current) return;
       dailyReportsUserEdited.current = false;
@@ -44917,7 +45344,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const { updatedAt, ...rest } = s;
       return JSON.stringify(rest);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_stores_v1").then((data) => {
         cloudStoresLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -44935,7 +45362,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudStoresLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudStoresLoaded.current) return;
       if (stores.length === 0) return;
       const synced = storesSyncedRef.current || /* @__PURE__ */ new Map();
@@ -44966,7 +45393,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 500);
       return () => clearTimeout(t);
     }, [stores]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_districts_v1").then((data) => {
         cloudDistrictsLoaded.current = true;
         if (data && typeof data === "object" && Object.keys(data).length > 0) setDistricts(data);
@@ -44974,12 +45401,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudDistrictsLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudDistrictsLoaded.current) return;
       if (!districts || Object.keys(districts).length === 0) return;
       cloudSave("pcg_districts_v1", districts);
     }, [districts]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_contacts_v1").then((data) => {
         cloudContactsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setContacts(data);
@@ -44987,12 +45414,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudContactsLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudContactsLoaded.current) return;
       if (contacts.length === 0) return;
       cloudSave("pcg_contacts_v1", contacts);
     }, [contacts]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_vendors_v1").then((data) => {
         cloudVendorsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setVendors(data);
@@ -45000,12 +45427,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudVendorsLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudVendorsLoaded.current) return;
       if (vendors.length === 0) return;
       cloudSave("pcg_vendors_v1", vendors);
     }, [vendors]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_professionals_v1").then((data) => {
         cloudProfessionalsLoaded.current = true;
         if (data && typeof data === "object" && data.attorneys) setProfessionals((prev) => ({ ...DEFAULT_PROFESSIONALS, ...prev, ...data }));
@@ -45013,11 +45440,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudProfessionalsLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudProfessionalsLoaded.current) return;
       cloudSave("pcg_professionals_v1", professionals);
     }, [professionals]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_links_v1").then((data) => {
         cloudLinksLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setLinks(data);
@@ -45025,12 +45452,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudLinksLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudLinksLoaded.current) return;
       if (!links || Object.keys(links).length === 0) return;
       cloudSave("pcg_links_v1", links);
     }, [links]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_notes_v1").then((data) => {
         cloudNotesLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setNotes(data);
@@ -45038,12 +45465,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotesLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudNotesLoaded.current) return;
       if (!notes || Object.keys(notes).length === 0) return;
       cloudSave("pcg_notes_v1", notes);
     }, [notes]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_todos_v1").then((data) => {
         cloudTodosLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTodos(data);
@@ -45051,12 +45478,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTodosLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudTodosLoaded.current) return;
       if (todos.length === 0) return;
       cloudSave("pcg_todos_v1", todos);
     }, [todos]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_notifications_v1").then((data) => {
         cloudNotificationsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -45069,12 +45496,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotificationsLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chatPollActive.current || !cloudNotificationsLoaded.current) return;
       if (notifications.length === 0) return;
       cloudSave("pcg_notifications_v1", notifications);
     }, [notifications]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_global_notify_v1").then((data) => {
         cloudGlobalNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setGlobalNotifyEmails(data);
@@ -45082,12 +45509,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudGlobalNotifyLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudGlobalNotifyLoaded.current) return;
       if (globalNotifyEmails.length === 0) return;
       cloudSave("pcg_global_notify_v1", globalNotifyEmails);
     }, [globalNotifyEmails]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_ticket_notify_v1").then((data) => {
         cloudTicketNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTicketNotifyEmails(data);
@@ -45095,12 +45522,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudTicketNotifyLoaded.current) return;
       if (ticketNotifyEmails.length === 0) return;
       cloudSave("pcg_ticket_notify_v1", ticketNotifyEmails);
     }, [ticketNotifyEmails]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_ticket_notify_phones_v1").then((data) => {
         cloudTicketNotifyPhonesLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -45111,7 +45538,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhonesLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudTicketNotifyPhonesLoaded.current) return;
       if (skipNextTicketNotifyPhonesSave.current) {
         skipNextTicketNotifyPhonesSave.current = false;
@@ -45120,7 +45547,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ticketNotifyPhones.length === 0) return;
       cloudSave("pcg_ticket_notify_phones_v1", ticketNotifyPhones);
     }, [ticketNotifyPhones]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_ticket_notify_owners_v1").then((data) => {
         cloudTicketNotifyOwnersLoaded.current = true;
         if (Array.isArray(data)) setTicketNotifyEmailOwners(data);
@@ -45134,17 +45561,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhoneOwnersLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudTicketNotifyOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_owners_v1", ticketNotifyEmailOwners);
     }, [ticketNotifyEmailOwners]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_phone_owners_v1", ticketNotifyPhoneOwners);
     }, [ticketNotifyPhoneOwners]);
     const chatPollRef = useRef5(null);
     const chatPollActive = useRef5(false);
-    useEffect8(() => {
+    useEffect9(() => {
       Promise.all([
         cloudLoad("pcg_chat_channels_v1"),
         cloudLoad("pcg_chat_messages_v1"),
@@ -45158,19 +45585,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudChatLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatChannels.length === 0) return;
       cloudSave("pcg_chat_channels_v1", chatChannels);
     }, [chatChannels]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatMessages.length === 0) return;
       cloudSave("pcg_chat_messages_v1", chatMessages);
     }, [chatMessages]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || Object.keys(chatReadState).length === 0) return;
       cloudSave("pcg_chat_read_v1", chatReadState);
     }, [chatReadState]);
-    useEffect8(() => {
+    useEffect9(() => {
       Promise.all([
         cloudLoad("pcg_announcements_v1"),
         cloudLoad("pcg_announcements_dismissed_v1")
@@ -45182,15 +45609,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAnnouncementsLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return;
       cloudSave("pcg_announcements_v1", announcements);
     }, [announcements]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return;
       cloudSave("pcg_announcements_dismissed_v1", announcementsDismissed);
     }, [announcementsDismissed]);
-    useEffect8(() => {
+    useEffect9(() => {
       cloudLoad("pcg_access_overrides_v1").then((ov) => {
         cloudAccessLoaded.current = true;
         if (ov && typeof ov === "object" && !Array.isArray(ov)) setAccessOverrides(ov);
@@ -45198,17 +45625,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAccessLoaded.current = true;
       });
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (chatPollActive.current || !cloudAccessLoaded.current) return;
       cloudSave("pcg_access_overrides_v1", accessOverrides);
     }, [accessOverrides]);
-    useEffect8(() => {
+    useEffect9(() => {
       registerServiceWorker();
     }, []);
-    useEffect8(() => {
+    useEffect9(() => {
       if (user && user.pushNotify) subscribeToPush(user.id);
     }, [user?.id]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user) return;
       chatPollRef.current = setInterval(async () => {
         try {
@@ -45244,7 +45671,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return () => clearInterval(chatPollRef.current);
     }, [user]);
     const mentionAlertRef = useRef5({});
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user) return;
       const interval = setInterval(() => {
         const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1e3).toISOString();
@@ -45279,7 +45706,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 5 * 60 * 1e3);
       return () => clearInterval(interval);
     }, [user, chatMessages, chatChannels, chatReadState, users, globalNotifyEmails]);
-    useEffect8(() => {
+    useEffect9(() => {
       const completedIds = new Set(projects.filter((p) => p.completed).map((p) => p.id));
       if (completedIds.size === 0) return;
       setNotifications((prev) => {
@@ -45291,7 +45718,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return prev;
       });
     }, [projects]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!showNotifs) return;
       const handleOutside = (e) => {
         if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false);
@@ -45306,7 +45733,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showNotifs]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!showChatPanel) return;
       const handleOutside = (e) => {
         if (chatPanelRef.current && !chatPanelRef.current.contains(e.target)) setShowChatPanel(false);
@@ -45321,7 +45748,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showChatPanel]);
-    useEffect8(() => {
+    useEffect9(() => {
       const mkId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const checkDeadlines = () => {
         const now = /* @__PURE__ */ new Date();
@@ -45361,7 +45788,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     PROJECT_PHASES.forEach((ph) => ph.items.forEach((it) => {
       itemLabels[it.key] = { label: it.label, type: it.type, phase: ph.label };
     }));
-    useEffect8(() => {
+    useEffect9(() => {
       if (!projectsUserEdited.current) {
         prevProjectsRef.current = projects;
         return;
@@ -45500,10 +45927,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDataAlert({ type, msg });
       setTimeout(() => setDataAlert(null), 3500);
     };
-    const [managerPending, setManagerPending] = useState8({});
+    const [managerPending, setManagerPending] = useState9({});
     const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
     });
-    useEffect8(() => {
+    useEffect9(() => {
       loadManagerPending();
     }, []);
     const dismissManagerPending = async (pc) => {
@@ -45534,7 +45961,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const openStorePcs = React.useMemo(() => new Set(openStores.map((s) => String(s.pc))), [openStores]);
     const managerPendingCount = Object.entries(managerPending).filter(([pc, item]) => openStorePcs.has(String(pc)) && managerPendingIsActionable(item)).length;
-    const [managerReviewPc, setManagerReviewPc] = useState8(null);
+    const [managerReviewPc, setManagerReviewPc] = useState9(null);
     const handleToggle = useCallback(() => {
       const newDark = !dark;
       setLogoAnim(true);
@@ -45553,7 +45980,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setDark(newDark);
       }
     }, [dark]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user || annGateDone || user.userType?.startsWith("kiosk")) return;
       const GATE_MAX_AGE_DAYS = 14;
       const cutoff = Date.now() - GATE_MAX_AGE_DAYS * 864e5;
@@ -45573,7 +46000,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setAnnGateIdx(0);
     }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
     const annBackfillRef = useRef5(false);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!user || annBackfillRef.current || user.userType?.startsWith("kiosk")) return;
       if (!announcements || announcements.length === 0) return;
       annBackfillRef.current = true;
@@ -46781,11 +47208,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         // v22.49: HR's Employee Transfer letter, filled from Paycor (name, position, PC#, wage locked).
         { id: "transfer-notice", name: "Transfer Notice", sub: "Fill HR\u2019s Employee Transfer letter from Paycor and download it as a PDF, ready to sign.", show: TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.transferNotice(TOOLS)) },
         { id: "violation-notice", name: "Violation Notice", sub: "HR\u2019s Violation Notice with the employee filled in from Paycor, signed on screen and sent to HR.", show: VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "violation-notice"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.violationNotice(TOOLS)) },
+        { id: "resignation-letter", name: "Resignation Letter", sub: "HR\u2019s resignation letter filled in from Paycor; the employee signs here or from an emailed link, and it\u2019s filed in Drive.", show: RESIGNATION_LETTER_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "resignation-letter"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.resignationLetter(TOOLS)) },
         { id: "time-off-request", name: "Time Off Request", sub: "Request your own time off: your details and Paycor balance filled in, signed on screen and sent straight to HR.", show: TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "time-off-request"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.timeOffRequest(TOOLS)) },
         { id: "pay-increase", name: "Pay Increase", sub: "HR\u2019s Pay Increase Form filled from Paycor, signed by the Store Manager and the DM or Director, and sent to the office.", show: PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.payIncrease(TOOLS)) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", subtitle: "Quick access to your workplace tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
-    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores: openStores, users, onBack: () => setTab("tools-hub"), setStores, districts, setDistricts, setUsers }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores: openStores, user }), tab === "terminations" && accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations") && /* @__PURE__ */ React.createElement(TerminationsReport, { th, user, isMobile, onBack: () => setTab("tools-hub") }), tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice") && /* @__PURE__ */ React.createElement(TransferNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "violation-notice" && VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "violation-notice") && /* @__PURE__ */ React.createElement(ViolationNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "time-off-request" && TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "time-off-request") && /* @__PURE__ */ React.createElement(TimeOffRequest, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase") && /* @__PURE__ */ React.createElement(PayIncrease, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores: openStores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores: openStores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores: openStores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores: openStores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores: openStores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "executive" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExecutiveView, { th, user, stores: openStores, isMobile, go: setTab }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { setDistricts, setStores, globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores: openStores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores: openStores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores: openStores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores: openStores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores: openStores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores: openStores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores: openStores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores: openStores, users, onBack: () => setTab("tools-hub"), setStores, districts, setDistricts, setUsers }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores: openStores, user }), tab === "terminations" && accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations") && /* @__PURE__ */ React.createElement(TerminationsReport, { th, user, isMobile, onBack: () => setTab("tools-hub") }), tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice") && /* @__PURE__ */ React.createElement(TransferNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "violation-notice" && VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "violation-notice") && /* @__PURE__ */ React.createElement(ViolationNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "resignation-letter" && RESIGNATION_LETTER_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "resignation-letter") && /* @__PURE__ */ React.createElement(ResignationLetter, { th, isMobile, onBack: () => setTab("tools-hub"), storeAddresses: STORE_ADDRESSES }), tab === "time-off-request" && TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "time-off-request") && /* @__PURE__ */ React.createElement(TimeOffRequest, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase") && /* @__PURE__ */ React.createElement(PayIncrease, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores: openStores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores: openStores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores: openStores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores: openStores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores: openStores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "executive" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExecutiveView, { th, user, stores: openStores, isMobile, go: setTab }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { setDistricts, setStores, globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores: openStores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores: openStores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores: openStores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores: openStores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores: openStores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores: openStores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores: openStores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   var SIGN_TOKEN = new URLSearchParams(window.location.search).get("sign");
   ReactDOM.createRoot(document.getElementById("root")).render(SIGN_TOKEN ? /* @__PURE__ */ React.createElement(RemoteSignPage, { token: SIGN_TOKEN }) : /* @__PURE__ */ React.createElement(PCGPortal, null));

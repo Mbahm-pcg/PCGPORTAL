@@ -19,6 +19,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { sql } from './_shared/db.mjs';
 import { afterRemoteSign } from './violation-notice.mjs';
+import { afterResignationSign } from './resignation-letter.mjs';
+import { RES_SPOTS } from '../../src/resignation-letter-pdf.mjs';
 import { sendSms, sendHtmlEmail } from './_shared/channels.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -51,7 +53,8 @@ export async function ensureSignTable(db) {
   await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS signer_name text`;
   await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS signed_pdf text`;
   // v22.84: 'notice' (the Violation Notice form) or 'letter' (an uploaded warning letter + our
-  // acknowledgment page at the end).
+  // acknowledgment page at the end). v22.87: 'resignation' — notice_id then points at
+  // resignation_letters (resignation-letter.mjs), NOT violation_notices, so every query keeps the two apart.
   await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS layout text DEFAULT 'notice'`;
 }
 
@@ -118,23 +121,24 @@ const roleOf = (r) => (r && r.role === 'witness' ? 'witness' : 'employee');
 export async function createSignRequest(db, { request, role = 'employee', layout = 'notice', signerName, noticeId, pc, storeName, employeeName, phone, email, fileName, pdf, createdBy, createdByName }) {
   await ensureSignTable(db);
   role = role === 'witness' ? 'witness' : 'employee';
-  layout = layout === 'letter' ? 'letter' : 'notice';
+  layout = ['letter', 'resignation'].includes(layout) ? layout : 'notice';
+  const isRes = layout === 'resignation';
   signerName = signerName || employeeName;
   const token = randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + TTL_DAYS * 86400000);
-  await db`UPDATE violation_sign_requests SET cancelled_at = now() WHERE notice_id = ${noticeId} AND COALESCE(role, 'employee') = ${role} AND signed_at IS NULL AND cancelled_at IS NULL`;
+  await db`UPDATE violation_sign_requests SET cancelled_at = now() WHERE notice_id = ${noticeId} AND (COALESCE(layout, 'notice') = 'resignation') = ${isRes} AND COALESCE(role, 'employee') = ${role} AND signed_at IS NULL AND cancelled_at IS NULL`;
   await db`INSERT INTO violation_sign_requests (token_hash, notice_id, role, layout, signer_name, pc, store_name, employee_name, phone, email, file_name, pdf, created_by, created_by_name, expires_at)
     VALUES (${hash(token)}, ${noticeId}, ${role}, ${layout}, ${signerName}, ${String(pc)}, ${storeName}, ${employeeName}, ${tenDigits(phone)}, ${email || null}, ${fileName}, ${pdf.toString('base64')}, ${createdBy}, ${createdByName}, ${expires.toISOString()})`;
   const link = `${signOrigin(request)}/?sign=${token}`;
   const until = etDate(expires);
-  const what = layout === 'letter' ? `review your warning letter from ${storeName} and sign to acknowledge you received it`
+  const what = isRes ? `review and sign your resignation letter for ${storeName}` : layout === 'letter' ? `review your warning letter from ${storeName} and sign to acknowledge you received it`
     : role === 'witness' ? `sign as witness on ${employeeName}'s Violation Notice from ${storeName}` : `review and sign your Violation Notice from ${storeName}`;
   // The link goes by EMAIL; the text is only a nudge with no link (user, 2026-11-11) — Textbelt
   // refuses any text with a link until the account is verified for links.
-  const emailed = await sendHtmlEmail([email], layout === 'letter' ? 'Please review and acknowledge your warning letter' : role === 'witness' ? 'Please sign as witness on a Violation Notice' : 'Please review and sign your Violation Notice',
+  const emailed = await sendHtmlEmail([email], isRes ? 'Please review and sign your resignation letter' : layout === 'letter' ? 'Please review and acknowledge your warning letter' : role === 'witness' ? 'Please sign as witness on a Violation Notice' : 'Please review and sign your Violation Notice',
     `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Hi ${esc(signerName)},</p><p>People Capital Group asks you to ${esc(what)}.</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Review and sign</a></p>
-<p style="color:#666">This private link expires ${esc(until)}. You'll be asked for the last 4 digits of your phone number.${role === 'employee' ? ' Signing confirms you received the notice, not that you agree with it.' : ''}</p></div>`);
+<p style="color:#666">This private link expires ${esc(until)}. You'll be asked for the last 4 digits of your phone number.${role === 'employee' && !isRes ? ' Signing confirms you received the notice, not that you agree with it.' : ''}</p></div>`);
   const sms = await sendSms([tenDigits(phone)], `People Capital Group: we emailed you a request to ${what}. Please check your email inbox (and spam folder) and sign by ${until}.`);
   // No email address in the text: Textbelt reads "peoplecapitalgroup.com" in it as a link and refuses the whole text (2026-11-11).
   const smsError = sms.sent ? null : String(sms.results?.[0]?.error || 'not sent');
@@ -146,16 +150,17 @@ export async function createSignRequest(db, { request, role = 'employee', layout
 // Positions match VIO_LAYOUT in src/violation-notice-pdf.mjs (jsPDF top-left points; pdf-lib is bottom-left).
 export async function stampPdf(pdfB64, signature, phone, role = 'employee', layout = 'notice') {
   if (layout === 'letter') return stampLetter(pdfB64, signature, phone);
-  const sp = SPOTS[role] || SPOTS.employee;
+  const sp = layout === 'resignation' ? RES_SPOTS.employee : SPOTS[role] || SPOTS.employee;
   const doc = await PDFDocument.load(Buffer.from(pdfB64, 'base64'));
   const page = doc.getPage(0);
   const H = page.getHeight();
   const img = await doc.embedPng(Buffer.from(signature.replace(/^data:[^,]*,/, ''), 'base64'));
-  const s = Math.min((sp.x1 - sp.x0 - 8) / img.width, 22 / img.height);
+  const s = Math.min((sp.x1 - sp.x0 - 8) / img.width, (layout === 'resignation' ? 30 : 22) / img.height);
   page.drawImage(img, { x: sp.x0 + 4, y: H - sp.baseline, width: img.width * s, height: img.height * s });
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const date = etDate();
-  page.drawText(date, { x: sp.dateX - font.widthOfTextAtSize(date, 9) / 2, y: H - sp.dateY, size: 9, font, color: rgb(0, 0, 0) });
+  const dsz = layout === 'resignation' ? 12 : 9;
+  page.drawText(date, { x: sp.dateX - font.widthOfTextAtSize(date, dsz) / 2, y: H - sp.dateY, size: dsz, font, color: rgb(0, 0, 0) });
   const audit = `${sp.label} signed electronically ${etStamp()} ET via a private emailed link (verified with the cell number ending ${tenDigits(phone).slice(-4)}).`;
   page.drawText(audit, { x: 36, y: sp.auditY, size: 7, font, color: rgb(0.35, 0.35, 0.35) });
   doc.setModificationDate(new Date());
@@ -194,7 +199,7 @@ export default async (request) => {
 
     const role = roleOf(r);
     const signer = r.signer_name || r.employee_name;
-    const kind = r.layout === 'letter' ? 'letter' : 'notice';
+    const kind = r.layout === 'letter' || r.layout === 'resignation' ? r.layout : 'notice';
     if (body.action === 'hello') return json(200, { role, kind, firstName: String(signer || '').split(' ')[0], employeeName: role === 'witness' ? r.employee_name : undefined, storeName: r.store_name });
 
     if (digits(body.last4) !== r.phone.slice(-4)) {
@@ -216,12 +221,16 @@ export default async (request) => {
     if (!claimed.length) return json(410, { error: 'This has already been signed. Thank you.', done: true });
 
     // Stamp onto the latest copy — if the other remote signer already signed, keep their signature too.
-    const latest = (await db`SELECT signed_pdf FROM violation_sign_requests WHERE notice_id = ${r.notice_id} AND id <> ${r.id} AND signed_pdf IS NOT NULL ORDER BY signed_at DESC LIMIT 1`)[0];
+    const latest = (await db`SELECT signed_pdf FROM violation_sign_requests WHERE notice_id = ${r.notice_id} AND (COALESCE(layout, 'notice') = 'resignation') = ${kind === 'resignation'} AND id <> ${r.id} AND signed_pdf IS NOT NULL ORDER BY signed_at DESC LIMIT 1`)[0];
     let signed;
     try {
       signed = await stampPdf(latest?.signed_pdf || r.pdf, body.signature, r.phone, role, kind);
       await db`UPDATE violation_sign_requests SET signed_pdf = ${signed.toString('base64')} WHERE id = ${r.id}`;
     } catch (e) { await db`UPDATE violation_sign_requests SET signed_at = NULL WHERE id = ${r.id}`; throw e; }
+    if (kind === 'resignation') {
+      try { await afterResignationSign(db, r.notice_id, signed); } catch (e) { console.error('[violation-sign] after resignation sign', e.message); }
+      return json(200, { ok: true, pdf: signed.toString('base64') });
+    }
     if (role === 'employee') await db`UPDATE violation_notices SET employee_signed = true WHERE id = ${r.notice_id}`.catch(() => {});
     // Nothing is filed or sent to the alert list here any more (v22.81 approval step): the notice keeps
     // this latest copy, and once nobody is left to sign it goes to the approver (violation-notice.mjs).

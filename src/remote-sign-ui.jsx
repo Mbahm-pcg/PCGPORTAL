@@ -37,7 +37,7 @@ function PdfPages({ b64, width }) {
         const c = document.createElement('canvas');
         c.width = vp.width; c.height = vp.height;
         c.style.width = `${width}px`; c.style.height = `${vp.height / dpr}px`; c.style.display = 'block'; c.style.background = '#fff';
-        c.setAttribute('aria-label', `Violation Notice page ${n}`);
+        c.setAttribute('aria-label', `Page ${n}`);
         host.appendChild(c);
         await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
       }
@@ -102,7 +102,9 @@ export function RemoteSignPage({ token }) {
   if (!doc) return shell(
     <form onSubmit={open} style={{ ...S.panel, padding: '1.3rem 1.2rem', maxWidth: 440, margin: '0 auto' }}>
       <h1 style={{ ...S.title, fontSize: '1.3rem' }}>Hi {hello.firstName}</h1>
-      <p style={{ ...S.lede, marginBottom: '1rem' }}>{hello.kind === 'letter'
+      <p style={{ ...S.lede, marginBottom: '1rem' }}>{hello.kind === 'resignation'
+        ? `People Capital Group has your resignation letter for ${hello.storeName} ready for you to review and sign.`
+        : hello.kind === 'letter'
         ? `People Capital Group has a warning letter from ${hello.storeName} for you to read and acknowledge.`
         : hello.role === 'witness'
         ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.`
@@ -112,13 +114,15 @@ export function RemoteSignPage({ token }) {
           inputMode="numeric" autoComplete="off" maxLength={4} aria-label="Last 4 digits of your phone" autoFocus />
       </label>
       {error && <div style={{ marginTop: '0.8rem' }}><FinBanner th={th} tone="error">{error}</FinBanner></div>}
-      <button type="submit" className="fin-btn" disabled={busy} style={{ ...S.primary, width: '100%', marginTop: '1rem' }}>{busy ? 'Checking…' : 'Open the notice'}</button>
+      <button type="submit" className="fin-btn" disabled={busy} style={{ ...S.primary, width: '100%', marginTop: '1rem' }}>{busy ? 'Checking…' : hello.kind === 'resignation' || hello.kind === 'letter' ? 'Open the letter' : 'Open the notice'}</button>
     </form>
   );
 
   return shell(<>
-    <h1 style={S.title}>{doc.kind === 'letter' ? 'Your warning letter' : doc.role === 'witness' ? `Witness: ${doc.employeeName}'s Violation Notice` : 'Your Violation Notice'}</h1>
-    <p style={S.lede}>{doc.kind === 'letter'
+    <h1 style={S.title}>{doc.kind === 'resignation' ? 'Your resignation letter' : doc.kind === 'letter' ? 'Your warning letter' : doc.role === 'witness' ? `Witness: ${doc.employeeName}'s Violation Notice` : 'Your Violation Notice'}</h1>
+    <p style={S.lede}>{doc.kind === 'resignation'
+      ? 'Read your resignation letter below. If it is correct, sign it at the bottom. If anything is wrong (your position, store or last day), do not sign; tell your supervisor so they can fix it and send a new one.'
+      : doc.kind === 'letter'
       ? 'Read the letter below. The last page is an acknowledgment of receipt; sign it at the bottom. Signing confirms you received the letter; it does not mean you agree with it.'
       : doc.role === 'witness'
       ? 'Read the notice below, then sign at the bottom as the witness.'
@@ -127,11 +131,11 @@ export function RemoteSignPage({ token }) {
     <div style={{ ...S.panel, padding: '1.1rem 1.2rem', marginTop: '1.2rem' }}>
       <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', fontSize: '0.95rem', lineHeight: 1.45, cursor: 'pointer' }}>
         <input type="checkbox" checked={read} onChange={e => setRead(e.target.checked)} style={{ accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 }} />
-        {doc.kind === 'letter' ? `I, ${doc.signerName}, have read this warning letter.` : doc.role === 'witness' ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`}
+        {doc.kind === 'resignation' ? `I, ${doc.signerName}, have read this resignation letter and it is correct.` : doc.kind === 'letter' ? `I, ${doc.signerName}, have read this warning letter.` : doc.role === 'witness' ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`}
       </label>
       {error && <div style={{ marginTop: '0.8rem' }}><FinBanner th={th} tone="error">{error}</FinBanner></div>}
       <button type="button" className="fin-btn" disabled={!read || busy} onClick={() => setSigning(true)}
-        style={{ ...S.primary, width: '100%', marginTop: '1rem', opacity: read && !busy ? 1 : 0.5, cursor: read && !busy ? 'pointer' : 'not-allowed' }}>{busy ? 'Signing…' : doc.kind === 'letter' ? 'Sign the acknowledgment' : 'Sign the notice'}</button>
+        style={{ ...S.primary, width: '100%', marginTop: '1rem', opacity: read && !busy ? 1 : 0.5, cursor: read && !busy ? 'pointer' : 'not-allowed' }}>{busy ? 'Signing…' : doc.kind === 'resignation' ? 'Sign the letter' : doc.kind === 'letter' ? 'Sign the acknowledgment' : 'Sign the notice'}</button>
     </div>
     {signing && <SignatureModal th={th} title={`Your signature — ${doc.signerName}`} onCancel={() => setSigning(false)} onDone={sign} />}
   </>);

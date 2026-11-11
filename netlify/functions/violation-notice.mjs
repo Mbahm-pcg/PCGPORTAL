@@ -166,7 +166,7 @@ async function fileLetter(db, row) {
 export async function afterRemoteSign(db, noticeId, signedPdf, signerLine) {
   await ensureNoticeTable(db);
   await db`UPDATE violation_notices SET pdf = ${signedPdf} WHERE id = ${noticeId}`;
-  const open = await db`SELECT id FROM violation_sign_requests WHERE notice_id = ${noticeId} AND signed_at IS NULL AND cancelled_at IS NULL AND expires_at > now()`;
+  const open = await db`SELECT id FROM violation_sign_requests WHERE notice_id = ${noticeId} AND COALESCE(layout, 'notice') <> 'resignation' AND signed_at IS NULL AND cancelled_at IS NULL AND expires_at > now()`;
   const row = (await db`SELECT * FROM violation_notices WHERE id = ${noticeId}`)[0];
   if (!row) return;
   if (row.kind === 'letter') { if (!open.length) await fileLetter(db, row); return; }
@@ -285,7 +285,7 @@ export default async (request) => {
       if (!r) return json(404, { error: 'That one is no longer waiting on a signature — reload.' });
       if (!(String(r.submitted_by) === String(authed.sub) || listView)) return json(403, { error: 'Only the person who sent it can resend the link.' });
       await ensureSignTable(db);
-      const last = await db`SELECT DISTINCT ON (COALESCE(role, 'employee')) * FROM violation_sign_requests WHERE notice_id = ${r.id} ORDER BY COALESCE(role, 'employee'), id DESC`;
+      const last = await db`SELECT DISTINCT ON (COALESCE(role, 'employee')) * FROM violation_sign_requests WHERE notice_id = ${r.id} AND COALESCE(layout, 'notice') <> 'resignation' ORDER BY COALESCE(role, 'employee'), id DESC`;
       const out = [];
       for (const q of last) {
         if (q.signed_at) continue;
@@ -413,10 +413,10 @@ export default async (request) => {
       for (const r of remotes) {
         try {
           const ten = String(r.phone).replace(/\D/g, '').slice(-10);
-          const done = (await db`SELECT id FROM violation_sign_requests WHERE notice_id = ${row.id} AND COALESCE(role, 'employee') = ${r.role} AND signed_at IS NOT NULL LIMIT 1`)[0];
+          const done = (await db`SELECT id FROM violation_sign_requests WHERE notice_id = ${row.id} AND COALESCE(layout, 'notice') <> 'resignation' AND COALESCE(role, 'employee') = ${r.role} AND signed_at IS NOT NULL LIMIT 1`)[0];
           if (done) { remoteSign.push({ role: r.role, sent: true, signedAlready: true }); continue; }
           // A double tap within a minute must not email / text twice.
-          const recent = (await db`SELECT expires_at FROM violation_sign_requests WHERE notice_id = ${row.id} AND COALESCE(role, 'employee') = ${r.role} AND phone = ${ten}
+          const recent = (await db`SELECT expires_at FROM violation_sign_requests WHERE notice_id = ${row.id} AND COALESCE(layout, 'notice') <> 'resignation' AND COALESCE(role, 'employee') = ${r.role} AND phone = ${ten}
             AND signed_at IS NULL AND cancelled_at IS NULL AND created_at > now() - interval '1 minute' ORDER BY id DESC LIMIT 1`)[0];
           remoteSign.push(recent ? { role: r.role, sent: true, already: true, expiresAt: recent.expires_at }
             : await createSignRequest(db, { request, role: r.role, signerName: r.name, noticeId: row.id, pc: store.pc, storeName: store.name, employeeName: emp.name, phone: r.phone,
