@@ -232,7 +232,7 @@ export default async (request) => {
       const fileName = payFileName(v, store?.name);
       let drive = { saved: false, link: '', error: null };
       try {
-        const f = await saveToDrive(pdf, store?.name || upd.pc, fileName, `payinc:${upd.form_key}`, process.env.PAY_DRIVE_FOLDER_ID || '');
+        const f = await saveToDrive(pdf, [store?.name || upd.pc, upd.employee_name], fileName, `payinc:${upd.form_key}`, process.env.PAY_DRIVE_FOLDER_ID || '');
         drive = { saved: true, link: f.webViewLink || '' };
         await db`UPDATE pay_increase_forms SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${upd.id}`;
       } catch (e) {

@@ -193,7 +193,7 @@ async function submitNotice(request, db, authed, allowed) {
   let drive = { saved: !!row.drive_file_id, link: row.drive_link || '', error: null };
   if (!drive.saved) {
     try {
-      const f = await saveToDrive(pdf, to.name, fileName, `transfer:${key}`);
+      const f = await saveToDrive(pdf, [to.name, v.employeeName], fileName, `transfer:${key}`); // v22.86: new store → employee
       drive = { saved: true, link: f.webViewLink || '', error: null };
       await db`UPDATE transfer_notices SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${row.id}`;
     } catch (e) {

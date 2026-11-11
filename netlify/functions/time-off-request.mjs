@@ -50,8 +50,11 @@ function emailWithFiles(to, subject, html, files) {
 async function saveDocToDrive(buf, name, mimeType, folderName, pcgKey, root) {
   const auth = new google.auth.GoogleAuth({ credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY), scopes: ['https://www.googleapis.com/auth/drive.file'] });
   const drive = google.drive({ version: 'v3', auth });
-  const found = await drive.files.list(buildFolderFindQuery(folderName, root));
-  const folderId = found.data.files?.[0]?.id || (await drive.files.create(buildFolderCreateParams(folderName, root))).data.id;
+  let folderId = root; // v22.86: folderName may be a path (location → employee), like saveToDrive
+  for (const n of (Array.isArray(folderName) ? folderName : [folderName]).map(x => String(x || '').trim()).filter(Boolean)) {
+    const found = await drive.files.list(buildFolderFindQuery(n, folderId));
+    folderId = found.data.files?.[0]?.id || (await drive.files.create(buildFolderCreateParams(n, folderId))).data.id;
+  }
   const existing = await drive.files.list({ ...buildTaggedFileQuery(pcgKey, folderId), fields: 'files(id, webViewLink)' });
   if (existing.data.files?.length) return existing.data.files[0];
   const params = buildTaggedUploadParams({ name, mimeType, parentFolderId: folderId, pcgKey });
@@ -115,7 +118,7 @@ export default async (request) => {
     const row = (await db`SELECT * FROM time_off_requests WHERE form_key = ${key}`)[0];
 
     const root = process.env.TIMEOFF_DRIVE_FOLDER_ID || '';
-    const folder = String(v.location).replace(/ \(PC \d+\)$/, '').replace(/^Other: /, '') || CORPORATE;
+    const folder = [String(v.location).replace(/ \(PC \d+\)$/, '').replace(/^Other: /, '') || CORPORATE, row.employee_name || me.name]; // v22.86: location → employee
     const fileName = timeOffFileName(v);
     let drive = { saved: !!row.drive_file_id, link: row.drive_link || '', error: null };
     const docLinks = docs.map(d => ({ name: d.name, link: '' }));
