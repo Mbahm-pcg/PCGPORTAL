@@ -99,6 +99,7 @@ const ICONS = {
   timeOffRequest: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9.5 13.5 5 5M14.5 13.5l-5 5"/></svg>,
   violationNotice: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/><path d="M12 12v3M12 18h.01"/></svg>,
   resignationLetter: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9l4 4v14H6Z"/><path d="M9 8h4M9 11h7"/><path d="M8.5 17.5c1.2-2.2 2.2.6 3.4-.9 1-1.3 1.7.9 3.6-.1"/></svg>,
+  missingHours: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="12" r="8"/><path d="M11 8v4l2.5 1.5"/><path d="M19.5 3.5v5M17 6h5"/></svg>,
   terminations: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6"/><path d="M16 18h6"/><path d="M19 15l3 3-3 3"/></svg>,
 };
 

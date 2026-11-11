@@ -7,6 +7,7 @@
 import { sql } from './_shared/db.mjs';
 import { notifyApprovers } from './pay-increase.mjs';
 import { notifyViolationApprovers, ensureNoticeTable } from './violation-notice.mjs';
+import { notifyMissingHoursApprovers, ensureMissingHoursTable } from './missing-hours.mjs';
 
 export const config = { schedule: '*/15 * * * *' };
 
@@ -44,5 +45,16 @@ export default async () => {
     }
     if (vDue.length) console.log(`[violation-reminder] ${vDue.length} violation notice reminder(s)`);
   } catch (e) { console.error('[violation-reminder]', e.message); }
+  // v22.89: Missing Hours waiting for approval (Ella) — same 3-hour reminders.
+  try {
+    await ensureMissingHoursTable(db);
+    const mDue = await db`SELECT * FROM missing_hours_forms WHERE status = 'pending' AND deleted_at IS NULL
+      AND COALESCE(reminded_at, created_at) <= now() - make_interval(hours => ${EVERY_HOURS}) ORDER BY created_at`;
+    for (const row of mDue) {
+      try { await notifyMissingHoursApprovers(db, row, { reminder: true }); sent++; }
+      catch (e) { console.error('[missing-hours-reminder]', row.id, e.message); }
+    }
+    if (mDue.length) console.log(`[missing-hours-reminder] ${mDue.length} reminder(s)`);
+  } catch (e) { console.error('[missing-hours-reminder]', e.message); }
   return new Response(`ok ${sent}`);
 };
