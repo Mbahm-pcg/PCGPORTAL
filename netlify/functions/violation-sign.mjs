@@ -81,7 +81,8 @@ export async function createSignRequest(db, { request, role = 'employee', signer
     `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Hi ${esc(signerName)},</p><p>People Capital Group asks you to ${esc(what)}.</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Review and sign</a></p>
 <p style="color:#666">This private link expires ${esc(until)}. You'll be asked for the last 4 digits of your phone number.${role === 'employee' ? ' Signing confirms you received the notice, not that you agree with it.' : ''}</p></div>`);
-  const sms = await sendSms([tenDigits(phone)], `People Capital Group: we emailed you a request to ${what}. Please check your email (${maskEmail(email)}) and sign by ${until}.`);
+  const sms = await sendSms([tenDigits(phone)], `People Capital Group: we emailed you a request to ${what}. Please check your email inbox (and spam folder) and sign by ${until}.`);
+  // No email address in the text: Textbelt reads "peoplecapitalgroup.com" in it as a link and refuses the whole text (2026-11-11).
   const smsError = sms.sent ? null : String(sms.results?.[0]?.error || 'not sent');
   if (smsError) console.error('[violation-sign] text failed', role, smsError.replace(/https?:\S+/g, '<url>'));
   return { role, sent: !!emailed, texted: sms.sent || 0, emailed: !!emailed, textNote: smsError ? 'The reminder text did not go through' : null, expiresAt: expires.toISOString(), phone: maskPhone(phone), email: maskEmail(email) };

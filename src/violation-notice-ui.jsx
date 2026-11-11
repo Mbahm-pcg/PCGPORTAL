@@ -148,6 +148,11 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   const [reviewing, setReviewing] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [decided, setDecided] = useState(null);
+  // v22.83 Sent back: kept until its maker deletes it or fixes and resends it.
+  const [sentBack, setSentBack] = useState([]);
+  const [fixing, setFixing] = useState(null); // the sent-back notice being fixed
+  const [backMsg, setBackMsg] = useState(null);
+  const [backBusy, setBackBusy] = useState(null);
 
   const loadMain = () => call().then(b => {
     setStores(b.stores || []); setEmployees(b.employees || []);
@@ -155,6 +160,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     if (b.rosterError) setError(b.rosterError);
     setListView(!!b.listView); setCanApprove(!!b.canApprove);
     setLists({ pending: b.pending || [], waiting: b.waiting || [], complete: b.complete || [] });
+    setSentBack(b.sentBack || []);
     // ?violation=<id> from the approval email opens that notice straight away.
     let open = null; try { open = sessionStorage.getItem('vn_open'); sessionStorage.removeItem('vn_open'); } catch {}
     const hit = open && (b.pending || []).find(x => String(x.id) === String(open));
@@ -198,7 +204,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
       const fileName = `Violation-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`;
       // Send first, then hand over the PDF (on a phone a download would replace the portal).
       setSaved({ state: 'saving' });
-      try { const b = await call({ values, employeeId: picked.id, pdf: doc.output('datauristring'), remoteSign: Object.fromEntries(['employee', 'witness'].filter(remoteOn).map(role => [role, { phone: remote[role].phone, email: remote[role].email.trim() }])) }); setSaved({ state: 'done', ...b, pdfUrl: deliverPdf(doc, fileName) }); }
+      try { const b = await call({ values, employeeId: picked.id, pdf: doc.output('datauristring'), remoteSign: Object.fromEntries(['employee', 'witness'].filter(remoteOn).map(role => [role, { phone: remote[role].phone, email: remote[role].email.trim() }])), replaces: fixing?.id }); setSaved({ state: 'done', ...b, pdfUrl: deliverPdf(doc, fileName) }); if (fixing) { setFixing(null); loadMain(); } }
       catch (e) { setSaved({ state: 'failed', error: e.message, pdfUrl: deliverPdf(doc, fileName) }); }
     } catch (e) { setError(e.message); }
     setBusy(false);
@@ -287,6 +293,55 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     );
   };
 
+  // ── Sent back ──
+  const fixNotice = (item) => {
+    const fv = item.formValues || {};
+    setPicked({ id: item.employeeId, name: fv.employeeName || item.employeeName, jobTitle: fv.jobTitle || item.jobTitle || '', pc: fv.pc || item.pc });
+    setQuery(fv.employeeName || item.employeeName);
+    setSupervisor(fv.supervisor || ''); setSupervisorName(fv.supervisorName || '');
+    setNotice(fv.notice || ''); setTypes(fv.types || []); setAction(fv.action || '');
+    setSuspensionStart(fv.suspensionStart || ''); setSuspensionReturn(fv.suspensionReturn || '');
+    setViolationDate(fv.violationDate || ''); setDescription(fv.description || ''); setImprovement(fv.improvement || ''); setConsequences(fv.consequences || '');
+    setWitnessName(fv.witnessName || ''); setEmployeeRefused(false);
+    // Something will change, so nobody's old signature stands — everyone signs the fixed version.
+    setSigs({}); setRemoteState({ employee: { on: false, phone: '', email: '' }, witness: { on: false, phone: '', email: '' } });
+    setSaved(null); setBackMsg(null); setFixing(item); setView('form');
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+  };
+  const resendAsIs = async (item) => {
+    setBackBusy(item.id); setBackMsg(null);
+    try { const b = await call({ action: 'resend', id: item.id }); setBackMsg({ tone: 'success', text: `Resent as is: every signature still stands, and it's back with the approver${b.notified ? '' : ' (no approver is set up yet — ask IT)'}.` }); loadMain(); }
+    catch (e) { setBackMsg({ tone: 'error', text: e.message }); }
+    setBackBusy(null);
+  };
+  const deleteBack = async (item) => {
+    if (!window.confirm(`Delete the sent-back notice for ${item.employeeName}? It will be gone from this screen for good.`)) return;
+    setBackBusy(item.id); setBackMsg(null);
+    try { await call({ action: 'delete', id: item.id }); setBackMsg({ tone: 'success', text: `Deleted the sent-back notice for ${item.employeeName}.` }); if (fixing?.id === item.id) setFixing(null); loadMain(); }
+    catch (e) { setBackMsg({ tone: 'error', text: e.message }); }
+    setBackBusy(null);
+  };
+  const sentBackList = (items, showMaker) => (
+    <div style={{ display: 'grid', gap: '0.5rem' }}>
+      {items.map(f => (
+        <div key={f.id} style={{ padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, borderLeft: '4px solid #d97706', background: th.card, color: th.text, fontFamily: FONTS.body }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap' }}>
+            <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}{showMaker ? `, from ${f.submittedBy}` : ''}</span></span>
+            <span style={{ color: th.muted, fontSize: '0.8rem' }}>Sent back by {f.decidedBy || 'the approver'}{f.decidedAt ? `, ${new Date(f.decidedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</span>
+          </div>
+          {f.note && <p style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>"{f.note}"</p>}
+          <div style={{ display: 'flex', gap: '0.9rem', flexWrap: 'wrap', marginTop: '0.55rem', fontSize: '0.85rem', fontWeight: 700 }}>
+            {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View form</button>}
+            {f.canFix && <button type="button" className="fin-btn" disabled={backBusy === f.id} onClick={() => fixNotice(f)} style={{ ...S.link, color: O }}>Fix and resend</button>}
+            {f.canFix && <button type="button" className="fin-btn" disabled={backBusy === f.id} onClick={() => resendAsIs(f)} style={{ ...S.link, color: O }}>{backBusy === f.id ? 'Working…' : 'Resend as is'}</button>}
+            {f.canFix && <button type="button" className="fin-btn" disabled={backBusy === f.id} onClick={() => deleteBack(f)} style={{ ...S.link, color: '#b91c1c' }}>Delete</button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+  const myBack = sentBack.filter(f => f.mine);
+
   if (employees === null && !error) return <div className="fin-root" style={{ maxWidth: 940, margin: '0 auto' }}><style>{FIN_CSS(th)}</style><h2 style={S.title}>Violation Notice</h2><p style={{ color: th.muted }}>Loading…</p></div>;
 
   // ── approver / exec list: Pending · Waiting on signatures · Complete ──
@@ -295,7 +350,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', textAlign: 'left', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body };
     const who = (f) => <><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}{f.jobTitle ? `, ${f.jobTitle}` : ''}</span></>;
     // In the order a notice moves through them (user, 2026-11-11): signatures → approval → complete.
-    const tabs = [['waiting', `Waiting on signatures${lists.waiting.length ? ` (${lists.waiting.length})` : ''}`], ['pending', `Pending approval${lists.pending.length ? ` (${lists.pending.length})` : ''}`], ['complete', 'Complete']];
+    const tabs = [['waiting', `Waiting on signatures${lists.waiting.length ? ` (${lists.waiting.length})` : ''}`], ['pending', `Pending approval${lists.pending.length ? ` (${lists.pending.length})` : ''}`], ['sentback', `Sent back${sentBack.length ? ` (${sentBack.length})` : ''}`], ['complete', 'Complete']];
     return (
       <div className="fin-root" style={{ maxWidth: 940, margin: '0 auto' }}>
         <style>{FIN_CSS(th) + CSS}</style>
@@ -347,6 +402,10 @@ export function ViolationNotice({ th, isMobile, onBack }) {
               ))}
             </div>
           ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No approved violation notices yet.</p>)}
+          {listTab === 'sentback' && (<>
+            {backMsg && <FinBanner th={th} tone={backMsg.tone}>{backMsg.text}</FinBanner>}
+            {sentBack.length ? sentBackList(sentBack, true) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>Nothing sent back.</p>}
+          </>)}
           {viewing && <FormModal th={th} id={`/.netlify/functions/violation-notice?pdf=${viewing.id}`} title={`Violation notice for ${viewing.employeeName}`} onClose={() => setViewing(null)} />}
         </>)}
       </div>
@@ -362,6 +421,21 @@ export function ViolationNotice({ th, isMobile, onBack }) {
       <h2 style={S.title}>Violation Notice</h2>
       <p style={S.lede}>Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign here, or from an emailed link if they aren't there. Once everyone has signed it goes for approval, then it's filed.</p>
 
+      {!listView && !fixing && myBack.length > 0 && (
+        <section style={{ ...S.panel, padding: '0.9rem 1rem 1rem', marginBottom: '1.1rem' }} aria-label="Sent back">
+          <h3 style={{ ...S.panelTitle, margin: '0 0 0.6rem', fontSize: '1.05rem' }}>Sent back ({myBack.length})</h3>
+          {backMsg && <FinBanner th={th} tone={backMsg.tone}>{backMsg.text}</FinBanner>}
+          {sentBackList(myBack, false)}
+        </section>
+      )}
+      {!listView && !fixing && !myBack.length && backMsg && <FinBanner th={th} tone={backMsg.tone}>{backMsg.text}</FinBanner>}
+      {fixing && (
+        <FinBanner th={th} tone="warn">
+          Fixing the notice for {fixing.employeeName} that {fixing.decidedBy || 'the approver'} sent back{fixing.note ? `: "${fixing.note}"` : ''}. Make the change, then everyone signs again (here or by emailed link) and it goes back for approval.{' '}
+          <button type="button" className="fin-btn" onClick={() => { setFixing(null); setView(listView ? 'list' : 'form'); }} style={{ ...S.link, color: 'inherit', textDecoration: 'underline' }}>Cancel</button>
+        </FinBanner>
+      )}
+      {viewing && !listView && <FormModal th={th} id={`/.netlify/functions/violation-notice?pdf=${viewing.id}`} title={`Violation notice for ${viewing.employeeName}`} onClose={() => setViewing(null)} />}
       {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
       {voided && <FinBanner th={th} tone="warn">The notice changed after it was signed, so those signatures no longer count. Sign again.</FinBanner>}
       {employees && !employees.length && !error && <FinBanner th={th} tone="warn">There's no one you can pick yet. If you're a Store Manager, ask IT to link your account to your store.</FinBanner>}

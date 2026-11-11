@@ -130,6 +130,10 @@ export async function ensureNoticeTable(db) {
   await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS decision_note text`;
   await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS reminded_at timestamptz`;
   await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS reminder_count integer NOT NULL DEFAULT 0`;
+  // v22.83 "Sent back": stays until its maker (or exec / IT) deletes it, or until it's resent.
+  await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS deleted_at timestamptz`;
+  await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS deleted_by_name text`;
+  await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS resent_as integer`;
 }
 
 // Called by violation-sign.mjs after a remote signature: keep the latest PDF, and once nobody is
@@ -186,6 +190,17 @@ export default async (request) => {
         return new Response(r.pdf, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="violation-notice.pdf"', 'Cache-Control': 'no-store' } });
       }
       const out = { myName, canApprove, listView, stores: STORES.filter(s => inScope(s.pc)).map(s => ({ pc: String(s.pc), name: s.name })), employees: [] };
+      // Sent back: the maker sees their own; approvers / exec / IT see all. Fixing needs the saved
+      // answers, which only the maker and exec / IT get.
+      const mine = String(authed.sub);
+      const backRows = listView
+        ? await db`SELECT *, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'rejected' AND deleted_at IS NULL ORDER BY decided_at DESC LIMIT 200`
+        : await db`SELECT *, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'rejected' AND deleted_at IS NULL AND submitted_by = ${Number(mine) || -1} ORDER BY decided_at DESC LIMIT 200`;
+      out.sentBack = backRows.map(r => {
+        const own = String(r.submitted_by) === mine;
+        const canFix = own || realType === 'executive' || realType === 'it';
+        return { ...rowItem(r), mine: own, canFix, employeeId: canFix ? r.employee_id : undefined, formValues: canFix ? (r.form_values || null) : undefined };
+      });
       if (listView) {
         out.pending = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'pending' ORDER BY pending_at NULLS FIRST, created_at`).map(rowItem);
         out.waiting = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'awaiting_signatures' ORDER BY created_at DESC LIMIT 100`).map(rowItem);
@@ -199,6 +214,24 @@ export default async (request) => {
     if (request.method !== 'POST') return json(405, { error: 'Method not allowed' });
     const body = await request.json().catch(() => ({}));
 
+    // ── sent back: resend unchanged, or delete (its maker, or exec / IT) ──
+    if (body.action === 'resend' || body.action === 'delete') {
+      const r = (await db`SELECT * FROM violation_notices WHERE id = ${Number(body.id)} AND status = 'rejected' AND deleted_at IS NULL`)[0];
+      if (!r) return json(404, { error: 'That sent-back notice is gone — reload.' });
+      if (!(String(r.submitted_by) === String(authed.sub) || realType === 'executive' || realType === 'it')) return json(403, { error: 'Only the person who wrote it can do this.' });
+      if (body.action === 'delete') {
+        // Kept in the database for the record; gone from every screen.
+        await db`UPDATE violation_notices SET deleted_at = now(), deleted_by_name = ${myName} WHERE id = ${r.id}`;
+        return json(200, { ok: true });
+      }
+      // Nothing changed, so every signature still stands: straight back to the approver.
+      const upd = (await db`UPDATE violation_notices SET status = 'pending', pending_at = now(), decided_by = NULL, decided_by_name = NULL, decided_at = NULL, decision_note = NULL, reminded_at = NULL
+        WHERE id = ${r.id} AND status = 'rejected' RETURNING *`)[0];
+      if (!upd) return json(409, { error: 'This one already changed — reload.' });
+      const notified = await notifyViolationApprovers(db, upd);
+      return json(200, { ok: true, status: 'pending', notified });
+    }
+
     // ── approver decisions ──
     if (body.action === 'approve' || body.action === 'reject') {
       if (!canApprove) return json(403, { error: 'Only the violation notice approver can do this.' });
@@ -210,7 +243,7 @@ export default async (request) => {
         const upd = (await db`UPDATE violation_notices SET status = 'rejected', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now(), decision_note = ${note}
           WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
         if (!upd) return json(409, { error: 'This one was already decided — reload.' });
-        await tellMaker(db, upd, `Violation notice sent back: ${upd.employee_name}`, `${myName} sent back the Violation Notice for ${upd.employee_name}: "${note}". Fix it and send a new one.`);
+        await tellMaker(db, upd, `Violation notice sent back: ${upd.employee_name}`, `${myName} sent back the Violation Notice for ${upd.employee_name}: "${note}". It's under Sent back in Tools > Violation Notice, where you can fix and resend it.`);
         return json(200, { ok: true });
       }
       // approve: claim it first so two quick clicks can't both file.
@@ -279,6 +312,12 @@ export default async (request) => {
         ${v.supervisorName}, ${v.witnessName || null}, ${!!v.employeeSignature}, ${!!v.employeeRefused}, ${Number(authed.sub) || null}, ${myName})
       ON CONFLICT (form_key) DO NOTHING RETURNING id`;
     const row = (await db`SELECT * FROM violation_notices WHERE form_key = ${key}`)[0];
+
+    // Fix and resend: the sent-back notice this replaces leaves the Sent back list.
+    if (body.replaces && row.id !== Number(body.replaces)) {
+      await db`UPDATE violation_notices SET status = 'resent', resent_as = ${row.id} WHERE id = ${Number(body.replaces)} AND status = 'rejected'
+        AND (submitted_by = ${Number(authed.sub) || -1} OR ${realType === 'executive' || realType === 'it'})`;
+    }
 
     let notified = 0;
     if (inserted.length && row.status === 'pending') notified = await notifyViolationApprovers(db, row);
