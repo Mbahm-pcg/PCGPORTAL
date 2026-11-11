@@ -113,8 +113,13 @@ export async function saveToDrive(pdf, folderName, fileName, pcgKey, rootId = DR
   const root = rootId;
   if (!root) throw new Error('The Google Drive folder for this form is not set up yet.');
   const drive = driveClient();
-  const found = await drive.files.list(buildFolderFindQuery(folderName, root));
-  const folderId = found.data.files?.[0]?.id || (await drive.files.create(buildFolderCreateParams(folderName, root))).data.id;
+  // v22.85: folderName may be a path (['Bustleton', 'Jane Doe']) — each level is found or created
+  // inside the one before it, so a form can be filed store → employee.
+  let folderId = root;
+  for (const name of (Array.isArray(folderName) ? folderName : [folderName]).map(n => String(n || '').trim()).filter(Boolean)) {
+    const found = await drive.files.list(buildFolderFindQuery(name, folderId));
+    folderId = found.data.files?.[0]?.id || (await drive.files.create(buildFolderCreateParams(name, folderId))).data.id;
+  }
   const existing = await drive.files.list({ ...buildTaggedFileQuery(pcgKey, folderId), fields: 'files(id, webViewLink)' });
   if (existing.data.files?.length) return existing.data.files[0];
   const params = buildTaggedUploadParams({ name: fileName, mimeType: 'application/pdf', parentFolderId: folderId, pcgKey });

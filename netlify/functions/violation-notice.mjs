@@ -134,6 +134,31 @@ export async function ensureNoticeTable(db) {
   await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS deleted_at timestamptz`;
   await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS deleted_by_name text`;
   await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS resent_as integer`;
+  // v22.84: 'letter' = a warning letter Sam / exec / IT uploaded (NULL = the Violation Notice form).
+  await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS kind text`;
+}
+
+const usDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || ''); };
+const letterFileName = (name, storeName, iso) => `Warning Letter - ${name} - ${storeName} - ${usDate(iso).replace(/\//g, '-')}.pdf`.replace(/[\\/:*?"<>|]+/g, '-');
+
+// A warning letter the employee has acknowledged: no approval step (it came from HR) — file it.
+async function fileLetter(db, row) {
+  const upd = (await db`UPDATE violation_notices SET status = 'approved', decided_by = submitted_by, decided_by_name = submitted_by_name, decided_at = now()
+    WHERE id = ${row.id} AND status = 'awaiting_signatures' RETURNING *`)[0];
+  if (!upd) return;
+  const store = storeOf(upd.pc);
+  const fileName = letterFileName(upd.employee_name, store?.name || upd.pc, upd.form_date);
+  let line = `${upd.employee_name} signed to acknowledge their warning letter.`;
+  try {
+    const f = await saveToDrive(Buffer.from(upd.pdf), [store?.name || upd.pc, upd.employee_name], fileName, `violation:${upd.form_key}`, process.env.VIOLATION_DRIVE_FOLDER_ID || '');
+    await db`UPDATE violation_notices SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${upd.id}`;
+    line += ' It\'s filed in Google Drive.';
+  } catch (e) {
+    console.error('[violation-notice] letter drive', e.message);
+    await db`UPDATE violation_notices SET drive_error = ${String(e.message).slice(0, 500)} WHERE id = ${upd.id}`;
+    line += ` It could NOT be filed in Google Drive (${e.message}) — tell IT.`;
+  }
+  await tellMaker(db, upd, `Warning letter acknowledged: ${upd.employee_name}`, line);
 }
 
 // Called by violation-sign.mjs after a remote signature: keep the latest PDF, and once nobody is
@@ -144,6 +169,7 @@ export async function afterRemoteSign(db, noticeId, signedPdf, signerLine) {
   const open = await db`SELECT id FROM violation_sign_requests WHERE notice_id = ${noticeId} AND signed_at IS NULL AND cancelled_at IS NULL AND expires_at > now()`;
   const row = (await db`SELECT * FROM violation_notices WHERE id = ${noticeId}`)[0];
   if (!row) return;
+  if (row.kind === 'letter') { if (!open.length) await fileLetter(db, row); return; }
   if (open.length) { await tellMaker(db, row, `Violation notice signed: ${row.employee_name}`, `${signerLine} Still waiting on the other signature.`); return; }
   const moved = (await db`UPDATE violation_notices SET status = 'pending', pending_at = now() WHERE id = ${noticeId} AND status = 'awaiting_signatures' RETURNING *`)[0];
   if (moved) {
@@ -153,7 +179,7 @@ export async function afterRemoteSign(db, noticeId, signedPdf, signerLine) {
 }
 
 const rowItem = (r) => ({ id: r.id, pc: r.pc, storeName: storeOf(r.pc)?.name || '', employeeName: r.employee_name, jobTitle: r.job_title, notice: r.notice, types: r.types, action: r.action,
-  violationDate: r.violation_date, formDate: r.form_date, submittedBy: r.submitted_by_name, createdAt: r.created_at, status: r.status,
+  violationDate: r.violation_date, formDate: r.form_date, submittedBy: r.submitted_by_name, createdAt: r.created_at, status: r.status, kind: r.kind || 'notice',
   decidedBy: r.decided_by_name || null, decidedAt: r.decided_at || null, note: r.decision_note || null, driveLink: r.drive_link || null, hasPdf: !!r.has_pdf });
 
 export default async (request) => {
@@ -214,6 +240,63 @@ export default async (request) => {
     if (request.method !== 'POST') return json(405, { error: 'Method not allowed' });
     const body = await request.json().catch(() => ({}));
 
+    // ── warning letter upload (Sam / exec / IT) ──
+    if (body.action === 'uploadLetter') {
+      if (!listView) return json(403, { error: 'Only HR (the violation notice approvers) and exec / IT can upload warning letters.' });
+      const store = storeOf(body.pc);
+      if (!store) return json(400, { error: 'Pick the employee again.' });
+      const roster = await loadRoster();
+      const emp = (roster.stores[String(store.pc)] || []).find(e => e.id === String(body.employeeId || ''));
+      if (!emp) return json(404, { error: 'This employee is not on that store\'s active roster in Paycor.' });
+      const d = String(body.phone || '').replace(/\D/g, '');
+      if (!(d.length === 10 || (d.length === 11 && d[0] === '1'))) return json(400, { error: "Enter the employee's cell number (10 digits)." });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email || '').trim())) return json(400, { error: "Enter the employee's email — the letter goes by email." });
+      if (!isDate(body.letterDate)) return json(400, { error: 'Enter the date on the letter.' });
+      const f = body.file || {};
+      const mime = String(f.type || '');
+      if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(mime)) return json(400, { error: 'Upload the letter as a PDF (in Word: File > Save as > PDF), or a JPG / PNG photo of it.' });
+      const buf = Buffer.from(String(f.data || '').replace(/^data:[^,]*,/, ''), 'base64');
+      if (buf.length < 200 || buf.length > 4.2e6) return json(400, { error: 'The file is too large (4 MB max) or empty.' });
+      let pdf;
+      try {
+        const { letterToPdf, appendAckPage } = await import('./violation-sign.mjs');
+        const doc = await letterToPdf(buf, mime);
+        await appendAckPage(doc, { employeeName: emp.name, storeName: store.name, letterDate: usDate(body.letterDate), from: myName ? `${myName}, People Capital Group` : null });
+        pdf = Buffer.from(await doc.save());
+      } catch (e) {
+        console.error('[violation-notice] letter pdf', e.message);
+        return json(400, { error: /encrypt/i.test(e.message) ? 'That PDF is password-protected. Save it again without a password.' : "That file couldn't be read as a PDF or photo. Save it as a PDF and try again." });
+      }
+      const key = createHash('sha256').update(`letter|${emp.id}|${body.letterDate}|`).update(buf).digest('hex').slice(0, 32);
+      const formValues = { employeeName: emp.name, jobTitle: emp.jobTitle || '', pc: String(store.pc), date: body.letterDate, letterName: String(f.name || '').slice(0, 120) };
+      const inserted = await db`INSERT INTO violation_notices (form_key, kind, status, pdf, form_values, pc, employee_id, employee_name, job_title, form_date, supervisor_name, submitted_by, submitted_by_name)
+        VALUES (${key}, 'letter', 'awaiting_signatures', ${pdf}, ${JSON.stringify(formValues)}, ${String(store.pc)}, ${emp.id}, ${emp.name}, ${emp.jobTitle || ''}, ${body.letterDate}, ${myName}, ${Number(authed.sub) || null}, ${myName})
+        ON CONFLICT (form_key) DO NOTHING RETURNING id`;
+      const row = (await db`SELECT * FROM violation_notices WHERE form_key = ${key}`)[0];
+      if (!inserted.length && row.status !== 'awaiting_signatures') return json(200, { ok: true, already: true, status: row.status });
+      const sign = await createSignRequest(db, { request, role: 'employee', layout: 'letter', signerName: emp.name, noticeId: row.id, pc: store.pc, storeName: store.name, employeeName: emp.name,
+        phone: body.phone, email: String(body.email).trim(), fileName: letterFileName(emp.name, store.name, body.letterDate), pdf: Buffer.from(row.pdf), createdBy: Number(authed.sub) || null, createdByName: myName });
+      return json(200, { ok: true, id: row.id, status: 'awaiting_signatures', sign });
+    }
+
+    // ── resend a signing link that hasn't been used (its maker, or exec / IT) ──
+    if (body.action === 'resendLink') {
+      const r = (await db`SELECT * FROM violation_notices WHERE id = ${Number(body.id)} AND status = 'awaiting_signatures'`)[0];
+      if (!r) return json(404, { error: 'That one is no longer waiting on a signature — reload.' });
+      if (!(String(r.submitted_by) === String(authed.sub) || listView)) return json(403, { error: 'Only the person who sent it can resend the link.' });
+      await ensureSignTable(db);
+      const last = await db`SELECT DISTINCT ON (COALESCE(role, 'employee')) * FROM violation_sign_requests WHERE notice_id = ${r.id} ORDER BY COALESCE(role, 'employee'), id DESC`;
+      const out = [];
+      for (const q of last) {
+        if (q.signed_at) continue;
+        const store = storeOf(r.pc);
+        out.push(await createSignRequest(db, { request, role: q.role || 'employee', layout: q.layout || 'notice', signerName: q.signer_name || r.employee_name, noticeId: r.id, pc: r.pc, storeName: store?.name || q.store_name,
+          employeeName: r.employee_name, phone: q.phone, email: q.email, fileName: q.file_name, pdf: Buffer.from(r.pdf), createdBy: Number(authed.sub) || null, createdByName: myName }));
+      }
+      if (!out.length) return json(409, { error: 'Everyone has already signed — reload.' });
+      return json(200, { ok: true, resent: out });
+    }
+
     // ── sent back: resend unchanged, or delete (its maker, or exec / IT) ──
     if (body.action === 'resend' || body.action === 'delete') {
       const r = (await db`SELECT * FROM violation_notices WHERE id = ${Number(body.id)} AND status = 'rejected' AND deleted_at IS NULL`)[0];
@@ -256,7 +339,7 @@ export default async (request) => {
       const fileName = violationFileName(v, store?.name || upd.pc);
       let drive = { saved: false, link: '', error: null };
       try {
-        const f = await saveToDrive(pdf, store?.name || upd.pc, fileName, `violation:${upd.form_key}`, process.env.VIOLATION_DRIVE_FOLDER_ID || '');
+        const f = await saveToDrive(pdf, [store?.name || upd.pc, upd.employee_name], fileName, `violation:${upd.form_key}`, process.env.VIOLATION_DRIVE_FOLDER_ID || '');
         drive = { saved: true, link: f.webViewLink || '' };
         await db`UPDATE violation_notices SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${upd.id}`;
       } catch (e) {

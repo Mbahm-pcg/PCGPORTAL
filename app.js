@@ -3312,6 +3312,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [fixing, setFixing] = useState4(null);
     const [backMsg, setBackMsg] = useState4(null);
     const [backBusy, setBackBusy] = useState4(null);
+    const LETTER0 = () => ({ file: null, date: todayIso4(), email: "", phone: "", busy: false, error: null, result: null, drag: false });
+    const [letter, setLetter] = useState4(LETTER0);
     const loadMain = () => call2().then((b) => {
       setStores(b.stores || []);
       setEmployees(b.employees || []);
@@ -3521,6 +3523,83 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     };
     const sentBackList = (items, showMaker) => /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, items.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: { padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, borderLeft: "4px solid #d97706", background: th.card, color: th.text, fontFamily: FONTS.body } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, showMaker ? `, from ${f.submittedBy}` : "")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "Sent back by ", f.decidedBy || "the approver", f.decidedAt ? `, ${new Date(f.decidedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "")), f.note && /* @__PURE__ */ React.createElement("p", { style: { margin: "0.35rem 0 0", fontSize: "0.9rem" } }, '"', f.note, '"'), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.9rem", flexWrap: "wrap", marginTop: "0.55rem", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.canFix && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: backBusy === f.id, onClick: () => fixNotice(f), style: { ...S.link, color: O } }, "Fix and resend"), f.canFix && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: backBusy === f.id, onClick: () => resendAsIs(f), style: { ...S.link, color: O } }, backBusy === f.id ? "Working\u2026" : "Resend as is"), f.canFix && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: backBusy === f.id, onClick: () => deleteBack(f), style: { ...S.link, color: "#b91c1c" } }, "Delete")))));
     const myBack = sentBack.filter((f) => f.mine);
+    const kindTag = (f) => f.kind === "letter" ? /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", fontSize: "0.72rem", fontWeight: 700, color: O, border: `1px solid ${O}`, borderRadius: 6, padding: "0 0.35rem", marginRight: "0.45rem" } }, "Warning letter") : null;
+    const resendLink = async (item) => {
+      setBackBusy(item.id);
+      setBackMsg(null);
+      try {
+        const b = await call2({ action: "resendLink", id: item.id });
+        const r = (b.resent || [])[0] || {};
+        setBackMsg({ tone: r.sent ? "success" : "error", text: r.sent ? `New signing link emailed to ${item.employeeName}${(b.resent || []).length > 1 ? " and the witness" : ""}${r.texted ? ", with a reminder text" : ""}. The old link no longer works.` : "The signing email did not go through." });
+        loadMain();
+      } catch (e) {
+        setBackMsg({ tone: "error", text: e.message });
+      }
+      setBackBusy(null);
+    };
+    if (listView && view === "letter") {
+      const L2 = letter;
+      const set = (patch) => setLetter((x) => ({ ...x, ...patch }));
+      const phoneDigits = L2.phone.replace(/\D/g, "");
+      const okPhone = phoneDigits.length === 10 || phoneDigits.length === 11 && phoneDigits[0] === "1";
+      const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(L2.email.trim());
+      const need = [...!L2.file ? ["the letter"] : [], ...!picked ? ["the employee"] : [], ...!L2.date ? ["the letter date"] : [], ...!okEmail ? ["the employee's email"] : [], ...!okPhone ? ["the employee's cell"] : []];
+      const takeFile = async (file) => {
+        if (!file) return;
+        if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(file.type)) {
+          set({ error: "Upload the letter as a PDF (in Word: File > Save as > PDF), or a JPG / PNG photo of it." });
+          return;
+        }
+        if (file.size > 4 * 1024 * 1024) {
+          set({ error: "That file is over 4 MB. Save it as a smaller PDF and try again." });
+          return;
+        }
+        const data = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result);
+          r.onerror = () => rej(new Error("Could not read the file."));
+          r.readAsDataURL(file);
+        });
+        set({ file: { name: file.name, type: file.type, size: file.size, data }, error: null, result: null });
+      };
+      const sendLetter = async () => {
+        if (need.length || L2.busy) return;
+        set({ busy: true, error: null, result: null });
+        try {
+          const b = await call2({ action: "uploadLetter", employeeId: picked.id, pc: picked.pc, letterDate: L2.date, email: L2.email.trim(), phone: L2.phone, file: { name: L2.file.name, type: L2.file.type, data: L2.file.data } });
+          const s = b.sign || {};
+          set({ busy: false, result: b.already ? "This letter was already sent." : s.sent ? `Sent. ${picked.name} was emailed the letter with a link to acknowledge it${s.texted ? ", plus a reminder text" : ""}${s.textNote ? ` (${s.textNote.toLowerCase()})` : ""}. Once they sign, it's filed in Google Drive and you'll be told. It's under Waiting on signatures until then.` : "Saved, but the email to the employee did not go through. Use Resend link under Waiting on signatures." });
+          loadMain();
+        } catch (e) {
+          set({ busy: false, error: e.message });
+        }
+      };
+      const fmtSize2 = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+      return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 760, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
+        setView("list");
+        loadMain();
+      }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Violation Notices"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Upload a warning letter"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Drop in your letter on company letterhead. It's emailed to the employee with a link to read it and sign an acknowledgment page that's added at the end. Once they sign, the letter and their acknowledgment are filed together in the Violation Notices Google Drive under their store."), L2.error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, L2.error), L2.result && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, L2.result), /* @__PURE__ */ React.createElement(
+        "label",
+        {
+          onDragOver: (e) => {
+            e.preventDefault();
+            if (!L2.drag) set({ drag: true });
+          },
+          onDragLeave: () => set({ drag: false }),
+          onDrop: (e) => {
+            e.preventDefault();
+            set({ drag: false });
+            takeFile(e.dataTransfer.files && e.dataTransfer.files[0]);
+          },
+          style: { display: "block", cursor: "pointer", textAlign: "center", padding: L2.file ? "1.1rem" : "2.4rem 1rem", borderRadius: 14, border: `2px dashed ${L2.drag ? O : th.cardBorder}`, background: L2.drag ? "rgba(255,103,31,0.06)" : th.card, color: th.text, marginBottom: "1rem", transition: "border-color 0.15s, background-color 0.15s" }
+        },
+        /* @__PURE__ */ React.createElement("input", { type: "file", accept: "application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png", style: S.srOnly, onChange: (e) => {
+          takeFile(e.target.files && e.target.files[0]);
+          e.target.value = "";
+        } }),
+        L2.file ? /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", null, L2.file.name), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", fmtSize2(L2.file.size), ")"), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: O, fontSize: "0.85rem", marginTop: 4, fontWeight: 700 } }, "Drop or click to use a different file")) : /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: "1.05rem" } }, "Drag and drop the letter here"), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.88rem", marginTop: 4 } }, "or click to choose it. PDF, or a JPG / PNG photo, up to 4 MB"))
+      ), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", display: "grid", gap: "0.9rem", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(2, minmax(0,1fr))", overflow: "visible" } }, /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, gridColumn: isMobile ? void 0 : "1 / -1" } }, "Employee (from Paycor)", /* @__PURE__ */ React.createElement("span", { className: "vn-paper", style: { background: "transparent", fontSize: "0.95rem" } }, empSearch), picked && /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, picked.name, picked.jobTitle ? `, ${picked.jobTitle}` : "", " at ", storeName(picked.pc), " (PC ", picked.pc, ")")), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Date on the letter", /* @__PURE__ */ React.createElement("input", { type: "date", style: S.input, value: L2.date, max: todayIso4(), onChange: (e) => set({ date: e.target.value }) })), /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's email (the letter goes here)", /* @__PURE__ */ React.createElement("input", { type: "email", inputMode: "email", autoComplete: "off", style: S.input, value: L2.email, maxLength: 120, onChange: (e) => set({ email: e.target.value }) })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's cell (reminder text + sign-in check)", /* @__PURE__ */ React.createElement("input", { type: "tel", inputMode: "tel", autoComplete: "off", style: S.input, value: L2.phone, maxLength: 20, placeholder: "(215) 555-0100", onChange: (e) => set({ phone: e.target.value }) }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", margin: "1rem 0 2rem" } }, need.length > 0 && !L2.busy && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", need.join(", ")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: !!need.length || L2.busy, onClick: sendLetter, style: { ...S.primary, opacity: need.length || L2.busy ? 0.5 : 1, cursor: need.length || L2.busy ? "not-allowed" : "pointer" } }, L2.busy ? "Sending\u2026" : "Send to the employee")));
+    }
     if (employees === null && !error) return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026"));
     if (listView && view === "list") {
       const day = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -3543,10 +3622,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           style: { ...S.ghost, minHeight: 36, padding: "0.4rem 0.95rem", background: listTab === k ? O : th.card3, color: listTab === k ? "#fff" : th.text }
         },
         label
-      ))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
+      ))), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => {
+        setDecided(null);
+        setPicked(null);
+        setQuery("");
+        setLetter(LETTER0());
+        setView("letter");
+      } }, "Upload a warning letter"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
         setDecided(null);
         setView("form");
-      } }, "Start a violation notice")), listTab === "pending" && (lists.pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.pending.map((f) => /* @__PURE__ */ React.createElement("button", { key: f.id, type: "button", className: "fin-btn", onClick: () => setReviewing(f), style: { ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, ", ", day(f.createdAt))), /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "waiting" && (lists.waiting.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.waiting.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, ", ", day(f.createdAt), ": waiting on the employee or witness to sign from their email link")), f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O, fontSize: "0.85rem" } }, "View form")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No notices waiting on signatures.")), listTab === "complete" && (lists.complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, f.decidedBy ? `, approved by ${f.decidedBy} on ${day(f.decidedAt)}` : `, ${day(f.createdAt)}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved violation notices yet.")), listTab === "sentback" && /* @__PURE__ */ React.createElement(React.Fragment, null, backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), sentBack.length ? sentBackList(sentBack, true) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing sent back.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/violation-notice?pdf=${viewing.id}`, title: `Violation notice for ${viewing.employeeName}`, onClose: () => setViewing(null) })));
+      } }, "Start a violation notice"))), listTab === "waiting" && backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), listTab === "pending" && (lists.pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.pending.map((f) => /* @__PURE__ */ React.createElement("button", { key: f.id, type: "button", className: "fin-btn", onClick: () => setReviewing(f), style: { ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, ", ", day(f.createdAt))), /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "waiting" && (lists.waiting.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.waiting.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, kindTag(f), who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, ", ", day(f.createdAt), ": ", f.kind === "letter" ? "waiting on the employee to acknowledge it from their email link" : "waiting on the employee or witness to sign from their email link")), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: backBusy === f.id, onClick: () => resendLink(f), style: { ...S.link, color: O } }, backBusy === f.id ? "Sending\u2026" : "Resend link"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No notices waiting on signatures.")), listTab === "complete" && (lists.complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, kindTag(f), who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, f.kind === "letter" && f.decidedAt ? `, acknowledged and filed ${day(f.decidedAt)}` : f.decidedBy ? `, approved by ${f.decidedBy} on ${day(f.decidedAt)}` : `, ${day(f.createdAt)}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved violation notices yet.")), listTab === "sentback" && /* @__PURE__ */ React.createElement(React.Fragment, null, backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), sentBack.length ? sentBackList(sentBack, true) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing sent back.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/violation-notice?pdf=${viewing.id}`, title: `Violation notice for ${viewing.employeeName}`, onClose: () => setViewing(null) })));
     }
     return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), listView ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
       setView("list");
@@ -4061,7 +4146,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [done, setDone] = useState6(null);
     const width = Math.min(820, (typeof window !== "undefined" ? window.innerWidth : 820) - 32);
     useEffect6(() => {
-      document.title = "Sign your Violation Notice \xB7 PCG";
+      document.title = "Review and sign \xB7 PCG";
       call4({ token, action: "hello" }).then(setHello).catch((e) => setFatal(e.message));
     }, []);
     const open = async (e) => {
@@ -4098,7 +4183,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     if (fatal) return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, textAlign: "center" } }, "This link can't be used"), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, textAlign: "center", margin: "0 auto" } }, fatal)));
     if (!hello) return shell(/* @__PURE__ */ React.createElement("p", { style: { color: th.muted, textAlign: "center" } }, "Loading\u2026"));
     if (!doc) return shell(
-      /* @__PURE__ */ React.createElement("form", { onSubmit: open, style: { ...S.panel, padding: "1.3rem 1.2rem", maxWidth: 440, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, fontSize: "1.3rem" } }, "Hi ", hello.firstName), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: "1rem" } }, hello.role === "witness" ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.` : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`, " To open it, enter the last 4 digits of the cell number your supervisor has for you."), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Last 4 digits of your phone", /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement("form", { onSubmit: open, style: { ...S.panel, padding: "1.3rem 1.2rem", maxWidth: 440, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, fontSize: "1.3rem" } }, "Hi ", hello.firstName), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: "1rem" } }, hello.kind === "letter" ? `People Capital Group has a warning letter from ${hello.storeName} for you to read and acknowledge.` : hello.role === "witness" ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.` : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`, " To open it, enter the last 4 digits of the cell number your supervisor has for you."), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Last 4 digits of your phone", /* @__PURE__ */ React.createElement(
         "input",
         {
           style: { ...S.input, fontSize: "1.3rem", letterSpacing: "0.3em", textAlign: "center", fontVariantNumeric: "lining-nums tabular-nums" },
@@ -4112,7 +4197,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         }
       )), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement("button", { type: "submit", className: "fin-btn", disabled: busy, style: { ...S.primary, width: "100%", marginTop: "1rem" } }, busy ? "Checking\u2026" : "Open the notice"))
     );
-    return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: S.title }, doc.role === "witness" ? `Witness: ${doc.employeeName}'s Violation Notice` : "Your Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, doc.role === "witness" ? "Read the notice below, then sign at the bottom as the witness." : "Read the notice below, then sign at the bottom. Signing confirms you received it and discussed it with your manager; it does not mean you agree with it."), /* @__PURE__ */ React.createElement(PdfPages, { b64: doc.pdf, width }), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1.1rem 1.2rem", marginTop: "1.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.6rem", alignItems: "flex-start", fontSize: "0.95rem", lineHeight: 1.45, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: read, onChange: (e) => setRead(e.target.checked), style: { accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 } }), doc.role === "witness" ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement(
+    return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: S.title }, doc.kind === "letter" ? "Your warning letter" : doc.role === "witness" ? `Witness: ${doc.employeeName}'s Violation Notice` : "Your Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, doc.kind === "letter" ? "Read the letter below. The last page is an acknowledgment of receipt; sign it at the bottom. Signing confirms you received the letter; it does not mean you agree with it." : doc.role === "witness" ? "Read the notice below, then sign at the bottom as the witness." : "Read the notice below, then sign at the bottom. Signing confirms you received it and discussed it with your manager; it does not mean you agree with it."), /* @__PURE__ */ React.createElement(PdfPages, { b64: doc.pdf, width }), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1.1rem 1.2rem", marginTop: "1.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.6rem", alignItems: "flex-start", fontSize: "0.95rem", lineHeight: 1.45, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: read, onChange: (e) => setRead(e.target.checked), style: { accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 } }), doc.kind === "letter" ? `I, ${doc.signerName}, have read this warning letter.` : doc.role === "witness" ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -4121,7 +4206,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         onClick: () => setSigning(true),
         style: { ...S.primary, width: "100%", marginTop: "1rem", opacity: read && !busy ? 1 : 0.5, cursor: read && !busy ? "pointer" : "not-allowed" }
       },
-      busy ? "Signing\u2026" : "Sign the notice"
+      busy ? "Signing\u2026" : doc.kind === "letter" ? "Sign the acknowledgment" : "Sign the notice"
     )), signing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: `Your signature \u2014 ${doc.signerName}`, onCancel: () => setSigning(false), onDone: sign })));
   }
 
@@ -29454,7 +29539,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.83";
+  var APP_VERSION = "v22.85";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

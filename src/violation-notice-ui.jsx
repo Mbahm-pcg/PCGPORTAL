@@ -153,6 +153,9 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   const [fixing, setFixing] = useState(null); // the sent-back notice being fixed
   const [backMsg, setBackMsg] = useState(null);
   const [backBusy, setBackBusy] = useState(null);
+  // v22.84 warning-letter upload (Sam / exec / IT).
+  const LETTER0 = () => ({ file: null, date: todayIso(), email: '', phone: '', busy: false, error: null, result: null, drag: false });
+  const [letter, setLetter] = useState(LETTER0);
 
   const loadMain = () => call().then(b => {
     setStores(b.stores || []); setEmployees(b.employees || []);
@@ -341,6 +344,75 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     </div>
   );
   const myBack = sentBack.filter(f => f.mine);
+  const kindTag = (f) => (f.kind === 'letter' ? <span style={{ display: 'inline-block', fontSize: '0.72rem', fontWeight: 700, color: O, border: `1px solid ${O}`, borderRadius: 6, padding: '0 0.35rem', marginRight: '0.45rem' }}>Warning letter</span> : null);
+  const resendLink = async (item) => {
+    setBackBusy(item.id); setBackMsg(null);
+    try {
+      const b = await call({ action: 'resendLink', id: item.id });
+      const r = (b.resent || [])[0] || {};
+      setBackMsg({ tone: r.sent ? 'success' : 'error', text: r.sent ? `New signing link emailed to ${item.employeeName}${(b.resent || []).length > 1 ? ' and the witness' : ''}${r.texted ? ', with a reminder text' : ''}. The old link no longer works.` : 'The signing email did not go through.' });
+      loadMain();
+    } catch (e) { setBackMsg({ tone: 'error', text: e.message }); }
+    setBackBusy(null);
+  };
+
+  // ── Upload a warning letter (Sam / exec / IT): drag & drop → employee acknowledges → filed ──
+  if (listView && view === 'letter') {
+    const L = letter;
+    const set = (patch) => setLetter(x => ({ ...x, ...patch }));
+    const phoneDigits = L.phone.replace(/\D/g, '');
+    const okPhone = phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits[0] === '1');
+    const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(L.email.trim());
+    const need = [...(!L.file ? ['the letter'] : []), ...(!picked ? ['the employee'] : []), ...(!L.date ? ['the letter date'] : []), ...(!okEmail ? ["the employee's email"] : []), ...(!okPhone ? ["the employee's cell"] : [])];
+    const takeFile = async (file) => {
+      if (!file) return;
+      if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(file.type)) { set({ error: 'Upload the letter as a PDF (in Word: File > Save as > PDF), or a JPG / PNG photo of it.' }); return; }
+      if (file.size > 4 * 1024 * 1024) { set({ error: 'That file is over 4 MB. Save it as a smaller PDF and try again.' }); return; }
+      const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('Could not read the file.')); r.readAsDataURL(file); });
+      set({ file: { name: file.name, type: file.type, size: file.size, data }, error: null, result: null });
+    };
+    const sendLetter = async () => {
+      if (need.length || L.busy) return;
+      set({ busy: true, error: null, result: null });
+      try {
+        const b = await call({ action: 'uploadLetter', employeeId: picked.id, pc: picked.pc, letterDate: L.date, email: L.email.trim(), phone: L.phone, file: { name: L.file.name, type: L.file.type, data: L.file.data } });
+        const s = b.sign || {};
+        set({ busy: false, result: b.already ? 'This letter was already sent.' : s.sent ? `Sent. ${picked.name} was emailed the letter with a link to acknowledge it${s.texted ? ', plus a reminder text' : ''}${s.textNote ? ` (${s.textNote.toLowerCase()})` : ''}. Once they sign, it's filed in Google Drive and you'll be told. It's under Waiting on signatures until then.` : 'Saved, but the email to the employee did not go through. Use Resend link under Waiting on signatures.' });
+        loadMain();
+      } catch (e) { set({ busy: false, error: e.message }); }
+    };
+    const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+    return (
+      <div className="fin-root" style={{ maxWidth: 760, margin: '0 auto' }}>
+        <style>{FIN_CSS(th) + CSS}</style>
+        <button type="button" className="fin-btn" onClick={() => { setView('list'); loadMain(); }} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Violation Notices</button>
+        <h2 style={S.title}>Upload a warning letter</h2>
+        <p style={S.lede}>Drop in your letter on company letterhead. It's emailed to the employee with a link to read it and sign an acknowledgment page that's added at the end. Once they sign, the letter and their acknowledgment are filed together in the Violation Notices Google Drive under their store.</p>
+        {L.error && <FinBanner th={th} tone="error">{L.error}</FinBanner>}
+        {L.result && <FinBanner th={th} tone="success">{L.result}</FinBanner>}
+        <label onDragOver={e => { e.preventDefault(); if (!L.drag) set({ drag: true }); }} onDragLeave={() => set({ drag: false })}
+          onDrop={e => { e.preventDefault(); set({ drag: false }); takeFile(e.dataTransfer.files && e.dataTransfer.files[0]); }}
+          style={{ display: 'block', cursor: 'pointer', textAlign: 'center', padding: L.file ? '1.1rem' : '2.4rem 1rem', borderRadius: 14, border: `2px dashed ${L.drag ? O : th.cardBorder}`, background: L.drag ? 'rgba(255,103,31,0.06)' : th.card, color: th.text, marginBottom: '1rem', transition: 'border-color 0.15s, background-color 0.15s' }}>
+          <input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" style={S.srOnly} onChange={e => { takeFile(e.target.files && e.target.files[0]); e.target.value = ''; }} />
+          {L.file
+            ? <span><strong>{L.file.name}</strong> <span style={{ color: th.muted }}>({fmtSize(L.file.size)})</span><span style={{ display: 'block', color: O, fontSize: '0.85rem', marginTop: 4, fontWeight: 700 }}>Drop or click to use a different file</span></span>
+            : <span><strong style={{ fontSize: '1.05rem' }}>Drag and drop the letter here</strong><span style={{ display: 'block', color: th.muted, fontSize: '0.88rem', marginTop: 4 }}>or click to choose it. PDF, or a JPG / PNG photo, up to 4 MB</span></span>}
+        </label>
+        <div style={{ ...S.panel, padding: '1rem 1.1rem', display: 'grid', gap: '0.9rem', gridTemplateColumns: isMobile ? 'minmax(0,1fr)' : 'repeat(2, minmax(0,1fr))', overflow: 'visible' }}>
+          <label style={{ ...S.fieldLabel, gridColumn: isMobile ? undefined : '1 / -1' }}>Employee (from Paycor)<span className="vn-paper" style={{ background: 'transparent', fontSize: '0.95rem' }}>{empSearch}</span>
+            {picked && <span style={{ color: th.text }}>{picked.name}{picked.jobTitle ? `, ${picked.jobTitle}` : ''} at {storeName(picked.pc)} (PC {picked.pc})</span>}</label>
+          <label style={S.fieldLabel}>Date on the letter<input type="date" style={S.input} value={L.date} max={todayIso()} onChange={e => set({ date: e.target.value })} /></label>
+          <span />
+          <label style={S.fieldLabel}>Employee's email (the letter goes here)<input type="email" inputMode="email" autoComplete="off" style={S.input} value={L.email} maxLength={120} onChange={e => set({ email: e.target.value })} /></label>
+          <label style={S.fieldLabel}>Employee's cell (reminder text + sign-in check)<input type="tel" inputMode="tel" autoComplete="off" style={S.input} value={L.phone} maxLength={20} placeholder="(215) 555-0100" onChange={e => set({ phone: e.target.value })} /></label>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.9rem', flexWrap: 'wrap', margin: '1rem 0 2rem' }}>
+          {need.length > 0 && !L.busy && <span style={{ color: th.muted, fontSize: '0.82rem' }}>Still needed: {need.join(', ')}</span>}
+          <button type="button" className="fin-btn" disabled={!!need.length || L.busy} onClick={sendLetter} style={{ ...S.primary, opacity: need.length || L.busy ? 0.5 : 1, cursor: need.length || L.busy ? 'not-allowed' : 'pointer' }}>{L.busy ? 'Sending…' : 'Send to the employee'}</button>
+        </div>
+      </div>
+    );
+  }
 
   if (employees === null && !error) return <div className="fin-root" style={{ maxWidth: 940, margin: '0 auto' }}><style>{FIN_CSS(th)}</style><h2 style={S.title}>Violation Notice</h2><p style={{ color: th.muted }}>Loading…</p></div>;
 
@@ -367,8 +439,12 @@ export function ViolationNotice({ th, isMobile, onBack }) {
                   style={{ ...S.ghost, minHeight: 36, padding: '0.4rem 0.95rem', background: listTab === k ? O : th.card3, color: listTab === k ? '#fff' : th.text }}>{label}</button>
               ))}
             </div>
-            <button type="button" className="fin-btn" style={S.primary} onClick={() => { setDecided(null); setView('form'); }}>Start a violation notice</button>
+            <span style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="fin-btn" style={S.ghost} onClick={() => { setDecided(null); setPicked(null); setQuery(''); setLetter(LETTER0()); setView('letter'); }}>Upload a warning letter</button>
+              <button type="button" className="fin-btn" style={S.primary} onClick={() => { setDecided(null); setView('form'); }}>Start a violation notice</button>
+            </span>
           </div>
+          {listTab === 'waiting' && backMsg && <FinBanner th={th} tone={backMsg.tone}>{backMsg.text}</FinBanner>}
           {listTab === 'pending' && (lists.pending.length ? (
             <div style={{ display: 'grid', gap: '0.5rem' }}>
               {lists.pending.map(f => (
@@ -383,8 +459,11 @@ export function ViolationNotice({ th, isMobile, onBack }) {
             <div style={{ display: 'grid', gap: '0.5rem' }}>
               {lists.waiting.map(f => (
                 <div key={f.id} style={rowStyle}>
-                  <span style={{ minWidth: 0 }}>{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}, {day(f.createdAt)}: waiting on the employee or witness to sign from their email link</span></span>
-                  {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O, fontSize: '0.85rem' }}>View form</button>}
+                  <span style={{ minWidth: 0 }}>{kindTag(f)}{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}, {day(f.createdAt)}: {f.kind === 'letter' ? 'waiting on the employee to acknowledge it from their email link' : 'waiting on the employee or witness to sign from their email link'}</span></span>
+                  <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
+                    {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View</button>}
+                    <button type="button" className="fin-btn" disabled={backBusy === f.id} onClick={() => resendLink(f)} style={{ ...S.link, color: O }}>{backBusy === f.id ? 'Sending…' : 'Resend link'}</button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -393,7 +472,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
             <div style={{ display: 'grid', gap: '0.5rem' }}>
               {lists.complete.map(f => (
                 <div key={f.id} style={rowStyle}>
-                  <span style={{ minWidth: 0 }}>{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}{f.decidedBy ? `, approved by ${f.decidedBy} on ${day(f.decidedAt)}` : `, ${day(f.createdAt)}`}</span></span>
+                  <span style={{ minWidth: 0 }}>{kindTag(f)}{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}{f.kind === 'letter' && f.decidedAt ? `, acknowledged and filed ${day(f.decidedAt)}` : f.decidedBy ? `, approved by ${f.decidedBy} on ${day(f.decidedAt)}` : `, ${day(f.createdAt)}`}</span></span>
                   <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
                     {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View form</button>}
                     {f.driveLink && <a href={f.driveLink} target="_blank" rel="noreferrer" style={{ color: O }}>Open in Google Drive</a>}
