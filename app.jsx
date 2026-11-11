@@ -10,6 +10,7 @@ import { TransferNotice } from './src/transfer-notice-ui.jsx';
 import { PayIncrease } from './src/pay-increase-ui.jsx';
 import { ViolationNotice } from './src/violation-notice-ui.jsx';
 import { TimeOffRequest } from './src/time-off-request-ui.jsx';
+import { RemoteSignPage } from './src/remote-sign-ui.jsx';
 import { JoyLeaderboard, JoyMobileTile } from './src/joy-leaderboard-ui.jsx';
 import { isDirector, parseDistricts } from './src/director-scope.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
@@ -20356,6 +20357,7 @@ const NOTIFY_ICONS = {
   violationNotice: <><path d="M12 3 2.5 20h19Z"/><path d="M12 10v4M12 17h.01"/></>,
   payIncrease: <><path d="M12 20V6M7 11l5-5 5 5"/><path d="M5 20h14"/></>,
   payIncreaseApprovers: <><path d="M20 6 9 17l-5-5"/></>,
+  violationApprovers: <><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></>,
   timeOffRequest: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9.5 13.5 5 5M14.5 13.5l-5 5"/></>,
   interviewReminders: <><path d="M4 5h16v11H8l-4 4Z"/><circle cx="12" cy="10.5" r="2.2"/><path d="M8.5 14.2a4 4 0 0 1 7 0"/></>,
   mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></>,
@@ -20369,7 +20371,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
-  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', timeOffRequest: 'Time off requests',
+  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -20703,7 +20705,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [notifSubTab, setNotifSubTab] = useState('project');
   // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
   // here, then kept live by each ManualNotifyListPanel's onCountChange.
-  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1' };
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1' };
   const [notifCounts, setNotifCounts] = useState({});
   useEffect(() => {
     Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -20943,6 +20945,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
               { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
               { id: 'transferNotice', label: 'Transfer Notice', count: notifCounts.transferNotice },
+              { id: 'violationApprovers', label: 'Violation Notice approval', count: notifCounts.violationApprovers },
               { id: 'violationNotice', label: 'Violation Notice', count: notifCounts.violationNotice },
               { id: 'timeOffRequest', label: 'Time Off Request', count: notifCounts.timeOffRequest },
               { id: 'payIncreaseApprovers', label: 'Pay Increase approval', count: notifCounts.payIncreaseApprovers },
@@ -21119,6 +21122,14 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_time_off_notify_v1" tagKey="timeOffRequest" onCountChange={setNotifCount('timeOffRequest')}
           description="These people (HR) get every Time Off Request (Tools · Time Off Request): an email with the signed PDF and any supporting documents attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
           smsLabel="Time Off Request SMS Numbers" />
+      )}
+      {/* Violation Notice approval — full admins only. People added BY NAME here approve violation
+          notices (Sam); everyone on the list gets the request by email + text (no link) + push. While
+          no one is named, every executive can approve. v22.81 */}
+      {notifSubTab === 'violationApprovers' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_violation_approvers_v1" tagKey="violationApprovers" onCountChange={setNotifCount('violationApprovers')}
+          description="These people approve Violation Notices (Tools · Violation Notice). Once everyone has signed a notice, they get an email with a Review button, a text and a phone push, and a reminder every 3 hours until it's approved or sent back. Only people added by name can approve; while no one is named, every executive can. Once approved, the notice is filed in Google Drive and the Violation Notice list below is alerted."
+          smsLabel="Violation Notice approval SMS Numbers" />
       )}
       {/* Violation Notice — full admins only. Read by violation-notice.mjs each time a signed notice
           is saved: email (PDF attached) + text to this list; push + bell to anyone added by name. v22.72 */}
@@ -32504,7 +32515,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.80";
+const APP_VERSION = "v22.82";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -55780,6 +55791,12 @@ function PCGPortal() {
     const params = new URLSearchParams(window.location.search);
     const ticketParam = params.get('ticket');
     const payParam = params.get('payIncrease'); // v22.60: approval email / text link
+    const vioParam = params.get('violation'); // v22.81: violation notice approval email link
+    if (vioParam && /^\d+$/.test(vioParam)) {
+      try { sessionStorage.setItem('vn_open', vioParam); } catch {}
+      setTab('violation-notice');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     if (payParam && /^\d+$/.test(payParam)) {
       try { sessionStorage.setItem('pi_open', payParam); } catch {}
       setTab('pay-increase');
@@ -58343,4 +58360,7 @@ function PCGPortal() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<PCGPortal />);
+// v22.81: a Violation Notice signing link (?sign=<code>) opens only the public signing page — no
+// login, no portal. Everything else is the portal as before.
+const SIGN_TOKEN = new URLSearchParams(window.location.search).get('sign');
+ReactDOM.createRoot(document.getElementById("root")).render(SIGN_TOKEN ? <RemoteSignPage token={SIGN_TOKEN} /> : <PCGPortal />);

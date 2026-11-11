@@ -11,6 +11,7 @@ import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
 import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
+import { FormPreview, FormModal } from './pay-increase-ui.jsx';
 import { buildViolationPdf, VIO_FONT, VIO_CHROME, formatVioDate } from './violation-notice-pdf.mjs';
 import { NOTICE_TYPES, VIOLATION_TYPES, ACTIONS, DESCRIPTION_MIN, violationValues, violationFingerprint, missingViolationFields } from './violation-notice.mjs';
 
@@ -59,6 +60,52 @@ const CSS = `
 .vn-blank:focus-visible, .vn-lines:focus-visible, .vn-sigbtn:focus-visible, .vn-sigimg:focus-visible, .vn-check input:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .vn-blank, .vn-sigbtn { transition: none; } }`;
 
+// Approver's view of one waiting notice: the signed PDF, then Approve or Send back (like Pay Increase).
+function VnReview({ th, isMobile, form, onClose, canApprove }) {
+  const S = finStyles(th);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [backing, setBacking] = useState(false);
+  const [note, setNote] = useState('');
+  const src = `/.netlify/functions/violation-notice?pdf=${form.id}`;
+  const decide = async (action) => {
+    setBusy(true); setErr(null);
+    try {
+      const b = await call({ action, id: form.id, note: note.trim() });
+      if (action === 'reject') return onClose(`Sent back to ${form.submittedBy}.`);
+      const d = b.drive || {}, a = b.alert || {};
+      onClose(`Approved: ${d.saved ? 'filed in Google Drive' : `not saved to Drive (${d.error || 'error'})`}, ${a.error ? `alert failed (${a.error})` : a.recipients ? `the Violation Notice list was alerted (${a.recipients})` : 'no one is on the Violation Notice alert list yet'}. ${form.submittedBy} was told.`);
+    } catch (e) { setErr(e.message); setBusy(false); }
+  };
+  return (
+    <div style={{ ...S.panel, padding: '1rem 1.1rem', marginBottom: '1.4rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <div style={{ ...S.panelTitle, fontSize: '1.05rem' }}>{form.employeeName}, {form.storeName}</div>
+        <span style={{ color: th.muted, fontSize: '0.88rem' }}>From {form.submittedBy}{form.violationDate ? `, violation on ${formatVioDate(form.violationDate)}` : ''}</span>
+      </div>
+      <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.8rem' }}>
+        <FormPreview th={th} id={src} title={`Violation notice for ${form.employeeName}`} thumbWidth={isMobile ? 200 : 260} />
+        <p style={{ fontSize: '0.82rem', color: th.muted, margin: 0, maxWidth: '22em' }}>Click the form to see it full size. <a href={src} target="_blank" rel="noreferrer" style={{ color: O }}>Download the PDF</a></p>
+      </div>
+      {err && <FinBanner th={th} tone="error" style={{ marginTop: '0.8rem' }}>{err}</FinBanner>}
+      {backing && (
+        <div style={{ marginTop: '0.8rem' }}>
+          <label htmlFor="vn-note" style={{ display: 'block', fontWeight: 700, marginBottom: '0.3rem', color: th.text }}>Why is it being sent back?</label>
+          <textarea id="vn-note" value={note} maxLength={400} rows={3} onChange={e => setNote(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: '0.5rem', fontFamily: FONTS.body }} />
+        </div>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.9rem' }}>
+        <button type="button" className="fin-btn" style={S.ghost} onClick={() => onClose(null)} disabled={busy}>Back</button>
+        {!canApprove && <span style={{ color: th.muted, fontSize: '0.85rem', alignSelf: 'center' }}>Only the violation notice approver can approve this.</span>}
+        {canApprove && (backing
+          ? <button type="button" className="fin-btn" style={{ ...S.primary, background: '#b91c1c', opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }} disabled={note.trim().length < 3 || busy} onClick={() => decide('reject')}>{busy ? 'Sending…' : 'Send back'}</button>
+          : <button type="button" className="fin-btn" style={S.ghost} onClick={() => setBacking(true)} disabled={busy}>Send back…</button>)}
+        {canApprove && !backing && <button type="button" className="fin-btn" style={S.primary} disabled={busy} onClick={() => decide('approve')}>{busy ? 'Approving…' : 'Approve & file'}</button>}
+      </div>
+    </div>
+  );
+}
+
 const Locked = ({ value, placeholder = 'from Paycor', w }) => <span className={`vn-locked${value ? '' : ' vn-empty'}`} style={w ? { minWidth: w } : undefined} title="From Paycor — can't be changed here">{value || placeholder}</span>;
 
 export function ViolationNotice({ th, isMobile, onBack }) {
@@ -84,18 +131,36 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   const [consequences, setConsequences] = useState('');
   const [witnessName, setWitnessName] = useState('');
   const [employeeRefused, setEmployeeRefused] = useState(false);
+  // v22.81: employee not there → text them a private link to sign on their phone (violation-sign.mjs).
+  // Per role ('employee' | 'witness'): the link goes by email, the text is a no-link nudge.
+  const [remote, setRemoteState] = useState({ employee: { on: false, phone: '', email: '' }, witness: { on: false, phone: '', email: '' } });
+  const setRemote = (role, patch) => setRemoteState(r => ({ ...r, [role]: { ...r[role], ...patch } }));
   const [sigs, setSigs] = useState({}); // { employee|supervisor|witness: { image, date, fp } }
   const [signing, setSigning] = useState(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(null);
+  // v22.81 approval step: the approver (Sam) and exec / IT see the list first.
+  const [listView, setListView] = useState(false);
+  const [canApprove, setCanApprove] = useState(false);
+  const [lists, setLists] = useState({ pending: [], waiting: [], complete: [] });
+  const [view, setView] = useState('list');
+  const [listTab, setListTab] = useState('pending');
+  const [reviewing, setReviewing] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const [decided, setDecided] = useState(null);
 
-  useEffect(() => {
-    call().then(b => {
-      setStores(b.stores || []); setEmployees(b.employees || []);
-      setSupervisor(s => s || b.myName || ''); setSupervisorName(s => s || b.myName || '');
-      if (b.rosterError) setError(b.rosterError);
-    }).catch(e => { setError(e.message); setEmployees([]); });
-  }, []);
+  const loadMain = () => call().then(b => {
+    setStores(b.stores || []); setEmployees(b.employees || []);
+    setSupervisor(s => s || b.myName || ''); setSupervisorName(s => s || b.myName || '');
+    if (b.rosterError) setError(b.rosterError);
+    setListView(!!b.listView); setCanApprove(!!b.canApprove);
+    setLists({ pending: b.pending || [], waiting: b.waiting || [], complete: b.complete || [] });
+    // ?violation=<id> from the approval email opens that notice straight away.
+    let open = null; try { open = sessionStorage.getItem('vn_open'); sessionStorage.removeItem('vn_open'); } catch {}
+    const hit = open && (b.pending || []).find(x => String(x.id) === String(open));
+    if (hit) { setView('list'); setListTab('pending'); setReviewing(hit); }
+  }).catch(e => { setError(e.message); setEmployees([]); });
+  useEffect(() => { loadMain(); }, []);
 
   const storeName = (pc) => stores.find(s => s.pc === String(pc))?.name || '';
   const form = { employee: picked, pc: picked?.pc, supervisor, date, notice, types, action, suspensionStart, suspensionReturn, violationDate, description, improvement, consequences, supervisorName, witnessName, employeeRefused };
@@ -106,7 +171,14 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   const values = violationValues({ ...form, employeeSig: sigOk('employee'), supervisorSig: sigOk('supervisor'), witnessSig: sigOk('witness') });
   const formMissing = missingViolationFields({ ...base, supervisorSignature: 'x' });
   const canSign = !formMissing.length;
-  const missing = missingViolationFields(values);
+  const remoteOn = (role) => remote[role].on && !sigOk(role) && (role !== 'employee' || !employeeRefused);
+  const phoneOk = (p) => { const d = p.replace(/\D/g, ''); return d.length === 10 || (d.length === 11 && d[0] === '1'); };
+  const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+  const remoteMissing = ['employee', 'witness'].filter(remoteOn).flatMap(role => {
+    const who = role === 'employee' ? 'Employee' : 'Witness';
+    return [...(role === 'witness' && !witnessName.trim() ? ['Witness name'] : []), ...(!emailOk(remote[role].email) ? [`${who}'s email for the signing link`] : []), ...(!phoneOk(remote[role].phone) ? [`${who}'s cell number`] : [])];
+  });
+  const missing = [...missingViolationFields(values), ...remoteMissing];
   const ready = !missing.length && !busy;
   useEffect(() => { setSaved(null); }, [fp]);
 
@@ -126,7 +198,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
       const fileName = `Violation-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`;
       // Send first, then hand over the PDF (on a phone a download would replace the portal).
       setSaved({ state: 'saving' });
-      try { const b = await call({ values, employeeId: picked.id, pdf: doc.output('datauristring') }); setSaved({ state: 'done', ...b, pdfUrl: deliverPdf(doc, fileName) }); }
+      try { const b = await call({ values, employeeId: picked.id, pdf: doc.output('datauristring'), remoteSign: Object.fromEntries(['employee', 'witness'].filter(remoteOn).map(role => [role, { phone: remote[role].phone, email: remote[role].email.trim() }])) }); setSaved({ state: 'done', ...b, pdfUrl: deliverPdf(doc, fileName) }); }
       catch (e) { setSaved({ state: 'failed', error: e.message, pdfUrl: deliverPdf(doc, fileName) }); }
     } catch (e) { setError(e.message); }
     setBusy(false);
@@ -135,11 +207,24 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     if (!saved) return null;
     if (saved.state === 'saving') return <span style={{ color: th.muted }}>Saving and sending…</span>;
     if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Not saved: {saved.error}. Press the button again to retry.</span>;
-    const d = saved.drive || {}, a = saved.alert || {};
     return (
-      <span style={{ color: d.saved && !a.error ? '#16a34a' : '#d97706' }}>
-        {d.saved ? <>Saved to Google Drive{d.link ? <> (<a href={d.link} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>open</a>)</> : ''}.</> : `Not saved to Drive: ${d.error || 'unknown error'}. Press the button again to retry.`}
-        {' '}{a.error ? `Alert failed: ${a.error}.` : a.recipients ? `Sent to ${a.recipients} recipient${a.recipients === 1 ? '' : 's'}.` : a.recipients === 0 ? 'No one is on the Violation Notice alert list yet.' : ''}
+      <span style={{ color: '#16a34a' }}>
+        {saved.status === 'awaiting_signatures' ? 'Saved. Once the signatures below come in, it goes for approval; you\'ll be told when it\'s approved.'
+          : saved.status === 'pending' ? `Sent for approval${saved.notified ? '' : ' (no approver is set up yet — ask IT)'}. Once it's approved it's filed in Google Drive and you'll be told.`
+          : saved.status === 'approved' ? 'This notice was already approved and filed.'
+          : 'Saved.'}
+        {(saved.remoteSign || []).map(r => {
+          const who = r.role === 'witness' ? 'witness' : 'employee';
+          return (
+            <span key={r.role} style={{ display: 'block', marginTop: '0.3rem', color: r.sent ? (r.textNote ? '#d97706' : '#16a34a') : '#dc2626' }}>
+              {r.error ? `The ${who}'s signing link was not sent: ${r.error}. Press the button again to retry.`
+                : r.already ? `The ${who}'s signing link was just sent.`
+                : r.signedAlready ? `The ${who} has already signed.`
+                : r.sent ? `Signing link emailed to the ${who} (${r.email})${r.texted ? `, with a reminder text to ${r.phone}` : ''}. It expires ${new Date(r.expiresAt).toLocaleDateString('en-US')}. You'll get an alert when they sign.${r.textNote ? ` ${r.textNote}.` : ''}`
+                : `The ${who}'s signing email did not go through. Check the address and press the button again.`}
+            </span>
+          );
+        })}
       </span>
     );
   };
@@ -180,22 +265,102 @@ export function ViolationNotice({ th, isMobile, onBack }) {
         <span className="vn-f"><b>Signature:</b>
           <span className="vn-sigline">
             {refused ? <span style={{ paddingBottom: '0.2em', paddingLeft: '0.4em' }}>Refused to sign</span>
+              : key !== 'supervisor' && remoteOn(key) ? <span style={{ paddingBottom: '0.2em', paddingLeft: '0.4em', color: '#6b6158', fontStyle: 'italic' }}>Will sign by email link</span>
               : s ? <button type="button" className="vn-sigimg" onClick={() => setSigning(key)} title="Sign again"><img src={s.image} alt={`${label} signature`} style={{ maxHeight: '2.3em', maxWidth: '12em', objectFit: 'contain' }} /></button>
               : <button type="button" className="vn-sigbtn" disabled={!can} onClick={() => setSigning(key)} style={{ opacity: can ? 1 : 0.45, cursor: can ? 'pointer' : 'not-allowed' }}>{can ? `Tap to sign — ${label}` : canSign ? 'Type the witness name first' : 'Fill in the form first'}</button>}
           </span>
         </span>
         <span className="vn-f"><b>Date:</b><Locked value={s ? formatVioDate(s.date) : ''} placeholder="on signing" w="6.5em" /></span>
-        {key === 'employee' && !s && <label className="vn-check" style={{ fontFamily: FONTS.body, fontSize: '0.8rem' }}><input type="checkbox" checked={employeeRefused} onChange={e => setEmployeeRefused(e.target.checked)} /> Employee refused to sign</label>}
+        {key === 'employee' && !s && !remoteOn('employee') && <label className="vn-check" style={{ fontFamily: FONTS.body, fontSize: '0.8rem' }}><input type="checkbox" checked={employeeRefused} onChange={e => { setEmployeeRefused(e.target.checked); if (e.target.checked) setRemote('employee', { on: false }); }} /> Employee refused to sign</label>}
+        {key !== 'supervisor' && !s && !refused && <label className="vn-check" style={{ fontFamily: FONTS.body, fontSize: '0.8rem' }}><input type="checkbox" checked={remote[key].on} onChange={e => setRemote(key, { on: e.target.checked })} /> {label} isn't here: email them a link to sign</label>}
+        {key !== 'supervisor' && remoteOn(key) && (() => {
+          const r = remote[key];
+          return (
+            <div className="vn-row" style={{ fontFamily: FONTS.body, fontSize: '0.85rem', width: '100%', marginTop: '0.2em' }}>
+              <span className="vn-f"><b>{label} email:</b><input className="vn-blank" type="email" inputMode="email" autoComplete="off" style={{ width: '13em', ...(r.email && !emailOk(r.email) ? { boxShadow: 'inset 0 -2px 0 #dc2626' } : {}) }} value={r.email} maxLength={120} onChange={e => setRemote(key, { email: e.target.value })} aria-label={`${label} email`} /></span>
+              <span className="vn-f"><b>{label} cell:</b><input className="vn-blank" type="tel" inputMode="tel" autoComplete="off" style={{ width: '9.5em', ...(r.phone && !phoneOk(r.phone) ? { boxShadow: 'inset 0 -2px 0 #dc2626' } : {}) }} value={r.phone} maxLength={20} onChange={e => setRemote(key, { phone: e.target.value })} placeholder="(215) 555-0100" aria-label={`${label} cell number`} /></span>
+              <span style={{ color: '#6b6158', fontSize: '0.9em', flexBasis: '100%' }}>On "Save & send" they're emailed a private link (expires in 3 days) and get a text reminding them to check their email. They confirm the last 4 digits of this cell number, read the notice and sign on their phone; the signed copy is filed and you're alerted.</span>
+            </div>
+          );
+        })()}
       </div>
     );
   };
 
+  if (employees === null && !error) return <div className="fin-root" style={{ maxWidth: 940, margin: '0 auto' }}><style>{FIN_CSS(th)}</style><h2 style={S.title}>Violation Notice</h2><p style={{ color: th.muted }}>Loading…</p></div>;
+
+  // ── approver / exec list: Pending · Waiting on signatures · Complete ──
+  if (listView && view === 'list') {
+    const day = (d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', textAlign: 'left', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body };
+    const who = (f) => <><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}{f.jobTitle ? `, ${f.jobTitle}` : ''}</span></>;
+    // In the order a notice moves through them (user, 2026-11-11): signatures → approval → complete.
+    const tabs = [['waiting', `Waiting on signatures${lists.waiting.length ? ` (${lists.waiting.length})` : ''}`], ['pending', `Pending approval${lists.pending.length ? ` (${lists.pending.length})` : ''}`], ['complete', 'Complete']];
+    return (
+      <div className="fin-root" style={{ maxWidth: 940, margin: '0 auto' }}>
+        <style>{FIN_CSS(th) + CSS}</style>
+        {onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
+        <h2 style={S.title}>Violation Notice</h2>
+        <p style={S.lede}>Violation notices from supervisors. Once everyone has signed they wait for approval; approved ones are filed in Google Drive and show under Complete.</p>
+        {decided && <FinBanner th={th} tone="success">{decided}</FinBanner>}
+        {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
+        {reviewing ? <VnReview th={th} isMobile={isMobile} form={reviewing} canApprove={canApprove} onClose={(msg) => { setReviewing(null); loadMain(); if (msg) setDecided(msg); }} /> : (<>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <div role="tablist" aria-label="Violation notices" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {tabs.map(([k, label]) => (
+                <button key={k} type="button" role="tab" aria-selected={listTab === k} className="fin-btn" onClick={() => setListTab(k)}
+                  style={{ ...S.ghost, minHeight: 36, padding: '0.4rem 0.95rem', background: listTab === k ? O : th.card3, color: listTab === k ? '#fff' : th.text }}>{label}</button>
+              ))}
+            </div>
+            <button type="button" className="fin-btn" style={S.primary} onClick={() => { setDecided(null); setView('form'); }}>Start a violation notice</button>
+          </div>
+          {listTab === 'pending' && (lists.pending.length ? (
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              {lists.pending.map(f => (
+                <button key={f.id} type="button" className="fin-btn" onClick={() => setReviewing(f)} style={{ ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: 'pointer' }}>
+                  <span style={{ minWidth: 0 }}>{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}, {day(f.createdAt)}</span></span>
+                  <span style={{ color: canApprove ? O : th.muted, fontWeight: 700, fontSize: '0.85rem', alignSelf: 'center' }}>{canApprove ? 'Review' : 'View'}</span>
+                </button>
+              ))}
+            </div>
+          ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>Nothing waiting for approval.</p>)}
+          {listTab === 'waiting' && (lists.waiting.length ? (
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              {lists.waiting.map(f => (
+                <div key={f.id} style={rowStyle}>
+                  <span style={{ minWidth: 0 }}>{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}, {day(f.createdAt)}: waiting on the employee or witness to sign from their email link</span></span>
+                  {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O, fontSize: '0.85rem' }}>View form</button>}
+                </div>
+              ))}
+            </div>
+          ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No notices waiting on signatures.</p>)}
+          {listTab === 'complete' && (lists.complete.length ? (
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              {lists.complete.map(f => (
+                <div key={f.id} style={rowStyle}>
+                  <span style={{ minWidth: 0 }}>{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}{f.decidedBy ? `, approved by ${f.decidedBy} on ${day(f.decidedAt)}` : `, ${day(f.createdAt)}`}</span></span>
+                  <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
+                    {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View form</button>}
+                    {f.driveLink && <a href={f.driveLink} target="_blank" rel="noreferrer" style={{ color: O }}>Open in Google Drive</a>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No approved violation notices yet.</p>)}
+          {viewing && <FormModal th={th} id={`/.netlify/functions/violation-notice?pdf=${viewing.id}`} title={`Violation notice for ${viewing.employeeName}`} onClose={() => setViewing(null)} />}
+        </>)}
+      </div>
+    );
+  }
+
   return (
     <div className="fin-root" style={{ maxWidth: 940, margin: '0 auto' }}>
       <style>{FIN_CSS(th) + CSS}</style>
-      {onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
+      {listView
+        ? <button type="button" className="fin-btn" onClick={() => { setView('list'); loadMain(); }} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Violation Notices</button>
+        : onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
       <h2 style={S.title}>Violation Notice</h2>
-      <p style={S.lede}>Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign too if they're there.</p>
+      <p style={S.lede}>Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign here, or from an emailed link if they aren't there. Once everyone has signed it goes for approval, then it's filed.</p>
 
       {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
       {voided && <FinBanner th={th} tone="warn">The notice changed after it was signed, so those signatures no longer count. Sign again.</FinBanner>}

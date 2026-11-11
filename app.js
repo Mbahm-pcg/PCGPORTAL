@@ -2544,13 +2544,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .pi-office td + td { border-left: 1px solid #b7b7b7; color: #9a8f86; font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .pi-blank, .pi-sigbtn { transition: none; } }`;
   var pdfCache = /* @__PURE__ */ new Map();
+  var pdfUrl = (id) => String(id).startsWith("/") ? String(id) : `/.netlify/functions/pay-increase?pdf=${id}`;
   function loadPayPdf(id) {
     if (!pdfCache.has(id)) {
       pdfCache.set(id, (async () => {
         const lib = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
         if (!lib) throw new Error("The PDF viewer did not load \u2014 refresh the page.");
         lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-        const res = await fetch(`/.netlify/functions/pay-increase?pdf=${id}`, { credentials: "include", headers: { ...authHeader() } });
+        const res = await fetch(pdfUrl(id), { credentials: "include", headers: { ...authHeader() } });
         if (!res.ok) throw new Error(`Could not load the form (${res.status}).`);
         const doc = await lib.getDocument({ data: new Uint8Array(await res.arrayBuffer()) }).promise;
         return doc.getPage(1);
@@ -2615,13 +2616,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         },
         "\u2715"
       ),
-      err ? /* @__PURE__ */ React.createElement("p", { style: { color: "#fff" } }, err, " ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${id}`, target: "_blank", rel: "noreferrer", style: { color: "#ffb48a" } }, "Open the PDF")) : /* @__PURE__ */ React.createElement("div", { style: { borderRadius: 6, overflow: "hidden", boxShadow: "0 12px 40px rgba(0,0,0,0.35)" } }, /* @__PURE__ */ React.createElement(PdfPage, { id, width: bigWidth, onError: setErr }))
+      err ? /* @__PURE__ */ React.createElement("p", { style: { color: "#fff" } }, err, " ", /* @__PURE__ */ React.createElement("a", { href: pdfUrl(id), target: "_blank", rel: "noreferrer", style: { color: "#ffb48a" } }, "Open the PDF")) : /* @__PURE__ */ React.createElement("div", { style: { borderRadius: 6, overflow: "hidden", boxShadow: "0 12px 40px rgba(0,0,0,0.35)" } }, /* @__PURE__ */ React.createElement(PdfPage, { id, width: bigWidth, onError: setErr }))
     );
   }
   function FormPreview({ th, id, title, thumbWidth = 230 }) {
     const [open, setOpen] = useState3(false);
     const [err, setErr] = useState3(null);
-    if (err) return /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem" } }, err, " ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open the PDF"));
+    if (err) return /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem" } }, err, " ", /* @__PURE__ */ React.createElement("a", { href: pdfUrl(id), target: "_blank", rel: "noreferrer", style: { color: O } }, "Open the PDF"));
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -3247,6 +3248,28 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .vn-sigimg { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: flex-end; }
 .vn-blank:focus-visible, .vn-lines:focus-visible, .vn-sigbtn:focus-visible, .vn-sigimg:focus-visible, .vn-check input:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .vn-blank, .vn-sigbtn { transition: none; } }`;
+  function VnReview({ th, isMobile, form, onClose, canApprove }) {
+    const S = finStyles(th);
+    const [busy, setBusy] = useState4(false);
+    const [err, setErr] = useState4(null);
+    const [backing, setBacking] = useState4(false);
+    const [note, setNote] = useState4("");
+    const src = `/.netlify/functions/violation-notice?pdf=${form.id}`;
+    const decide = async (action) => {
+      setBusy(true);
+      setErr(null);
+      try {
+        const b = await call2({ action, id: form.id, note: note.trim() });
+        if (action === "reject") return onClose(`Sent back to ${form.submittedBy}.`);
+        const d = b.drive || {}, a = b.alert || {};
+        onClose(`Approved: ${d.saved ? "filed in Google Drive" : `not saved to Drive (${d.error || "error"})`}, ${a.error ? `alert failed (${a.error})` : a.recipients ? `the Violation Notice list was alerted (${a.recipients})` : "no one is on the Violation Notice alert list yet"}. ${form.submittedBy} was told.`);
+      } catch (e) {
+        setErr(e.message);
+        setBusy(false);
+      }
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "From ", form.submittedBy, form.violationDate ? `, violation on ${formatVioDate(form.violationDate)}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: src, title: `Violation notice for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: src, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "vn-note", style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement("textarea", { id: "vn-note", value: note, maxLength: 400, rows: 3, onChange: (e) => setNote(e.target.value), style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the violation notice approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving\u2026" : "Approve & file")));
+  }
   var Locked2 = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `vn-locked${value ? "" : " vn-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function ViolationNotice({ th, isMobile, onBack }) {
     const S = finStyles(th);
@@ -3271,21 +3294,47 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [consequences, setConsequences] = useState4("");
     const [witnessName, setWitnessName] = useState4("");
     const [employeeRefused, setEmployeeRefused] = useState4(false);
+    const [remote, setRemoteState] = useState4({ employee: { on: false, phone: "", email: "" }, witness: { on: false, phone: "", email: "" } });
+    const setRemote = (role, patch) => setRemoteState((r) => ({ ...r, [role]: { ...r[role], ...patch } }));
     const [sigs, setSigs] = useState4({});
     const [signing, setSigning] = useState4(null);
     const [busy, setBusy] = useState4(false);
     const [saved, setSaved] = useState4(null);
+    const [listView, setListView] = useState4(false);
+    const [canApprove, setCanApprove] = useState4(false);
+    const [lists, setLists] = useState4({ pending: [], waiting: [], complete: [] });
+    const [view, setView] = useState4("list");
+    const [listTab, setListTab] = useState4("pending");
+    const [reviewing, setReviewing] = useState4(null);
+    const [viewing, setViewing] = useState4(null);
+    const [decided, setDecided] = useState4(null);
+    const loadMain = () => call2().then((b) => {
+      setStores(b.stores || []);
+      setEmployees(b.employees || []);
+      setSupervisor((s) => s || b.myName || "");
+      setSupervisorName((s) => s || b.myName || "");
+      if (b.rosterError) setError(b.rosterError);
+      setListView(!!b.listView);
+      setCanApprove(!!b.canApprove);
+      setLists({ pending: b.pending || [], waiting: b.waiting || [], complete: b.complete || [] });
+      let open = null;
+      try {
+        open = sessionStorage.getItem("vn_open");
+        sessionStorage.removeItem("vn_open");
+      } catch {
+      }
+      const hit = open && (b.pending || []).find((x) => String(x.id) === String(open));
+      if (hit) {
+        setView("list");
+        setListTab("pending");
+        setReviewing(hit);
+      }
+    }).catch((e) => {
+      setError(e.message);
+      setEmployees([]);
+    });
     useEffect4(() => {
-      call2().then((b) => {
-        setStores(b.stores || []);
-        setEmployees(b.employees || []);
-        setSupervisor((s) => s || b.myName || "");
-        setSupervisorName((s) => s || b.myName || "");
-        if (b.rosterError) setError(b.rosterError);
-      }).catch((e) => {
-        setError(e.message);
-        setEmployees([]);
-      });
+      loadMain();
     }, []);
     const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
     const form = { employee: picked, pc: picked?.pc, supervisor, date, notice, types, action, suspensionStart, suspensionReturn, violationDate, description, improvement, consequences, supervisorName, witnessName, employeeRefused };
@@ -3296,7 +3345,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const values = violationValues({ ...form, employeeSig: sigOk("employee"), supervisorSig: sigOk("supervisor"), witnessSig: sigOk("witness") });
     const formMissing = missingViolationFields({ ...base, supervisorSignature: "x" });
     const canSign = !formMissing.length;
-    const missing = missingViolationFields(values);
+    const remoteOn = (role) => remote[role].on && !sigOk(role) && (role !== "employee" || !employeeRefused);
+    const phoneOk = (p) => {
+      const d = p.replace(/\D/g, "");
+      return d.length === 10 || d.length === 11 && d[0] === "1";
+    };
+    const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+    const remoteMissing = ["employee", "witness"].filter(remoteOn).flatMap((role) => {
+      const who = role === "employee" ? "Employee" : "Witness";
+      return [...role === "witness" && !witnessName.trim() ? ["Witness name"] : [], ...!emailOk(remote[role].email) ? [`${who}'s email for the signing link`] : [], ...!phoneOk(remote[role].phone) ? [`${who}'s cell number`] : []];
+    });
+    const missing = [...missingViolationFields(values), ...remoteMissing];
     const ready = !missing.length && !busy;
     useEffect4(() => {
       setSaved(null);
@@ -3321,7 +3380,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const fileName = `Violation-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
         setSaved({ state: "saving" });
         try {
-          const b = await call2({ values, employeeId: picked.id, pdf: doc.output("datauristring") });
+          const b = await call2({ values, employeeId: picked.id, pdf: doc.output("datauristring"), remoteSign: Object.fromEntries(["employee", "witness"].filter(remoteOn).map((role) => [role, { phone: remote[role].phone, email: remote[role].email.trim() }])) });
           setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
         } catch (e) {
           setSaved({ state: "failed", error: e.message, pdfUrl: deliverPdf(doc, fileName) });
@@ -3335,8 +3394,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       if (!saved) return null;
       if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Saving and sending\u2026");
       if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Not saved: ", saved.error, ". Press the button again to retry.");
-      const d = saved.drive || {}, a = saved.alert || {};
-      return /* @__PURE__ */ React.createElement("span", { style: { color: d.saved && !a.error ? "#16a34a" : "#d97706" } }, d.saved ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Saved to Google Drive", d.link ? /* @__PURE__ */ React.createElement(React.Fragment, null, " (", /* @__PURE__ */ React.createElement("a", { href: d.link, target: "_blank", rel: "noreferrer", style: { color: "inherit" } }, "open"), ")") : "", ".") : `Not saved to Drive: ${d.error || "unknown error"}. Press the button again to retry.`, " ", a.error ? `Alert failed: ${a.error}.` : a.recipients ? `Sent to ${a.recipients} recipient${a.recipients === 1 ? "" : "s"}.` : a.recipients === 0 ? "No one is on the Violation Notice alert list yet." : "");
+      return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, saved.status === "awaiting_signatures" ? "Saved. Once the signatures below come in, it goes for approval; you'll be told when it's approved." : saved.status === "pending" ? `Sent for approval${saved.notified ? "" : " (no approver is set up yet \u2014 ask IT)"}. Once it's approved it's filed in Google Drive and you'll be told.` : saved.status === "approved" ? "This notice was already approved and filed." : "Saved.", (saved.remoteSign || []).map((r) => {
+        const who = r.role === "witness" ? "witness" : "employee";
+        return /* @__PURE__ */ React.createElement("span", { key: r.role, style: { display: "block", marginTop: "0.3rem", color: r.sent ? r.textNote ? "#d97706" : "#16a34a" : "#dc2626" } }, r.error ? `The ${who}'s signing link was not sent: ${r.error}. Press the button again to retry.` : r.already ? `The ${who}'s signing link was just sent.` : r.signedAlready ? `The ${who} has already signed.` : r.sent ? `Signing link emailed to the ${who} (${r.email})${r.texted ? `, with a reminder text to ${r.phone}` : ""}. It expires ${new Date(r.expiresAt).toLocaleDateString("en-US")}. You'll get an alert when they sign.${r.textNote ? ` ${r.textNote}.` : ""}` : `The ${who}'s signing email did not go through. Check the address and press the button again.`);
+      }));
     };
     const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
       "input",
@@ -3387,9 +3448,45 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       const s = sigOk(key);
       const refused = key === "employee" && !s && employeeRefused;
       const can = canSign && (key !== "witness" || witnessName.trim());
-      return /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { marginTop: "0.9em" } }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement("u", null, label), " - Name:"), name), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Signature:"), /* @__PURE__ */ React.createElement("span", { className: "vn-sigline" }, refused ? /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.2em", paddingLeft: "0.4em" } }, "Refused to sign") : s ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "vn-sigimg", onClick: () => setSigning(key), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: s.image, alt: `${label} signature`, style: { maxHeight: "2.3em", maxWidth: "12em", objectFit: "contain" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "vn-sigbtn", disabled: !can, onClick: () => setSigning(key), style: { opacity: can ? 1 : 0.45, cursor: can ? "pointer" : "not-allowed" } }, can ? `Tap to sign \u2014 ${label}` : canSign ? "Type the witness name first" : "Fill in the form first"))), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Date:"), /* @__PURE__ */ React.createElement(Locked2, { value: s ? formatVioDate(s.date) : "", placeholder: "on signing", w: "6.5em" })), key === "employee" && !s && /* @__PURE__ */ React.createElement("label", { className: "vn-check", style: { fontFamily: FONTS.body, fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: employeeRefused, onChange: (e) => setEmployeeRefused(e.target.checked) }), " Employee refused to sign"));
+      return /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { marginTop: "0.9em" } }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement("u", null, label), " - Name:"), name), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Signature:"), /* @__PURE__ */ React.createElement("span", { className: "vn-sigline" }, refused ? /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.2em", paddingLeft: "0.4em" } }, "Refused to sign") : key !== "supervisor" && remoteOn(key) ? /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.2em", paddingLeft: "0.4em", color: "#6b6158", fontStyle: "italic" } }, "Will sign by email link") : s ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "vn-sigimg", onClick: () => setSigning(key), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: s.image, alt: `${label} signature`, style: { maxHeight: "2.3em", maxWidth: "12em", objectFit: "contain" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "vn-sigbtn", disabled: !can, onClick: () => setSigning(key), style: { opacity: can ? 1 : 0.45, cursor: can ? "pointer" : "not-allowed" } }, can ? `Tap to sign \u2014 ${label}` : canSign ? "Type the witness name first" : "Fill in the form first"))), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Date:"), /* @__PURE__ */ React.createElement(Locked2, { value: s ? formatVioDate(s.date) : "", placeholder: "on signing", w: "6.5em" })), key === "employee" && !s && !remoteOn("employee") && /* @__PURE__ */ React.createElement("label", { className: "vn-check", style: { fontFamily: FONTS.body, fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: employeeRefused, onChange: (e) => {
+        setEmployeeRefused(e.target.checked);
+        if (e.target.checked) setRemote("employee", { on: false });
+      } }), " Employee refused to sign"), key !== "supervisor" && !s && !refused && /* @__PURE__ */ React.createElement("label", { className: "vn-check", style: { fontFamily: FONTS.body, fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: remote[key].on, onChange: (e) => setRemote(key, { on: e.target.checked }) }), " ", label, " isn't here: email them a link to sign"), key !== "supervisor" && remoteOn(key) && (() => {
+        const r = remote[key];
+        return /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { fontFamily: FONTS.body, fontSize: "0.85rem", width: "100%", marginTop: "0.2em" } }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, label, " email:"), /* @__PURE__ */ React.createElement("input", { className: "vn-blank", type: "email", inputMode: "email", autoComplete: "off", style: { width: "13em", ...r.email && !emailOk(r.email) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: r.email, maxLength: 120, onChange: (e) => setRemote(key, { email: e.target.value }), "aria-label": `${label} email` })), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, label, " cell:"), /* @__PURE__ */ React.createElement("input", { className: "vn-blank", type: "tel", inputMode: "tel", autoComplete: "off", style: { width: "9.5em", ...r.phone && !phoneOk(r.phone) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: r.phone, maxLength: 20, onChange: (e) => setRemote(key, { phone: e.target.value }), placeholder: "(215) 555-0100", "aria-label": `${label} cell number` })), /* @__PURE__ */ React.createElement("span", { style: { color: "#6b6158", fontSize: "0.9em", flexBasis: "100%" } }, `On "Save & send" they're emailed a private link (expires in 3 days) and get a text reminding them to check their email. They confirm the last 4 digits of this cell number, read the notice and sign on their phone; the signed copy is filed and you're alerted.`));
+      })());
     };
-    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign too if they're there."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The notice changed after it was signed, so those signatures no longer count. Sign again."), employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "There's no one you can pick yet. If you're a Store Manager, ask IT to link your account to your store."), /* @__PURE__ */ React.createElement("div", { className: "vn-paper", style: {
+    if (employees === null && !error) return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026"));
+    if (listView && view === "list") {
+      const day = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const rowStyle = { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", textAlign: "left", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body };
+      const who = (f) => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, f.jobTitle ? `, ${f.jobTitle}` : ""));
+      const tabs = [["waiting", `Waiting on signatures${lists.waiting.length ? ` (${lists.waiting.length})` : ""}`], ["pending", `Pending approval${lists.pending.length ? ` (${lists.pending.length})` : ""}`], ["complete", "Complete"]];
+      return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Violation notices from supervisors. Once everyone has signed they wait for approval; approved ones are filed in Google Drive and show under Complete."), decided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, decided), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), reviewing ? /* @__PURE__ */ React.createElement(VnReview, { th, isMobile, form: reviewing, canApprove, onClose: (msg) => {
+        setReviewing(null);
+        loadMain();
+        if (msg) setDecided(msg);
+      } }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "Violation notices", style: { display: "flex", gap: "0.4rem", flexWrap: "wrap" } }, tabs.map(([k, label]) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: k,
+          type: "button",
+          role: "tab",
+          "aria-selected": listTab === k,
+          className: "fin-btn",
+          onClick: () => setListTab(k),
+          style: { ...S.ghost, minHeight: 36, padding: "0.4rem 0.95rem", background: listTab === k ? O : th.card3, color: listTab === k ? "#fff" : th.text }
+        },
+        label
+      ))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
+        setDecided(null);
+        setView("form");
+      } }, "Start a violation notice")), listTab === "pending" && (lists.pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.pending.map((f) => /* @__PURE__ */ React.createElement("button", { key: f.id, type: "button", className: "fin-btn", onClick: () => setReviewing(f), style: { ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, ", ", day(f.createdAt))), /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "waiting" && (lists.waiting.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.waiting.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, ", ", day(f.createdAt), ": waiting on the employee or witness to sign from their email link")), f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O, fontSize: "0.85rem" } }, "View form")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No notices waiting on signatures.")), listTab === "complete" && (lists.complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, f.decidedBy ? `, approved by ${f.decidedBy} on ${day(f.decidedAt)}` : `, ${day(f.createdAt)}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved violation notices yet.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/violation-notice?pdf=${viewing.id}`, title: `Violation notice for ${viewing.employeeName}`, onClose: () => setViewing(null) })));
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), listView ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
+      setView("list");
+      loadMain();
+    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Violation Notices") : onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign here, or from an emailed link if they aren't there. Once everyone has signed it goes for approval, then it's filed."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The notice changed after it was signed, so those signatures no longer count. Sign again."), employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "There's no one you can pick yet. If you're a Store Manager, ask IT to link your account to your store."), /* @__PURE__ */ React.createElement("div", { className: "vn-paper", style: {
       borderRadius: 6,
       boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
       padding: isMobile ? "1.2rem 1rem 1.6rem" : "1.8rem 2.6rem 2.4rem",
@@ -3827,8 +3924,141 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
 
+  // src/remote-sign-ui.jsx
+  var { useState: useState6, useEffect: useEffect6, useRef: useRef4 } = React;
+  var call4 = async (body) => {
+    const res = await fetch("/.netlify/functions/violation-sign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const e = new Error(b.error || `HTTP ${res.status}`);
+      e.done = !!b.done;
+      throw e;
+    }
+    return b;
+  };
+  var b64ToBytes = (b64) => {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  };
+  function PdfPages({ b64, width }) {
+    const ref = useRef4(null);
+    const [err, setErr] = useState6(null);
+    useEffect6(() => {
+      let live = true;
+      (async () => {
+        const lib = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
+        if (!lib) throw new Error("The viewer did not load \u2014 refresh the page.");
+        lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        const doc = await lib.getDocument({ data: b64ToBytes(b64) }).promise;
+        const host = ref.current;
+        if (!live || !host) return;
+        host.innerHTML = "";
+        for (let n = 1; n <= doc.numPages; n++) {
+          const page = await doc.getPage(n);
+          const dpr = window.devicePixelRatio || 1;
+          const base = page.getViewport({ scale: 1 });
+          const vp = page.getViewport({ scale: width / base.width * dpr });
+          const c = document.createElement("canvas");
+          c.width = vp.width;
+          c.height = vp.height;
+          c.style.width = `${width}px`;
+          c.style.height = `${vp.height / dpr}px`;
+          c.style.display = "block";
+          c.style.background = "#fff";
+          c.setAttribute("aria-label", `Violation Notice page ${n}`);
+          host.appendChild(c);
+          await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+        }
+      })().catch((e) => live && setErr(e.message));
+      return () => {
+        live = false;
+      };
+    }, [b64, width]);
+    if (err) return /* @__PURE__ */ React.createElement("p", { style: { color: "#dc2626" } }, err);
+    return /* @__PURE__ */ React.createElement("div", { ref, style: { borderRadius: 6, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)" } });
+  }
+  function RemoteSignPage({ token }) {
+    const th = getTheme(false);
+    const S = finStyles(th);
+    const [hello, setHello] = useState6(null);
+    const [error, setError] = useState6(null);
+    const [fatal, setFatal] = useState6(null);
+    const [last4, setLast4] = useState6("");
+    const [doc, setDoc] = useState6(null);
+    const [read, setRead] = useState6(false);
+    const [signing, setSigning] = useState6(false);
+    const [busy, setBusy] = useState6(false);
+    const [done, setDone] = useState6(null);
+    const width = Math.min(820, (typeof window !== "undefined" ? window.innerWidth : 820) - 32);
+    useEffect6(() => {
+      document.title = "Sign your Violation Notice \xB7 PCG";
+      call4({ token, action: "hello" }).then(setHello).catch((e) => setFatal(e.message));
+    }, []);
+    const open = async (e) => {
+      e.preventDefault();
+      if (!/^\d{4}$/.test(last4)) {
+        setError("Enter the last 4 digits of your phone number.");
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        setDoc(await call4({ token, last4, action: "open" }));
+      } catch (err) {
+        if (/locked|expired|replaced|signed/.test(err.message)) setFatal(err.message);
+        else setError(err.message);
+      }
+      setBusy(false);
+    };
+    const sign = async (signature) => {
+      setSigning(false);
+      setBusy(true);
+      setError(null);
+      try {
+        const b = await call4({ token, last4, action: "sign", signature });
+        setDone({ url: URL.createObjectURL(new Blob([b64ToBytes(b.pdf)], { type: "application/pdf" })) });
+      } catch (err) {
+        if (err.done) setDone({});
+        else setError(err.message);
+      }
+      setBusy(false);
+    };
+    const shell = (children) => /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { minHeight: "100vh", background: th.bg, color: th.text, fontFamily: FONTS.body, padding: "20px 16px 48px", boxSizing: "border-box" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 820, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("img", { src: "/pcg-logo-form.jpg", alt: "People Capital Group", style: { height: 56, display: "block", margin: "0 auto 1rem" } }), children));
+    if (done) return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, textAlign: "center" } }, "Thank you, it's signed"), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, textAlign: "center", margin: "0 auto 1.2rem" } }, "Your signature was added and your supervisor has the signed copy. You can close this page."), done.url && /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("a", { href: done.url, target: "_blank", rel: "noreferrer", style: { ...S.ghost, textDecoration: "none", display: "inline-flex" } }, "Open your signed copy"))));
+    if (fatal) return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, textAlign: "center" } }, "This link can't be used"), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, textAlign: "center", margin: "0 auto" } }, fatal)));
+    if (!hello) return shell(/* @__PURE__ */ React.createElement("p", { style: { color: th.muted, textAlign: "center" } }, "Loading\u2026"));
+    if (!doc) return shell(
+      /* @__PURE__ */ React.createElement("form", { onSubmit: open, style: { ...S.panel, padding: "1.3rem 1.2rem", maxWidth: 440, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, fontSize: "1.3rem" } }, "Hi ", hello.firstName), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: "1rem" } }, hello.role === "witness" ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.` : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`, " To open it, enter the last 4 digits of the cell number your supervisor has for you."), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Last 4 digits of your phone", /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          style: { ...S.input, fontSize: "1.3rem", letterSpacing: "0.3em", textAlign: "center", fontVariantNumeric: "lining-nums tabular-nums" },
+          value: last4,
+          onChange: (e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4)),
+          inputMode: "numeric",
+          autoComplete: "off",
+          maxLength: 4,
+          "aria-label": "Last 4 digits of your phone",
+          autoFocus: true
+        }
+      )), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement("button", { type: "submit", className: "fin-btn", disabled: busy, style: { ...S.primary, width: "100%", marginTop: "1rem" } }, busy ? "Checking\u2026" : "Open the notice"))
+    );
+    return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: S.title }, doc.role === "witness" ? `Witness: ${doc.employeeName}'s Violation Notice` : "Your Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, doc.role === "witness" ? "Read the notice below, then sign at the bottom as the witness." : "Read the notice below, then sign at the bottom. Signing confirms you received it and discussed it with your manager; it does not mean you agree with it."), /* @__PURE__ */ React.createElement(PdfPages, { b64: doc.pdf, width }), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1.1rem 1.2rem", marginTop: "1.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.6rem", alignItems: "flex-start", fontSize: "0.95rem", lineHeight: 1.45, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: read, onChange: (e) => setRead(e.target.checked), style: { accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 } }), doc.role === "witness" ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`), error && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error)), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "fin-btn",
+        disabled: !read || busy,
+        onClick: () => setSigning(true),
+        style: { ...S.primary, width: "100%", marginTop: "1rem", opacity: read && !busy ? 1 : 0.5, cursor: read && !busy ? "pointer" : "not-allowed" }
+      },
+      busy ? "Signing\u2026" : "Sign the notice"
+    )), signing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: `Your signature \u2014 ${doc.signerName}`, onCancel: () => setSigning(false), onDone: sign })));
+  }
+
   // src/joy-leaderboard-ui.jsx
-  var { useState: useState6, useEffect: useEffect6 } = React;
+  var { useState: useState7, useEffect: useEffect7 } = React;
   var FONT_H = "'Raleway'";
   var FONT_B = "'Source Sans 3'";
   var NUM = { fontVariantNumeric: "lining-nums tabular-nums" };
@@ -3852,14 +4082,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var HeartIcon = ({ color }) => /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M12 20s-7-4.4-9.2-8.6C1.3 8.4 3.2 5 6.6 5c2 0 3.4 1.1 4.4 2.6C12 6.1 13.4 5 15.4 5c3.4 0 5.3 3.4 3.8 6.4C17 15.6 12 20 12 20Z" }));
   var Chevron = ({ dir, color }) => /* @__PURE__ */ React.createElement("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: dir === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6" }));
   function JoyLeaderboard({ th, isMobile }) {
-    const [data, setData] = useState6(null);
-    const [err, setErr] = useState6(null);
-    const [date, setDate] = useState6(null);
-    const [mode, setMode] = useState6("day");
-    const [month, setMonth] = useState6(null);
-    const [loading, setLoading] = useState6(false);
-    const [showAll, setShowAll] = useState6(false);
-    useEffect6(() => {
+    const [data, setData] = useState7(null);
+    const [err, setErr] = useState7(null);
+    const [date, setDate] = useState7(null);
+    const [mode, setMode] = useState7("day");
+    const [month, setMonth] = useState7(null);
+    const [loading, setLoading] = useState7(false);
+    const [showAll, setShowAll] = useState7(false);
+    useEffect7(() => {
       let live = true;
       const load = () => {
         setLoading(true);
@@ -3944,9 +4174,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return /* @__PURE__ */ React.createElement("section", { style: cardStyle, "aria-label": "Joy in Childhood leaderboard" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(HeartIcon, { color: O }), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontFamily: FONT_H, fontWeight: 800, fontSize: "1.02rem", color: th.text } }, "Joy in Childhood"), data?.updatedAt && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontFamily: FONT_B } }, "Updated ", ago(data.updatedAt)))), data && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", fontFamily: FONT_B, flexWrap: "wrap", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("span", { role: "group", "aria-label": "Show one day or the whole month", style: { display: "inline-flex", gap: 2, padding: 2, borderRadius: 999, border: `1px solid ${th.cardBorder}` } }, seg("day", "Day"), seg("month", "Month")), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, arrow("left", canBack, () => step(-1), isMonth ? "Previous month" : "Previous day"), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { minWidth: "7.5em", textAlign: "center", fontWeight: 700, color: th.text, fontSize: "0.9rem", opacity: loading ? 0.6 : 1 } }, isMonth ? monthLabel(shownMonth, data.thisMonth) : dayLabel(shown, today)), arrow("right", canFwd, () => step(1), isMonth ? "Next month" : "Next day")))), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: "#dc2626", fontFamily: FONT_B, padding: "0.3rem 0" } }, err), data && isStore && rows[0] && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.6rem", padding: "0.4rem 0.2rem", fontFamily: FONT_B, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_H, fontWeight: 900, fontSize: "2.4rem", color: O, lineHeight: 1, ...NUM } }, rows[0].noData ? "\u2014" : rows[0].cnt.toLocaleString()), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, rows[0].noData ? `no data yet for ${rows[0].name}` : `donation${rows[0].cnt === 1 ? "" : "s"} at ${rows[0].name}`), !rows[0].noData && rows[0].ttl > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "$", rows[0].ttl.toLocaleString(void 0, { maximumFractionDigits: 2 }), " raised for Joy in Childhood")), data && isStore && !rows[0] && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, fontFamily: FONT_B } }, "Your account isn't linked to a store yet."), data && !isStore && /* @__PURE__ */ React.createElement(React.Fragment, null, rows.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, fontFamily: FONT_B, marginBottom: "0.3rem" } }, data.total.toLocaleString(), " donations across ", rows.filter((r) => !r.noData).length, " stores"), rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, fontFamily: FONT_B, padding: "0.4rem 0.2rem" } }, "No numbers for this ", isMonth ? "month" : "day", " yet. They fill in every hour."), !rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("ol", { style: { listStyle: "none", margin: 0, padding: 0 } }, rows.slice(0, limit).map((r) => /* @__PURE__ */ React.createElement("li", { key: r.pc, style: { display: "grid", gridTemplateColumns: isMobile ? "1.6rem minmax(0, 1.7fr) minmax(0, 1fr) 3rem" : "2rem minmax(0, 1fr) minmax(0, 1.4fr) 3.5rem", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.2rem", borderTop: `1px solid ${th.cardBorder}`, fontFamily: FONT_B } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_H, fontWeight: 900, color: r.rank && r.rank <= 3 ? O : th.muted, fontSize: "0.95rem", ...NUM } }, r.rank || ""), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.name, !isMobile && /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: th.muted, fontSize: "0.78rem" } }, " D", r.district)), /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { height: 8, borderRadius: 4, background: th.cardBorder, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "block", height: "100%", width: `${r.noData ? 0 : Math.max(2, r.cnt / max * 100)}%`, background: O, borderRadius: 4 } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", fontWeight: 800, color: th.text, ...NUM } }, r.noData ? "\u2014" : r.cnt.toLocaleString())))), data.scope === "all" && rows.length > 5 && !rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("div", { style: { paddingTop: "0.55rem", textAlign: "center" } }, linkBtn(showAll ? "Show top 5" : `Show all ${rows.length} stores`, () => setShowAll((v) => !v)))));
   }
   function JoyMobileTile({ cardStyle, mono, display, muted, secondary }) {
-    const [today, setToday] = useState6(null);
-    const [month, setMonth] = useState6(null);
-    useEffect6(() => {
+    const [today, setToday] = useState7(null);
+    const [month, setMonth] = useState7(null);
+    useEffect7(() => {
       let live = true;
       const get = (qs) => fetch("/.netlify/functions/joy" + qs, { credentials: "include", headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).catch(() => null);
       const load = () => Promise.all([get(""), get(`?month=${(/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" }).slice(0, 7)}`)]).then(([d, m2]) => {
@@ -4760,7 +4990,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // app.jsx
-  var { useState: useState7, useRef: useRef4, useCallback, useEffect: useEffect7 } = React;
+  var { useState: useState8, useRef: useRef5, useCallback, useEffect: useEffect8 } = React;
   var Guard = class extends React.Component {
     constructor(props) {
       super(props);
@@ -4783,8 +5013,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
   var GOOGLE_ALLOWED_DOMAINS = ["peoplecapitalgroup.com", "rgi.life", "Raogroupinc.com"];
   function useIsMobile() {
-    const [isMobile, setIsMobile] = useState7(() => window.innerWidth <= 768);
-    useEffect7(() => {
+    const [isMobile, setIsMobile] = useState8(() => window.innerWidth <= 768);
+    useEffect8(() => {
       const handler = () => setIsMobile(window.innerWidth <= 768);
       window.addEventListener("resize", handler);
       return () => window.removeEventListener("resize", handler);
@@ -4792,8 +5022,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return isMobile;
   }
   function useNoHoverDevice() {
-    const [noHover, setNoHover] = useState7(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
-    useEffect7(() => {
+    const [noHover, setNoHover] = useState8(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
+    useEffect8(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mq = window.matchMedia("(hover: none)");
       const handler = () => setNoHover(mq.matches);
@@ -4805,8 +5035,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return noHover;
   }
   function useFrameHeight(frameRef, min = 360, gutter = 20, dep) {
-    const [frameH, setFrameH] = useState7(null);
-    useEffect7(() => {
+    const [frameH, setFrameH] = useState8(null);
+    useEffect8(() => {
       const measure = () => {
         const el = frameRef.current;
         if (!el) return;
@@ -5904,50 +6134,50 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Login({ onLogin, dark, toggleDark, users }) {
     const th = getTheme(dark);
-    const [form, setForm] = useState7({ u: (() => {
+    const [form, setForm] = useState8({ u: (() => {
       try {
         return localStorage.getItem("pcg_remember_username") || "";
       } catch {
         return "";
       }
     })(), p: "" });
-    const [rememberMe, setRememberMe] = useState7(() => {
+    const [rememberMe, setRememberMe] = useState8(() => {
       try {
         return !!localStorage.getItem("pcg_remember_username");
       } catch {
         return false;
       }
     });
-    const [authStage, setAuthStage] = useState7("password");
-    const [pendingUser, setPendingUser] = useState7(null);
-    const [twoFactorCode, setTwoFactorCode] = useState7("");
-    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState7("");
-    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState7(false);
-    const [trustDevice, setTrustDevice] = useState7(true);
-    const [err, setErr] = useState7("");
-    const [show, setShow] = useState7(false);
-    const [logoAnim, setLogoAnim] = useState7(false);
-    const [shake, setShake] = useState7(false);
-    const [loading, setLoading] = useState7(false);
-    const [exiting, setExiting] = useState7(false);
-    const [focusField, setFocusField] = useState7(null);
-    const [now, setNow] = useState7(/* @__PURE__ */ new Date());
-    const [mounted, setMounted] = useState7(false);
-    const [showItModal, setShowItModal] = useState7(false);
-    const [narrow, setNarrow] = useState7(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
-    const [tinyScreen, setTinyScreen] = useState7(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
-    const toggleBtnRef = useRef4(null);
-    const logoRef = useRef4(null);
-    const googleBtnRef = useRef4(null);
-    const tokenClientRef = useRef4(null);
-    const [bioAvailable, setBioAvailable] = useState7(false);
-    const [bioLoading, setBioLoading] = useState7(false);
-    const [bioAutoPrompting, setBioAutoPrompting] = useState7(false);
-    const bioAutoTriedRef = useRef4(false);
-    useEffect7(() => {
+    const [authStage, setAuthStage] = useState8("password");
+    const [pendingUser, setPendingUser] = useState8(null);
+    const [twoFactorCode, setTwoFactorCode] = useState8("");
+    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState8("");
+    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState8(false);
+    const [trustDevice, setTrustDevice] = useState8(true);
+    const [err, setErr] = useState8("");
+    const [show, setShow] = useState8(false);
+    const [logoAnim, setLogoAnim] = useState8(false);
+    const [shake, setShake] = useState8(false);
+    const [loading, setLoading] = useState8(false);
+    const [exiting, setExiting] = useState8(false);
+    const [focusField, setFocusField] = useState8(null);
+    const [now, setNow] = useState8(/* @__PURE__ */ new Date());
+    const [mounted, setMounted] = useState8(false);
+    const [showItModal, setShowItModal] = useState8(false);
+    const [narrow, setNarrow] = useState8(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
+    const [tinyScreen, setTinyScreen] = useState8(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
+    const toggleBtnRef = useRef5(null);
+    const logoRef = useRef5(null);
+    const googleBtnRef = useRef5(null);
+    const tokenClientRef = useRef5(null);
+    const [bioAvailable, setBioAvailable] = useState8(false);
+    const [bioLoading, setBioLoading] = useState8(false);
+    const [bioAutoPrompting, setBioAutoPrompting] = useState8(false);
+    const bioAutoTriedRef = useRef5(false);
+    useEffect8(() => {
       webauthnAvailable().then(setBioAvailable);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       const onResize = () => {
         setNarrow(window.innerWidth < 900);
         setTinyScreen(window.innerWidth < 420);
@@ -5959,15 +6189,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         window.removeEventListener("orientationchange", onResize);
       };
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       const t = setInterval(() => setNow(/* @__PURE__ */ new Date()), 1e3);
       return () => clearInterval(t);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       const t = setTimeout(() => setMounted(true), 30);
       return () => clearTimeout(t);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       fetch("/.netlify/functions/portal-auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6163,7 +6393,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBioLoading(false);
       await handleBiometricResult(res, false);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (bioAutoTriedRef.current) return;
       if (!bioAvailable || !webauthnDeviceEnrolled()) return;
       bioAutoTriedRef.current = true;
@@ -6174,7 +6404,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         await handleBiometricResult(res, true);
       })();
     }, [bioAvailable]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
       let tries = 0;
       const init = () => {
@@ -7035,15 +7265,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ))));
   }
   function LinksHub({ links, setLinks, th, user }) {
-    const [search, setSearch] = useState7("");
-    const [editMode, setEditMode] = useState7(false);
-    const [addMode, setAddMode] = useState7(false);
-    const [editingLink, setEditingLink] = useState7(null);
-    const [newLink, setNewLink] = useState7({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
-    const [editForm, setEditForm] = useState7({ name: "", url: "", desc: "", cat: "", visibility: "all" });
-    const [dragId, setDragId] = useState7(null);
-    const [dragCat, setDragCat] = useState7(null);
-    const [dragOverId, setDragOverId] = useState7(null);
+    const [search, setSearch] = useState8("");
+    const [editMode, setEditMode] = useState8(false);
+    const [addMode, setAddMode] = useState8(false);
+    const [editingLink, setEditingLink] = useState8(null);
+    const [newLink, setNewLink] = useState8({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
+    const [editForm, setEditForm] = useState8({ name: "", url: "", desc: "", cat: "", visibility: "all" });
+    const [dragId, setDragId] = useState8(null);
+    const [dragCat, setDragCat] = useState8(null);
+    const [dragOverId, setDragOverId] = useState8(null);
     const canAdmin = isFullAdmin(user) || user?.userType === "office_staff";
     const isFieldUser = user?.userType === "dm" || user?.userType === "manager";
     const allCats = Object.keys(links);
@@ -7316,15 +7546,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         [user.id]: typeof updater === "function" ? updater(prev[user.id] || []) : updater
       }));
     };
-    const [editing, setEditing] = useState7(null);
-    const [form, setForm] = useState7({ title: "", body: "" });
-    const [adding, setAdding] = useState7(false);
-    const [recording, setRecording] = useState7(false);
-    const [interimText, setInterimText] = useState7("");
-    const [recordError, setRecordError] = useState7("");
-    const recognitionRef = useRef4(null);
-    const baseBodyRef = useRef4("");
-    const finalChunksRef = useRef4("");
+    const [editing, setEditing] = useState8(null);
+    const [form, setForm] = useState8({ title: "", body: "" });
+    const [adding, setAdding] = useState8(false);
+    const [recording, setRecording] = useState8(false);
+    const [interimText, setInterimText] = useState8("");
+    const [recordError, setRecordError] = useState8("");
+    const recognitionRef = useRef5(null);
+    const baseBodyRef = useRef5("");
+    const finalChunksRef = useRef5("");
     const SpeechRecognition = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
     const recordingSupported = !!SpeechRecognition;
     const nextId = () => Date.now();
@@ -7392,8 +7622,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setForm((f) => ({ ...f, title: firstLine || "Voice Note " + (/* @__PURE__ */ new Date()).toLocaleDateString() }));
       }
     };
-    const recordingRef = useRef4(false);
-    useEffect7(() => {
+    const recordingRef = useRef5(false);
+    useEffect8(() => {
       return () => {
         recordingRef.current = false;
         try {
@@ -7718,13 +7948,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Todos({ todos, setTodos, user, users, th, deepLinkRef }) {
     const emptyForm = { text: "", priority: "Medium", assigneeIds: [user.id], dueDate: "", note: "" };
-    const [form, setForm] = useState7(emptyForm);
-    const [addOpen, setAddOpen] = useState7(false);
-    const [viewTab, setViewTab] = useState7("mine");
-    const [detailId, setDetailId] = useState7(null);
-    const [assignDropOpen, setAssignDropOpen] = useState7(false);
+    const [form, setForm] = useState8(emptyForm);
+    const [addOpen, setAddOpen] = useState8(false);
+    const [viewTab, setViewTab] = useState8("mine");
+    const [detailId, setDetailId] = useState8(null);
+    const [assignDropOpen, setAssignDropOpen] = useState8(false);
     const getUserById = (id) => users.find((u) => u.id === id);
-    useEffect7(() => {
+    useEffect8(() => {
       if (deepLinkRef?.current) {
         const task = todos.find((t) => t.id === deepLinkRef.current);
         if (task) {
@@ -7736,7 +7966,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         deepLinkRef.current = null;
       }
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       const needsMigration = todos.some((t) => t.assigneeId !== void 0 && !t.assigneeIds);
       if (needsMigration) {
         setTodos((ts) => ts.map((t) => {
@@ -8167,21 +8397,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         return st;
       }));
     };
-    const [view, setView] = useState7("list");
-    const [editId, setEditId] = useState7(null);
-    const [showPw, setShowPw] = useState7(false);
-    const [form, setForm] = useState7({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
-    const [search, setSearch] = useState7("");
-    const [welcomeSent, setWelcomeSent] = useState7(null);
-    const [saveFlash, setSaveFlash] = useState7(false);
-    const [confirmDeleteId, setConfirmDeleteId] = useState7(null);
+    const [view, setView] = useState8("list");
+    const [editId, setEditId] = useState8(null);
+    const [showPw, setShowPw] = useState8(false);
+    const [form, setForm] = useState8({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
+    const [search, setSearch] = useState8("");
+    const [welcomeSent, setWelcomeSent] = useState8(null);
+    const [saveFlash, setSaveFlash] = useState8(false);
+    const [confirmDeleteId, setConfirmDeleteId] = useState8(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const canLinkTimeOff = isFullAdmin(currentUser);
-    const [timeOff, setTimeOff] = useState7({});
-    const [timeOffSync, setTimeOffSync] = useState7(null);
-    const [timeOffSyncing, setTimeOffSyncing] = useState7(false);
-    const [linkTarget, setLinkTarget] = useState7(null);
+    const [timeOff, setTimeOff] = useState8({});
+    const [timeOffSync, setTimeOffSync] = useState8(null);
+    const [timeOffSyncing, setTimeOffSyncing] = useState8(false);
+    const [linkTarget, setLinkTarget] = useState8(null);
     const loadTimeOff = useCallback(() => {
       timeOffApi("users").then((j) => setTimeOff(j.users || {})).catch(() => {
       });
@@ -8212,7 +8442,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       loadTimeOff();
       setTimeOffSyncing(false);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       loadTimeOff().then((last) => {
         if (!canLinkTimeOff || last === void 0) return;
         const now = Date.now();
@@ -8224,12 +8454,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, [loadTimeOff]);
     const nextId = () => Math.max(0, ...users.map((u) => u.id)) + 1;
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-    const [emailAction, setEmailAction] = useState7(null);
-    const [revokeAction, setRevokeAction] = useState7(null);
-    const [statusFilter, setStatusFilter] = useState7("all");
-    const [flashUserKey, setFlashUserKey] = useState7(null);
-    const [leavingUserIds, setLeavingUserIds] = useState7([]);
-    const prevUserIdsRef = useRef4(/* @__PURE__ */ new Set());
+    const [emailAction, setEmailAction] = useState8(null);
+    const [revokeAction, setRevokeAction] = useState8(null);
+    const [statusFilter, setStatusFilter] = useState8("all");
+    const [flashUserKey, setFlashUserKey] = useState8(null);
+    const [leavingUserIds, setLeavingUserIds] = useState8([]);
+    const prevUserIdsRef = useRef5(/* @__PURE__ */ new Set());
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
       if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
@@ -8467,8 +8697,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
     const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development", "Field Operations Auditor"] : ["District Manager", "Store Manager", "Construction & Development"];
     const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
-    const [roleFilter, setRoleFilter] = useState7("all");
-    const [isMobileUsers, setIsMobileUsers] = useState7(() => window.innerWidth < 700);
+    const [roleFilter, setRoleFilter] = useState8("all");
+    const [isMobileUsers, setIsMobileUsers] = useState8(() => window.innerWidth < 700);
     React.useEffect(() => {
       const fn = () => setIsMobileUsers(window.innerWidth < 700);
       window.addEventListener("resize", fn);
@@ -8479,7 +8709,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
     const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
     const displayUsers = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username || "").toLowerCase().includes(search.toLowerCase())).filter((u) => roleFilter === "all" || u.userType === roleFilter).filter((u) => statusFilter === "all" || (statusFilter === "active" ? u.active !== false : statusFilter === "inactive" ? u.active === false : !!u.locked)).sort((a, b) => (b.active === false ? 1 : 0) - (a.active === false ? 1 : 0));
-    useEffect7(() => {
+    useEffect8(() => {
       prevUserIdsRef.current = new Set(displayUsers.map((u) => u.id));
     });
     const rc = roleColor(form.userType || "manager");
@@ -9284,21 +9514,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var openStoreList = () => LIVE_OPEN_STORES || STORES_SEED.filter((s) => s.status !== PERMANENTLY_CLOSED);
   function ClosestToFinder({ th, onClose }) {
     const O2 = "#FF671F";
-    const [addr, setAddr] = useState7("");
-    const [origin, setOrigin] = useState7(null);
-    const [ranked, setRanked] = useState7([]);
-    const [drive, setDrive] = useState7({});
-    const [busy, setBusy] = useState7(false);
-    const [status, setStatus] = useState7("");
-    const [hoverPc, setHoverPc] = useState7(null);
-    const [suggestions, setSuggestions] = useState7([]);
-    const [showSuggestions, setShowSuggestions] = useState7(false);
-    const [suggestLoading, setSuggestLoading] = useState7(false);
-    const [activeSugIdx, setActiveSugIdx] = useState7(-1);
-    const suggestTimer = useRef4(null);
-    const mapDiv = useRef4(null);
-    const mapRef = useRef4(null);
-    const markersRef = useRef4({});
+    const [addr, setAddr] = useState8("");
+    const [origin, setOrigin] = useState8(null);
+    const [ranked, setRanked] = useState8([]);
+    const [drive, setDrive] = useState8({});
+    const [busy, setBusy] = useState8(false);
+    const [status, setStatus] = useState8("");
+    const [hoverPc, setHoverPc] = useState8(null);
+    const [suggestions, setSuggestions] = useState8([]);
+    const [showSuggestions, setShowSuggestions] = useState8(false);
+    const [suggestLoading, setSuggestLoading] = useState8(false);
+    const [activeSugIdx, setActiveSugIdx] = useState8(-1);
+    const suggestTimer = useRef5(null);
+    const mapDiv = useRef5(null);
+    const mapRef = useRef5(null);
+    const markersRef = useRef5({});
     function handleAddrChange(val) {
       setAddr(val);
       setActiveSugIdx(-1);
@@ -9414,7 +9644,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setDrive((d) => ({ ...d, [row.pc]: "err" }));
       }
     }
-    useEffect7(() => {
+    useEffect8(() => {
       if (!mapDiv.current || !window.L) return;
       const L2 = window.L;
       if (!mapRef.current) {
@@ -9447,11 +9677,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setTimeout(() => map.invalidateSize(), 60);
     }, [ranked, origin]);
-    useEffect7(() => {
+    useEffect8(() => {
       const m = hoverPc && markersRef.current[hoverPc];
       if (m && m.openPopup) m.openPopup();
     }, [hoverPc]);
-    useEffect7(() => () => {
+    useEffect8(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -9498,30 +9728,30 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
     const mgrOf = (s) => storeMgrName(s, users);
-    const [laborData, setLaborData] = useState7(null);
-    useEffect7(() => {
+    const [laborData, setLaborData] = useState8(null);
+    useEffect8(() => {
       cloudLoad("pcg_labor_v1").then((d) => {
         if (d?.stores) setLaborData(d.stores);
       }).catch(() => {
       });
     }, []);
     const employeeCountOf = (s) => laborData?.[s.pc]?.today?.employees;
-    const [filterState, setFilterState] = useState7("All");
-    const [filterStatus, setFilterStatus] = useState7("All");
-    const [filterDistrict, setFilterDistrict] = useState7("All");
-    const [filterNxt, setFilterNxt] = useState7(false);
-    const [filterBaskin, setFilterBaskin] = useState7(false);
-    const [search, setSearch] = useState7("");
-    const [editStore, setEditStore] = useState7(null);
-    const [addMode, setAddMode] = useState7(false);
-    const [selectedStore, setSelectedStore] = useState7(null);
-    const [sortCol, setSortCol] = useState7("pc");
-    const [sortDir, setSortDir] = useState7("asc");
-    const [copiedId, setCopiedId] = useState7(null);
-    const [cityData, setCityData] = useState7(null);
-    const [cityLoading, setCityLoading] = useState7(false);
-    const [foodLicenses, setFoodLicenses] = useState7({});
-    const [foodLicensesLoading, setFoodLicensesLoading] = useState7(false);
+    const [filterState, setFilterState] = useState8("All");
+    const [filterStatus, setFilterStatus] = useState8("All");
+    const [filterDistrict, setFilterDistrict] = useState8("All");
+    const [filterNxt, setFilterNxt] = useState8(false);
+    const [filterBaskin, setFilterBaskin] = useState8(false);
+    const [search, setSearch] = useState8("");
+    const [editStore, setEditStore] = useState8(null);
+    const [addMode, setAddMode] = useState8(false);
+    const [selectedStore, setSelectedStore] = useState8(null);
+    const [sortCol, setSortCol] = useState8("pc");
+    const [sortDir, setSortDir] = useState8("asc");
+    const [copiedId, setCopiedId] = useState8(null);
+    const [cityData, setCityData] = useState8(null);
+    const [cityLoading, setCityLoading] = useState8(false);
+    const [foodLicenses, setFoodLicenses] = useState8({});
+    const [foodLicensesLoading, setFoodLicensesLoading] = useState8(false);
     const loadFoodLicenses = async () => {
       setFoodLicensesLoading(true);
       try {
@@ -9537,17 +9767,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setFoodLicensesLoading(false);
     };
-    const [toolsOpen, setToolsOpen] = useState7(false);
-    const [activeTool, setActiveTool] = useState7(null);
-    const [viewMode, setViewMode] = useState7("list");
-    useEffect7(() => {
+    const [toolsOpen, setToolsOpen] = useState8(false);
+    const [activeTool, setActiveTool] = useState8(null);
+    const [viewMode, setViewMode] = useState8("list");
+    useEffect8(() => {
       onMapModeChange?.(viewMode === "map");
       return () => onMapModeChange?.(false);
     }, [viewMode]);
-    const [isNarrow, setIsNarrow] = useState7(() => typeof window !== "undefined" && window.innerWidth < 760);
-    const frameRef = useRef4(null);
+    const [isNarrow, setIsNarrow] = useState8(() => typeof window !== "undefined" && window.innerWidth < 760);
+    const frameRef = useRef5(null);
     const frameH = useFrameHeight(frameRef, 340, 16);
-    useEffect7(() => {
+    useEffect8(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -9586,7 +9816,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     const emptyStore = { pc: "", paycor: "", legal: "", name: "", address: "", city: "", state: "PA", zip: "", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "", district: "", dmName: "", dmEmail: "", status: "Coming Soon", closedDate: "", employees: 0, sales: 0 };
-    const [newStore, setNewStore] = useState7(emptyStore);
+    const [newStore, setNewStore] = useState8(emptyStore);
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
     const isDM = user?.userType === "dm";
@@ -10793,12 +11023,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
-    const [editDist, setEditDist] = useState7(null);
-    const [distForm, setDistForm] = useState7({});
-    const [addMode, setAddMode] = useState7(false);
-    const [newDist, setNewDist] = useState7({ num: "", name: "", email: "" });
-    const [expandedDist, setExpandedDist] = useState7(null);
-    const [moveStore, setMoveStore] = useState7(null);
+    const [editDist, setEditDist] = useState8(null);
+    const [distForm, setDistForm] = useState8({});
+    const [addMode, setAddMode] = useState8(false);
+    const [newDist, setNewDist] = useState8({ num: "", name: "", email: "" });
+    const [expandedDist, setExpandedDist] = useState8(null);
+    const [moveStore, setMoveStore] = useState8(null);
     const distList = Object.values(districts).sort((a, b) => a.num - b.num);
     const mgrOf = (s) => storeMgrName(s, users);
     const saveEdit = () => {
@@ -11198,16 +11428,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const canUpload = user?.username === "mike.bahm";
     const isDMViewer = user?.userType === "dm";
     const dmDistrict = isDMViewer ? user?.district || null : null;
-    const [uploading, setUploading] = useState7(false);
-    const [uploadErr, setUploadErr] = useState7(null);
-    const [selWeek, setSelWeek] = useState7(0);
-    const [sortCol, setSortCol] = useState7("lwSale");
-    const [sortDir, setSortDir] = useState7(-1);
-    const [distFilter, setDistFilter] = useState7(isDMViewer ? dmDistrict || 0 : 0);
-    const [debugLines, setDebugLines] = useState7(null);
-    const [showDebug, setShowDebug] = useState7(false);
-    const fileRef = useRef4(null);
-    const detailTableRef = useRef4(null);
+    const [uploading, setUploading] = useState8(false);
+    const [uploadErr, setUploadErr] = useState8(null);
+    const [selWeek, setSelWeek] = useState8(0);
+    const [sortCol, setSortCol] = useState8("lwSale");
+    const [sortDir, setSortDir] = useState8(-1);
+    const [distFilter, setDistFilter] = useState8(isDMViewer ? dmDistrict || 0 : 0);
+    const [debugLines, setDebugLines] = useState8(null);
+    const [showDebug, setShowDebug] = useState8(false);
+    const fileRef = useRef5(null);
+    const detailTableRef = useRef5(null);
     const fmtSales = (n) => {
       if (!n) return "\u2014";
       if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
@@ -11469,33 +11699,33 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     "Other": { color: "#aaa", bg: "#aaa18" }
   };
   function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, currentUser, th }) {
-    const [search, setSearch] = useState7("");
-    const [modal, setModal] = useState7(null);
-    const [editItem, setEditItem] = useState7(null);
-    const [form, setForm] = useState7({});
-    const [deptDropOpen, setDeptDropOpen] = useState7(false);
-    const [showInternal, setShowInternal] = useState7(() => {
+    const [search, setSearch] = useState8("");
+    const [modal, setModal] = useState8(null);
+    const [editItem, setEditItem] = useState8(null);
+    const [form, setForm] = useState8({});
+    const [deptDropOpen, setDeptDropOpen] = useState8(false);
+    const [showInternal, setShowInternal] = useState8(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_internal") ?? "true");
       } catch {
         return true;
       }
     });
-    const [showVendors, setShowVendors] = useState7(() => {
+    const [showVendors, setShowVendors] = useState8(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_vendors") ?? "true");
       } catch {
         return true;
       }
     });
-    const [dragId, setDragId] = useState7(null);
-    useEffect7(() => {
+    const [dragId, setDragId] = useState8(null);
+    useEffect8(() => {
       localStorage.setItem("pcg_show_internal", JSON.stringify(showInternal));
     }, [showInternal]);
-    useEffect7(() => {
+    useEffect8(() => {
       localStorage.setItem("pcg_show_vendors", JSON.stringify(showVendors));
     }, [showVendors]);
-    useEffect7(() => {
+    useEffect8(() => {
       const needsMigration = contacts.some((c) => c.dept !== void 0 && !c.depts);
       if (needsMigration) {
         setContacts((cs) => cs.map((c) => {
@@ -12672,9 +12902,9 @@ ${pendingEmail.emails.join("\n")}`,
     }, user, standalone: true, txnDeepLinkRef, initialTab: initialTab || "sales" }));
   }
   function AdminSchedule({ stores, th, user }) {
-    const [selectedStore, setSelectedStore] = useState7(null);
-    const [search, setSearch] = useState7("");
-    const [filterDistrict, setFilterDistrict] = useState7("All");
+    const [selectedStore, setSelectedStore] = useState8(null);
+    const [search, setSearch] = useState8("");
+    const [filterDistrict, setFilterDistrict] = useState8("All");
     const isDM = user?.userType === "dm";
     const visibleStores = React.useMemo(() => {
       if (isDM && user?.district != null) return (stores || []).filter((s) => String(s.district) === String(user.district));
@@ -12712,7 +12942,7 @@ ${pendingEmail.emails.join("\n")}`,
     ))));
   }
   function ManagerSchedule({ stores, th, user }) {
-    const [mode, setMode] = useState7("build");
+    const [mode, setMode] = useState8("build");
     const store = getManagerStore(stores, user);
     if (!store?.pc) {
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "No store is linked to your account yet. Ask an admin to assign one.");
@@ -15434,7 +15664,7 @@ ${pendingEmail.emails.join("\n")}`,
   function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
     const G = "#00d084";
     const isMobile = useIsMobile();
-    const [laborData, setLaborData] = useState7(null);
+    const [laborData, setLaborData] = useState8(null);
     const fetchLaborData = useCallback(async () => {
       try {
         const data = await cloudLoad("pcg_labor_v1");
@@ -15442,10 +15672,10 @@ ${pendingEmail.emails.join("\n")}`,
       } catch {
       }
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect7(() => {
+    useEffect8(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -15453,30 +15683,30 @@ ${pendingEmail.emails.join("\n")}`,
       const d = /* @__PURE__ */ new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     })();
-    const [busDt, setBusDt] = useState7(todayStr);
-    const [storeData, setStoreData] = useState7({});
-    const [loading, setLoading] = useState7(false);
-    const [progress, setProgress] = useState7(0);
-    const [lastRefresh, setLastRefresh] = useState7(null);
-    const [countdown, setCountdown] = useState7(300);
+    const [busDt, setBusDt] = useState8(todayStr);
+    const [storeData, setStoreData] = useState8({});
+    const [loading, setLoading] = useState8(false);
+    const [progress, setProgress] = useState8(0);
+    const [lastRefresh, setLastRefresh] = useState8(null);
+    const [countdown, setCountdown] = useState8(300);
     const isDMUser = user?.userType === "dm";
     const dmDistrict = isDMUser && user?.district ? Number(user.district) : 0;
-    const [distFilter, setDistFilter] = useState7(dmDistrict);
-    const [autoRefresh, setAutoRefresh] = useState7(true);
-    const [testResult, setTestResult] = useState7(null);
-    const [testing, setTesting] = useState7(false);
-    const [dateCache, setDateCache] = useState7({});
-    const [lyCache, setLyCache] = useState7({});
-    const [wtdLoading, setWtdLoading] = useState7(false);
-    const [viewMode, setViewMode] = useState7("day");
-    const [weekStoreData, setWeekStoreData] = useState7({});
-    const [weekLoading, setWeekLoading] = useState7(false);
-    const [dayStoreCache, setDayStoreCache] = useState7({});
-    const [comparisonsLoading, setComparisonsLoading] = useState7(false);
-    const [hourlyHistories, setHourlyHistories] = useState7(null);
-    const [collapsed, setCollapsed] = useState7(/* @__PURE__ */ new Set());
-    const [tipsSnapshot, setTipsSnapshot] = useState7(null);
-    useEffect7(() => {
+    const [distFilter, setDistFilter] = useState8(dmDistrict);
+    const [autoRefresh, setAutoRefresh] = useState8(true);
+    const [testResult, setTestResult] = useState8(null);
+    const [testing, setTesting] = useState8(false);
+    const [dateCache, setDateCache] = useState8({});
+    const [lyCache, setLyCache] = useState8({});
+    const [wtdLoading, setWtdLoading] = useState8(false);
+    const [viewMode, setViewMode] = useState8("day");
+    const [weekStoreData, setWeekStoreData] = useState8({});
+    const [weekLoading, setWeekLoading] = useState8(false);
+    const [dayStoreCache, setDayStoreCache] = useState8({});
+    const [comparisonsLoading, setComparisonsLoading] = useState8(false);
+    const [hourlyHistories, setHourlyHistories] = useState8(null);
+    const [collapsed, setCollapsed] = useState8(/* @__PURE__ */ new Set());
+    const [tipsSnapshot, setTipsSnapshot] = useState8(null);
+    useEffect8(() => {
       let alive = true;
       setTipsSnapshot(null);
       cloudLoad(`pcg_tips_snapshot_${busDt}`).then((d) => {
@@ -15493,8 +15723,8 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [busDt]);
-    const [laborDailyByStore, setLaborDailyByStore] = useState7({});
-    useEffect7(() => {
+    const [laborDailyByStore, setLaborDailyByStore] = useState8({});
+    useEffect8(() => {
       let alive = true;
       Promise.all((stores || []).map(
         (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => [s.pc, Array.isArray(d?.daily) ? d.daily : []]).catch(() => [s.pc, []])
@@ -15527,16 +15757,16 @@ ${pendingEmail.emails.join("\n")}`,
       if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
       return daily ? daily.find((e) => e.date === busDt) || null : null;
     }, [laborDailyByStore, viewMode, busDt, todayStr, laborData]);
-    const [pulseView, setPulseView] = useState7(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
-    const [weatherForecast, setWeatherForecast] = useState7(null);
-    const [networkReviews, setNetworkReviews] = useState7(null);
-    const cdRef = useRef4(null);
+    const [pulseView, setPulseView] = useState8(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
+    const [weatherForecast, setWeatherForecast] = useState8(null);
+    const [networkReviews, setNetworkReviews] = useState8(null);
+    const cdRef = useRef5(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
     const dmStoreCount = activePCs.length;
     const pulseDistrictNums = districtNumbers(stores.filter((s) => s.status === "Open"));
-    useEffect7(() => {
+    useEffect8(() => {
       let alive = true;
       Promise.all(activePCs.map(
         (pc) => cloudLoad(`pcg_hourly_history_${pc}`).then((d) => Array.isArray(d) ? d : null).catch(() => null)
@@ -15547,13 +15777,13 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [activePCs.join(",")]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (drillInStore) {
         setPulseView({ level: "store", pc: drillInStore });
         if (onClearDrillIn) onClearDrillIn();
       }
     }, [drillInStore]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (pulseView !== "network") {
         window.scrollTo(0, 0);
         frameRef.current?.scrollTo(0, 0);
@@ -15743,13 +15973,13 @@ ${t2.slice(0, 300)}`);
     const handleManualRefresh = () => {
       loadAll();
     };
-    const wtdAutoLoaded = useRef4(false);
-    const lastWtdWeek = useRef4("");
-    useEffect7(() => {
+    const wtdAutoLoaded = useRef5(false);
+    const lastWtdWeek = useRef5("");
+    useEffect8(() => {
       loadAll();
       if (!drillInStore) setPulseView("network");
     }, [busDt]);
-    useEffect7(() => {
+    useEffect8(() => {
       const d = /* @__PURE__ */ new Date(busDt + "T12:00:00");
       const sun = new Date(d);
       sun.setDate(d.getDate() - d.getDay());
@@ -15759,19 +15989,19 @@ ${t2.slice(0, 300)}`);
         lastWtdWeek.current = weekKey;
       }
     }, [busDt]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!loading && Object.keys(storeData).length > 0 && !wtdAutoLoaded.current) {
         wtdAutoLoaded.current = true;
         loadWTD();
         loadLYWeek();
       }
     }, [loading, storeData]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (loading) return;
       if (!Object.keys(storeData).length) return;
       loadComparisons();
     }, [busDt, viewMode, loading]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (autoRefresh) {
         cdRef.current = setInterval(() => {
           setCountdown((c) => {
@@ -15785,15 +16015,15 @@ ${t2.slice(0, 300)}`);
       }
       return () => clearInterval(cdRef.current);
     }, [autoRefresh, busDt]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (viewMode !== "week") return;
       loadWeekGrid();
     }, [viewMode, busDt]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (viewMode !== "week" || loading) return;
       loadWeekGrid();
     }, [storeData]);
-    useEffect7(() => {
+    useEffect8(() => {
       (async () => {
         try {
           const fRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) });
@@ -16805,10 +17035,10 @@ ${t2.slice(0, 300)}`);
     return doc;
   }
   function ReportPhotoRestore({ th, showAlert: showAlert2 }) {
-    const [open, setOpen] = useState7(false);
-    const [busy, setBusy] = useState7(null);
-    const [status, setStatus] = useState7(null);
-    const call4 = async (mode, extra = {}) => {
+    const [open, setOpen] = useState8(false);
+    const [busy, setBusy] = useState8(null);
+    const [status, setStatus] = useState8(null);
+    const call5 = async (mode, extra = {}) => {
       setBusy(mode);
       let before = null;
       try {
@@ -16852,22 +17082,22 @@ ${t2.slice(0, 300)}`);
       {
         disabled: !!busy,
         onClick: () => {
-          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call4("undo", { undoKey: status.undoKey });
+          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call5("undo", { undoKey: status.undoKey });
         },
         style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text }
       },
       "Undo restore"
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call4("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
-      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call4("restore");
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call5("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
+      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call5("restore");
     }, style: { ...btn(th) } }, "Restore ", plan.photos, " photos"))))));
   }
   function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert: showAlert2, editable }) {
     const dailyReports = _dr2 || [];
-    const [drView, setDrView] = useState7("list");
-    const [editReport, setEditReport] = useState7(null);
-    const [rForm, setRForm] = useState7({ ...EMPTY_DAILY_REPORT });
-    const [wxLoading, setWxLoading] = useState7(false);
-    const fileInputRefs = useRef4({});
+    const [drView, setDrView] = useState8("list");
+    const [editReport, setEditReport] = useState8(null);
+    const [rForm, setRForm] = useState8({ ...EMPTY_DAILY_REPORT });
+    const [wxLoading, setWxLoading] = useState8(false);
+    const fileInputRefs = useRef5({});
     const projReports = dailyReports.filter((r) => r.projectId === project.id).sort((a, b) => b.date.localeCompare(a.date));
     const nextId = () => {
       const ts = Date.now();
@@ -16993,13 +17223,13 @@ ${t2.slice(0, 300)}`);
     const totalPhotos = (r) => (r.workLogs || []).reduce((s, w) => s + (w.photos?.length || 0), 0);
     const totalWorkers = (r) => (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
     const totalHrs = (r) => (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
-    const pdfImportRef = useRef4(null);
-    const [pdfImporting, setPdfImporting] = useState7(false);
-    const [forceSyncState, setForceSyncState] = useState7("idle");
-    const [forceSyncMsg, setForceSyncMsg] = useState7("");
-    const [backupState, setBackupState] = useState7("idle");
-    const [lastBackupTime, setLastBackupTime] = useState7(null);
-    useEffect7(() => {
+    const pdfImportRef = useRef5(null);
+    const [pdfImporting, setPdfImporting] = useState8(false);
+    const [forceSyncState, setForceSyncState] = useState8("idle");
+    const [forceSyncMsg, setForceSyncMsg] = useState8("");
+    const [backupState, setBackupState] = useState8("idle");
+    const [lastBackupTime, setLastBackupTime] = useState8(null);
+    useEffect8(() => {
       const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
       cloudLoad(`pcg_daily_reports_backup_${date}`).then((data) => {
         if (data?.[0] || Array.isArray(data)) {
@@ -17150,12 +17380,12 @@ ${t2.slice(0, 300)}`);
         if (pdfImportRef.current) pdfImportRef.current.value = "";
       }
     };
-    const [pdfLoading, setPdfLoading] = useState7(false);
-    const [emailModal, setEmailModal] = useState7(false);
-    const [emailTo, setEmailTo] = useState7("");
-    const [emailSubject, setEmailSubject] = useState7("");
-    const [emailSending, setEmailSending] = useState7(false);
-    const [lightbox, setLightbox] = useState7(null);
+    const [pdfLoading, setPdfLoading] = useState8(false);
+    const [emailModal, setEmailModal] = useState8(false);
+    const [emailTo, setEmailTo] = useState8("");
+    const [emailSubject, setEmailSubject] = useState8("");
+    const [emailSending, setEmailSending] = useState8(false);
+    const [lightbox, setLightbox] = useState8(null);
     const buildNativePdf = (report, projOverride) => buildReportPdf(report, projOverride || project);
     const _legacyPdfBody = async (report, project2) => {
       const _proj = project2;
@@ -18371,32 +18601,32 @@ ${t2.slice(0, 300)}`);
   }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
-    const [view, setView] = useState7("table");
-    const tableFrameRef = useRef4(null);
+    const [view, setView] = useState8("table");
+    const tableFrameRef = useRef5(null);
     const isMobile = useIsMobile();
     const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
-    const [selectedProject, setSelectedProject] = useState7(null);
-    const [detailTab, setDetailTab] = useState7("checklist");
-    const [addMode, setAddMode] = useState7(false);
-    const [editId, setEditId] = useState7(null);
-    const [form, setForm] = useState7({ ...EMPTY_PROJECT });
-    const [filterType, setFilterType] = useState7("All");
-    const [filterPhase, setFilterPhase] = useState7("All");
-    const [search, setSearch] = useState7("");
-    const [manualAddr, setManualAddr] = useState7(false);
-    const [sortCol, setSortCol] = useState7("priority");
-    const [sortDir, setSortDir] = useState7("asc");
-    const [reorderLocked, setReorderLocked] = useState7(true);
-    const [dragIdx, setDragIdx] = useState7(null);
-    const [dragOverIdx, setDragOverIdx] = useState7(null);
-    const [zoningOverlay, setZoningOverlay] = useState7(null);
-    const [zoningLoading, setZoningLoading] = useState7(false);
-    const [zoningData, setZoningData] = useState7(null);
-    const [permitUploading, setPermitUploading] = useState7(null);
-    const [permitDetailData, setPermitDetailData] = useState7(null);
-    const [docViewerData, setDocViewerData] = useState7(null);
-    const [docBlobUrl, setDocBlobUrl] = useState7(null);
-    useEffect7(() => {
+    const [selectedProject, setSelectedProject] = useState8(null);
+    const [detailTab, setDetailTab] = useState8("checklist");
+    const [addMode, setAddMode] = useState8(false);
+    const [editId, setEditId] = useState8(null);
+    const [form, setForm] = useState8({ ...EMPTY_PROJECT });
+    const [filterType, setFilterType] = useState8("All");
+    const [filterPhase, setFilterPhase] = useState8("All");
+    const [search, setSearch] = useState8("");
+    const [manualAddr, setManualAddr] = useState8(false);
+    const [sortCol, setSortCol] = useState8("priority");
+    const [sortDir, setSortDir] = useState8("asc");
+    const [reorderLocked, setReorderLocked] = useState8(true);
+    const [dragIdx, setDragIdx] = useState8(null);
+    const [dragOverIdx, setDragOverIdx] = useState8(null);
+    const [zoningOverlay, setZoningOverlay] = useState8(null);
+    const [zoningLoading, setZoningLoading] = useState8(false);
+    const [zoningData, setZoningData] = useState8(null);
+    const [permitUploading, setPermitUploading] = useState8(null);
+    const [permitDetailData, setPermitDetailData] = useState8(null);
+    const [docViewerData, setDocViewerData] = useState8(null);
+    const [docBlobUrl, setDocBlobUrl] = useState8(null);
+    useEffect8(() => {
       if (!docViewerData?.data || docViewerData.type && docViewerData.type.startsWith("image/")) {
         setDocBlobUrl(null);
         return;
@@ -18414,15 +18644,15 @@ ${t2.slice(0, 300)}`);
         setDocBlobUrl(null);
       }
     }, [docViewerData]);
-    const [planUploading, setPlanUploading] = useState7(null);
-    const [projCityData, setProjCityData] = useState7(null);
-    const [projCityLoading, setProjCityLoading] = useState7(false);
+    const [planUploading, setPlanUploading] = useState8(null);
+    const [projCityData, setProjCityData] = useState8(null);
+    const [projCityLoading, setProjCityLoading] = useState8(false);
     const pros = professionals || DEFAULT_PROFESSIONALS;
-    useEffect7(() => {
+    useEffect8(() => {
       setProjCityData(null);
       setZoningData(null);
     }, [selectedProject?.id]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (deepLinkRef?.current) {
         const proj = projects.find((p) => p.id === deepLinkRef.current);
         if (proj) {
@@ -20038,12 +20268,12 @@ ${t2.slice(0, 300)}`);
   var accIco = (k, c, s = 18) => /* @__PURE__ */ React.createElement(HubIcon, { d: ACCESS_ICONS[k], color: c, size: s });
   var initialsOf = (name) => String(name || "?").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "?";
   function PnlAccessPanel({ th, user, users, showAlert: showAlert2 }) {
-    const [allowed, setAllowed] = useState7(null);
-    const [query, setQuery] = useState7("");
-    const [adding, setAdding] = useState7(false);
-    const [addQuery, setAddQuery] = useState7("");
-    const [saving, setSaving] = useState7(false);
-    useEffect7(() => {
+    const [allowed, setAllowed] = useState8(null);
+    const [query, setQuery] = useState8("");
+    const [adding, setAdding] = useState8(false);
+    const [addQuery, setAddQuery] = useState8("");
+    const [saving, setSaving] = useState8(false);
+    useEffect8(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => setAllowed(Array.isArray(d?.allowed) ? d.allowed : [...DEFAULT_PNL_ALLOWED])).catch(() => setAllowed([...DEFAULT_PNL_ALLOWED]));
     }, []);
     const persist = async (next) => {
@@ -20146,9 +20376,9 @@ ${t2.slice(0, 300)}`);
     });
     const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
     const ov = accessOverrides || {};
-    const [expandedHubs, setExpandedHubs] = useState7(/* @__PURE__ */ new Set());
-    const [openRoles, setOpenRoles] = useState7(/* @__PURE__ */ new Set());
-    const [showMore, setShowMore] = useState7(false);
+    const [expandedHubs, setExpandedHubs] = useState8(/* @__PURE__ */ new Set());
+    const [openRoles, setOpenRoles] = useState8(/* @__PURE__ */ new Set());
+    const [showMore, setShowMore] = useState8(false);
     const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
       const next = new Set(prev);
       if (next.has(hubId)) next.delete(hubId);
@@ -20275,7 +20505,7 @@ ${t2.slice(0, 300)}`);
     );
   }
   function WeeklyReportSendNow({ th, showAlert: showAlert2 }) {
-    const [state, setState] = useState7("idle");
+    const [state, setState] = useState8("idle");
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const today = /* @__PURE__ */ new Date();
     const daysSinceSat = (today.getDay() + 1) % 7 || 7;
@@ -20324,21 +20554,21 @@ ${t2.slice(0, 300)}`);
   var irIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS[k] || NOTIFY_ICONS[k], color: c, size: s });
   function InterviewRemindersPanel({ th, showAlert: showAlert2, users }) {
     const O2 = "#FF671F";
-    const [data, setData] = useState7(null);
-    const [err, setErr] = useState7(null);
-    const [running, setRunning] = useState7(false);
-    const [ivQ, setIvQ] = useState7("");
-    const [ivStatus, setIvStatus] = useState7("all");
-    const [ivRange, setIvRange] = useState7("today");
-    const [ivShowAll, setIvShowAll] = useState7(false);
-    const [peopleOpen, setPeopleOpen] = useState7(true);
-    const [activityOpen, setActivityOpen] = useState7(false);
-    const [peopleQ, setPeopleQ] = useState7("");
-    const [peopleRole, setPeopleRole] = useState7("all");
-    const [picked, setPicked] = useState7([]);
-    const [savingMuted, setSavingMuted] = useState7(false);
-    const [savingSource, setSavingSource] = useState7(false);
-    const [pxCheck, setPxCheck] = useState7(null);
+    const [data, setData] = useState8(null);
+    const [err, setErr] = useState8(null);
+    const [running, setRunning] = useState8(false);
+    const [ivQ, setIvQ] = useState8("");
+    const [ivStatus, setIvStatus] = useState8("all");
+    const [ivRange, setIvRange] = useState8("today");
+    const [ivShowAll, setIvShowAll] = useState8(false);
+    const [peopleOpen, setPeopleOpen] = useState8(true);
+    const [activityOpen, setActivityOpen] = useState8(false);
+    const [peopleQ, setPeopleQ] = useState8("");
+    const [peopleRole, setPeopleRole] = useState8("all");
+    const [picked, setPicked] = useState8([]);
+    const [savingMuted, setSavingMuted] = useState8(false);
+    const [savingSource, setSavingSource] = useState8(false);
+    const [pxCheck, setPxCheck] = useState8(null);
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -20350,7 +20580,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     const ivSourceNow = data?.config?.source === "paradox" ? "paradox" : "email";
@@ -20524,13 +20754,13 @@ ${t2.slice(0, 300)}`);
     ), activityOpen && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column" } }, (st?.sent || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No reminders sent yet."), (st?.sent || []).slice(0, 25).map((s, i, arr) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.5rem 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtAgo(s.at)), " \xB7 ", s.kind === "hour" ? "1-hour reminder" : "1-day reminder", " \xB7 ", s.store, " \xB7 ", s.candidate || "candidate", " \xB7 ", s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`, " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: s.smsSent ? "#16a34a" : "#dc2626" } }, s.smsSent ? "text sent" : "no text"), s.emails ? " \xB7 email sent" : "")))));
   }
   function NewHiresPanel({ th, showAlert: showAlert2, users }) {
-    const [data, setData] = useState7(null);
-    const [err, setErr] = useState7(null);
-    const [running, setRunning] = useState7(false);
-    const [testing, setTesting] = useState7(null);
-    const [draft, setDraft] = useState7(null);
-    const [savingCfg, setSavingCfg] = useState7(false);
-    const [pickQ, setPickQ] = useState7("");
+    const [data, setData] = useState8(null);
+    const [err, setErr] = useState8(null);
+    const [running, setRunning] = useState8(false);
+    const [testing, setTesting] = useState8(null);
+    const [draft, setDraft] = useState8(null);
+    const [savingCfg, setSavingCfg] = useState8(false);
+    const [pickQ, setPickQ] = useState8("");
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -20542,7 +20772,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     const runNow = async () => {
@@ -20578,7 +20808,7 @@ ${t2.slice(0, 300)}`);
       }
       setTesting(null);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [], source: data.hiresConfig.source || "email" });
     }, [data, draft]);
     const savedCfg = data?.hiresConfig || { live: false, recipients: [], source: "email" };
@@ -20725,6 +20955,7 @@ ${t2.slice(0, 300)}`);
     violationNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 2.5 20h19Z" }), /* @__PURE__ */ React.createElement("path", { d: "M12 10v4M12 17h.01" })),
     payIncrease: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 20V6M7 11l5-5 5 5" }), /* @__PURE__ */ React.createElement("path", { d: "M5 20h14" })),
     payIncreaseApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M20 6 9 17l-5-5" })),
+    violationApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z" }), /* @__PURE__ */ React.createElement("path", { d: "m8.5 12 2.5 2.5 4.5-5" })),
     timeOffRequest: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "m9.5 13.5 5 5M14.5 13.5l-5 5" })),
     interviewReminders: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 5h16v11H8l-4 4Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10.5", r: "2.2" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 14.2a4 4 0 0 1 7 0" })),
     mail: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "5", width: "18", height: "14", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "m3 7 9 6 9-6" })),
@@ -20746,7 +20977,8 @@ ${t2.slice(0, 300)}`);
     violationNotice: "Violation notices",
     payIncrease: "Pay increases",
     payIncreaseApprovers: "Pay increase approvals",
-    timeOffRequest: "Time off requests"
+    timeOffRequest: "Time off requests",
+    violationApprovers: "Violation notice approvals"
   };
   var nIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: NOTIFY_ICONS[k], color: c, size: s });
   var recipientInitials = (value, users) => {
@@ -20791,16 +21023,16 @@ ${t2.slice(0, 300)}`);
     ), children);
   }
   function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel, seedUserTypes, tagKey = "mail", onCountChange }) {
-    const [emails, setEmails] = useState7(null);
-    const [phones, setPhones] = useState7(null);
-    const [emailOwners, setEmailOwners] = useState7(null);
-    const [phoneOwners, setPhoneOwners] = useState7(null);
-    const [newEmail, setNewEmail] = useState7("");
-    const [newPhone, setNewPhone] = useState7("");
-    const [nameQuery, setNameQuery] = useState7("");
-    const [showSuggestions, setShowSuggestions] = useState7(false);
-    const [saving, setSaving] = useState7(false);
-    useEffect7(() => {
+    const [emails, setEmails] = useState8(null);
+    const [phones, setPhones] = useState8(null);
+    const [emailOwners, setEmailOwners] = useState8(null);
+    const [phoneOwners, setPhoneOwners] = useState8(null);
+    const [newEmail, setNewEmail] = useState8("");
+    const [newPhone, setNewPhone] = useState8("");
+    const [nameQuery, setNameQuery] = useState8("");
+    const [showSuggestions, setShowSuggestions] = useState8(false);
+    const [saving, setSaving] = useState8(false);
+    useEffect8(() => {
       cloudLoad(blobKey).then((d) => {
         if (!d?.updatedAt && seedUserTypes && (users || []).length) {
           const seed = (users || []).filter((u) => u.active !== false && u.email && seedUserTypes.includes(u.userType));
@@ -20922,7 +21154,7 @@ ${t2.slice(0, 300)}`);
       setNameQuery("");
       setShowSuggestions(false);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!users || emails === null || phones === null) return;
       let changed = false;
       const nextEmails = (emails || []).map((e, i) => {
@@ -20947,7 +21179,7 @@ ${t2.slice(0, 300)}`);
       });
       if (changed) persist(nextEmails, nextPhones, emailOwners, phoneOwners);
     }, [users, emails, phones, emailOwners, phoneOwners]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (emails !== null && onCountChange) onCountChange(emails.length);
     }, [emails]);
     if (emails === null) return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading recipients\u2026");
@@ -21007,20 +21239,20 @@ ${t2.slice(0, 300)}`);
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey, tagText: NOTIFY_TAGS[tagKey] || "Notifications", onRemove: () => removeEmail(idx), disabled: saving }))), smsLabel && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "SMS", onRemove: () => removePhone(idx), disabled: saving })))));
   }
   function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
-    const [newEmail, setNewEmail] = useState7("");
-    const [newTicketEmail, setNewTicketEmail] = useState7("");
-    const [newTicketPhone, setNewTicketPhone] = useState7("");
-    const [ticketNameQuery, setTicketNameQuery] = useState7("");
-    const [ticketShowSuggestions, setTicketShowSuggestions] = useState7(false);
-    const [notifyLog, setNotifyLog] = useState7(null);
-    const [logLoading, setLogLoading] = useState7(false);
-    const [logOpen, setLogOpen] = useState7(false);
-    const [pushSubs, setPushSubs] = useState7(null);
-    const [notifyInfoOpen, setNotifyInfoOpen] = useState7(false);
-    const [notifSubTab, setNotifSubTab] = useState7("project");
-    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1" };
-    const [notifCounts, setNotifCounts] = useState7({});
-    useEffect7(() => {
+    const [newEmail, setNewEmail] = useState8("");
+    const [newTicketEmail, setNewTicketEmail] = useState8("");
+    const [newTicketPhone, setNewTicketPhone] = useState8("");
+    const [ticketNameQuery, setTicketNameQuery] = useState8("");
+    const [ticketShowSuggestions, setTicketShowSuggestions] = useState8(false);
+    const [notifyLog, setNotifyLog] = useState8(null);
+    const [logLoading, setLogLoading] = useState8(false);
+    const [logOpen, setLogOpen] = useState8(false);
+    const [pushSubs, setPushSubs] = useState8(null);
+    const [notifyInfoOpen, setNotifyInfoOpen] = useState8(false);
+    const [notifSubTab, setNotifSubTab] = useState8("project");
+    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1" };
+    const [notifCounts, setNotifCounts] = useState8({});
+    useEffect8(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
         cloudLoad(key).then((d) => {
           let n = Array.isArray(d?.emails) ? d.emails.length : 0;
@@ -21031,11 +21263,11 @@ ${t2.slice(0, 300)}`);
       });
     }, [(users || []).length > 0]);
     const setNotifCount = (id) => (n) => setNotifCounts((c) => c[id] === n ? c : { ...c, [id]: n });
-    const [userNotifsOpen, setUserNotifsOpen] = useState7(false);
-    const [reportSettings, setReportSettings] = useState7(null);
-    const [reportLoading, setReportLoading] = useState7(false);
-    const [reportOpen, setReportOpen] = useState7(false);
-    const [newReportCC, setNewReportCC] = useState7("");
+    const [userNotifsOpen, setUserNotifsOpen] = useState8(false);
+    const [reportSettings, setReportSettings] = useState8(null);
+    const [reportLoading, setReportLoading] = useState8(false);
+    const [reportOpen, setReportOpen] = useState8(false);
+    const [newReportCC, setNewReportCC] = useState8("");
     const loadReportSettings = async () => {
       setReportLoading(true);
       try {
@@ -21092,7 +21324,7 @@ ${t2.slice(0, 300)}`);
       setNewEmail("");
       showAlert2("success", "Email added to global notify list");
     };
-    const [projectShowSuggestions, setProjectShowSuggestions] = useState7(false);
+    const [projectShowSuggestions, setProjectShowSuggestions] = useState8(false);
     const projectTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim()) ? newEmail.trim() : null;
     const projectNameMatches = (users || []).filter((u) => newEmail.trim().length > 0 && !projectTypedEmail && (u.name || "").toLowerCase().includes(newEmail.trim().toLowerCase()) && u.email).slice(0, 8);
     const removeEmail = (idx) => {
@@ -21184,7 +21416,7 @@ ${t2.slice(0, 300)}`);
       setTicketNameQuery("");
       setTicketShowSuggestions(false);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!users) return;
       (ticketNotifyEmailOwners || []).forEach((ownerId, i) => {
         if (ownerId == null) return;
@@ -21235,6 +21467,7 @@ ${t2.slice(0, 300)}`);
         { id: "minorTimecard", label: "Minor Timecard", count: notifCounts.minorTimecard },
         { id: "weeklyHoursSchedule", label: "Weekly Hours + Schedule", count: notifCounts.weeklyHoursSchedule },
         { id: "transferNotice", label: "Transfer Notice", count: notifCounts.transferNotice },
+        { id: "violationApprovers", label: "Violation Notice approval", count: notifCounts.violationApprovers },
         { id: "violationNotice", label: "Violation Notice", count: notifCounts.violationNotice },
         { id: "timeOffRequest", label: "Time Off Request", count: notifCounts.timeOffRequest },
         { id: "payIncreaseApprovers", label: "Pay Increase approval", count: notifCounts.payIncreaseApprovers },
@@ -21393,6 +21626,19 @@ ${t2.slice(0, 300)}`);
         onCountChange: setNotifCount("timeOffRequest"),
         description: "These people (HR) get every Time Off Request (Tools \xB7 Time Off Request): an email with the signed PDF and any supporting documents attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone.",
         smsLabel: "Time Off Request SMS Numbers"
+      }
+    ), notifSubTab === "violationApprovers" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_violation_approvers_v1",
+        tagKey: "violationApprovers",
+        onCountChange: setNotifCount("violationApprovers"),
+        description: "These people approve Violation Notices (Tools \xB7 Violation Notice). Once everyone has signed a notice, they get an email with a Review button, a text and a phone push, and a reminder every 3 hours until it's approved or sent back. Only people added by name can approve; while no one is named, every executive can. Once approved, the notice is filed in Google Drive and the Violation Notice list below is alerted.",
+        smsLabel: "Violation Notice approval SMS Numbers"
       }
     ), notifSubTab === "violationNotice" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
       ManualNotifyListPanel,
@@ -23923,18 +24169,18 @@ ${t2.slice(0, 300)}`);
   var TASK_TYPES = ["shift", "general"];
   var NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
   function AdminTaskManager({ th, user, stores, showAlert: showAlert2 }) {
-    const [templates, setTemplates] = useState7(null);
-    const [loading, setLoading] = useState7(false);
-    const [q, setQ] = useState7("");
-    const [catFilter, setCatFilter] = useState7("all");
-    const [activeFilter, setActiveFilter] = useState7("all");
-    const [editing, setEditing] = useState7(null);
-    const [locFor, setLocFor] = useState7(null);
-    const [locPcs, setLocPcs] = useState7([]);
-    const [itemsFor, setItemsFor] = useState7(null);
-    const [templateItems, setTemplateItems] = useState7([]);
-    const [templateEquip, setTemplateEquip] = useState7([]);
-    const [busy, setBusy] = useState7(false);
+    const [templates, setTemplates] = useState8(null);
+    const [loading, setLoading] = useState8(false);
+    const [q, setQ] = useState8("");
+    const [catFilter, setCatFilter] = useState8("all");
+    const [activeFilter, setActiveFilter] = useState8("all");
+    const [editing, setEditing] = useState8(null);
+    const [locFor, setLocFor] = useState8(null);
+    const [locPcs, setLocPcs] = useState8([]);
+    const [itemsFor, setItemsFor] = useState8(null);
+    const [templateItems, setTemplateItems] = useState8([]);
+    const [templateEquip, setTemplateEquip] = useState8([]);
+    const [busy, setBusy] = useState8(false);
     const api2 = useCallback(async (action, payload = {}) => {
       const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
       return r.json();
@@ -23948,10 +24194,10 @@ ${t2.slice(0, 300)}`);
         setLoading(false);
       }
     }, [api2]);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
-    const frameRef = useRef4(null);
+    const frameRef = useRef5(null);
     const frameH = useFrameHeight(frameRef);
     const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
     const filtered = (templates || []).filter((t) => {
@@ -24272,16 +24518,16 @@ ${t2.slice(0, 300)}`);
     })));
   }
   function AdminSensors({ th, user, stores }) {
-    const [shellyDevices, setShellyDevices] = useState7(null);
+    const [shellyDevices, setShellyDevices] = useState8(null);
     const loadShellyTemp = () => {
       setShellyDevices(null);
       fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
     };
-    useEffect7(() => {
+    useEffect8(() => {
       loadShellyTemp();
     }, []);
-    const [shellyDeviceMap, setShellyDeviceMap] = useState7({});
-    useEffect7(() => {
+    const [shellyDeviceMap, setShellyDeviceMap] = useState8({});
+    useEffect8(() => {
       cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
       });
     }, []);
@@ -24369,7 +24615,7 @@ ${t2.slice(0, 300)}`);
     const [acks, setAcks] = React.useState(null);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
-    const reqRef = useRef4(0);
+    const reqRef = useRef5(0);
     const list = [...announcements || []].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const selected = list.find((a) => a.id === selId) || list[0] || null;
     const loadAcks = async (annId) => {
@@ -24558,15 +24804,15 @@ ${t2.slice(0, 300)}`);
     })))), displayed.length > PAGE && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAll((s) => !s), style: { ...btn(th, { padding: "0.3rem 1rem", fontSize: "0.75rem" }) } }, showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", textAlign: "right" } }, "Showing ", visibleRows.length, " of ", displayed.length, " event", displayed.length !== 1 ? "s" : ""))));
   }
   function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert: showAlert2, users }) {
-    const [editingId, setEditingId] = useState7(null);
-    const [editForm, setEditForm] = useState7({ title: "", message: "" });
-    const [addMode, setAddMode] = useState7(false);
-    const [newTitle, setNewTitle] = useState7("");
-    const [newMsg, setNewMsg] = useState7("");
-    const [newTargets, setNewTargets] = useState7([]);
-    const [newUserTargets, setNewUserTargets] = useState7([]);
-    const [newForceAll, setNewForceAll] = useState7(false);
-    const [expandedRole, setExpandedRole] = useState7(null);
+    const [editingId, setEditingId] = useState8(null);
+    const [editForm, setEditForm] = useState8({ title: "", message: "" });
+    const [addMode, setAddMode] = useState8(false);
+    const [newTitle, setNewTitle] = useState8("");
+    const [newMsg, setNewMsg] = useState8("");
+    const [newTargets, setNewTargets] = useState8([]);
+    const [newUserTargets, setNewUserTargets] = useState8([]);
+    const [newForceAll, setNewForceAll] = useState8(false);
+    const [expandedRole, setExpandedRole] = useState8(null);
     const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
     const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
     const ANN_ROLES = [
@@ -25788,8 +26034,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     } }, SAFE_VAR_LABEL[st] || st, variance != null ? ` ${fmtSafeMoney(variance)}` : "");
   }
   function SignaturePad({ th, onCapture, label }) {
-    const ref = useRef4(null);
-    const drawing = useRef4(false);
+    const ref = useRef5(null);
+    const drawing = useRef5(false);
     const pos = (e) => {
       const r = ref.current.getBoundingClientRect();
       const t = e.touches ? e.touches[0] : e;
@@ -25840,8 +26086,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: save, style: { ...btn(th), minHeight: 40 } }, "Save signature"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clear, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Clear")));
   }
   function SafeAuditsPane({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState7("list");
-    const [sel, setSel] = useState7(null);
+    const [view, setView] = useState8("list");
+    const [sel, setSel] = useState8(null);
     const openConduct = (id, storePC) => {
       setSel({ id, storePC });
       setView("conduct");
@@ -25886,11 +26132,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
   }
   function SafeAuditList({ user, th, stores, showAlert: showAlert2, onConduct, onViewReport }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState7(null);
-    const [err, setErr] = useState7(false);
-    const [picking, setPicking] = useState7(false);
-    const [pickStore, setPickStore] = useState7("");
-    const [starting, setStarting] = useState7(false);
+    const [audits, setAudits] = useState8(null);
+    const [err, setErr] = useState8(false);
+    const [picking, setPicking] = useState8(false);
+    const [pickStore, setPickStore] = useState8("");
+    const [starting, setStarting] = useState8(false);
     const canConduct = safeCanConduct(user);
     const load = useCallback(() => {
       setErr(false);
@@ -25899,7 +26145,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setErr(true);
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -25978,14 +26224,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const storeName = store?.name || storePC;
     const storeDistrict = store?.district ?? null;
     const localKey = "pcg_safe_draft_" + auditId;
-    const [loading, setLoading] = useState7(true);
-    const [loadErr, setLoadErr] = useState7(false);
-    const [setting, setSetting] = useState7(null);
-    const [savingExpected, setSavingExpected] = useState7(false);
-    const [submitting, setSubmitting] = useState7(false);
-    const [submitted, setSubmitted] = useState7(null);
-    const didHydrate = useRef4(false);
-    const [f, setF] = useState7({
+    const [loading, setLoading] = useState8(true);
+    const [loadErr, setLoadErr] = useState8(false);
+    const [setting, setSetting] = useState8(null);
+    const [savingExpected, setSavingExpected] = useState8(false);
+    const [submitting, setSubmitting] = useState8(false);
+    const [submitted, setSubmitted] = useState8(null);
+    const didHydrate = useRef5(false);
+    const [f, setF] = useState8({
       reason: "",
       safeCode: "",
       codeLastChanged: "",
@@ -26006,7 +26252,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       notes: ""
     });
     const set = (patch) => setF((prev) => ({ ...prev, ...patch }));
-    useEffect7(() => {
+    useEffect8(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -26093,7 +26339,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       managerAckName: f.managerAckName,
       notes: f.notes
     });
-    useEffect7(() => {
+    useEffect8(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -26270,9 +26516,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function SafeSigImage({ sigKey, th, label }) {
-    const [src, setSrc] = useState7(null);
-    const [loading, setLoading] = useState7(!!sigKey);
-    useEffect7(() => {
+    const [src, setSrc] = useState8(null);
+    const [loading, setLoading] = useState8(!!sigKey);
+    useEffect8(() => {
       let cancelled = false;
       if (!sigKey) {
         setSrc(null);
@@ -26922,12 +27168,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const store = stores?.find((s) => String(s.pc) === String(storePC));
     const storeName = store?.name || storePC;
     const storeAddress = store ? [store.address, store.city, store.state, store.zip].filter(Boolean).join(", ") : "";
-    const [audit, setAudit] = useState7(null);
-    const [err, setErr] = useState7(false);
-    const [lightbox, setLightbox] = useState7(null);
-    const [exporting, setExporting] = useState7(false);
-    const printRef = useRef4(null);
-    useEffect7(() => {
+    const [audit, setAudit] = useState8(null);
+    const [err, setErr] = useState8(false);
+    const [lightbox, setLightbox] = useState8(null);
+    const [exporting, setExporting] = useState8(false);
+    const printRef = useRef5(null);
+    useEffect8(() => {
       let cancelled = false;
       setAudit(null);
       setErr(false);
@@ -26983,16 +27229,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Back to safe audits"), /* @__PURE__ */ React.createElement("button", { onClick: exportPdf, disabled: exporting, style: { ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 } }, exporting ? "Exporting\u2026" : "\u2913 Export PDF")), /* @__PURE__ */ React.createElement("div", { ref: printRef }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "flex-start", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: pageTitle(th) }, storeName, " ", storePC ? `(${storePC})` : ""), storeAddress && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", marginTop: "0.15rem" } }, storeAddress), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Auditor: ", audit.auditorName || "\u2014", audit.auditorRole ? ` (${audit.auditorRole})` : ""), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginTop: "0.25rem" } }, "Started ", audit.startedAt ? new Date(audit.startedAt).toLocaleString() : "\u2014", " \xB7 Submitted ", audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "\u2014", durationLabel ? ` \xB7 Duration ${durationLabel}` : "")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.4rem" } }, "Accounted ", fmtSafeMoney(audit.accountedTotal), " vs Expected ", fmtSafeMoney(audit.expectedPettyCash))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "General Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Reason for audit", value: audit.reason || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Current safe code", value: audit.safeCode || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Code last changed", value: audit.codeLastChanged || "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Store Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store manager", value: audit.storeManagerName || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: audit.district != null ? districtLabel(audit.district) : "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Petty Cash Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Expected petty cash", value: fmtSafeMoney(audit.expectedPettyCash), th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts in safe", value: audit.hasReceipts ? "Yes" : "No", th }), audit.hasReceipts && /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts total", value: fmtSafeMoney(audit.receiptsTotal), th })), audit.hasReceipts && audit.receiptPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Receipt photos (", audit.receiptPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.receiptPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "left" } }, "Denomination"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Count"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Value"))), /* @__PURE__ */ React.createElement("tbody", null, SAFE_BILLS.map((d) => denomRow(d, "billCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Bills"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.billsTotal))), SAFE_COINS.map((d) => denomRow(d, "coinCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Coins"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.coinsTotal))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, "Counted Total"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, fmtSafeMoney(audit.countedTotal)))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between", marginTop: "0.9rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 700 } }, "Accounted total (counted + receipts): ", fmtSafeMoney(audit.accountedTotal)), /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.9rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: audit.hasCounterfeit ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit cash found", value: audit.hasCounterfeit ? "Yes" : "No", color: audit.hasCounterfeit ? "#ef4444" : void 0, th }), audit.hasCounterfeit && /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit total", value: fmtSafeMoney(audit.counterfeitTotal), color: "#ef4444", th })), audit.hasCounterfeit && audit.counterfeitPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Counterfeit photos (", audit.counterfeitPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.counterfeitPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Signatures"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem" } }, /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.conductorSigKey, th, label: `Conductor \u2014 ${audit.auditorName || "\u2014"}` }), /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.managerSigKey, th, label: `Store manager / witness${audit.managerAckName ? ` \u2014 ${audit.managerAckName}` : ""}` }))), audit.notes && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, whiteSpace: "pre-wrap" } }, audit.notes))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
   }
   function SystemHealth({ th, user }) {
-    const [snap, setSnap] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const [refreshing, setRefreshing] = useState7(false);
+    const [snap, setSnap] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const [refreshing, setRefreshing] = useState8(false);
     const load = useCallback(async () => {
       setLoading(true);
       const d = await cloudLoad("pcg_system_health_v1");
       setSnap(d || null);
       setLoading(false);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     const refreshNow = async () => {
@@ -27032,7 +27278,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function AuditsTab({ user, th, stores, showAlert: showAlert2, setTab }) {
     const canFieldOps = auditCanView(user);
     const canSafe = safeCanView(user);
-    const [mode, setMode] = useState7(canFieldOps ? "field" : "safe");
+    const [mode, setMode] = useState8(canFieldOps ? "field" : "safe");
     const both = canFieldOps && canSafe;
     const effectiveMode = canFieldOps ? mode : "safe";
     const seg = both ? /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", padding: 3, gap: 3, borderRadius: 999, background: th.card2, border: `1px solid ${th.cardBorder}` } }, [["field", "Field Ops"], ["safe", "Safe"]].map(([m, lbl]) => /* @__PURE__ */ React.createElement(
@@ -27047,13 +27293,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, seg, effectiveMode === "safe" ? /* @__PURE__ */ React.createElement(SafeAuditsPane, { user, th, stores, showAlert: showAlert2, setTab }) : /* @__PURE__ */ React.createElement(FieldOpsAudits, { user, th, stores, showAlert: showAlert2, setTab }));
   }
   function FieldOpsAudits({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState7(null);
-    const [conduct, setConduct] = useState7(null);
+    const [view, setView] = useState8(null);
+    const [conduct, setConduct] = useState8(null);
     const canConduct = auditCanAudit(user);
     const canSeeCapBoard = auditCanView(user);
     const canSeeDashboard = canSeeCapBoard;
     const dashboardIsDefault = auditCanAudit(user);
-    useEffect7(() => {
+    useEffect8(() => {
       let cancelled = false;
       if (!dashboardIsDefault) {
         setView("list");
@@ -27148,11 +27394,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function AuditList({ user, th, stores, showAlert: showAlert2, canConduct, canSeeCapBoard, canSeeDashboard, onConduct, onViewReport, onOpenCapBoard, onOpenDashboard }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState7(null);
-    const [err, setErr] = useState7(false);
-    const [picking, setPicking] = useState7(false);
-    const [pickStore, setPickStore] = useState7("");
-    const [starting, setStarting] = useState7(false);
+    const [audits, setAudits] = useState8(null);
+    const [err, setErr] = useState8(false);
+    const [picking, setPicking] = useState8(false);
+    const [pickStore, setPickStore] = useState8("");
+    const [starting, setStarting] = useState8(false);
     const load = useCallback(() => {
       setErr(false);
       auditsApi("list").then((j) => setAudits(Array.isArray(j.audits) ? j.audits : [])).catch(() => {
@@ -27160,7 +27406,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -27224,18 +27470,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeDashboard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenDashboard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Dashboard"), canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
   }
   function AuditConduct({ user, th, stores, showAlert: showAlert2, auditId, storePC, onExit, onViewReport }) {
-    const [template, setTemplate] = useState7(null);
-    const [results, setResults] = useState7({});
-    const [secIdx, setSecIdx] = useState7(0);
-    const [loading, setLoading] = useState7(true);
-    const [loadErr, setLoadErr] = useState7(false);
-    const [submitting, setSubmitting] = useState7(false);
-    const [submitted, setSubmitted] = useState7(null);
-    const [gpsStatus, setGpsStatus] = useState7("");
-    const didHydrate = useRef4(false);
+    const [template, setTemplate] = useState8(null);
+    const [results, setResults] = useState8({});
+    const [secIdx, setSecIdx] = useState8(0);
+    const [loading, setLoading] = useState8(true);
+    const [loadErr, setLoadErr] = useState8(false);
+    const [submitting, setSubmitting] = useState8(false);
+    const [submitted, setSubmitted] = useState8(null);
+    const [gpsStatus, setGpsStatus] = useState8("");
+    const didHydrate = useRef5(false);
     const localKey = "pcg_audit_draft_" + auditId;
     const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
-    useEffect7(() => {
+    useEffect8(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -27268,7 +27514,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [auditId]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -27487,9 +27733,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   };
   var capStatusMeta = (s) => CAP_STATUS_META[s] || { label: s || "\u2014", color: "#6b7280" };
   function AuditPhotoThumb({ photoKey, th, onZoom, size = 64 }) {
-    const [src, setSrc] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    useEffect7(() => {
+    const [src, setSrc] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    useEffect8(() => {
       let cancelled = false;
       setLoading(true);
       cloudLoadFile(photoKey).then((f) => {
@@ -27514,10 +27760,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", cursor: "zoom-out" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "Full size", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "100%", borderRadius: "0.75rem", objectFit: "contain", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.25rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"));
   }
   function CapResolveForm({ th, user, cap, showAlert: showAlert2, onDone, onCancel }) {
-    const [note, setNote] = useState7("");
-    const [photoKeys, setPhotoKeys] = useState7([]);
-    const [uploading, setUploading] = useState7(false);
-    const [saving, setSaving] = useState7(false);
+    const [note, setNote] = useState8("");
+    const [photoKeys, setPhotoKeys] = useState8([]);
+    const [uploading, setUploading] = useState8(false);
+    const [saving, setSaving] = useState8(false);
     const addPhotos = async (fileList) => {
       const files = Array.from(fileList || []);
       if (!files.length) return;
@@ -27584,14 +27830,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function AuditReport({ user, th, stores, showAlert: showAlert2, auditId, storePC, onBack }) {
-    const [audit, setAudit] = useState7(null);
-    const [items, setItems] = useState7([]);
-    const [caps, setCaps] = useState7([]);
-    const [loading, setLoading] = useState7(true);
-    const [err, setErr] = useState7(false);
-    const [lightbox, setLightbox] = useState7(null);
-    const [exporting, setExporting] = useState7(false);
-    const printRef = useRef4(null);
+    const [audit, setAudit] = useState8(null);
+    const [items, setItems] = useState8([]);
+    const [caps, setCaps] = useState8([]);
+    const [loading, setLoading] = useState8(true);
+    const [err, setErr] = useState8(false);
+    const [lightbox, setLightbox] = useState8(null);
+    const [exporting, setExporting] = useState8(false);
+    const printRef = useRef5(null);
     const load = useCallback(() => {
       setLoading(true);
       setErr(false);
@@ -27601,7 +27847,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setCaps(Array.isArray(j.caps) ? j.caps : []);
       }).catch(() => setErr(true)).finally(() => setLoading(false));
     }, [auditId]);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     const store = (stores || []).find((s) => String(s.pc) === String(storePC));
@@ -27677,16 +27923,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function CapBoard({ user, th, stores, showAlert: showAlert2, onBack }) {
     const isMobile = useIsMobile();
-    const [rows, setRows] = useState7(null);
-    const [err, setErr] = useState7(false);
-    const [statusFilter, setStatusFilter] = useState7("all");
-    const [districtFilter, setDistrictFilter] = useState7("all");
-    const [ownerFilter, setOwnerFilter] = useState7("all");
-    const [expanded, setExpanded] = useState7(null);
-    const [rejectFor, setRejectFor] = useState7(null);
-    const [rejectNote, setRejectNote] = useState7("");
-    const [busyId, setBusyId] = useState7(null);
-    const [lightbox, setLightbox] = useState7(null);
+    const [rows, setRows] = useState8(null);
+    const [err, setErr] = useState8(false);
+    const [statusFilter, setStatusFilter] = useState8("all");
+    const [districtFilter, setDistrictFilter] = useState8("all");
+    const [ownerFilter, setOwnerFilter] = useState8("all");
+    const [expanded, setExpanded] = useState8(null);
+    const [rejectFor, setRejectFor] = useState8(null);
+    const [rejectNote, setRejectNote] = useState8("");
+    const [busyId, setBusyId] = useState8(null);
+    const [lightbox, setLightbox] = useState8(null);
     const canAudit = auditCanAudit(user);
     const load = useCallback(() => {
       setErr(false);
@@ -27695,7 +27941,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     const storeInfo = (pc) => (stores || []).find((s) => String(s.pc) === String(pc));
@@ -27811,8 +28057,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var DISTRICT_TREND_COLORS = ["#3b82f6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#14b8a6", "#eab308", "#ec4899"];
   function AuditDashboard({ user, th, stores, showAlert: showAlert2, onOpenReport, onGoList, onGoCaps }) {
-    const [data, setData] = useState7(null);
-    const [err, setErr] = useState7(false);
+    const [data, setData] = useState8(null);
+    const [err, setErr] = useState8(false);
     const isFull = auditCanView(user) && user?.userType !== "dm";
     const isDm = user?.userType === "dm";
     const canSeeManagerRanking = auditCanAudit(user);
@@ -27823,7 +28069,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     const visibleStores = React.useMemo(() => {
@@ -27889,7 +28135,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       for (const m of trend) Object.keys(m.byDistrict || {}).forEach((d) => set.add(d));
       return [...set].sort((a, b) => Number(a) - Number(b));
     }, [trend, isFull]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chartRef.current) {
         chartRef.current.destroy();
         chartRef.current = null;
@@ -27980,9 +28226,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ManagerCapCard({ user, th, stores, showAlert: showAlert2 }) {
     const store = getManagerStore(stores, user);
-    const [caps, setCaps] = useState7(null);
-    const [err, setErr] = useState7(false);
-    const [expanded, setExpanded] = useState7(null);
+    const [caps, setCaps] = useState8(null);
+    const [err, setErr] = useState8(false);
+    const [expanded, setExpanded] = useState8(null);
     const load = useCallback(() => {
       if (!store?.pc) {
         setCaps([]);
@@ -28003,7 +28249,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, [store?.pc]);
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [load]);
     if (!store?.pc) return null;
@@ -28242,9 +28488,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return visible;
   };
   function ManagerOrionBrief({ pc, storeName, th }) {
-    const [brief, setBrief] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const [err, setErr] = useState7(false);
+    const [brief, setBrief] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const [err, setErr] = useState8(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -28264,7 +28510,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect7(() => {
+    useEffect8(() => {
       load(false);
     }, [pc]);
     return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem", borderLeft: "3px solid #b197fc" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", paddingBottom: "0.6rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 18 }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text, whiteSpace: "nowrap" } }, "Orion \xB7 Store Brief"), storeName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "\xB7 ", storeName)), /* @__PURE__ */ React.createElement(
@@ -28279,9 +28525,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Reading your store\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Brief unavailable right now \u2014 try again shortly.") : brief && brief.content ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(brief.content, th)) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "No brief yet \u2014 not enough data for this store."));
   }
   function ForecastPrePlanCard({ pc, storeName, th }) {
-    const [plan, setPlan] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const [err, setErr] = useState7(false);
+    const [plan, setPlan] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const [err, setErr] = useState8(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -28301,7 +28547,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect7(() => {
+    useEffect8(() => {
       load(false);
     }, [pc]);
     const fc = plan && plan.forecast;
@@ -28321,14 +28567,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Building your game plan\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Pre-plan unavailable right now \u2014 try again shortly.") : !fc ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Not enough history yet \u2014 the model is still collecting data.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.8rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.66rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high), fc.holidayName ? ` \xB7 \u{1F389} ${fc.holidayName}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginTop: "0.7rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 7, padding: "0.4rem 0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.5rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.72rem", marginTop: "0.15rem" } }, f(v))))), par && (par.donut || par.munchkin) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.55rem", fontSize: "0.62rem", color: th.muted } }, par.donut && /* @__PURE__ */ React.createElement("span", null, "\u{1F369} Donut par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.donut.par)), par.munchkin && /* @__PURE__ */ React.createElement("span", null, "\xB7 Munchkin par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.munchkin.par))), plan && plan.content && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.78rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(plan.content, th))));
   }
   function StoreForecastTab({ pc, date, actualHourly, th }) {
-    const [mode, setMode] = useState7("day");
-    const [data, setData] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const [err, setErr] = useState7(false);
-    const [week, setWeek] = useState7(null);
-    const [weekLoading, setWeekLoading] = useState7(false);
-    const [weekErr, setWeekErr] = useState7(false);
-    useEffect7(() => {
+    const [mode, setMode] = useState8("day");
+    const [data, setData] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const [err, setErr] = useState8(false);
+    const [week, setWeek] = useState8(null);
+    const [weekLoading, setWeekLoading] = useState8(false);
+    const [weekErr, setWeekErr] = useState8(false);
+    useEffect8(() => {
       if (!pc) {
         setLoading(false);
         return;
@@ -28355,7 +28601,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [pc, date]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (mode !== "week" || !pc) return;
       let cancelled = false;
       setWeekLoading(true);
@@ -28539,38 +28785,38 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 364);
       return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     })();
-    const [sales, setSales] = useState7(null);
-    const [tappedHour, setTappedHour] = useState7(null);
-    const [salesYesterday, setSalesYesterday] = useState7(null);
-    const [salesLastYear, setSalesLastYear] = useState7(null);
-    const [labor, setLabor] = useState7(null);
-    const [hourly, setHourly] = useState7(null);
-    const [workers, setWorkers] = useState7([]);
-    const [lwDaySales, setLwDaySales] = useState7(null);
-    const [carouselPage, setCarouselPage] = useState7(0);
-    const touchStartX = useRef4(null);
-    const carouselInnerRef = useRef4(null);
-    const fetchTokenRef = useRef4(0);
-    const [loading, setLoading] = useState7(true);
-    const [refreshing, setRefreshing] = useState7(false);
-    const [lastRefresh, setLastRefresh] = useState7(null);
-    const [showStoreInfo, setShowStoreInfo] = useState7(false);
-    const [showUserMenu, setShowUserMenu] = useState7(false);
-    const [dayOffset, setDayOffset] = useState7(0);
-    const [storeBlob, setStoreBlob] = useState7(null);
-    const [histHourly, setHistHourly] = useState7(null);
-    const [liveHistCache, setLiveHistCache] = useState7({});
-    const [histLoading, setHistLoading] = useState7(false);
-    const [storeTickets, setStoreTickets] = useState7([]);
-    const [taskSummary, setTaskSummary] = useState7(null);
-    const [mgrCaps, setMgrCaps] = useState7(null);
-    const [mgrCapsErr, setMgrCapsErr] = useState7(false);
-    const [expandedCap, setExpandedCap] = useState7(null);
-    const toggleBtnRef = useRef4(null);
-    const [voiceState, setVoiceState] = useState7("idle");
-    const [voiceTranscript, setVoiceTranscript] = useState7("");
-    const [voiceReply, setVoiceReply] = useState7("");
-    const recogRef = useRef4(null);
+    const [sales, setSales] = useState8(null);
+    const [tappedHour, setTappedHour] = useState8(null);
+    const [salesYesterday, setSalesYesterday] = useState8(null);
+    const [salesLastYear, setSalesLastYear] = useState8(null);
+    const [labor, setLabor] = useState8(null);
+    const [hourly, setHourly] = useState8(null);
+    const [workers, setWorkers] = useState8([]);
+    const [lwDaySales, setLwDaySales] = useState8(null);
+    const [carouselPage, setCarouselPage] = useState8(0);
+    const touchStartX = useRef5(null);
+    const carouselInnerRef = useRef5(null);
+    const fetchTokenRef = useRef5(0);
+    const [loading, setLoading] = useState8(true);
+    const [refreshing, setRefreshing] = useState8(false);
+    const [lastRefresh, setLastRefresh] = useState8(null);
+    const [showStoreInfo, setShowStoreInfo] = useState8(false);
+    const [showUserMenu, setShowUserMenu] = useState8(false);
+    const [dayOffset, setDayOffset] = useState8(0);
+    const [storeBlob, setStoreBlob] = useState8(null);
+    const [histHourly, setHistHourly] = useState8(null);
+    const [liveHistCache, setLiveHistCache] = useState8({});
+    const [histLoading, setHistLoading] = useState8(false);
+    const [storeTickets, setStoreTickets] = useState8([]);
+    const [taskSummary, setTaskSummary] = useState8(null);
+    const [mgrCaps, setMgrCaps] = useState8(null);
+    const [mgrCapsErr, setMgrCapsErr] = useState8(false);
+    const [expandedCap, setExpandedCap] = useState8(null);
+    const toggleBtnRef = useRef5(null);
+    const [voiceState, setVoiceState] = useState8("idle");
+    const [voiceTranscript, setVoiceTranscript] = useState8("");
+    const [voiceReply, setVoiceReply] = useState8("");
+    const recogRef = useRef5(null);
     const handleToggle = useCallback(() => {
       const btn2 = toggleBtnRef.current;
       if (btn2) {
@@ -28727,17 +28973,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     }, [pc, todayStr]);
-    useEffect7(() => {
+    useEffect8(() => {
       fetchAll();
       return () => {
         fetchTokenRef.current++;
       };
     }, [fetchAll]);
-    useEffect7(() => {
+    useEffect8(() => {
       const t = setInterval(fetchAll, 10 * 60 * 1e3);
       return () => clearInterval(t);
     }, [fetchAll]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (dayOffset === 0) {
         setHistHourly(null);
         return;
@@ -28784,7 +29030,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [dayOffset, pc]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!pc) return;
       try {
         const raw = localStorage.getItem("pcg_tickets_v1");
@@ -29140,7 +29386,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.80";
+  var APP_VERSION = "v22.82";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -29226,22 +29472,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     reader.readAsText(file);
   }
   function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert: showAlert2, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores, onDrillIn }) {
-    const [chatView, setChatView] = useState7(initialChannelId ? "thread" : "list");
-    const [activeChannelId, setActiveChannelId] = useState7(initialChannelId || null);
-    const [msgText, setMsgText] = useState7("");
-    const [searchTerm, setSearchTerm] = useState7("");
-    const [pendingAttachments, setPendingAttachments] = useState7([]);
-    const [mentionQuery, setMentionQuery] = useState7(null);
-    const [groupName, setGroupName] = useState7("");
-    const [groupMembers, setGroupMembers] = useState7([]);
-    const [dmSearch, setDmSearch] = useState7("");
-    const [orionThinking, setOrionThinking] = useState7(false);
-    const [replyToThread, setReplyToThread] = useState7(null);
-    const [expandedThreads, setExpandedThreads] = useState7(/* @__PURE__ */ new Set());
-    const [orionFeedback, setOrionFeedback] = useState7({});
-    const [editMembers, setEditMembers] = useState7(null);
-    const [chatMenuOpen, setChatMenuOpen] = useState7(false);
-    const [chatConfirm, setChatConfirm] = useState7(null);
+    const [chatView, setChatView] = useState8(initialChannelId ? "thread" : "list");
+    const [activeChannelId, setActiveChannelId] = useState8(initialChannelId || null);
+    const [msgText, setMsgText] = useState8("");
+    const [searchTerm, setSearchTerm] = useState8("");
+    const [pendingAttachments, setPendingAttachments] = useState8([]);
+    const [mentionQuery, setMentionQuery] = useState8(null);
+    const [groupName, setGroupName] = useState8("");
+    const [groupMembers, setGroupMembers] = useState8([]);
+    const [dmSearch, setDmSearch] = useState8("");
+    const [orionThinking, setOrionThinking] = useState8(false);
+    const [replyToThread, setReplyToThread] = useState8(null);
+    const [expandedThreads, setExpandedThreads] = useState8(/* @__PURE__ */ new Set());
+    const [orionFeedback, setOrionFeedback] = useState8({});
+    const [editMembers, setEditMembers] = useState8(null);
+    const [chatMenuOpen, setChatMenuOpen] = useState8(false);
+    const [chatConfirm, setChatConfirm] = useState8(null);
     const sendOrionFeedback = (messageId, rating) => {
       if (!messageId) return;
       setOrionFeedback((prev) => ({ ...prev, [messageId]: rating }));
@@ -29252,7 +29498,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!pendingOrionQuestion) return;
       const analystChId = `analyst_${user.id}`;
       setActiveChannelId(analystChId);
@@ -29281,15 +29527,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [pendingOrionQuestion]);
     const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
     const personalAnalystId = `analyst_${user.id}`;
-    useEffect7(() => {
+    useEffect8(() => {
       if (!isAnalystUser) return;
       setChannels((prev) => {
         if (prev.some((c) => c.id === personalAnalystId)) return prev;
         return [{ id: personalAnalystId, type: "analyst", name: "Orion \u2014 My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" }, ...prev];
       });
     }, [user?.id]);
-    const sanitizedRef = useRef4(false);
-    useEffect7(() => {
+    const sanitizedRef = useRef5(false);
+    useEffect8(() => {
       if (sanitizedRef.current || !channels || channels.length === 0) return;
       if (!users || users.length === 0) return;
       const removedIds = /* @__PURE__ */ new Set();
@@ -29460,10 +29706,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setOrionThinking(false);
     };
-    const [logFilters, setLogFilters] = useState7({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
-    const messagesEndRef = useRef4(null);
-    const inputRef = useRef4(null);
-    const fileRef = useRef4(null);
+    const [logFilters, setLogFilters] = useState8({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
+    const messagesEndRef = useRef5(null);
+    const inputRef = useRef5(null);
+    const fileRef = useRef5(null);
     const isAdmin = isChatAdmin(user);
     const activeUsers = users.filter((u) => u.active);
     const resolveMention = (mention) => {
@@ -29796,12 +30042,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const mentionSuggestions = mentionQuery ? activeUsers.filter(
       (u) => u.id !== user.id && (u.username.toLowerCase().includes(mentionQuery.query) || u.name.toLowerCase().includes(mentionQuery.query))
     ).slice(0, 6) : [];
-    useEffect7(() => {
+    useEffect8(() => {
       if (initialChannelId && activeChannelId === initialChannelId) {
         setReadState((prev) => ({ ...prev, [`${user.id}_${initialChannelId}`]: (/* @__PURE__ */ new Date()).toISOString() }));
       }
     }, [initialChannelId]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chatView === "thread") messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, chatView, activeChannelId]);
     const getSeenBy = (msg) => {
@@ -29815,7 +30061,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const activeChannel = channels.find((ch) => ch.id === activeChannelId);
     const threadMessages = activeChannelId ? messages.filter((m) => m.channelId === activeChannelId).sort((a, b) => a.timestamp.localeCompare(b.timestamp)) : [];
-    useEffect7(() => {
+    useEffect8(() => {
       setReplyToThread(null);
       setChatMenuOpen(false);
     }, [activeChannelId]);
@@ -30244,9 +30490,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: () => setChatView("list"), style: { color: th.muted, cursor: "pointer" } }, "\u2190 Back to Chat");
   }
   function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
-    const [uploading, setUploading] = useState7(false);
-    const [uploadMsg, setUploadMsg] = useState7(null);
-    const fileRef = useRef4(null);
+    const [uploading, setUploading] = useState8(false);
+    const [uploadMsg, setUploadMsg] = useState8(null);
+    const fileRef = useRef5(null);
     const handleUpload = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -30289,8 +30535,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     } }, uploadMsg.text), currentWeek && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.5rem", padding: "1rem", background: th.card2, borderRadius: "0.5rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Currently Loaded"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", color: th.text, fontWeight: 700 } }, "Week #", currentWeek.weekNum, " \u2014 ", currentWeek.weekEnd, currentWeek.isDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#ffa94d", fontWeight: 700, marginLeft: "0.4rem", fontSize: "0.65rem", border: "1px solid #ffa94d", borderRadius: "4px", padding: "1px 6px" } }, "DRAFT") : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, currentWeek.stores.length, " stores")), salesWeeks.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Previous Weeks"), salesWeeks.slice(1).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.25rem 0" } }, "Week #", w.weekNum, " \u2014 ", w.weekEnd, w.isDraft ? " (Draft)" : "", " (", w.stores.length, " stores)")))));
   }
   function BiometricEnrollPrompt({ th, onDone }) {
-    const [busy, setBusy] = useState7(false);
-    const [err, setErr] = useState7("");
+    const [busy, setBusy] = useState8(false);
+    const [err, setErr] = useState8("");
     const enable = async () => {
       setBusy(true);
       setErr("");
@@ -30313,8 +30559,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), maxWidth: 380, width: "100%", padding: "1.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 28, color: O })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Enable Face ID / Fingerprint?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" } }, "Skip typing your password next time you sign in on this device."), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.75rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted, flex: 1 }), onClick: decline, disabled: busy }, "Not now"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { flex: 1 }), onClick: enable, disabled: busy }, busy ? "Enabling..." : "Enable"))));
   }
   function FirstLoginSetup({ user, setUser, setUsers, th }) {
-    const [step, setStep] = useState7(1);
-    const [form, setForm] = useState7({
+    const [step, setStep] = useState8(1);
+    const [form, setForm] = useState8({
       newPassword: "",
       confirmPassword: "",
       showNew: false,
@@ -30325,7 +30571,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       smsNotify: false,
       pushNotify: false
     });
-    const [err, setErr] = useState7("");
+    const [err, setErr] = useState8("");
     const handleStep1 = () => {
       setErr("");
       if (!isSharedDeviceType(user.userType)) {
@@ -30450,8 +30696,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return j;
   }
   function MyTimeOffCard({ th }) {
-    const [data, setData] = useState7(null);
-    useEffect7(() => {
+    const [data, setData] = useState8(null);
+    useEffect8(() => {
       timeOffApi("mine").then(setData).catch(() => setData({ linked: false, balances: [] }));
     }, []);
     if (!data || !data.linked) return null;
@@ -30480,10 +30726,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), canLink && /* @__PURE__ */ React.createElement("button", { onClick: onLink, title: "Change the linked Paycor employee", style: { fontSize: "0.62rem", color: th.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" } }, "change"));
   }
   function TimeOffLinkPicker({ th, target, onClose, onSaved, showAlert: showAlert2 }) {
-    const [q, setQ] = useState7("");
-    const [list, setList] = useState7(null);
-    const [saving, setSaving] = useState7(false);
-    useEffect7(() => {
+    const [q, setQ] = useState8("");
+    const [list, setList] = useState8(null);
+    const [saving, setSaving] = useState8(false);
+    useEffect8(() => {
       let cancelled = false;
       const t = setTimeout(() => {
         timeOffApi("candidates", { userId: target.id, q }).then((j) => {
@@ -30530,7 +30776,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     );
   }
   function ProfileModal({ user, setUser, setUsers, th, onClose }) {
-    const [profileForm, setProfileForm] = useState7({
+    const [profileForm, setProfileForm] = useState8({
       email: user.email || "",
       phone: user.phone || "",
       emailNotify: user.emailNotify !== false,
@@ -30543,12 +30789,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       showNew: false,
       showConfirm: false
     });
-    const [profileMsg, setProfileMsg] = useState7(null);
-    const [bioAvailable, setBioAvailable] = useState7(false);
-    const [bioCreds, setBioCreds] = useState7([]);
-    const [bioBusy, setBioBusy] = useState7(false);
+    const [profileMsg, setProfileMsg] = useState8(null);
+    const [bioAvailable, setBioAvailable] = useState8(false);
+    const [bioCreds, setBioCreds] = useState8([]);
+    const [bioBusy, setBioBusy] = useState8(false);
     const refreshBioCreds = () => webauthnList().then(setBioCreds);
-    useEffect7(() => {
+    useEffect8(() => {
       webauthnAvailable().then(setBioAvailable);
       refreshBioCreds();
     }, []);
@@ -31388,10 +31634,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const firstName2 = (user?.name || "").split(" ")[0];
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    const [weather, setWeather] = useState7(null);
-    const [showWeekWeather, setShowWeekWeather] = useState7(false);
-    const weatherRectRef = useRef4(null);
-    const weatherCloseTimer = useRef4(null);
+    const [weather, setWeather] = useState8(null);
+    const [showWeekWeather, setShowWeekWeather] = useState8(false);
+    const weatherRectRef = useRef5(null);
+    const weatherCloseTimer = useRef5(null);
     const openWeekWeather = (e) => {
       if (weatherCloseTimer.current) {
         clearTimeout(weatherCloseTimer.current);
@@ -31410,13 +31656,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (weatherCloseTimer.current) clearTimeout(weatherCloseTimer.current);
       weatherCloseTimer.current = setTimeout(() => setShowWeekWeather(false), 150);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!showWeekWeather) return;
       const close = () => setShowWeekWeather(false);
       window.addEventListener("scroll", close, { passive: true });
       return () => window.removeEventListener("scroll", close);
     }, [showWeekWeather]);
-    useEffect7(() => {
+    useEffect8(() => {
       (async () => {
         try {
           let lat = 40.084, lon = -75.0524;
@@ -31587,7 +31833,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))));
   }
   function DashboardHeadlines({ th, isMobile, dailyFeed }) {
-    const [newsTab, setNewsTab] = useState7("general");
+    const [newsTab, setNewsTab] = useState8("general");
     return /* @__PURE__ */ React.createElement(React.Fragment, null, dailyFeed?.news && Object.values(dailyFeed.news).some((arr) => Array.isArray(arr) && arr.length > 0) && (() => {
       const SOURCE_COLORS = {
         "Fox News": "#003366",
@@ -31753,8 +31999,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return all;
     }, [stores, user, isDM, isManager]);
     const { actions, acknowledge, delegate, delegating } = useActionQueue({ stores: scopedStores, user, users, showAlert: showAlert2, enabled: opsRole });
-    const [foodSafety, setFoodSafety] = useState7(null);
-    useEffect7(() => {
+    const [foodSafety, setFoodSafety] = useState8(null);
+    useEffect8(() => {
       if (!opsRole) return;
       if (isManager && !scopedStores.length) return;
       const district = isDM ? user?.district : isManager ? scopedStores[0]?.district : null;
@@ -31788,9 +32034,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [opsRole, scopedStores.length]);
-    const [cases, setCases] = useState7(null);
-    const [showAllCases, setShowAllCases] = useState7(false);
-    useEffect7(() => {
+    const [cases, setCases] = useState8(null);
+    const [showAllCases, setShowAllCases] = useState8(false);
+    useEffect8(() => {
       if (!isExecIT) return;
       fetch("/.netlify/functions/analyst", {
         method: "POST",
@@ -31800,15 +32046,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [isExecIT]);
     const CLOSED_CASE = /* @__PURE__ */ new Set(["Done", "Dismissed", "Rejected", "Closed"]);
     const openCases = (cases || []).filter((c) => !CLOSED_CASE.has(c.status)).sort((a, b) => (b.dollarOpportunity || 0) - (a.dollarOpportunity || 0));
-    const [dailyFeed, setDailyFeed] = useState7(null);
-    useEffect7(() => {
+    const [dailyFeed, setDailyFeed] = useState8(null);
+    useEffect8(() => {
       fetch("/.netlify/functions/daily-feed").then((r) => r.ok ? r.json() : null).then((d) => {
         if (d) setDailyFeed(d);
       }).catch(() => {
       });
     }, []);
-    const [showAllAttention, setShowAllAttention] = useState7(false);
-    const [showBrief, setShowBrief] = useState7(false);
+    const [showAllAttention, setShowAllAttention] = useState8(false);
+    const [showBrief, setShowBrief] = useState8(false);
     const now = /* @__PURE__ */ new Date();
     const sevRank = { High: 0, Medium: 1, Low: 2 };
     const ICON_STORE = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M3 9h18M9 20v-6h6v6" }));
@@ -32059,19 +32305,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return d.getDay() === 0;
   }
   function SalesReconciliation({ th, user, showAlert: showAlert2 }) {
-    const [busDt, setBusDt] = useState7(() => {
+    const [busDt, setBusDt] = useState8(() => {
       const d = /* @__PURE__ */ new Date();
       d.setDate(d.getDate() - 1);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     });
-    const [snapping, setSnapping] = useState7(false);
-    const [comparing, setComparing] = useState7(false);
-    const [result, setResult] = useState7(null);
-    const [history, setHistory] = useState7(null);
-    const [wtdSnapshots, setWtdSnapshots] = useState7(null);
-    const [wtdHistory, setWtdHistory] = useState7(null);
-    const [wtdDetail, setWtdDetail] = useState7(null);
-    const [view, setView] = useState7("main");
+    const [snapping, setSnapping] = useState8(false);
+    const [comparing, setComparing] = useState8(false);
+    const [result, setResult] = useState8(null);
+    const [history, setHistory] = useState8(null);
+    const [wtdSnapshots, setWtdSnapshots] = useState8(null);
+    const [wtdHistory, setWtdHistory] = useState8(null);
+    const [wtdDetail, setWtdDetail] = useState8(null);
+    const [view, setView] = useState8("main");
     const callRecon = async (action, extra = {}) => {
       const res = await fetch("/.netlify/functions/reconciliation", {
         method: "POST",
@@ -32130,7 +32376,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setComparing(false);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       loadHistory();
     }, []);
     const fmtD = (v) => "$" + Math.abs(v || 0).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -32192,19 +32438,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canEdit = isCashAdmin(user);
     const isDM = user?.userType === "dm";
     const dmDistrict = isDM ? user?.district : null;
-    const [noteModal, setNoteModal] = useState7(null);
-    const [noteText, setNoteText] = useState7("");
-    const [editDep, setEditDep] = useState7(null);
-    const [editForm, setEditForm] = useState7({ depositDate: "", amount: "" });
-    const [posLoading, setPosLoading] = useState7(false);
-    const [posProgress, setPosProgress] = useState7(0);
-    const fileRef = useRef4(null);
-    const [uploading, setUploading] = useState7(false);
-    const [uploadErr, setUploadErr] = useState7(null);
-    const [view, setView] = useState7("alerts");
-    const [weekOffset, setWeekOffset] = useState7(0);
-    const [storeFilter, setStoreFilter] = useState7(null);
-    const [distFilter, setDistFilter] = useState7(isDM ? dmDistrict : 0);
+    const [noteModal, setNoteModal] = useState8(null);
+    const [noteText, setNoteText] = useState8("");
+    const [editDep, setEditDep] = useState8(null);
+    const [editForm, setEditForm] = useState8({ depositDate: "", amount: "" });
+    const [posLoading, setPosLoading] = useState8(false);
+    const [posProgress, setPosProgress] = useState8(0);
+    const fileRef = useRef5(null);
+    const [uploading, setUploading] = useState8(false);
+    const [uploadErr, setUploadErr] = useState8(null);
+    const [view, setView] = useState8("alerts");
+    const [weekOffset, setWeekOffset] = useState8(0);
+    const [storeFilter, setStoreFilter] = useState8(null);
+    const [distFilter, setDistFilter] = useState8(isDM ? dmDistrict : 0);
     const fmtUSD = (v) => "$" + (Math.round(v * 100) / 100).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtUSDRound = (v) => "$" + Math.round(v).toLocaleString();
     const fmtShort = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
@@ -32457,8 +32703,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setPosLoading(false);
       if (!silent) showAlert2 && showAlert2("success", `POS cash totals loaded (${targets.length} fetched)`);
     };
-    const posAutoLoadedRef = useRef4("");
-    useEffect7(() => {
+    const posAutoLoadedRef = useRef5("");
+    useEffect8(() => {
       if (view !== "recon") return;
       const key = `${weekOffset}|${distFilter}|${view}`;
       if (posAutoLoadedRef.current === key) return;
@@ -33181,10 +33427,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var SCHEDULE_DESKTOP_BREAKPOINT = 1024;
   function useIsDesktopViewport() {
-    const [isDesktop, setIsDesktop] = useState7(
+    const [isDesktop, setIsDesktop] = useState8(
       () => typeof window !== "undefined" ? window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT : true
     );
-    useEffect7(() => {
+    useEffect8(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mql = window.matchMedia(`(min-width: ${SCHEDULE_DESKTOP_BREAKPOINT}px)`);
       const onChange = (e) => setIsDesktop(e.matches);
@@ -33272,9 +33518,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setUTCDate(d.getUTCDate() + i);
       return d;
     });
-    const [hoveredCell, setHoveredCell] = useState7(null);
-    const [clipboard, setClipboard] = useState7(null);
-    useEffect7(() => {
+    const [hoveredCell, setHoveredCell] = useState8(null);
+    const [clipboard, setClipboard] = useState8(null);
+    useEffect8(() => {
       const onKeyDown = (e) => {
         if (e.key === "Escape") setClipboard(null);
       };
@@ -33298,8 +33544,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const handleAddShift = (employeeId, dayOffset) => {
       onCardsChange(addShiftToEmployee(cards, employeeId, { dayOffset, startTime: "09:00", endTime: "17:00" }));
     };
-    const [editingShift, setEditingShift] = useState7(null);
-    const [editDraft, setEditDraft] = useState7({ startTime: "", endTime: "", reassignTo: "" });
+    const [editingShift, setEditingShift] = useState8(null);
+    const [editDraft, setEditDraft] = useState8({ startTime: "", endTime: "", reassignTo: "" });
     const openEdit = (employeeId, shift) => {
       setEditingShift({ employeeId, shift });
       setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: "" });
@@ -33375,8 +33621,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "sticky", top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.85rem 1.1rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Projected Weekly Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color } }, "$", weeklyTotal.totalDollars.toFixed(2), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 600 } }, "(", pct.toFixed(1), "%)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, weeklyTotal.totalHours.toFixed(1), " total hours"), overtimeEmployees.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b", fontWeight: 600 } }, "\u26A0 ", overtimeEmployees.length, " employee(s) over 40h this week"));
   }
   function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmployees = [], onReassign, startInEdit = false }) {
-    const [editing, setEditing] = useState7(startInEdit);
-    const [draftShifts, setDraftShifts] = useState7(cardData.shifts || []);
+    const [editing, setEditing] = useState8(startInEdit);
+    const [draftShifts, setDraftShifts] = useState8(cardData.shifts || []);
     const updateShift = (idx, field, value) => {
       setDraftShifts((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
     };
@@ -33410,17 +33656,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ScheduleBuilder({ store, th, mode }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [weekStart, setWeekStart] = useState7("");
-    const [loading, setLoading] = useState7(false);
-    const [error, setError] = useState7(null);
-    const [cards, setCards] = useState7(null);
-    const [cardIndex, setCardIndex] = useState7(0);
-    const [approvedCards, setApprovedCards] = useState7([]);
-    const [payRates, setPayRates] = useState7({});
-    const [openShiftGroups, setOpenShiftGroups] = useState7([]);
-    const [submitResult, setSubmitResult] = useState7(null);
-    const [showBuildPreview, setShowBuildPreview] = useState7(false);
-    const [reopenEmployeeId, setReopenEmployeeId] = useState7(null);
+    const [weekStart, setWeekStart] = useState8("");
+    const [loading, setLoading] = useState8(false);
+    const [error, setError] = useState8(null);
+    const [cards, setCards] = useState8(null);
+    const [cardIndex, setCardIndex] = useState8(0);
+    const [approvedCards, setApprovedCards] = useState8([]);
+    const [payRates, setPayRates] = useState8({});
+    const [openShiftGroups, setOpenShiftGroups] = useState8([]);
+    const [submitResult, setSubmitResult] = useState8(null);
+    const [showBuildPreview, setShowBuildPreview] = useState8(false);
+    const [reopenEmployeeId, setReopenEmployeeId] = useState8(null);
     const load = async () => {
       if (!weekStart) return;
       setLoading(true);
@@ -33678,21 +33924,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
-    const [activeTab, setActiveTab] = useState7("hourly");
-    const [laborHoverHr, setLaborHoverHr] = useState7(null);
-    const [punches, setPunches] = useState7([]);
-    const [employees, setEmployees] = useState7([]);
-    const [storeHistory, setStoreHistory] = useState7(null);
-    const [hourlySales, setHourlySales] = useState7({});
-    const [scheduleShifts, setScheduleShifts] = useState7([]);
-    const [livePunches, setLivePunches] = useState7({});
-    const [liveSummary, setLiveSummary] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const [fetchError, setFetchError] = useState7(false);
-    const [empExpanded, setEmpExpanded] = useState7(false);
-    const [weekSchedule, setWeekSchedule] = useState7(null);
-    const [expandedDay, setExpandedDay] = useState7(null);
-    const [empHourAdj, setEmpHourAdj] = useState7({});
+    const [activeTab, setActiveTab] = useState8("hourly");
+    const [laborHoverHr, setLaborHoverHr] = useState8(null);
+    const [punches, setPunches] = useState8([]);
+    const [employees, setEmployees] = useState8([]);
+    const [storeHistory, setStoreHistory] = useState8(null);
+    const [hourlySales, setHourlySales] = useState8({});
+    const [scheduleShifts, setScheduleShifts] = useState8([]);
+    const [livePunches, setLivePunches] = useState8({});
+    const [liveSummary, setLiveSummary] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const [fetchError, setFetchError] = useState8(false);
+    const [empExpanded, setEmpExpanded] = useState8(false);
+    const [weekSchedule, setWeekSchedule] = useState8(null);
+    const [expandedDay, setExpandedDay] = useState8(null);
+    const [empHourAdj, setEmpHourAdj] = useState8({});
     const storeInfo = stores.find((s) => s.pc === store.pc) || {};
     const mgrName = storeMgrName(storeInfo, users) || "Unassigned";
     const todayStr = localDateStr(/* @__PURE__ */ new Date());
@@ -33703,7 +33949,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() + diff);
       return localDateStr(d);
     })();
-    useEffect7(() => {
+    useEffect8(() => {
       async function loadAll() {
         setLoading(true);
         const legalEntityId = store.paycor || storeInfo.paycor;
@@ -33825,7 +34071,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       loadAll();
     }, [store.pc, store.paycor]);
-    useEffect7(() => {
+    useEffect8(() => {
       setWeekSchedule(null);
       setExpandedDay(null);
       setEmpHourAdj({});
@@ -34067,7 +34313,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 3 } }, hrLong), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: O, marginRight: 6 } }), "Sales ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.sales))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: clr, marginRight: 6 } }), "Labor ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.labor)), h.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", pct.toFixed(1), "%")))
       );
     }
-    useEffect7(() => {
+    useEffect8(() => {
       if (activeTab !== "optimizer" || weekSchedule !== null) return;
       cloudLoad("pcg_schedule_" + store.pc).then((data) => {
         setWeekSchedule(data || {});
@@ -34298,21 +34544,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return Math.floor(hrs / 24) + "d ago";
   }
   function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn, users }) {
-    const [laborData, setLaborData] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const [error, setError] = useState7(null);
-    const [selectedStore, setSelectedStore] = useState7(null);
-    useEffect7(() => {
+    const [laborData, setLaborData] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const [error, setError] = useState8(null);
+    const [selectedStore, setSelectedStore] = useState8(null);
+    useEffect8(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
-    const [timeFilter, setTimeFilter] = useState7("today");
-    const [districtFilter, setDistrictFilter] = useState7("all");
-    const [storeQuery, setStoreQuery] = useState7("");
-    const [viewDate, setViewDate] = useState7("");
-    const [dayData, setDayData] = useState7(null);
-    const [dayLoading, setDayLoading] = useState7(false);
-    const [dayError, setDayError] = useState7(null);
-    useEffect7(() => {
+    const [timeFilter, setTimeFilter] = useState8("today");
+    const [districtFilter, setDistrictFilter] = useState8("all");
+    const [storeQuery, setStoreQuery] = useState8("");
+    const [viewDate, setViewDate] = useState8("");
+    const [dayData, setDayData] = useState8(null);
+    const [dayLoading, setDayLoading] = useState8(false);
+    const [dayError, setDayError] = useState8(null);
+    useEffect8(() => {
       if (!viewDate) {
         setDayData(null);
         setDayError(null);
@@ -34341,7 +34587,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [viewDate]);
-    const [forecastData, setForecastData] = useState7({});
+    const [forecastData, setForecastData] = useState8({});
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const next7Days = React.useMemo(() => {
@@ -34359,10 +34605,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
     }, []);
     const todayStr = next7Days.find((d) => d.isToday)?.dateStr;
-    useEffect7(() => {
+    useEffect8(() => {
       if (isDM && user.district) setDistrictFilter(String(user.district));
     }, [isDM, user]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (drillInStore) {
         const store = stores.find((s) => s.pc === drillInStore);
         if (store) {
@@ -34385,10 +34631,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setLoading(false);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect7(() => {
+    useEffect8(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -34396,7 +34642,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!isManager) return /* @__PURE__ */ new Set();
       return new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
     }, [isManager, stores, user]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!laborData?.stores) return;
       const pcs = Object.keys(laborData.stores);
       let cancelled = false;
@@ -34618,13 +34864,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })));
   }
   function PnLStoreDetail({ store, th, onClose }) {
-    const [history, setHistory] = useState7(null);
+    const [history, setHistory] = useState8(null);
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad(`pcg_pnl_store_${store.pc}`).then((d) => setHistory(d?.daily || [])).catch(() => setHistory([]));
     }, [store.pc]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !history?.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -34769,58 +35015,58 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
       return f.format(/* @__PURE__ */ new Date());
     };
-    const [view, setView] = useState7(isManager ? "tasks" : "dashboard");
+    const [view, setView] = useState8(isManager ? "tasks" : "dashboard");
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef, 420, 20, view);
-    const [storePc, setStorePc] = useState7(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
-    const [date, setDate] = useState7(todayET());
-    const [seg, setSeg] = useState7("open");
-    const [data, setData] = useState7(null);
-    const [dash, setDash] = useState7(null);
-    const [rollup, setRollup] = useState7(null);
-    const [loading, setLoading] = useState7(false);
-    const [busyId, setBusyId] = useState7(null);
-    const [openEntry, setOpenEntry] = useState7(null);
-    const [entryVal, setEntryVal] = useState7("");
-    const [keypad, setKeypad] = useState7(null);
-    const [expandedId, setExpandedId] = useState7(null);
-    const [localAnswers, setLocalAnswers] = useState7({});
-    const [cas, setCas] = useState7(null);
-    const [caFilter, setCaFilter] = useState7("open");
-    const [loadingCAs, setLoadingCAs] = useState7(false);
-    const [gpsRows, setGpsRows] = useState7(null);
-    const [gpsLoading, setGpsLoading] = useState7(false);
-    const [gpsDays, setGpsDays] = useState7(7);
-    const [gpsTab, setGpsTab] = useState7("list");
-    const gpsMapDiv = useRef4(null);
-    const gpsMapRef = useRef4(null);
-    const gpsLayerRef = useRef4(null);
-    const [auditData, setAuditData] = useState7(null);
-    const [auditLoading, setAuditLoading] = useState7(false);
-    const [auditStore, setAuditStore] = useState7("");
-    const [auditFrom, setAuditFrom] = useState7("");
-    const [auditTo, setAuditTo] = useState7("");
-    const [auditPhotos, setAuditPhotos] = useState7(false);
-    const [auditPhotoUrls, setAuditPhotoUrls] = useState7({});
-    const [auditExporting, setAuditExporting] = useState7(false);
-    const auditRef = useRef4(null);
-    const [photoLightbox, setPhotoLightbox] = useState7(null);
-    const [photoUrls, setPhotoUrls] = useState7({});
-    const [merch, setMerch] = useState7(null);
-    const [merchPage, setMerchPage] = useState7(1);
-    const [merchLoading, setMerchLoading] = useState7(false);
-    const [merchAllDates, setMerchAllDates] = useState7(false);
+    const [storePc, setStorePc] = useState8(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
+    const [date, setDate] = useState8(todayET());
+    const [seg, setSeg] = useState8("open");
+    const [data, setData] = useState8(null);
+    const [dash, setDash] = useState8(null);
+    const [rollup, setRollup] = useState8(null);
+    const [loading, setLoading] = useState8(false);
+    const [busyId, setBusyId] = useState8(null);
+    const [openEntry, setOpenEntry] = useState8(null);
+    const [entryVal, setEntryVal] = useState8("");
+    const [keypad, setKeypad] = useState8(null);
+    const [expandedId, setExpandedId] = useState8(null);
+    const [localAnswers, setLocalAnswers] = useState8({});
+    const [cas, setCas] = useState8(null);
+    const [caFilter, setCaFilter] = useState8("open");
+    const [loadingCAs, setLoadingCAs] = useState8(false);
+    const [gpsRows, setGpsRows] = useState8(null);
+    const [gpsLoading, setGpsLoading] = useState8(false);
+    const [gpsDays, setGpsDays] = useState8(7);
+    const [gpsTab, setGpsTab] = useState8("list");
+    const gpsMapDiv = useRef5(null);
+    const gpsMapRef = useRef5(null);
+    const gpsLayerRef = useRef5(null);
+    const [auditData, setAuditData] = useState8(null);
+    const [auditLoading, setAuditLoading] = useState8(false);
+    const [auditStore, setAuditStore] = useState8("");
+    const [auditFrom, setAuditFrom] = useState8("");
+    const [auditTo, setAuditTo] = useState8("");
+    const [auditPhotos, setAuditPhotos] = useState8(false);
+    const [auditPhotoUrls, setAuditPhotoUrls] = useState8({});
+    const [auditExporting, setAuditExporting] = useState8(false);
+    const auditRef = useRef5(null);
+    const [photoLightbox, setPhotoLightbox] = useState8(null);
+    const [photoUrls, setPhotoUrls] = useState8({});
+    const [merch, setMerch] = useState8(null);
+    const [merchPage, setMerchPage] = useState8(1);
+    const [merchLoading, setMerchLoading] = useState8(false);
+    const [merchAllDates, setMerchAllDates] = useState8(false);
     const MERCH_PAGE_SIZE = 8;
-    const [rangeDays, setRangeDays] = useState7(14);
-    const [reportData, setReportData] = useState7(null);
-    const [reportLoading, setReportLoading] = useState7(false);
-    const [hist, setHist] = useState7(null);
-    const [histLoading, setHistLoading] = useState7(false);
-    const [histPage, setHistPage] = useState7(1);
-    const [histStatus, setHistStatus] = useState7("all");
-    const [tempLog, setTempLog] = useState7(null);
-    const [tempLoading, setTempLoading] = useState7(false);
-    const [tempPage, setTempPage] = useState7(1);
+    const [rangeDays, setRangeDays] = useState8(14);
+    const [reportData, setReportData] = useState8(null);
+    const [reportLoading, setReportLoading] = useState8(false);
+    const [hist, setHist] = useState8(null);
+    const [histLoading, setHistLoading] = useState8(false);
+    const [histPage, setHistPage] = useState8(1);
+    const [histStatus, setHistStatus] = useState8("all");
+    const [tempLog, setTempLog] = useState8(null);
+    const [tempLoading, setTempLoading] = useState8(false);
+    const [tempPage, setTempPage] = useState8(1);
     const byName = user?.name || user?.email || "user";
     const SHIFT_WINDOWS_CLIENT = {
       "1 AM": 0,
@@ -34847,10 +35093,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
       return r.json();
     }, []);
-    const geoRef = useRef4(null);
+    const geoRef = useRef5(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
     const locDefaultOn = user?.userType === "store_tablet";
-    const [shareLoc, setShareLoc] = useState7(() => {
+    const [shareLoc, setShareLoc] = useState8(() => {
       try {
         const v = localStorage.getItem("pcg_share_location");
         if (v === "1") return true;
@@ -34860,21 +35106,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return locDefaultOn;
       }
     });
-    const [locAsked, setLocAsked] = useState7(() => {
+    const [locAsked, setLocAsked] = useState8(() => {
       try {
         return localStorage.getItem("pcg_share_location") != null;
       } catch {
         return true;
       }
     });
-    const [locDenied, setLocDenied] = useState7(false);
+    const [locDenied, setLocDenied] = useState8(false);
     const persistLoc = (on) => {
       try {
         localStorage.setItem("pcg_share_location", on ? "1" : "0");
       } catch {
       }
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!navigator.permissions?.query) return;
       let perm;
       navigator.permissions.query({ name: "geolocation" }).then((p) => {
@@ -35029,22 +35275,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setMerchLoading(false);
       }
     }, [api2, scopeStores, merchPage, date, merchAllDates]);
-    useEffect7(() => {
+    useEffect8(() => {
       setMerchPage(1);
     }, [date, merchAllDates]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "tasks" || view === "dashboard") loadStore();
     }, [view, loadStore]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "stores") loadRollup();
     }, [view, loadRollup]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "cas") loadCAs();
     }, [view, loadCAs]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "gps") loadGps();
     }, [view, gpsDays]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "merchandising") loadMerch();
     }, [view, loadMerch]);
     const rangeFromTo = useCallback(() => {
@@ -35082,23 +35328,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setTempLoading(false);
       }
     }, [api2, scopePcs, rangeFromTo, tempPage, user]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "reports") loadReports();
     }, [view, loadReports]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "history") loadHistory();
     }, [view, loadHistory]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "temp") loadTemp();
     }, [view, loadTemp]);
-    useEffect7(() => {
+    useEffect8(() => {
       setHistPage(1);
       setTempPage(1);
     }, [rangeDays]);
-    useEffect7(() => {
+    useEffect8(() => {
       setHistPage(1);
     }, [histStatus]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view !== "gps" || gpsTab !== "map" || !gpsRows || !gpsMapDiv.current || !window.L) return;
       const L2 = window.L;
       if (!gpsMapRef.current) {
@@ -35130,7 +35376,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       }, 150);
     }, [view, gpsTab, gpsRows, th.dark, stores]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (view === "gps" && gpsTab === "map") return;
       if (gpsMapRef.current) {
         try {
@@ -35141,7 +35387,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         gpsLayerRef.current = null;
       }
     }, [view, gpsTab]);
-    useEffect7(() => () => {
+    useEffect8(() => () => {
       if (gpsMapRef.current) {
         try {
           gpsMapRef.current.remove();
@@ -35152,7 +35398,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     }, []);
     const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    useEffect7(() => {
+    useEffect8(() => {
       if (view !== "audit" || auditTo) return;
       const to = todayET();
       const d = /* @__PURE__ */ new Date(to + "T12:00:00");
@@ -35173,7 +35419,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditLoading(false);
       }
     }, [api2, auditStore, auditFrom, auditTo]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!auditPhotos || !auditData) return;
       const need = (auditData.tasks || []).filter((t) => t.has_photo && auditPhotoUrls[t.id] === void 0);
       if (!need.length) return;
@@ -35203,7 +35449,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditExporting(false);
       }
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (view !== "tasks" && view !== "dashboard") return;
       const id = setInterval(() => loadStore(true), 25e3);
       return () => clearInterval(id);
@@ -35752,24 +35998,24 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), photoLightbox && /* @__PURE__ */ React.createElement("div", { onClick: () => setPhotoLightbox(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoLightbox(null), style: { position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: photoLightbox, alt: "Full size photo", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } }))))));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
-    const [eventAddr, setEventAddr] = useState7("2310 W Passyunk Ave, Philadelphia, PA 19145");
-    const [eventLatLng, setEventLatLng] = useState7(null);
-    const [eventDate, setEventDate] = useState7("2025-12-28");
-    const [weeksBefore, setWeeksBefore] = useState7(13);
-    const [weeksAfter, setWeeksAfter] = useState7("");
-    const [coords, setCoords] = useState7(null);
-    const [ranked, setRanked] = useState7([]);
-    const [impactedPc, setImpactedPc] = useState7(null);
-    const [controlPcs, setControlPcs] = useState7([]);
-    const [status, setStatus] = useState7("");
-    const [busy, setBusy] = useState7(false);
-    const [results, setResults] = useState7(null);
-    const chartCanvas = useRef4(null);
-    const chartRef = useRef4(null);
-    const mapDiv = useRef4(null);
-    const mapRef = useRef4(null);
-    const [radiusMi, setRadiusMi] = useState7(1);
-    const histCache = useRef4(/* @__PURE__ */ new Map());
+    const [eventAddr, setEventAddr] = useState8("2310 W Passyunk Ave, Philadelphia, PA 19145");
+    const [eventLatLng, setEventLatLng] = useState8(null);
+    const [eventDate, setEventDate] = useState8("2025-12-28");
+    const [weeksBefore, setWeeksBefore] = useState8(13);
+    const [weeksAfter, setWeeksAfter] = useState8("");
+    const [coords, setCoords] = useState8(null);
+    const [ranked, setRanked] = useState8([]);
+    const [impactedPc, setImpactedPc] = useState8(null);
+    const [controlPcs, setControlPcs] = useState8([]);
+    const [status, setStatus] = useState8("");
+    const [busy, setBusy] = useState8(false);
+    const [results, setResults] = useState8(null);
+    const chartCanvas = useRef5(null);
+    const chartRef = useRef5(null);
+    const mapDiv = useRef5(null);
+    const mapRef = useRef5(null);
+    const [radiusMi, setRadiusMi] = useState8(1);
+    const histCache = useRef5(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
       setBusy(true);
@@ -35926,7 +36172,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       doc.text("Source: Dunkin\u2019 Pulse POS net sales. Distances are geocoded centroid estimates (US Census).", margin, 10.7);
       doc.save(`impact-${imp.name.replace(/\s+/g, "-")}-${eventDate}.pdf`);
     }
-    useEffect7(() => {
+    useEffect8(() => {
       (async () => {
         let c = await cloudLoad(COORDS_BLOB);
         if (!c || Object.keys(c).length < STORES_SEED.length) {
@@ -35973,7 +36219,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setBusy(false);
     }
-    useEffect7(() => {
+    useEffect8(() => {
       if (!eventLatLng || !coords) return;
       const rows = openStoreList().filter((s) => coords[s.pc]).map((s) => ({
         pc: s.pc,
@@ -35987,7 +36233,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
       }
     }, [eventLatLng, coords]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!results || !chartCanvas.current || !window.Chart) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -36023,7 +36269,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       };
     }, [results, dark]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!eventLatLng || !mapDiv.current || !window.L) return;
       if (!mapRef.current) {
         mapRef.current = window.L.map(mapDiv.current).setView([eventLatLng.lat, eventLatLng.lng], 13);
@@ -36063,7 +36309,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       map.setView([eventLatLng.lat, eventLatLng.lng], 13);
     }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
-    useEffect7(() => () => {
+    useEffect8(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -36077,22 +36323,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })(), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", color: th.muted, fontSize: 12 } }, /* @__PURE__ */ React.createElement("th", { style: { padding: 6 } }, "Store"), /* @__PURE__ */ React.createElement("th", null, "Distance"), /* @__PURE__ */ React.createElement("th", null, "Before $/wk"), /* @__PURE__ */ React.createElement("th", null, "After $/wk"), /* @__PURE__ */ React.createElement("th", null, "%\u0394"), /* @__PURE__ */ React.createElement("th", null, "Weeks"))), /* @__PURE__ */ React.createElement("tbody", null, [results.impacted, ...results.controls].map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: row.pc, style: { borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: 6 } }, row.name, i === 0 ? " (impacted)" : ""), /* @__PURE__ */ React.createElement("td", null, row.distance != null ? `${row.distance.toFixed(1)} mi` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgBefore)), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgAfter)), /* @__PURE__ */ React.createElement("td", { style: { color: row.deltaPct < -15 ? "#dc2626" : row.deltaPct < -7 ? "#d97706" : th.text } }, fmtPct(row.deltaPct)), /* @__PURE__ */ React.createElement("td", { style: { color: row.weeksBeforeUsed < weeksBefore ? "#d97706" : th.muted } }, row.weeksBeforeUsed, "/", row.weeksAfterUsed, row.weeksBeforeUsed < weeksBefore ? " \u26A0" : ""))))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 11, marginTop: 8 } }, "Source: ", results.impacted.source === "scorecard" ? `uploaded weekly scorecards (${results.impacted.weeksAvailable} wks available for the impacted store)` : `Pulse net sales via labor blobs (~13-week retention; ${results.impacted.weeksAvailable} wks available)`, ". \u26A0 = fewer weeks than requested.")));
   }
   function AdminNdcp({ th, user }) {
-    const [orders, setOrders] = useState7(null);
-    const [err, setErr] = useState7(null);
-    const [q, setQ] = useState7("");
-    const [storeFilter, setStoreFilter] = useState7("");
-    const [sel, setSel] = useState7(null);
-    const [detail, setDetail] = useState7(null);
-    const [detailLoading, setDetailLoading] = useState7(false);
+    const [orders, setOrders] = useState8(null);
+    const [err, setErr] = useState8(null);
+    const [q, setQ] = useState8("");
+    const [storeFilter, setStoreFilter] = useState8("");
+    const [sel, setSel] = useState8(null);
+    const [detail, setDetail] = useState8(null);
+    const [detailLoading, setDetailLoading] = useState8(false);
     const todayISO = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const ago2 = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-    const [from, setFrom] = useState7(ago2(13 * 7));
-    const [to, setTo] = useState7(todayISO);
-    const [view, setView] = useState7("weekly");
-    const [summary, setSummary] = useState7(null);
-    const [labor, setLabor] = useState7(null);
-    const [expandWeek, setExpandWeek] = useState7(null);
-    const [expandDist, setExpandDist] = useState7(null);
+    const [from, setFrom] = useState8(ago2(13 * 7));
+    const [to, setTo] = useState8(todayISO);
+    const [view, setView] = useState8("weekly");
+    const [summary, setSummary] = useState8(null);
+    const [labor, setLabor] = useState8(null);
+    const [expandWeek, setExpandWeek] = useState8(null);
+    const [expandDist, setExpandDist] = useState8(null);
     const dcpPct = (spend, sales) => {
       if (spend == null || sales == null) return null;
       const sp = +spend, sl = +sales;
@@ -36104,7 +36350,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }).then((r) => r.json());
-    useEffect7(() => {
+    useEffect8(() => {
       setOrders(null);
       setErr(null);
       const f = (action, extra = {}) => api2({ action, from, to, ...extra });
@@ -36119,7 +36365,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setOrders([]);
       });
     }, [from, to]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_labor_v1").then(setLabor).catch(() => {
       });
     }, []);
@@ -36290,7 +36536,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
     const weeks = React.useMemo(() => Object.entries(summary && summary.byWeek || {}).sort((a, b) => a[0].localeCompare(b[0])), [summary]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !weeks.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -36393,65 +36639,65 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
     const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
     const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
-    const [deals, setDeals] = useState7([]);
-    const [loading, setLoading] = useState7(true);
-    const [error, setError] = useState7(null);
-    const [view, setView] = useState7("kanban");
-    const [filterBrand, setFilterBrand] = useState7("all");
-    const [filterType, setFilterType] = useState7("all");
-    const [filterState, setFilterState] = useState7("all");
-    const [filterStage, setFilterStage] = useState7("all");
-    const [filterLead, setFilterLead] = useState7("all");
-    const [sortCol, setSortCol] = useState7("name");
-    const [sortDir, setSortDir] = useState7("asc");
-    const [selectedDeal, setSelectedDeal] = useState7(null);
-    const [detailDeal, setDetailDeal] = useState7(null);
-    const [detailDates, setDetailDates] = useState7([]);
-    const [detailNotes, setDetailNotes] = useState7([]);
-    const [detailLoading, setDetailLoading] = useState7(false);
-    const [detailError, setDetailError] = useState7(null);
-    const [editFields, setEditFields] = useState7({});
-    const [saving, setSaving] = useState7(false);
-    const [saveMsg, setSaveMsg] = useState7(null);
-    const [newNote, setNewNote] = useState7("");
-    const [addingNote, setAddingNote] = useState7(false);
-    const [noteErr, setNoteErr] = useState7(null);
-    const [actionErr, setActionErr] = useState7(null);
-    const [showCreate, setShowCreate] = useState7(false);
-    const [createForm, setCreateForm] = useState7({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
-    const [creating, setCreating] = useState7(false);
-    const [createError, setCreateError] = useState7(null);
-    const [docs, setDocs] = useState7([]);
-    const [docVersions, setDocVersions] = useState7([]);
-    const [docBusy, setDocBusy] = useState7(false);
-    const [docErr, setDocErr] = useState7(null);
-    const [newDocType, setNewDocType] = useState7("loi");
-    const [allDates, setAllDates] = useState7([]);
-    const [newDateType, setNewDateType] = useState7(DATE_TYPES[0]?.id || "");
-    const [newDateDue, setNewDateDue] = useState7("");
-    const [newDateTiers, setNewDateTiers] = useState7(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
-    const [newDateNotes, setNewDateNotes] = useState7("");
-    const [newDateRecurring, setNewDateRecurring] = useState7("");
-    const [dateAdding, setDateAdding] = useState7(false);
-    const [dateErr, setDateErr] = useState7(null);
-    const [showAccess, setShowAccess] = useState7(false);
-    const [accessRows, setAccessRows] = useState7(null);
-    const [accessInput, setAccessInput] = useState7("");
-    const [accessRole, setAccessRole] = useState7("view");
-    const [accessBusy, setAccessBusy] = useState7(false);
-    const [accessErr, setAccessErr] = useState7(null);
-    const [dealLeads, setDealLeads] = useState7([]);
-    const [newLeadName, setNewLeadName] = useState7("");
-    const [deadFor, setDeadFor] = useState7(null);
-    const [deadReason, setDeadReason] = useState7(DEAD_REASONS[0]);
-    const [deadNote, setDeadNote] = useState7("");
-    const [deadBusy, setDeadBusy] = useState7(false);
-    const [deadErr, setDeadErr] = useState7(null);
-    const [remindFor, setRemindFor] = useState7(null);
-    const [remindPhone, setRemindPhone] = useState7("");
-    const [remindMsg, setRemindMsg] = useState7("");
-    const [remindBusy, setRemindBusy] = useState7(false);
-    const [remindStatus, setRemindStatus] = useState7(null);
+    const [deals, setDeals] = useState8([]);
+    const [loading, setLoading] = useState8(true);
+    const [error, setError] = useState8(null);
+    const [view, setView] = useState8("kanban");
+    const [filterBrand, setFilterBrand] = useState8("all");
+    const [filterType, setFilterType] = useState8("all");
+    const [filterState, setFilterState] = useState8("all");
+    const [filterStage, setFilterStage] = useState8("all");
+    const [filterLead, setFilterLead] = useState8("all");
+    const [sortCol, setSortCol] = useState8("name");
+    const [sortDir, setSortDir] = useState8("asc");
+    const [selectedDeal, setSelectedDeal] = useState8(null);
+    const [detailDeal, setDetailDeal] = useState8(null);
+    const [detailDates, setDetailDates] = useState8([]);
+    const [detailNotes, setDetailNotes] = useState8([]);
+    const [detailLoading, setDetailLoading] = useState8(false);
+    const [detailError, setDetailError] = useState8(null);
+    const [editFields, setEditFields] = useState8({});
+    const [saving, setSaving] = useState8(false);
+    const [saveMsg, setSaveMsg] = useState8(null);
+    const [newNote, setNewNote] = useState8("");
+    const [addingNote, setAddingNote] = useState8(false);
+    const [noteErr, setNoteErr] = useState8(null);
+    const [actionErr, setActionErr] = useState8(null);
+    const [showCreate, setShowCreate] = useState8(false);
+    const [createForm, setCreateForm] = useState8({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
+    const [creating, setCreating] = useState8(false);
+    const [createError, setCreateError] = useState8(null);
+    const [docs, setDocs] = useState8([]);
+    const [docVersions, setDocVersions] = useState8([]);
+    const [docBusy, setDocBusy] = useState8(false);
+    const [docErr, setDocErr] = useState8(null);
+    const [newDocType, setNewDocType] = useState8("loi");
+    const [allDates, setAllDates] = useState8([]);
+    const [newDateType, setNewDateType] = useState8(DATE_TYPES[0]?.id || "");
+    const [newDateDue, setNewDateDue] = useState8("");
+    const [newDateTiers, setNewDateTiers] = useState8(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
+    const [newDateNotes, setNewDateNotes] = useState8("");
+    const [newDateRecurring, setNewDateRecurring] = useState8("");
+    const [dateAdding, setDateAdding] = useState8(false);
+    const [dateErr, setDateErr] = useState8(null);
+    const [showAccess, setShowAccess] = useState8(false);
+    const [accessRows, setAccessRows] = useState8(null);
+    const [accessInput, setAccessInput] = useState8("");
+    const [accessRole, setAccessRole] = useState8("view");
+    const [accessBusy, setAccessBusy] = useState8(false);
+    const [accessErr, setAccessErr] = useState8(null);
+    const [dealLeads, setDealLeads] = useState8([]);
+    const [newLeadName, setNewLeadName] = useState8("");
+    const [deadFor, setDeadFor] = useState8(null);
+    const [deadReason, setDeadReason] = useState8(DEAD_REASONS[0]);
+    const [deadNote, setDeadNote] = useState8("");
+    const [deadBusy, setDeadBusy] = useState8(false);
+    const [deadErr, setDeadErr] = useState8(null);
+    const [remindFor, setRemindFor] = useState8(null);
+    const [remindPhone, setRemindPhone] = useState8("");
+    const [remindMsg, setRemindMsg] = useState8("");
+    const [remindBusy, setRemindBusy] = useState8(false);
+    const [remindStatus, setRemindStatus] = useState8(null);
     const loadList = () => {
       setLoading(true);
       return dealApi(token, { action: "list", status: "active" }).then((r) => {
@@ -36460,7 +36706,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setError(null);
       }).catch((e) => setError(e.message)).finally(() => setLoading(false));
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!token) {
         setLoading(false);
         return;
@@ -36473,7 +36719,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setAccessErr(null);
       dealApi(token, { action: "listAccess" }).then((r) => setAccessRows(r.access || [])).catch((e) => setAccessErr(e.message));
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (showAccess) loadAccess();
     }, [showAccess]);
     const doSetAccess = (key, r) => {
@@ -37297,16 +37543,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ));
   }
   function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
-    const [pnl, setPnl] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const [error, setError] = useState7(null);
-    const [selectedStore, setSelectedStore] = useState7(null);
-    useEffect7(() => {
+    const [pnl, setPnl] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const [error, setError] = useState8(null);
+    const [selectedStore, setSelectedStore] = useState8(null);
+    useEffect8(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) {
           setPnl(d);
@@ -37339,7 +37585,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const p = (n) => a.revenue > 0 ? n / a.revenue * 100 : 0;
       return { ...a, marginPct: p(a.contribution), laborPct: p(a.labor), cogsPct: p(a.cogs) };
     }, [ranked]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (drillInStore && pnl?.stores) {
         const match = pnl.stores.find((s) => String(s.pc) === String(drillInStore));
         if (match) setSelectedStore(match);
@@ -37499,8 +37745,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var QUICKFIND_HUB_LABELS = { "ops-hub": "Operations", "team-hub": "Team & Sites", "system-hub": "System", "tools-hub": "Tools", finance: "Finance" };
   function QuickFindBar({ th, tabs, onNavigate, compact }) {
-    const [query, setQuery] = useState7("");
-    const [showSuggestions, setShowSuggestions] = useState7(false);
+    const [query, setQuery] = useState8("");
+    const [showSuggestions, setShowSuggestions] = useState8(false);
     const matches = React.useMemo(() => {
       const q = query.trim().toLowerCase();
       if (!q) return [];
@@ -37636,11 +37882,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
     const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
-    const [viewMode, setViewMode] = useState7("overview");
-    const [hubQuery, setHubQuery] = useState7("");
-    const [pnlOv, setPnlOv] = useState7(null);
-    const [expPending, setExpPending] = useState7(null);
-    useEffect7(() => {
+    const [viewMode, setViewMode] = useState8("overview");
+    const [hubQuery, setHubQuery] = useState8("");
+    const [pnlOv, setPnlOv] = useState8(null);
+    const [expPending, setExpPending] = useState8(null);
+    useEffect8(() => {
       if (viewMode !== "overview") return;
       if (canPnl && !pnlOv) cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) setPnlOv(d);
@@ -37924,21 +38170,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function TipsReportBuilder({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [periodStart, setPeriodStart] = useState7("");
-    const [loading, setLoading] = useState7(false);
-    const [error, setError] = useState7(null);
-    const [dayInfo, setDayInfo] = useState7(null);
-    const [snapshots, setSnapshots] = useState7(null);
-    const [grandTotal, setGrandTotal] = useState7(0);
+    const [periodStart, setPeriodStart] = useState8("");
+    const [loading, setLoading] = useState8(false);
+    const [error, setError] = useState8(null);
+    const [dayInfo, setDayInfo] = useState8(null);
+    const [snapshots, setSnapshots] = useState8(null);
+    const [grandTotal, setGrandTotal] = useState8(0);
     const canPushToPaycor = canPaycorPush(user);
-    const [paycorCfg, setPaycorCfg] = useState7({});
-    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState7(false);
-    const [paycorPush, setPaycorPush] = useState7(null);
-    const [singleSendPc, setSingleSendPc] = useState7("");
-    const [singleSending, setSingleSending] = useState7(false);
-    const [refreshingDates, setRefreshingDates] = useState7(() => /* @__PURE__ */ new Set());
-    const [refreshingStores, setRefreshingStores] = useState7(() => /* @__PURE__ */ new Set());
-    useEffect7(() => {
+    const [paycorCfg, setPaycorCfg] = useState8({});
+    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState8(false);
+    const [paycorPush, setPaycorPush] = useState8(null);
+    const [singleSendPc, setSingleSendPc] = useState8("");
+    const [singleSending, setSingleSending] = useState8(false);
+    const [refreshingDates, setRefreshingDates] = useState8(() => /* @__PURE__ */ new Set());
+    const [refreshingStores, setRefreshingStores] = useState8(() => /* @__PURE__ */ new Set());
+    useEffect8(() => {
       if (!canPushToPaycor || paycorCfgLoaded) return;
       cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
       }).finally(() => setPaycorCfgLoaded(true));
@@ -37954,12 +38200,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return next;
       });
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!canPushToPaycor || !paycorCfgLoaded || !snapshots) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
       fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc));
     }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
-    const [missingCheck, setMissingCheck] = useState7(null);
+    const [missingCheck, setMissingCheck] = useState8(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
     const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 864e5) : 0;
@@ -38351,9 +38597,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   var teHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
-    const [shown, setShown] = useState7(target);
-    const fromRef = useRef4(target);
-    useEffect7(() => {
+    const [shown, setShown] = useState8(target);
+    const fromRef = useRef5(target);
+    useEffect8(() => {
       const from = fromRef.current;
       if (teReducedMotion() || Math.abs(from - target) < 5e-3) {
         fromRef.current = target;
@@ -38471,20 +38717,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 14);
       return tipsFormatISODate(d);
     })();
-    const [storePc, setStorePc] = useState7("");
-    const [roster, setRoster] = useState7(null);
-    const [rosterLoading, setRosterLoading] = useState7(false);
-    const [personQuery, setPersonQuery] = useState7("");
-    const [person, setPerson] = useState7(null);
-    const [startDate, setStartDate] = useState7(twoWeeksAgo);
-    const [endDate, setEndDate] = useState7(yesterday);
-    const [days, setDays] = useState7(null);
-    const [edits, setEdits] = useState7({});
-    const [loading, setLoading] = useState7(false);
-    const [saving, setSaving] = useState7(false);
-    const [error, setError] = useState7(null);
-    const [result, setResult] = useState7(null);
-    const [reason, setReason] = useState7("");
+    const [storePc, setStorePc] = useState8("");
+    const [roster, setRoster] = useState8(null);
+    const [rosterLoading, setRosterLoading] = useState8(false);
+    const [personQuery, setPersonQuery] = useState8("");
+    const [person, setPerson] = useState8(null);
+    const [startDate, setStartDate] = useState8(twoWeeksAgo);
+    const [endDate, setEndDate] = useState8(yesterday);
+    const [days, setDays] = useState8(null);
+    const [edits, setEdits] = useState8({});
+    const [loading, setLoading] = useState8(false);
+    const [saving, setSaving] = useState8(false);
+    const [error, setError] = useState8(null);
+    const [result, setResult] = useState8(null);
+    const [reason, setReason] = useState8("");
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const api2 = async (body) => {
       const res = await fetch("/.netlify/functions/tips-manual-edit", {
@@ -38623,25 +38869,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.88rem", fontWeight: 600, color: th.text, marginBottom: "0.35rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("textarea", { rows: 2, className: "te-input", placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: FONTS.body, fontSize: "0.92rem" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.84rem", color: th.muted, marginRight: "auto" } }, /* @__PURE__ */ React.createElement(TeTicker, { value: checkedDays.length, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
   }
   function TipsEditor({ th, stores, user, onGoToReport }) {
-    const [mode, setMode] = useState7("day");
+    const [mode, setMode] = useState8("day");
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState7("");
-    const [dateStr, setDateStr] = useState7(todayStr);
-    const [loading, setLoading] = useState7(false);
-    const [error, setError] = useState7(null);
-    const [store, setStore] = useState7(null);
-    const [crew, setCrew] = useState7([]);
-    const [saving, setSaving] = useState7(false);
-    const [savedMsg, setSavedMsg] = useState7(null);
-    const [reason, setReason] = useState7("");
-    const [roster, setRoster] = useState7(null);
-    const [rosterLoading, setRosterLoading] = useState7(false);
-    const [rosterQuery, setRosterQuery] = useState7("");
-    const [showRoster, setShowRoster] = useState7(false);
-    const [hoverKey, setHoverKey] = useState7(null);
-    const [leavingKeys, setLeavingKeys] = useState7([]);
-    const [justSaved, setJustSaved] = useState7(false);
-    const [addedKeys, setAddedKeys] = useState7([]);
+    const [storePc, setStorePc] = useState8("");
+    const [dateStr, setDateStr] = useState8(todayStr);
+    const [loading, setLoading] = useState8(false);
+    const [error, setError] = useState8(null);
+    const [store, setStore] = useState8(null);
+    const [crew, setCrew] = useState8([]);
+    const [saving, setSaving] = useState8(false);
+    const [savedMsg, setSavedMsg] = useState8(null);
+    const [reason, setReason] = useState8("");
+    const [roster, setRoster] = useState8(null);
+    const [rosterLoading, setRosterLoading] = useState8(false);
+    const [rosterQuery, setRosterQuery] = useState8("");
+    const [showRoster, setShowRoster] = useState8(false);
+    const [hoverKey, setHoverKey] = useState8(null);
+    const [leavingKeys, setLeavingKeys] = useState8([]);
+    const [justSaved, setJustSaved] = useState8(false);
+    const [addedKeys, setAddedKeys] = useState8([]);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const pool = tipsRound2(store?.tipPool || 0);
     const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
@@ -38830,14 +39076,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function EmployeeHoursReport({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState7("");
-    const [startDate, setStartDate] = useState7("");
-    const [endDate, setEndDate] = useState7("");
-    const [status, setStatus] = useState7(null);
-    const [step, setStep] = useState7("");
-    const [error, setError] = useState7(null);
-    const [result, setResult] = useState7(null);
-    const pollRef = useRef4(null);
+    const [storePc, setStorePc] = useState8("");
+    const [startDate, setStartDate] = useState8("");
+    const [endDate, setEndDate] = useState8("");
+    const [status, setStatus] = useState8(null);
+    const [step, setStep] = useState8("");
+    const [error, setError] = useState8(null);
+    const [result, setResult] = useState8(null);
+    const pollRef = useRef5(null);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     React.useEffect(() => () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -39027,13 +39273,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return React.createElement("div", { style: { fontFamily: "'Source Sans 3'", fontSize: "0.875rem" } }, elements);
   }
   function AskBar({ user, stores, th, onNavigate }) {
-    const [open, setOpen] = useState7(false);
-    const [query, setQuery] = useState7("");
-    const [answer, setAnswer] = useState7(null);
-    const [loading, setLoading] = useState7(false);
-    const [feedback, setFeedback] = useState7(null);
-    const inputRef = useRef4(null);
-    useEffect7(() => {
+    const [open, setOpen] = useState8(false);
+    const [query, setQuery] = useState8("");
+    const [answer, setAnswer] = useState8(null);
+    const [loading, setLoading] = useState8(false);
+    const [feedback, setFeedback] = useState8(null);
+    const inputRef = useRef5(null);
+    useEffect8(() => {
       const handler = (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") {
           e.preventDefault();
@@ -39049,7 +39295,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       window.addEventListener("keydown", handler);
       return () => window.removeEventListener("keydown", handler);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (open && inputRef.current) inputRef.current.focus();
     }, [open]);
     const ask = async () => {
@@ -39432,11 +39678,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     doc.save(`business_cases_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.pdf`);
   }
   function TodayBrief({ user, th, setAnnouncements, showAlert: showAlert2, announcementsDismissed, setAnnouncementsDismissed }) {
-    const [brief, setBrief] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const [refreshing, setRefreshing] = useState7(false);
-    const [collapsed, setCollapsed] = useState7(false);
-    const [posting, setPosting] = useState7(false);
+    const [brief, setBrief] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const [refreshing, setRefreshing] = useState8(false);
+    const [collapsed, setCollapsed] = useState8(false);
+    const [posting, setPosting] = useState8(false);
     const fetchBrief = async (refresh) => {
       if (refresh) setRefreshing(true);
       else setLoading(true);
@@ -39454,7 +39700,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setLoading(false);
       setRefreshing(false);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       fetchBrief(false);
     }, []);
     if (loading) return /* @__PURE__ */ React.createElement("div", { style: { background: `linear-gradient(135deg, ${O}12, ${O}06)`, border: `1px solid ${O}33`, borderRadius: "0.75rem", padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", color: O, fontSize: "0.75rem", fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", null, "\u{1F52E}"), " Loading Orion's brief..."));
@@ -39483,16 +39729,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, collapsed ? "\u25BC" : "\u25B2"))), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem" } }, renderAnalystMarkdown(brief.content, th)));
   }
   function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnouncements, showAlert: showAlert2 }) {
-    const [cases, setCases] = useState7([]);
-    const [totalOpp, setTotalOpp] = useState7(0);
-    const [byStatus, setByStatus] = useState7({});
-    const [loading, setLoading] = useState7(true);
-    const [expanded, setExpanded] = useState7(null);
-    const [caseAction, setCaseAction] = useState7({});
-    const [reasonPrompt, setReasonPrompt] = useState7(null);
-    const [decisionLog, setDecisionLog] = useState7([]);
-    const [showDecisionLog, setShowDecisionLog] = useState7(false);
-    useEffect7(() => {
+    const [cases, setCases] = useState8([]);
+    const [totalOpp, setTotalOpp] = useState8(0);
+    const [byStatus, setByStatus] = useState8({});
+    const [loading, setLoading] = useState8(true);
+    const [expanded, setExpanded] = useState8(null);
+    const [caseAction, setCaseAction] = useState8({});
+    const [reasonPrompt, setReasonPrompt] = useState8(null);
+    const [decisionLog, setDecisionLog] = useState8([]);
+    const [showDecisionLog, setShowDecisionLog] = useState8(false);
+    useEffect8(() => {
       (async () => {
         try {
           const district = user.userType === "dm" ? user.district : null;
@@ -39679,7 +39925,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setReportsReadIds(allIds);
       setReportsUnreadCount(0);
     };
-    const selectReportTokenRef = useRef4(0);
+    const selectReportTokenRef = useRef5(0);
     const handleSelectReport = async (rpt) => {
       const myToken = ++selectReportTokenRef.current;
       setSelectedReport(rpt);
@@ -40311,19 +40557,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const CAT_COLORS = { "Setup Guide": "#3b82f6", "SOP": "#8b5cf6", "Training": "#22c55e", "Policy": "#ef4444", "Reference": "#f59e0b" };
     const isAdmin = user && (user.userType === "executive" || user.userType === "it");
     const [kbSection, setKbSection] = React.useState("articles");
-    const [articles, setArticles] = useState7([]);
-    const [selectedArticle, setSelectedArticle] = useState7(null);
-    const [articleContent, setArticleContent] = useState7(null);
-    const [loading, setLoading] = useState7(true);
-    const kbContentRef = useRef4(null);
-    const [search, setSearch] = useState7("");
-    const [catFilter, setCatFilter] = useState7("All");
-    const [showForm, setShowForm] = useState7(false);
-    const [showPdfModal, setShowPdfModal] = useState7(false);
-    const [editing, setEditing] = useState7(false);
-    const [editForm, setEditForm] = useState7({ title: "", category: "", description: "", content: "" });
-    const [form, setForm] = useState7({ title: "", category: "Setup Guide", description: "", content: "" });
-    useEffect7(() => {
+    const [articles, setArticles] = useState8([]);
+    const [selectedArticle, setSelectedArticle] = useState8(null);
+    const [articleContent, setArticleContent] = useState8(null);
+    const [loading, setLoading] = useState8(true);
+    const kbContentRef = useRef5(null);
+    const [search, setSearch] = useState8("");
+    const [catFilter, setCatFilter] = useState8("All");
+    const [showForm, setShowForm] = useState8(false);
+    const [showPdfModal, setShowPdfModal] = useState8(false);
+    const [editing, setEditing] = useState8(false);
+    const [editForm, setEditForm] = useState8({ title: "", category: "", description: "", content: "" });
+    const [form, setForm] = useState8({ title: "", category: "Setup Guide", description: "", content: "" });
+    useEffect8(() => {
       if (!kbContentRef.current || !articleContent) return;
       kbContentRef.current.querySelectorAll("script").forEach((old) => {
         const s = document.createElement("script");
@@ -40332,7 +40578,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         old.parentNode.replaceChild(s, old);
       });
     }, [articleContent]);
-    useEffect7(() => {
+    useEffect8(() => {
       (async () => {
         setLoading(true);
         const data = await cloudLoad("pcg_kb_articles");
@@ -40340,7 +40586,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setLoading(false);
       })();
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       const draft = takePendingKbDraft();
       if (draft) {
         setForm({
@@ -40835,14 +41081,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     );
   }
   function EmailTab({ th, user }) {
-    const [emails, setEmails] = useState7([]);
-    const [loading, setLoading] = useState7(true);
-    const [filter, setFilter] = useState7("all");
-    const [selectedEmail, setSelectedEmail] = useState7(null);
-    const [composing, setComposing] = useState7(false);
-    const [composeData, setComposeData] = useState7({ to: "", cc: "", subject: "", body: "" });
-    const [sending, setSending] = useState7(false);
-    const [lastSync, setLastSync] = useState7(null);
+    const [emails, setEmails] = useState8([]);
+    const [loading, setLoading] = useState8(true);
+    const [filter, setFilter] = useState8("all");
+    const [selectedEmail, setSelectedEmail] = useState8(null);
+    const [composing, setComposing] = useState8(false);
+    const [composeData, setComposeData] = useState8({ to: "", cc: "", subject: "", body: "" });
+    const [sending, setSending] = useState8(false);
+    const [lastSync, setLastSync] = useState8(null);
     const loadEmails = async () => {
       setLoading(true);
       try {
@@ -40861,7 +41107,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setLoading(false);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       loadEmails();
     }, []);
     const filtered = filter === "all" ? emails : emails.filter((e) => e.category === filter);
@@ -42046,17 +42292,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   };
   function ConstructionMobileView({ th, user, stores, projects, setProjects, todos, setTodos, onFullPortal, onOpenChat, onLogout }) {
     const O2 = "#FF671F";
-    const [navTab, setNavTab] = useState7("projects");
-    const [screen, setScreen] = useState7("list");
-    const [detailTab, setDetailTab] = useState7("reports");
-    const [calWeekOffset, setCalWeekOffset] = useState7(0);
-    const [calSelectedDay, setCalSelectedDay] = useState7(() => {
+    const [navTab, setNavTab] = useState8("projects");
+    const [screen, setScreen] = useState8("list");
+    const [detailTab, setDetailTab] = useState8("reports");
+    const [calWeekOffset, setCalWeekOffset] = useState8(0);
+    const [calSelectedDay, setCalSelectedDay] = useState8(() => {
       const d = /* @__PURE__ */ new Date();
       d.setHours(0, 0, 0, 0);
       return d;
     });
-    const [calSchedules, setCalSchedules] = useState7([]);
-    useEffect7(() => {
+    const [calSchedules, setCalSchedules] = useState8([]);
+    useEffect8(() => {
       const load = () => cloudLoad(typeof MAINT_SCHEDULE_KEY !== "undefined" ? MAINT_SCHEDULE_KEY : "pcg_maint_schedules_v1").then((d) => {
         if (Array.isArray(d)) setCalSchedules(d);
       }).catch(() => {
@@ -42065,9 +42311,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const id = setInterval(load, 6e4);
       return () => clearInterval(id);
     }, []);
-    const [selectedProject, setSelectedProject] = useState7(null);
-    const [dailyReports, setDailyReports] = useState7([]);
-    const [loadingReports, setLoadingReports] = useState7(false);
+    const [selectedProject, setSelectedProject] = useState8(null);
+    const [dailyReports, setDailyReports] = useState8([]);
+    const [loadingReports, setLoadingReports] = useState8(false);
     const EMPTY_LOG = { name: "", description: "", quantity: "", totalHours: "", hoursToDate: "", photos: [] };
     const SURVEY_KEYS = ["accidents", "scheduleDelays", "weatherDelays", "visitors", "blockedAreas", "rentedEquipment"];
     const SURVEY_LABELS = {
@@ -42083,7 +42329,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { time: "12:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" },
       { time: "4:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" }
     ];
-    const [rForm, setRForm] = useState7({
+    const [rForm, setRForm] = useState8({
       date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
       preparedBy: user?.name || "",
       jobNumber: "",
@@ -42095,8 +42341,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       survey: Object.fromEntries(SURVEY_KEYS.map((k) => [k, null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map((k) => [k, ""]))
     });
-    const [rSaving, setRSaving] = useState7(false);
-    const [wxLoading, setWxLoading] = useState7(false);
+    const [rSaving, setRSaving] = useState8(false);
+    const [wxLoading, setWxLoading] = useState8(false);
     const autoFillWeather = async (proj, date) => {
       const zip = proj?.zip;
       if (!zip) {
@@ -42120,17 +42366,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setWxLoading(false);
     };
-    const [syncing, setSyncing] = useState7(false);
-    const [syncMsg, setSyncMsg] = useState7("");
-    const [selectedReport, setSelectedReport] = useState7(null);
-    const [loadingReport, setLoadingReport] = useState7(false);
-    const [lightboxSrc, setLightboxSrc] = useState7(null);
-    const [expandedLogs, setExpandedLogs] = useState7({});
-    const [pdfLoading, setPdfLoading] = useState7(false);
-    const [emailModal, setEmailModal] = useState7(false);
-    const [emailTo, setEmailTo] = useState7("");
-    const [emailSubject, setEmailSubject] = useState7("");
-    const [emailSending, setEmailSending] = useState7(false);
+    const [syncing, setSyncing] = useState8(false);
+    const [syncMsg, setSyncMsg] = useState8("");
+    const [selectedReport, setSelectedReport] = useState8(null);
+    const [loadingReport, setLoadingReport] = useState8(false);
+    const [lightboxSrc, setLightboxSrc] = useState8(null);
+    const [expandedLogs, setExpandedLogs] = useState8({});
+    const [pdfLoading, setPdfLoading] = useState8(false);
+    const [emailModal, setEmailModal] = useState8(false);
+    const [emailTo, setEmailTo] = useState8("");
+    const [emailSubject, setEmailSubject] = useState8("");
+    const [emailSending, setEmailSending] = useState8(false);
     const mobileGeneratePdf = async (r, proj, download = true) => {
       setPdfLoading(true);
       try {
@@ -42360,7 +42606,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setRSaving(false);
       }
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (screen !== "detail" || !selectedProject) return;
       setLoadingReports(true);
       cloudLoad(DR_INDEX_KEY).then((idx) => {
@@ -42936,8 +43182,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const deleteSchedule = (id) => saveSchedules(schedules.filter((s) => s.id !== id));
     const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
     const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const [isNarrow, setIsNarrow] = useState7(() => typeof window !== "undefined" && window.innerWidth < 760);
-    useEffect7(() => {
+    const [isNarrow, setIsNarrow] = useState8(() => typeof window !== "undefined" && window.innerWidth < 760);
+    useEffect8(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -42994,8 +43240,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: form.storePC, onChange: (e) => setForm((p) => ({ ...p, storePC: e.target.value })), style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.9rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: form.category, onChange: (e) => setForm((p) => ({ ...p, category: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, MAINT_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: form.freq, onChange: (e) => setForm((p) => ({ ...p, freq: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, Object.entries(FREQ_LABELS).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Notes (optional)"), /* @__PURE__ */ React.createElement("textarea", { value: form.notes, onChange: (e) => setForm((p) => ({ ...p, notes: e.target.value })), rows: 2, style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem", resize: "vertical", boxSizing: "border-box" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: handleAdd, disabled: !form.title.trim() || saving, style: { flex: 1, background: O2, border: "none", borderRadius: 8, color: "#fff", padding: "0.65rem", cursor: "pointer", fontWeight: 700, fontFamily: "'Source Sans 3'", opacity: !form.title.trim() ? 0.5 : 1 } }, "Save Schedule"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAdd(false), style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.65rem 1rem", cursor: "pointer" } }, "Cancel")))));
   }
   function DunkinRunnerScene({ dark }) {
-    const hostRef = useRef4(null);
-    useEffect7(() => {
+    const hostRef = useRef5(null);
+    useEffect8(() => {
       const host = hostRef.current;
       if (!host) return;
       const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -43304,24 +43550,24 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const store = (stores || []).find((s) => String(s.pc) === String(pc));
     const storeName = store?.name || pc;
     const existingUsernames = users.map((u) => u.username);
-    const [selectedCandidateId, setSelectedCandidateId] = useState7(
+    const [selectedCandidateId, setSelectedCandidateId] = useState8(
       item.kind === "needsReview" ? null : item.candidate?.employeeId || null
     );
     const candidate = item.kind === "needsReview" ? (item.candidates || []).find((c) => c.employeeId === selectedCandidateId) || null : item.kind === "vacant" ? null : item.candidate;
     const existingAccount = item.kind === "replace" ? item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId) : null : users.find((u) => u.userType === "manager" && u.active !== false && String(u.storePC) === String(pc));
     const oldAlreadyDeactivated = existingAccount ? existingAccount.active === false : true;
-    const [deactivateOld, setDeactivateOld] = useState7(true);
-    const [form, setForm] = useState7({
+    const [deactivateOld, setDeactivateOld] = useState8(true);
+    const [form, setForm] = useState8({
       name: candidate?.name || "",
       username: candidate ? suggestUsername(candidate.name, existingUsernames) : "",
       password: generatePassword(),
       email: `${pc}@peoplecapitalgroup.com`,
       role: ""
     });
-    const [showPw, setShowPw] = useState7(false);
-    const [saving, setSaving] = useState7(false);
-    const prevCandidateName = useRef4(candidate?.name || null);
-    useEffect7(() => {
+    const [showPw, setShowPw] = useState8(false);
+    const [saving, setSaving] = useState8(false);
+    const prevCandidateName = useRef5(candidate?.name || null);
+    useEffect8(() => {
       if (!candidate || candidate.name === prevCandidateName.current) return;
       prevCandidateName.current = candidate.name;
       setForm((f) => ({ ...f, name: candidate.name, username: suggestUsername(candidate.name, existingUsernames) }));
@@ -43413,12 +43659,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 } }, "Dismiss")))))));
   }
   function PCGPortal() {
-    const [rawUser, setUser] = useState7(null);
+    const [rawUser, setUser] = useState8(null);
     const user = React.useMemo(() => {
       if (!rawUser || !isDirector(rawUser)) return rawUser;
       return { ...rawUser, userType: "director", realUserType: "director", district: null, districts: parseDistricts(rawUser.districts) };
     }, [rawUser]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (user || !getSessionToken()) return;
       let cancelled = false;
       portalMe().then((u) => {
@@ -43429,8 +43675,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    const [managerMode, setManagerMode] = useState7(null);
-    const [preferFullPortal, setPreferFullPortal] = useState7(() => {
+    const [managerMode, setManagerMode] = useState8(null);
+    const [preferFullPortal, setPreferFullPortal] = useState8(() => {
       try {
         return localStorage.getItem("pcg_prefer_full_portal") === "true";
       } catch {
@@ -43453,7 +43699,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setPreferFullPortal(full);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user) return;
       const onMobile = window.innerWidth <= 768;
       if (onMobile && (user.userType === "manager" || user.userType === "maintenance" || user.userType === "office_staff") && preferFullPortal) {
@@ -43479,27 +43725,27 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setPreferFullPortal(false);
       setUser(null);
     };
-    const [tab, setTab] = useState7("dashboard");
-    const [pulseInitialTab, setPulseInitialTab] = useState7("sales");
-    useEffect7(() => {
+    const [tab, setTab] = useState8("dashboard");
+    const [pulseInitialTab, setPulseInitialTab] = useState8("sales");
+    useEffect8(() => {
       window.scrollTo(0, 0);
     }, [tab]);
-    const [pendingOrionQuestion, setPendingOrionQuestion] = useState7(null);
-    const [orionIntent, setOrionIntent] = useState7(false);
-    useEffect7(() => {
+    const [pendingOrionQuestion, setPendingOrionQuestion] = useState8(null);
+    const [orionIntent, setOrionIntent] = useState8(false);
+    useEffect8(() => {
       if (tab !== "chat" && orionIntent) setOrionIntent(false);
     }, [tab, orionIntent]);
-    const [drillInStore, setDrillInStore] = useState7(null);
-    const [locationsMapMode, setLocationsMapMode] = useState7(false);
+    const [drillInStore, setDrillInStore] = useState8(null);
+    const [locationsMapMode, setLocationsMapMode] = useState8(false);
     const handleDrillIn = (storePC, targetTab) => {
       setDrillInStore(storePC);
       setTab(targetTab);
     };
-    const tabHistoryRef = useRef4(["dashboard"]);
-    const isGoingBackRef = useRef4(false);
-    const sidebarNavRef = useRef4(null);
-    const sidebarScrollPos = useRef4(0);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState7(() => {
+    const tabHistoryRef = useRef5(["dashboard"]);
+    const isGoingBackRef = useRef5(false);
+    const sidebarNavRef = useRef5(null);
+    const sidebarScrollPos = useRef5(0);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState8(() => {
       try {
         const v = localStorage.getItem("pcg_sidebar_collapsed");
         return v === null ? true : v === "true";
@@ -43507,8 +43753,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return true;
       }
     });
-    const [pinnedTabIds, setPinnedTabIds] = useState7(null);
-    useEffect7(() => {
+    const [pinnedTabIds, setPinnedTabIds] = useState8(null);
+    useEffect8(() => {
       if (!user?.id) {
         setPinnedTabIds(null);
         return;
@@ -43559,7 +43805,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, [user?.id]);
-    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState7(() => {
+    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState8(() => {
       try {
         const s = localStorage.getItem("pcg_sidebar_sections");
         if (s) return JSON.parse(s);
@@ -43567,21 +43813,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return {};
     });
-    const [managingFavorites, setManagingFavorites] = useState7(false);
-    const [links, setLinks] = useState7(() => {
+    const [managingFavorites, setManagingFavorites] = useState8(false);
+    const [links, setLinks] = useState8(() => {
       const s = loadFromStorage();
       return s?.links || INIT_LINKS;
     });
-    const [notes, setNotes] = useState7(() => {
+    const [notes, setNotes] = useState8(() => {
       const s = loadFromStorage();
       return s?.notes || {};
     });
-    const [todos, setTodos] = useState7(() => {
+    const [todos, setTodos] = useState8(() => {
       const s = loadFromStorage();
       return s?.todos || [];
     });
-    const [users, setUsers] = useState7([]);
-    const [stores, setStores] = useState7(() => {
+    const [users, setUsers] = useState8([]);
+    const [stores, setStores] = useState8(() => {
       const s = loadFromStorage();
       return s?.stores || STORES_SEED;
     });
@@ -43594,10 +43840,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return open;
     }, [stores, user?.realUserType, (user?.districts || []).join(",")]);
-    useEffect7(() => {
+    useEffect8(() => {
       LIVE_OPEN_STORES = openStores;
     }, [openStores]);
-    const [districts, setDistricts] = useState7(() => {
+    const [districts, setDistricts] = useState8(() => {
       const s = loadFromStorage();
       return s?.districts || DISTRICTS_SEED;
     });
@@ -43605,15 +43851,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     React.useEffect(() => {
       setDistrictsRef(districts);
     }, [districts]);
-    const [contacts, setContacts] = useState7(() => {
+    const [contacts, setContacts] = useState8(() => {
       const s = loadFromStorage();
       return s?.contacts || CONTACTS_SEED;
     });
-    const [vendors, setVendors] = useState7(() => {
+    const [vendors, setVendors] = useState8(() => {
       const s = loadFromStorage();
       return s?.vendors || VENDORS_SEED;
     });
-    const [dark, setDark] = useState7(() => {
+    const [dark, setDark] = useState8(() => {
       try {
         const v = localStorage.getItem("pcg_dark_mode");
         if (v !== null) return JSON.parse(v);
@@ -43622,82 +43868,82 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.dark ?? false;
     });
-    const [projects, setProjects] = useState7(() => {
+    const [projects, setProjects] = useState8(() => {
       const s = loadFromStorage();
       const p = s?.projects;
       return p && p.length > 0 ? p : PROJECTS_SEED;
     });
-    const [notifications, setNotifications] = useState7(() => {
+    const [notifications, setNotifications] = useState8(() => {
       const s = loadFromStorage();
       return s?.notifications || [];
     });
-    const [dailyReports, setDailyReports] = useState7(() => {
+    const [dailyReports, setDailyReports] = useState8(() => {
       const s = loadFromStorage();
       return s?.dailyReports || [];
     });
     const DEFAULT_GLOBAL_NOTIFY = ["Mike@peoplecapitalgroup.com", "Bill@Raogroupinc.com", "Sam@peoplecapitalgroup.com", "Casey@peoplecapitalgroup.com"];
-    const [globalNotifyEmails, setGlobalNotifyEmails] = useState7(() => {
+    const [globalNotifyEmails, setGlobalNotifyEmails] = useState8(() => {
       const s = loadFromStorage();
       return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY;
     });
     const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter((e) => e.toLowerCase() !== "sam@peoplecapitalgroup.com");
-    const [ticketNotifyEmails, setTicketNotifyEmails] = useState7(() => {
+    const [ticketNotifyEmails, setTicketNotifyEmails] = useState8(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY;
     });
-    const [ticketNotifyPhones, setTicketNotifyPhones] = useState7(() => {
+    const [ticketNotifyPhones, setTicketNotifyPhones] = useState8(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhones || [];
     });
-    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState7(() => {
+    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState8(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmailOwners || ticketNotifyEmails.map(() => null);
     });
-    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState7(() => {
+    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState8(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhoneOwners || ticketNotifyPhones.map(() => null);
     });
-    const [chatChannels, setChatChannels] = useState7([]);
-    const [chatMessages, setChatMessages] = useState7([]);
-    const [chatReadState, setChatReadState] = useState7({});
-    const [announcements, setAnnouncements] = useState7([]);
-    const [announcementsDismissed, setAnnouncementsDismissed] = useState7({});
-    const [annGateQueue, setAnnGateQueue] = useState7([]);
-    const [annGateIdx, setAnnGateIdx] = useState7(0);
-    const [annGateDone, setAnnGateDone] = useState7(false);
-    const [bioPromptDone, setBioPromptDone] = useState7(false);
-    const [bioPromptEligible, setBioPromptEligible] = useState7(false);
-    useEffect7(() => {
+    const [chatChannels, setChatChannels] = useState8([]);
+    const [chatMessages, setChatMessages] = useState8([]);
+    const [chatReadState, setChatReadState] = useState8({});
+    const [announcements, setAnnouncements] = useState8([]);
+    const [announcementsDismissed, setAnnouncementsDismissed] = useState8({});
+    const [annGateQueue, setAnnGateQueue] = useState8([]);
+    const [annGateIdx, setAnnGateIdx] = useState8(0);
+    const [annGateDone, setAnnGateDone] = useState8(false);
+    const [bioPromptDone, setBioPromptDone] = useState8(false);
+    const [bioPromptEligible, setBioPromptEligible] = useState8(false);
+    useEffect8(() => {
       if (!user) return;
       webauthnAvailable().then((avail) => {
         setBioPromptEligible(avail && !webauthnDeviceEnrolled() && !webauthnDeviceDeclined());
       });
     }, [user?.id]);
-    const [accessOverrides, setAccessOverrides] = useState7({});
-    const cloudAccessLoaded = useRef4(false);
-    const cloudProjectsLoaded = useRef4(false);
-    const cloudDailyReportsLoaded = useRef4(false);
-    const cloudChatLoaded = useRef4(false);
-    const cloudAnnouncementsLoaded = useRef4(false);
-    const cloudStoresLoaded = useRef4(false);
-    const cloudDistrictsLoaded = useRef4(false);
-    const cloudContactsLoaded = useRef4(false);
-    const cloudVendorsLoaded = useRef4(false);
-    const cloudLinksLoaded = useRef4(false);
-    const cloudNotesLoaded = useRef4(false);
-    const cloudTodosLoaded = useRef4(false);
-    const cloudNotificationsLoaded = useRef4(false);
-    const cloudGlobalNotifyLoaded = useRef4(false);
-    const cloudTicketNotifyLoaded = useRef4(false);
-    const cloudTicketNotifyPhonesLoaded = useRef4(false);
-    const skipNextTicketNotifyPhonesSave = useRef4(false);
-    const cloudTicketNotifyOwnersLoaded = useRef4(false);
-    const cloudTicketNotifyPhoneOwnersLoaded = useRef4(false);
-    const projectsUserEdited = useRef4(false);
-    const dailyReportsUserEdited = useRef4(false);
-    const prevDailyReportsRef = useRef4([]);
-    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState7({});
-    useEffect7(() => {
+    const [accessOverrides, setAccessOverrides] = useState8({});
+    const cloudAccessLoaded = useRef5(false);
+    const cloudProjectsLoaded = useRef5(false);
+    const cloudDailyReportsLoaded = useRef5(false);
+    const cloudChatLoaded = useRef5(false);
+    const cloudAnnouncementsLoaded = useRef5(false);
+    const cloudStoresLoaded = useRef5(false);
+    const cloudDistrictsLoaded = useRef5(false);
+    const cloudContactsLoaded = useRef5(false);
+    const cloudVendorsLoaded = useRef5(false);
+    const cloudLinksLoaded = useRef5(false);
+    const cloudNotesLoaded = useRef5(false);
+    const cloudTodosLoaded = useRef5(false);
+    const cloudNotificationsLoaded = useRef5(false);
+    const cloudGlobalNotifyLoaded = useRef5(false);
+    const cloudTicketNotifyLoaded = useRef5(false);
+    const cloudTicketNotifyPhonesLoaded = useRef5(false);
+    const skipNextTicketNotifyPhonesSave = useRef5(false);
+    const cloudTicketNotifyOwnersLoaded = useRef5(false);
+    const cloudTicketNotifyPhoneOwnersLoaded = useRef5(false);
+    const projectsUserEdited = useRef5(false);
+    const dailyReportsUserEdited = useRef5(false);
+    const prevDailyReportsRef = useRef5([]);
+    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState8({});
+    useEffect8(() => {
       const handler = (e) => {
         const pending = Object.values(dailyReportSyncStatus).some((s) => s === "syncing" || s === "failed");
         if (pending) {
@@ -43709,47 +43955,47 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       window.addEventListener("beforeunload", handler);
       return () => window.removeEventListener("beforeunload", handler);
     }, [dailyReportSyncStatus]);
-    useEffect7(() => {
+    useEffect8(() => {
       try {
         localStorage.setItem("pcg_dark_mode", JSON.stringify(dark));
       } catch {
       }
     }, [dark]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
-    const [showNotifs, setShowNotifs] = useState7(false);
-    const notifRef = useRef4(null);
-    const chatPanelRef = useRef4(null);
-    const [showChatPanel, setShowChatPanel] = useState7(false);
-    const [chatQuickReply, setChatQuickReply] = useState7({ channelId: null, text: "" });
-    const [salesWeeks, setSalesWeeks] = useState7([]);
-    const [cashDeposits, setCashDeposits] = useState7([]);
-    const [cashUploads, setCashUploads] = useState7([]);
-    const [cashNotes, setCashNotes] = useState7([]);
-    const [cashPOS, setCashPOS] = useState7({});
-    const cloudCashLoaded = useRef4(false);
-    const [professionals, setProfessionals] = useState7(DEFAULT_PROFESSIONALS);
-    const cloudProfessionalsLoaded = useRef4(false);
-    const [showProfile, setShowProfile] = useState7(false);
-    const [cloudStatus, setCloudStatus] = useState7("idle");
-    const [logoAnim, setLogoAnim] = useState7(false);
-    const [showTimeoutWarning, setShowTimeoutWarning] = useState7(false);
-    const [timeoutCountdown, setTimeoutCountdown] = useState7(60);
-    const lastActivityRef = useRef4(Date.now());
-    const warningActiveRef = useRef4(false);
-    const [dataAlert, setDataAlert] = useState7(null);
-    const importRef = useRef4(null);
-    const logoRef = useRef4(null);
-    const toggleBtnRef = useRef4(null);
-    const deepLinkRef = useRef4(null);
-    const todoDeepLinkRef = useRef4(null);
-    const ticketDeepLinkRef = useRef4(null);
-    const txnDeepLinkRef = useRef4(null);
+    const [showNotifs, setShowNotifs] = useState8(false);
+    const notifRef = useRef5(null);
+    const chatPanelRef = useRef5(null);
+    const [showChatPanel, setShowChatPanel] = useState8(false);
+    const [chatQuickReply, setChatQuickReply] = useState8({ channelId: null, text: "" });
+    const [salesWeeks, setSalesWeeks] = useState8([]);
+    const [cashDeposits, setCashDeposits] = useState8([]);
+    const [cashUploads, setCashUploads] = useState8([]);
+    const [cashNotes, setCashNotes] = useState8([]);
+    const [cashPOS, setCashPOS] = useState8({});
+    const cloudCashLoaded = useRef5(false);
+    const [professionals, setProfessionals] = useState8(DEFAULT_PROFESSIONALS);
+    const cloudProfessionalsLoaded = useRef5(false);
+    const [showProfile, setShowProfile] = useState8(false);
+    const [cloudStatus, setCloudStatus] = useState8("idle");
+    const [logoAnim, setLogoAnim] = useState8(false);
+    const [showTimeoutWarning, setShowTimeoutWarning] = useState8(false);
+    const [timeoutCountdown, setTimeoutCountdown] = useState8(60);
+    const lastActivityRef = useRef5(Date.now());
+    const warningActiveRef = useRef5(false);
+    const [dataAlert, setDataAlert] = useState8(null);
+    const importRef = useRef5(null);
+    const logoRef = useRef5(null);
+    const toggleBtnRef = useRef5(null);
+    const deepLinkRef = useRef5(null);
+    const todoDeepLinkRef = useRef5(null);
+    const ticketDeepLinkRef = useRef5(null);
+    const txnDeepLinkRef = useRef5(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
-    const [pnlAllowed, setPnlAllowed] = useState7(DEFAULT_PNL_ALLOWED);
-    useEffect7(() => {
+    const [pnlAllowed, setPnlAllowed] = useState8(DEFAULT_PNL_ALLOWED);
+    useEffect8(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => {
         if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed);
       }).catch(() => {
@@ -43757,8 +44003,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, []);
     const canPnl = canViewPnl(user, pnlAllowed);
     const canManagePnl = canManagePnlAccess(user);
-    const [dealAuth, setDealAuth] = useState7({ token: null, role: null, loaded: false });
-    useEffect7(() => {
+    const [dealAuth, setDealAuth] = useState8({ token: null, role: null, loaded: false });
+    useEffect8(() => {
       if (!user) {
         setDealAuth({ token: null, role: null, loaded: false });
         return;
@@ -43834,12 +44080,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return null;
     };
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user || !tab || tab === MOBILE_LAUNCHER_TAB_ID) return;
       const ids = tabsForUser(user).map((t) => t.id);
       if (!ids.includes(tab)) setTab(ids[0] || "dashboard");
     }, [accessOverrides, tab, user?.userType]);
-    useEffect7(() => {
+    useEffect8(() => {
       const hiddenAt = { t: null };
       const TIMEOUT_MS = 15 * 60 * 1e3;
       const onVisibility = () => {
@@ -43879,7 +44125,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.removeEventListener("pageshow", onPageShow);
       };
     }, [user]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       let cancelled = false;
       const forceOut = (reason) => {
@@ -43910,7 +44156,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       const WARN_AFTER = 29 * 60 * 1e3 + 45 * 1e3;
       const LOGOUT_AFTER = 30 * 60 * 1e3;
@@ -43952,7 +44198,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user || !isTwoFactorRequired(user)) return;
       const check = async () => {
         if (!user.twoFactorSecret) return;
@@ -43979,7 +44225,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", onVisibility);
       };
     }, [user]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (isGoingBackRef.current) {
         isGoingBackRef.current = false;
         return;
@@ -43995,7 +44241,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       isGoingBackRef.current = true;
       setTab(next[next.length - 1]);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!isMobile) return;
       let startX = 0, startY = 0, edgeSwipe = false;
       const onStart = (e) => {
@@ -44017,7 +44263,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("touchend", onEnd);
       };
     }, [isMobile, goBack]);
-    useEffect7(() => {
+    useEffect8(() => {
       try {
         localStorage.setItem("pcg_sidebar_collapsed", sidebarCollapsed);
       } catch {
@@ -44115,13 +44361,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return missing;
     }, [cashDeposits, cashUploads, stores, user]);
-    useEffect7(() => {
+    useEffect8(() => {
       fetch("/.netlify/functions/users?action=list", { headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).then((data) => {
         if (Array.isArray(data) && data.length > 0) setUsers(data);
       }).catch(() => {
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       let updated = [...projects];
       let changed = false;
       for (const seed of PROJECTS_SEED) {
@@ -44143,7 +44389,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       if (changed) setProjects(updated);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const projId = parseInt(params.get("project"));
@@ -44160,11 +44406,20 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTab("reports");
       }
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const ticketParam = params.get("ticket");
       const payParam = params.get("payIncrease");
+      const vioParam = params.get("violation");
+      if (vioParam && /^\d+$/.test(vioParam)) {
+        try {
+          sessionStorage.setItem("vn_open", vioParam);
+        } catch {
+        }
+        setTab("violation-notice");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
       if (payParam && /^\d+$/.test(payParam)) {
         try {
           sessionStorage.setItem("pi_open", payParam);
@@ -44179,10 +44434,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.history.replaceState({}, "", window.location.pathname);
       }
     }, [user]);
-    useEffect7(() => {
+    useEffect8(() => {
       saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners });
     }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
-    useEffect7(() => {
+    useEffect8(() => {
       setCloudStatus("loading");
       cloudLoadOrThrow("pcg_sales_v1").then((data) => {
         if (Array.isArray(data)) {
@@ -44202,7 +44457,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setCloudStatus("error");
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (salesWeeks.length === 0) return;
       setCloudStatus("saving");
       try {
@@ -44214,7 +44469,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTimeout(() => setCloudStatus("idle"), 2500);
       });
     }, [salesWeeks]);
-    useEffect7(() => {
+    useEffect8(() => {
       let cancelled = false;
       (async () => {
         let legacy = null;
@@ -44242,7 +44497,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       Promise.all([
         cloudLoad("pcg_cash_deposits_v1"),
         cloudLoad("pcg_cash_uploads_v1"),
@@ -44256,22 +44511,22 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudCashLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudCashLoaded.current) return;
       if (cashDeposits.length === 0) return;
       cloudSave("pcg_cash_deposits_v1", cashDeposits);
     }, [cashDeposits]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudCashLoaded.current) return;
       if (cashUploads.length === 0) return;
       cloudSave("pcg_cash_uploads_v1", cashUploads);
     }, [cashUploads]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudCashLoaded.current) return;
       if (cashNotes.length === 0) return;
       cloudSave("pcg_cash_notes_v1", cashNotes);
     }, [cashNotes]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_projects_v1").then((cloudData) => {
         cloudProjectsLoaded.current = true;
         if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
@@ -44296,7 +44551,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudProjectsLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudProjectsLoaded.current) return;
       if (!projectsUserEdited.current) return;
       if (projects.length === 0) return;
@@ -44330,7 +44585,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const full = await cloudLoadReport(id);
       return full || null;
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       (async () => {
         try {
           const [index, legacy] = await Promise.all([
@@ -44389,7 +44644,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       const interval = setInterval(async () => {
         if (dailyReportsUserEdited.current) return;
         try {
@@ -44425,7 +44680,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 3e4);
       return () => clearInterval(interval);
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!dailyReportsUserEdited.current) return;
       if (!cloudDailyReportsLoaded.current) return;
       dailyReportsUserEdited.current = false;
@@ -44502,14 +44757,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, [dailyReports]);
-    const storesSyncedRef = useRef4(null);
+    const storesSyncedRef = useRef5(null);
     const storeKey = (s) => String(s?.pc || s?.id || "");
     const storeSig = (s) => {
       if (!s) return "";
       const { updatedAt, ...rest } = s;
       return JSON.stringify(rest);
     };
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_stores_v1").then((data) => {
         cloudStoresLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -44527,7 +44782,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudStoresLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudStoresLoaded.current) return;
       if (stores.length === 0) return;
       const synced = storesSyncedRef.current || /* @__PURE__ */ new Map();
@@ -44558,7 +44813,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 500);
       return () => clearTimeout(t);
     }, [stores]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_districts_v1").then((data) => {
         cloudDistrictsLoaded.current = true;
         if (data && typeof data === "object" && Object.keys(data).length > 0) setDistricts(data);
@@ -44566,12 +44821,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudDistrictsLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudDistrictsLoaded.current) return;
       if (!districts || Object.keys(districts).length === 0) return;
       cloudSave("pcg_districts_v1", districts);
     }, [districts]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_contacts_v1").then((data) => {
         cloudContactsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setContacts(data);
@@ -44579,12 +44834,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudContactsLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudContactsLoaded.current) return;
       if (contacts.length === 0) return;
       cloudSave("pcg_contacts_v1", contacts);
     }, [contacts]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_vendors_v1").then((data) => {
         cloudVendorsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setVendors(data);
@@ -44592,12 +44847,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudVendorsLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudVendorsLoaded.current) return;
       if (vendors.length === 0) return;
       cloudSave("pcg_vendors_v1", vendors);
     }, [vendors]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_professionals_v1").then((data) => {
         cloudProfessionalsLoaded.current = true;
         if (data && typeof data === "object" && data.attorneys) setProfessionals((prev) => ({ ...DEFAULT_PROFESSIONALS, ...prev, ...data }));
@@ -44605,11 +44860,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudProfessionalsLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudProfessionalsLoaded.current) return;
       cloudSave("pcg_professionals_v1", professionals);
     }, [professionals]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_links_v1").then((data) => {
         cloudLinksLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setLinks(data);
@@ -44617,12 +44872,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudLinksLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudLinksLoaded.current) return;
       if (!links || Object.keys(links).length === 0) return;
       cloudSave("pcg_links_v1", links);
     }, [links]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_notes_v1").then((data) => {
         cloudNotesLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setNotes(data);
@@ -44630,12 +44885,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotesLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudNotesLoaded.current) return;
       if (!notes || Object.keys(notes).length === 0) return;
       cloudSave("pcg_notes_v1", notes);
     }, [notes]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_todos_v1").then((data) => {
         cloudTodosLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTodos(data);
@@ -44643,12 +44898,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTodosLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudTodosLoaded.current) return;
       if (todos.length === 0) return;
       cloudSave("pcg_todos_v1", todos);
     }, [todos]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_notifications_v1").then((data) => {
         cloudNotificationsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -44661,12 +44916,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotificationsLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chatPollActive.current || !cloudNotificationsLoaded.current) return;
       if (notifications.length === 0) return;
       cloudSave("pcg_notifications_v1", notifications);
     }, [notifications]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_global_notify_v1").then((data) => {
         cloudGlobalNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setGlobalNotifyEmails(data);
@@ -44674,12 +44929,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudGlobalNotifyLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudGlobalNotifyLoaded.current) return;
       if (globalNotifyEmails.length === 0) return;
       cloudSave("pcg_global_notify_v1", globalNotifyEmails);
     }, [globalNotifyEmails]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_ticket_notify_v1").then((data) => {
         cloudTicketNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTicketNotifyEmails(data);
@@ -44687,12 +44942,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudTicketNotifyLoaded.current) return;
       if (ticketNotifyEmails.length === 0) return;
       cloudSave("pcg_ticket_notify_v1", ticketNotifyEmails);
     }, [ticketNotifyEmails]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_ticket_notify_phones_v1").then((data) => {
         cloudTicketNotifyPhonesLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -44703,7 +44958,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhonesLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudTicketNotifyPhonesLoaded.current) return;
       if (skipNextTicketNotifyPhonesSave.current) {
         skipNextTicketNotifyPhonesSave.current = false;
@@ -44712,7 +44967,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ticketNotifyPhones.length === 0) return;
       cloudSave("pcg_ticket_notify_phones_v1", ticketNotifyPhones);
     }, [ticketNotifyPhones]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_ticket_notify_owners_v1").then((data) => {
         cloudTicketNotifyOwnersLoaded.current = true;
         if (Array.isArray(data)) setTicketNotifyEmailOwners(data);
@@ -44726,17 +44981,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhoneOwnersLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudTicketNotifyOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_owners_v1", ticketNotifyEmailOwners);
     }, [ticketNotifyEmailOwners]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_phone_owners_v1", ticketNotifyPhoneOwners);
     }, [ticketNotifyPhoneOwners]);
-    const chatPollRef = useRef4(null);
-    const chatPollActive = useRef4(false);
-    useEffect7(() => {
+    const chatPollRef = useRef5(null);
+    const chatPollActive = useRef5(false);
+    useEffect8(() => {
       Promise.all([
         cloudLoad("pcg_chat_channels_v1"),
         cloudLoad("pcg_chat_messages_v1"),
@@ -44750,19 +45005,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudChatLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatChannels.length === 0) return;
       cloudSave("pcg_chat_channels_v1", chatChannels);
     }, [chatChannels]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatMessages.length === 0) return;
       cloudSave("pcg_chat_messages_v1", chatMessages);
     }, [chatMessages]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || Object.keys(chatReadState).length === 0) return;
       cloudSave("pcg_chat_read_v1", chatReadState);
     }, [chatReadState]);
-    useEffect7(() => {
+    useEffect8(() => {
       Promise.all([
         cloudLoad("pcg_announcements_v1"),
         cloudLoad("pcg_announcements_dismissed_v1")
@@ -44774,15 +45029,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAnnouncementsLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return;
       cloudSave("pcg_announcements_v1", announcements);
     }, [announcements]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return;
       cloudSave("pcg_announcements_dismissed_v1", announcementsDismissed);
     }, [announcementsDismissed]);
-    useEffect7(() => {
+    useEffect8(() => {
       cloudLoad("pcg_access_overrides_v1").then((ov) => {
         cloudAccessLoaded.current = true;
         if (ov && typeof ov === "object" && !Array.isArray(ov)) setAccessOverrides(ov);
@@ -44790,17 +45045,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAccessLoaded.current = true;
       });
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (chatPollActive.current || !cloudAccessLoaded.current) return;
       cloudSave("pcg_access_overrides_v1", accessOverrides);
     }, [accessOverrides]);
-    useEffect7(() => {
+    useEffect8(() => {
       registerServiceWorker();
     }, []);
-    useEffect7(() => {
+    useEffect8(() => {
       if (user && user.pushNotify) subscribeToPush(user.id);
     }, [user?.id]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user) return;
       chatPollRef.current = setInterval(async () => {
         try {
@@ -44835,8 +45090,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 12e3);
       return () => clearInterval(chatPollRef.current);
     }, [user]);
-    const mentionAlertRef = useRef4({});
-    useEffect7(() => {
+    const mentionAlertRef = useRef5({});
+    useEffect8(() => {
       if (!user) return;
       const interval = setInterval(() => {
         const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1e3).toISOString();
@@ -44871,7 +45126,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 5 * 60 * 1e3);
       return () => clearInterval(interval);
     }, [user, chatMessages, chatChannels, chatReadState, users, globalNotifyEmails]);
-    useEffect7(() => {
+    useEffect8(() => {
       const completedIds = new Set(projects.filter((p) => p.completed).map((p) => p.id));
       if (completedIds.size === 0) return;
       setNotifications((prev) => {
@@ -44883,7 +45138,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return prev;
       });
     }, [projects]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!showNotifs) return;
       const handleOutside = (e) => {
         if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false);
@@ -44898,7 +45153,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showNotifs]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!showChatPanel) return;
       const handleOutside = (e) => {
         if (chatPanelRef.current && !chatPanelRef.current.contains(e.target)) setShowChatPanel(false);
@@ -44913,7 +45168,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showChatPanel]);
-    useEffect7(() => {
+    useEffect8(() => {
       const mkId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const checkDeadlines = () => {
         const now = /* @__PURE__ */ new Date();
@@ -44943,7 +45198,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const interval = setInterval(checkDeadlines, 864e5);
       return () => clearInterval(interval);
     }, [projects.map((p) => `${p.id}:${p.dueDate || ""}:${p.completed ? 1 : 0}`).join("|")]);
-    const prevProjectsRef = useRef4(projects);
+    const prevProjectsRef = useRef5(projects);
     const getNotifyRecipients = (p) => {
       const perProject = p.notifyEmails ? p.notifyEmails.split(",").map((e) => e.trim()).filter(Boolean) : [];
       const all = [...globalNotifyEmails, ...perProject];
@@ -44953,7 +45208,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     PROJECT_PHASES.forEach((ph) => ph.items.forEach((it) => {
       itemLabels[it.key] = { label: it.label, type: it.type, phase: ph.label };
     }));
-    useEffect7(() => {
+    useEffect8(() => {
       if (!projectsUserEdited.current) {
         prevProjectsRef.current = projects;
         return;
@@ -45092,10 +45347,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDataAlert({ type, msg });
       setTimeout(() => setDataAlert(null), 3500);
     };
-    const [managerPending, setManagerPending] = useState7({});
+    const [managerPending, setManagerPending] = useState8({});
     const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
     });
-    useEffect7(() => {
+    useEffect8(() => {
       loadManagerPending();
     }, []);
     const dismissManagerPending = async (pc) => {
@@ -45126,7 +45381,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const openStorePcs = React.useMemo(() => new Set(openStores.map((s) => String(s.pc))), [openStores]);
     const managerPendingCount = Object.entries(managerPending).filter(([pc, item]) => openStorePcs.has(String(pc)) && managerPendingIsActionable(item)).length;
-    const [managerReviewPc, setManagerReviewPc] = useState7(null);
+    const [managerReviewPc, setManagerReviewPc] = useState8(null);
     const handleToggle = useCallback(() => {
       const newDark = !dark;
       setLogoAnim(true);
@@ -45145,7 +45400,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setDark(newDark);
       }
     }, [dark]);
-    useEffect7(() => {
+    useEffect8(() => {
       if (!user || annGateDone || user.userType?.startsWith("kiosk")) return;
       const GATE_MAX_AGE_DAYS = 14;
       const cutoff = Date.now() - GATE_MAX_AGE_DAYS * 864e5;
@@ -45164,8 +45419,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setAnnGateQueue(queue);
       setAnnGateIdx(0);
     }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
-    const annBackfillRef = useRef4(false);
-    useEffect7(() => {
+    const annBackfillRef = useRef5(false);
+    useEffect8(() => {
       if (!user || annBackfillRef.current || user.userType?.startsWith("kiosk")) return;
       if (!announcements || announcements.length === 0) return;
       annBackfillRef.current = true;
@@ -46379,5 +46634,6 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", subtitle: "Quick access to your workplace tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
     })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores: openStores, users, onBack: () => setTab("tools-hub"), setStores, districts, setDistricts, setUsers }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores: openStores, user }), tab === "terminations" && accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations") && /* @__PURE__ */ React.createElement(TerminationsReport, { th, user, isMobile, onBack: () => setTab("tools-hub") }), tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice") && /* @__PURE__ */ React.createElement(TransferNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "violation-notice" && VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "violation-notice") && /* @__PURE__ */ React.createElement(ViolationNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "time-off-request" && TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "time-off-request") && /* @__PURE__ */ React.createElement(TimeOffRequest, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase") && /* @__PURE__ */ React.createElement(PayIncrease, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores: openStores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores: openStores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores: openStores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores: openStores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores: openStores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "executive" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExecutiveView, { th, user, stores: openStores, isMobile, go: setTab }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { setDistricts, setStores, globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores: openStores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores: openStores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores: openStores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores: openStores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores: openStores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores: openStores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores: openStores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
-  ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(PCGPortal, null));
+  var SIGN_TOKEN = new URLSearchParams(window.location.search).get("sign");
+  ReactDOM.createRoot(document.getElementById("root")).render(SIGN_TOKEN ? /* @__PURE__ */ React.createElement(RemoteSignPage, { token: SIGN_TOKEN }) : /* @__PURE__ */ React.createElement(PCGPortal, null));
 })();

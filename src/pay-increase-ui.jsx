@@ -68,13 +68,15 @@ const PAPER_CSS = `
 // v22.69: the signed form drawn with pdf.js (already on the page) instead of the browser's own PDF
 // viewer in an <iframe>, which showed nothing for Mike. A small preview; click it for the full page.
 const pdfCache = new Map();
+// v22.81: id is a pay increase id, or a full URL ("/...") so the Violation Notice approval view reuses this.
+const pdfUrl = (id) => (String(id).startsWith("/") ? String(id) : `/.netlify/functions/pay-increase?pdf=${id}`);
 function loadPayPdf(id) {
   if (!pdfCache.has(id)) {
     pdfCache.set(id, (async () => {
       const lib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
       if (!lib) throw new Error('The PDF viewer did not load — refresh the page.');
       lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const res = await fetch(`/.netlify/functions/pay-increase?pdf=${id}`, { credentials: 'include', headers: { ...authHeader() } });
+      const res = await fetch(pdfUrl(id), { credentials: 'include', headers: { ...authHeader() } });
       if (!res.ok) throw new Error(`Could not load the form (${res.status}).`);
       const doc = await lib.getDocument({ data: new Uint8Array(await res.arrayBuffer()) }).promise;
       return doc.getPage(1);
@@ -100,7 +102,7 @@ function PdfPage({ id, width, onError }) {
   }, [id, width]);
   return <canvas ref={ref} style={{ display: 'block', background: '#fff' }} />;
 }
-function FormModal({ th, id, title, onClose }) {
+export function FormModal({ th, id, title, onClose }) {
   const [err, setErr] = useState(null);
   const bigWidth = Math.min(860, (typeof window !== 'undefined' ? window.innerWidth : 900) - 48);
   useEffect(() => {
@@ -113,15 +115,15 @@ function FormModal({ th, id, title, onClose }) {
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(20,16,12,0.7)', overflowY: 'auto', padding: '56px 16px 24px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
       <button type="button" className="fin-btn" onClick={onClose} aria-label="Close"
         style={{ position: 'fixed', top: 12, right: 16, width: 40, height: 40, borderRadius: 20, border: 'none', background: '#fff', color: '#111', fontSize: '1.3rem', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}>✕</button>
-      {err ? <p style={{ color: '#fff' }}>{err} <a href={`/.netlify/functions/pay-increase?pdf=${id}`} target="_blank" rel="noreferrer" style={{ color: '#ffb48a' }}>Open the PDF</a></p>
+      {err ? <p style={{ color: '#fff' }}>{err} <a href={pdfUrl(id)} target="_blank" rel="noreferrer" style={{ color: '#ffb48a' }}>Open the PDF</a></p>
         : <div style={{ borderRadius: 6, overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.35)' }}><PdfPage id={id} width={bigWidth} onError={setErr} /></div>}
     </div>
   );
 }
-function FormPreview({ th, id, title, thumbWidth = 230 }) {
+export function FormPreview({ th, id, title, thumbWidth = 230 }) {
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState(null);
-  if (err) return <p style={{ color: th.muted, fontSize: '0.85rem' }}>{err} <a href={`/.netlify/functions/pay-increase?pdf=${id}`} target="_blank" rel="noreferrer" style={{ color: O }}>Open the PDF</a></p>;
+  if (err) return <p style={{ color: th.muted, fontSize: '0.85rem' }}>{err} <a href={pdfUrl(id)} target="_blank" rel="noreferrer" style={{ color: O }}>Open the PDF</a></p>;
   return (
     <>
       <button type="button" className="fin-btn" onClick={() => setOpen(true)} aria-label={`Open ${title} full size`} title="Click to open the full form"

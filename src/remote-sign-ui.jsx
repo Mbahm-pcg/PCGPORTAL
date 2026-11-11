@@ -1,0 +1,134 @@
+// src/remote-sign-ui.jsx — the page an employee opens from a Violation Notice signing link
+// (`<portal>/?sign=<code>`, v22.81). No portal account and no login: the code in the link plus the
+// last 4 digits of their phone open exactly one notice (violation-sign.mjs). They read it, sign,
+// and the server stamps their signature on the original — they never edit the form.
+import { O, FONTS, getTheme } from './theme.js';
+import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
+import { SignatureModal } from './transfer-notice-ui.jsx';
+
+const { useState, useEffect, useRef } = React;
+
+const call = async (body) => {
+  const res = await fetch('/.netlify/functions/violation-sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const b = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(b.error || `HTTP ${res.status}`); e.done = !!b.done; throw e; }
+  return b;
+};
+const b64ToBytes = (b64) => { const bin = atob(b64); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
+
+function PdfPages({ b64, width }) {
+  const ref = useRef(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const lib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+      if (!lib) throw new Error('The viewer did not load — refresh the page.');
+      lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const doc = await lib.getDocument({ data: b64ToBytes(b64) }).promise;
+      const host = ref.current;
+      if (!live || !host) return;
+      host.innerHTML = '';
+      for (let n = 1; n <= doc.numPages; n++) {
+        const page = await doc.getPage(n);
+        const dpr = window.devicePixelRatio || 1;
+        const base = page.getViewport({ scale: 1 });
+        const vp = page.getViewport({ scale: (width / base.width) * dpr });
+        const c = document.createElement('canvas');
+        c.width = vp.width; c.height = vp.height;
+        c.style.width = `${width}px`; c.style.height = `${vp.height / dpr}px`; c.style.display = 'block'; c.style.background = '#fff';
+        c.setAttribute('aria-label', `Violation Notice page ${n}`);
+        host.appendChild(c);
+        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      }
+    })().catch(e => live && setErr(e.message));
+    return () => { live = false; };
+  }, [b64, width]);
+  if (err) return <p style={{ color: '#dc2626' }}>{err}</p>;
+  return <div ref={ref} style={{ borderRadius: 6, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)' }} />;
+}
+
+export function RemoteSignPage({ token }) {
+  const th = getTheme(false);
+  const S = finStyles(th);
+  const [hello, setHello] = useState(null);
+  const [error, setError] = useState(null);
+  const [fatal, setFatal] = useState(null); // link can't be used at all
+  const [last4, setLast4] = useState('');
+  const [doc, setDoc] = useState(null); // { employeeName, storeName, pdf }
+  const [read, setRead] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null); // { url }
+  const width = Math.min(820, (typeof window !== 'undefined' ? window.innerWidth : 820) - 32);
+
+  useEffect(() => { document.title = 'Sign your Violation Notice · PCG'; call({ token, action: 'hello' }).then(setHello).catch(e => setFatal(e.message)); }, []);
+
+  const open = async (e) => {
+    e.preventDefault();
+    if (!/^\d{4}$/.test(last4)) { setError('Enter the last 4 digits of your phone number.'); return; }
+    setBusy(true); setError(null);
+    try { setDoc(await call({ token, last4, action: 'open' })); }
+    catch (err) { if (/locked|expired|replaced|signed/.test(err.message)) setFatal(err.message); else setError(err.message); }
+    setBusy(false);
+  };
+  const sign = async (signature) => {
+    setSigning(false); setBusy(true); setError(null);
+    try {
+      const b = await call({ token, last4, action: 'sign', signature });
+      setDone({ url: URL.createObjectURL(new Blob([b64ToBytes(b.pdf)], { type: 'application/pdf' })) });
+    } catch (err) { if (err.done) setDone({}); else setError(err.message); }
+    setBusy(false);
+  };
+
+  const shell = (children) => (
+    <div className="fin-root" style={{ minHeight: '100vh', background: th.bg, color: th.text, fontFamily: FONTS.body, padding: '20px 16px 48px', boxSizing: 'border-box' }}>
+      <style>{FIN_CSS(th)}</style>
+      <div style={{ maxWidth: 820, margin: '0 auto' }}>
+        <img src="/pcg-logo-form.jpg" alt="People Capital Group" style={{ height: 56, display: 'block', margin: '0 auto 1rem' }} />
+        {children}
+      </div>
+    </div>
+  );
+
+  if (done) return shell(<>
+    <h1 style={{ ...S.title, textAlign: 'center' }}>Thank you, it's signed</h1>
+    <p style={{ ...S.lede, textAlign: 'center', margin: '0 auto 1.2rem' }}>Your signature was added and your supervisor has the signed copy. You can close this page.</p>
+    {done.url && <p style={{ textAlign: 'center' }}><a href={done.url} target="_blank" rel="noreferrer" style={{ ...S.ghost, textDecoration: 'none', display: 'inline-flex' }}>Open your signed copy</a></p>}
+  </>);
+  if (fatal) return shell(<><h1 style={{ ...S.title, textAlign: 'center' }}>This link can't be used</h1><p style={{ ...S.lede, textAlign: 'center', margin: '0 auto' }}>{fatal}</p></>);
+  if (!hello) return shell(<p style={{ color: th.muted, textAlign: 'center' }}>Loading…</p>);
+
+  if (!doc) return shell(
+    <form onSubmit={open} style={{ ...S.panel, padding: '1.3rem 1.2rem', maxWidth: 440, margin: '0 auto' }}>
+      <h1 style={{ ...S.title, fontSize: '1.3rem' }}>Hi {hello.firstName}</h1>
+      <p style={{ ...S.lede, marginBottom: '1rem' }}>{hello.role === 'witness'
+        ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.`
+        : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`} To open it, enter the last 4 digits of the cell number your supervisor has for you.</p>
+      <label style={S.fieldLabel}>Last 4 digits of your phone
+        <input style={{ ...S.input, fontSize: '1.3rem', letterSpacing: '0.3em', textAlign: 'center', fontVariantNumeric: 'lining-nums tabular-nums' }} value={last4} onChange={e => setLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
+          inputMode="numeric" autoComplete="off" maxLength={4} aria-label="Last 4 digits of your phone" autoFocus />
+      </label>
+      {error && <div style={{ marginTop: '0.8rem' }}><FinBanner th={th} tone="error">{error}</FinBanner></div>}
+      <button type="submit" className="fin-btn" disabled={busy} style={{ ...S.primary, width: '100%', marginTop: '1rem' }}>{busy ? 'Checking…' : 'Open the notice'}</button>
+    </form>
+  );
+
+  return shell(<>
+    <h1 style={S.title}>{doc.role === 'witness' ? `Witness: ${doc.employeeName}'s Violation Notice` : 'Your Violation Notice'}</h1>
+    <p style={S.lede}>{doc.role === 'witness'
+      ? 'Read the notice below, then sign at the bottom as the witness.'
+      : 'Read the notice below, then sign at the bottom. Signing confirms you received it and discussed it with your manager; it does not mean you agree with it.'}</p>
+    <PdfPages b64={doc.pdf} width={width} />
+    <div style={{ ...S.panel, padding: '1.1rem 1.2rem', marginTop: '1.2rem' }}>
+      <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', fontSize: '0.95rem', lineHeight: 1.45, cursor: 'pointer' }}>
+        <input type="checkbox" checked={read} onChange={e => setRead(e.target.checked)} style={{ accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 }} />
+        {doc.role === 'witness' ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`}
+      </label>
+      {error && <div style={{ marginTop: '0.8rem' }}><FinBanner th={th} tone="error">{error}</FinBanner></div>}
+      <button type="button" className="fin-btn" disabled={!read || busy} onClick={() => setSigning(true)}
+        style={{ ...S.primary, width: '100%', marginTop: '1rem', opacity: read && !busy ? 1 : 0.5, cursor: read && !busy ? 'pointer' : 'not-allowed' }}>{busy ? 'Signing…' : 'Sign the notice'}</button>
+    </div>
+    {signing && <SignatureModal th={th} title={`Your signature — ${doc.signerName}`} onCancel={() => setSigning(false)} onDone={sign} />}
+  </>);
+}

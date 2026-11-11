@@ -6,6 +6,7 @@
 // Runs every 15 minutes, so a reminder is never more than 15 minutes late.
 import { sql } from './_shared/db.mjs';
 import { notifyApprovers } from './pay-increase.mjs';
+import { notifyViolationApprovers, ensureNoticeTable } from './violation-notice.mjs';
 
 export const config = { schedule: '*/15 * * * *' };
 
@@ -32,5 +33,16 @@ export default async () => {
     catch (e) { console.error('[pay-increase-reminder]', row.id, e.message); }
   }
   if (due.length) console.log(`[pay-increase-reminder] ${sent}/${due.length} reminder(s) sent`);
+  // v22.81: Violation Notices waiting for approval (Sam) get the same 3-hour reminders.
+  try {
+    await ensureNoticeTable(db);
+    const vDue = await db`SELECT * FROM violation_notices WHERE status = 'pending'
+      AND COALESCE(reminded_at, pending_at, created_at) <= now() - make_interval(hours => ${EVERY_HOURS}) ORDER BY created_at`;
+    for (const row of vDue) {
+      try { await notifyViolationApprovers(db, row, { reminder: true }); sent++; }
+      catch (e) { console.error('[violation-reminder]', row.id, e.message); }
+    }
+    if (vDue.length) console.log(`[violation-reminder] ${vDue.length} violation notice reminder(s)`);
+  } catch (e) { console.error('[violation-reminder]', e.message); }
   return new Response(`ok ${sent}`);
 };
