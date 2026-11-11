@@ -9,6 +9,7 @@ import { TerminationsReport } from './src/terminations-ui.jsx';
 import { TransferNotice } from './src/transfer-notice-ui.jsx';
 import { PayIncrease } from './src/pay-increase-ui.jsx';
 import { ViolationNotice } from './src/violation-notice-ui.jsx';
+import { JoyLeaderboard, JoyMobileTile } from './src/joy-leaderboard-ui.jsx';
 import { isDirector, parseDistricts } from './src/director-scope.mjs';
 import { portalLogin, portalLoginGoogle, portalLoginGoogleAccess, authHeader, portalChangePassword, portalLogout, portalValidate, portalRevokeSessions, portalMe, getSessionToken, webauthnAvailable, webauthnRegister, webauthnList, webauthnDelete, webauthnLogin, webauthnDeviceEnrolled, webauthnDeviceDeclined, markWebauthnDeviceDeclined } from './src/portal-auth.mjs';
 import { DEFAULT_EVIDENCE_ITEMS, buildEvidenceList, autofillFromStore, splitPeopleForPdf, buildSubjectEmployeeParty, canEditReport, evidenceToForm } from './src/incident-report.mjs';
@@ -32331,6 +32332,9 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           </div>
         </div>
 
+        {/* v22.75: Joy in Childhood — today + this month for this store (scoped server-side) */}
+        <Guard name="mgr-joy" fallback={null}><JoyMobileTile cardStyle={mBig} mono={mMono} display={mDisp} muted={mMut} secondary={mSec} /></Guard>
+
         {/* Open CAPs — Field Ops corrective actions still owed on this store */}
         <div style={{ ...mBig, padding: "1rem 1.05rem" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: mgrCaps == null || mgrCaps.length === 0 ? 0 : "0.7rem" }}>
@@ -32484,7 +32488,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.74";
+const APP_VERSION = "v22.79";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -36712,6 +36716,9 @@ function SimpleDashboard({ user, th, todos, stores, projects, announcements, set
           );
         })}
       </div>
+
+      {/* v22.75: Joy in Childhood leaderboard — one day at a time (opens on today, ‹ › to step), scoped server-side (manager: own store, DM/Director: their districts, exec/IT/office: all, top 5 + show all). */}
+      <Guard name="dash-joy" fallback={null}><JoyLeaderboard th={th} isMobile={isMobile} /></Guard>
 
       {/* Opportunities + Quick actions */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile || !isExecIT ? 'minmax(0, 1fr)' : 'minmax(0, 3fr) minmax(0, 2fr)', gap: '1.1rem', alignItems: 'stretch' }}>
@@ -50977,7 +50984,9 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
   const [askInput, setAskInput] = React.useState('');
   const [askAnswer, setAskAnswer] = React.useState(null);
   const [askLoading, setAskLoading] = React.useState(false);
-  const [briefExpanded, setBriefExpanded] = React.useState(true); // brief shows first + expanded (DMs value the full brief); "Show less" tucks it
+  // v22.78: the brief opens SHORT (first lines + "Read full brief") for DMs and execs — user, 2026-11-11.
+  // It used to open fully expanded; tapping "Read full brief" still opens it all, "Show less" tucks it.
+  const [briefExpanded, setBriefExpanded] = React.useState(false);
   const [caseFilter, setCaseFilter] = React.useState('open');
   const [storeRows, setStoreRows] = React.useState([]);
   const [expandedStore, setExpandedStore] = React.useState(null);
@@ -51047,6 +51056,13 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
   const today = new Date().toISOString().slice(0, 10);
   const district = user?.district ? Number(user.district) : null;
   const isExec = user?.userType === 'executive' || user?.userType === 'it';
+  // v22.79: Directors get this phone home too (user, 2026-11-11) — over ALL their districts (the
+  // `stores` prop is already cut to them by openStores), and without the Orion pieces (brief, Ask,
+  // task alerts, action queue): Directors have no Orion and no alerts.
+  const isDir = isDirector(user);
+  const myDistricts = new Set((user?.districts || []).map(Number));
+  const inScope = (d) => isExec || (isDir ? myDistricts.has(Number(d)) : Number(d) === district);
+  const scopeTag = isDir ? [...myDistricts].sort((a, b) => a - b).map(d => `D${d}`).join(' · ') : district ? `D${district}` : '';
   const initials = (user?.name || '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
   // District-scoped open tickets (maintenance tickets for DM's stores)
@@ -51054,8 +51070,8 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
     try {
       const all = JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]');
       const open = all.filter(t => t.status !== 'Closed');
-      if (isExec || !district) return open;
-      const distPCs = (stores || []).filter(s => Number(s.district) === district).map(s => String(s.pc));
+      if (isExec || (!district && !isDir)) return open;
+      const distPCs = (stores || []).filter(s => inScope(s.district)).map(s => String(s.pc));
       return open.filter(t => distPCs.includes(String(t.storePC)));
     } catch { return []; }
   }, [district, stores]);
@@ -51073,14 +51089,14 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
       try {
         const briefKey = isExec ? `analyst/briefs/${today}_network` : `analyst/briefs/${today}_${district}`;
         const [briefData, laborData, annData, taskAlertsData] = await Promise.all([
-          cloudLoad(briefKey).catch(() => null),
+          isDir ? Promise.resolve(null) : cloudLoad(briefKey).catch(() => null),
           cloudLoad('pcg_labor_v1').catch(() => null),
           cloudLoad('pcg_announcements_v1').catch(() => null),
           cloudLoad('pcg_task_alerts_v1').catch(() => null),
         ]);
 
         setBrief(briefData);
-        if (taskAlertsData?.alerts) {
+        if (taskAlertsData?.alerts && !isDir) {
           const scoped = isExec ? taskAlertsData.alerts : taskAlertsData.alerts.filter(a => Number(a.district) === district);
           setTaskAlerts({ date: taskAlertsData.date, alerts: scoped });
         }
@@ -51088,7 +51104,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
         // KPI: build district-scoped or network summary
         if (laborData?.stores) {
           const storeList = Object.values(laborData.stores).filter(s => !s.error);
-          const scoped = isExec ? storeList : storeList.filter(s => Number(s.district) === district);
+          const scoped = isExec ? storeList : storeList.filter(s => inScope(s.district));
           const totalSales = scoped.reduce((s, r) => s + (r.wtd?.sales || 0), 0);
           const validLaborStores = scoped.filter(r => r.wtd?.laborPct > 0);
           const avgLaborPct = validLaborStores.length > 0
@@ -51099,7 +51115,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
           const rows = Object.entries(laborData.stores)
             .map(([pc, s]) => {
               if (s.error) return null;
-              if (!isExec && Number(s.district) !== district) return null;
+              if (!isExec && !inScope(s.district)) return null;
               const storeInfo = (stores||[]).find(st => String(st.pc) === String(pc));
               return {
                 pc, name: storeInfo?.nickname || storeInfo?.address || `Store ${pc}`,
@@ -51208,7 +51224,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
   };
 
   const fetchPulseData = async (date) => {
-    const districtStores = (stores||[]).filter(s => (isExec || Number(s.district) === district) && s.status === 'Open');
+    const districtStores = (stores||[]).filter(s => inScope(s.district) && s.status === 'Open');
     if (!districtStores.length) return;
     setPulseLoading(true); setPulseProgress(0); setPulseApiData({});
     const batchSize = 3; const results = {};
@@ -51225,7 +51241,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
   };
 
   const fetchPulseWtd = async (date) => {
-    const districtStores = (stores||[]).filter(s => (isExec || Number(s.district) === district) && s.status === 'Open');
+    const districtStores = (stores||[]).filter(s => inScope(s.district) && s.status === 'Open');
     if (!districtStores.length) return;
     setPulseWtdLoading(true); setPulseWtdData({});
     const d = new Date(date + 'T12:00:00');
@@ -51269,7 +51285,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
     { id: 'calendar', label: 'Calendar', color: '#3b82f6', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
     { id: 'ask',      label: 'Ask',      color: '#06b6d4', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> },
     { id: 'expenses', label: 'Expenses', color: '#1B8F5C', portal: true, icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}><path d="M6 2h12a1 1 0 0 1 1 1v18l-2.5-1.5L14 21l-2-1.5L10 21l-2.5-1.5L5 21V3a1 1 0 0 1 1-1z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="16" y2="11"/><line x1="8" y1="15" x2="13" y2="15"/></svg> },
-  ];
+  ].filter(item => !(isDir && item.id === 'ask'));
 
   const SUGGESTIONS = [
     'How is my district tracking vs target this week?',
@@ -51287,7 +51303,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: O, boxShadow: `0 0 0 3px ${O}33`, flexShrink: 0 }} />
           <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: 18, color: th.text, letterSpacing: -0.5 }}>
-            Orion{!isExec && district && <span style={{ color: O, fontWeight: 700, fontSize: 13, letterSpacing: 0 }}> · D{district}</span>}
+            {isDir ? 'PCG' : 'Orion'}{!isExec && scopeTag && <span style={{ color: O, fontWeight: 700, fontSize: 13, letterSpacing: 0 }}> · {scopeTag}</span>}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -51439,7 +51455,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
           const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
           const firstName = (user?.name || user?.username || '').split(' ')[0];
           const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-          const scopeLabel = isExec ? 'Network' : districtLabel(district);
+          const scopeLabel = isExec ? 'Network' : isDir ? scopeTag : districtLabel(district);
           // Rank stores worst-first and derive a single health verdict — the screen's thesis.
           const sev = p => p >= 26 ? 3 : p >= 23 ? 2 : p > 0 ? 1 : 0;
           const ranked = [...storeRows].sort((a, b) => {
@@ -51471,7 +51487,8 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
             </div>
 
             {/* ── Today's Brief — FIRST, per DM preference (dense, coaching-grade
-                 info). Expanded by default; "Show less" tucks it above the glance. ── */}
+                 info). Short by default (v22.78); "Read full brief" opens it. ── */}
+            {!isDir && (<>
             <div style={sectionLabel}>Today's Brief</div>
             {loading ? (
               <div style={{ background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: 18, textAlign: 'center', color: th.muted, fontSize: 13 }}>Loading brief…</div>
@@ -51498,6 +51515,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
                 <div style={{ fontSize: 12, color: th.muted }}>Orion generates the daily brief at 7 AM ET.</div>
               </div>
             )}
+            </>)}
 
             {/* ── Health headline + store grid — the district glance. DM-scale only:
                  for network-scope exec/IT this would be all 45 stores (endless scroll),
@@ -51548,6 +51566,10 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
                 </div>
               </div>
             )}
+
+            {/* ── v22.76: Joy in Childhood leaderboard on the phone home (DM: their district; exec/IT: all,
+                 top 5 + show all — scoped server-side by joy.mjs). Same card as the desktop dashboard. ── */}
+            <div style={{ marginTop: 14 }}><Guard name="mobile-joy" fallback={null}><JoyLeaderboard th={th} isMobile={true} /></Guard></div>
 
             {/* ── Needs Action: task compliance (missed/overdue checks) — DM only.
                  For exec/IT this spans every district and became a long scroll. ── */}
@@ -51601,7 +51623,7 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
             })()}
 
             {/* ── Action Queue (DM) ── */}
-            {user?.userType === 'dm' && (
+            {user?.userType === 'dm' && !isDir && (
               <div>
                 <div style={sectionLabel}>Action Queue</div>
                 <ActionQueue stores={stores} th={th} user={user} users={users || []} setTab={() => onSwitchToFull()} showAlert={() => {}} />
@@ -57665,7 +57687,7 @@ function PCGPortal() {
     </>
   );
 
-  if (user && isMobile && !preferFullPortal && !isDirector(user) && (user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
+  if (user && isMobile && !preferFullPortal && (isDirector(user) || user.userType === 'dm' || user.userType === 'executive' || user.userType === 'it')) {
     return (
       <Guard name="mobile-shell" fallback={
         <div style={{ minHeight: '100dvh', background: th.bg, color: th.text, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
@@ -57782,8 +57804,8 @@ function PCGPortal() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            {/* Switch back to mobile shell */}
-            {isMobile && (user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it') && (
+            {/* Switch back to mobile shell (v22.79: Directors too) */}
+            {isMobile && (isDirector(user) || user?.userType === 'dm' || user?.userType === 'executive' || user?.userType === 'it') && (
               <button onClick={() => togglePortalMode(false)} style={{ background: `${O}12`, border: `1px solid ${O}44`, borderRadius: 7, color: O, fontSize: 11, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Source Sans 3'", whiteSpace: 'nowrap' }}>✦ Orion</button>
             )}
             {isMobile && user?.userType === 'manager' && (

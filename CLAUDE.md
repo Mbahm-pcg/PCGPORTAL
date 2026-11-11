@@ -268,6 +268,7 @@ npx netlify status           # Check auth + site link
 | `minor-timecard-followup-cron` | `30 11 * * *` | 7:30am ET daily re-check/escalation; **90 min after detect on purpose** — both write `pcg_minor_timecard_issues_v1` |
 | `reports-backup` | `59 4 * * *` | nightly rolling 7-day backup |
 | `pay-increase-reminder-cron` | `*/15 * * * *` | Pay Increase forms still pending approval: re-email + re-text the approver (Admin · Notifications · Pay Increase approval) every 3 h, 8am–9pm ET only |
+| `joy-cron-background` | `7 * * * *` | Joy in Childhood leaderboard: pulls each store's $1 donations (Pulse service charge #1010, `getServiceChargeDailyTotals`) for today + yesterday + missing days of a rolling 100-day window into `pcg_joy_daily_v1`; read by `joy.mjs` (scoped by role) for the dashboard / phone cards |
 | `kb-sync-background` | `0 10 * * 1` | Mon weekly Drive KB sync |
 | `reconciliation-cron` | `1 4 * * 0,2` | Sun snapshot / Tue compare |
 | `weather-forecast-cron` | `0 12 * * *` | 8am ET forecast |
