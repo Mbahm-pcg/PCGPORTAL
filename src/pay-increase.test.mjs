@@ -31,7 +31,7 @@ test('signatures follow who makes the form', () => {
   assert.equal(secondLineLabel('director'), 'Director of Operations');
   assert.equal(secondLineLabel('executive', 'mike.bahm'), 'Vice President');
   assert.equal(secondLineLabel('executive', 'krunal'), 'Executive');
-  assert.equal(secondLineLabel('it'), 'District Manager');
+  assert.equal(secondLineLabel('it'), 'HR / IT Administrator');
   assert.deepEqual(['manager', 'dm', 'director', 'executive'].map(storeManagerNa), [false, true, true, true]);
   assert.deepEqual([['manager'], ['dm'], ['director'], ['executive', 'mike.bahm'], ['executive', 'x']].map(a => signerCode(...a)), ['sm_dm', 'dm', 'director', 'vp', 'exec']);
   // Store Manager makes it: Store Manager + District Manager both sign

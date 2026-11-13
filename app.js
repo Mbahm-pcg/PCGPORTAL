@@ -2497,6 +2497,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   function secondLineLabel(role, username) {
     if (role === "director") return "Director of Operations";
     if (role === "executive") return String(username || "").toLowerCase() === "mike.bahm" ? "Vice President" : "Executive";
+    if (role === "it") return "HR / IT Administrator";
     return "District Manager";
   }
   var has = (v, k) => !!String(v?.[k] ?? "").trim();
@@ -30627,7 +30628,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.96";
+  var APP_VERSION = "v22.97";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

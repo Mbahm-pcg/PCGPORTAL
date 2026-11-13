@@ -59,4 +59,5 @@ ${driveLink ? `<p><a href="${esc(driveLink)}">Open it in Google Drive</a></p>` :
 }
 
 // Default "Acknowledged by" title from the portal role.
-export const titleForRole = (t) => ({ manager: 'Store Manager', dm: 'District Manager', director: 'Director of Operations', executive: 'Executive', it: 'HR / IT Administrator', office_staff: 'Office Staff' }[t] || '');
+// v22.97: Mike signs as Vice President, like Pay Increase / Missing Hours / Transfer Notice.
+export const titleForRole = (t, username) => (t === 'executive' && String(username || '').toLowerCase() === 'mike.bahm' ? 'Vice President' : null) || ({ manager: 'Store Manager', dm: 'District Manager', director: 'Director of Operations', executive: 'Executive', it: 'HR / IT Administrator', office_staff: 'Office Staff' }[t] || '');

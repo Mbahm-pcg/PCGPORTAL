@@ -57,6 +57,7 @@ export function payFingerprint(v) {
 export function secondLineLabel(role, username) {
   if (role === 'director') return 'Director of Operations';
   if (role === 'executive') return String(username || '').toLowerCase() === 'mike.bahm' ? 'Vice President' : 'Executive';
+  if (role === 'it') return 'HR / IT Administrator'; // v22.97: IT signs under its own title, not "District Manager"
   return 'District Manager';
 }
 // Store Manager line: signed when a Store Manager makes the form, otherwise N/A.
@@ -95,11 +96,11 @@ export function signatureProblem(role, v) {
 }
 // signer column → who signed, for the office email (older values kept for earlier forms).
 const SIGNER_LABEL = {
-  sm_dm: 'Store Manager and the District Manager', dm: 'District Manager', director: 'Director of Operations', vp: 'Vice President', exec: 'Executive',
+  sm_dm: 'Store Manager and the District Manager', dm: 'District Manager', director: 'Director of Operations', vp: 'Vice President', exec: 'Executive', it: 'HR / IT Administrator',
   sm: 'Store Manager', dm_sm: 'Store Manager and the District Manager', dm_na: 'District Manager',
 };
 export const signerCode = (role, username) => role === 'manager' ? 'sm_dm' : role === 'director' ? 'director'
-  : role === 'executive' ? (String(username || '').toLowerCase() === 'mike.bahm' ? 'vp' : 'exec') : 'dm';
+  : role === 'executive' ? (String(username || '').toLowerCase() === 'mike.bahm' ? 'vp' : 'exec') : role === 'it' ? 'it' : 'dm';
 
 export const usDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || ''); };
 const money = (n, basis) => fmtPay(n, basis);

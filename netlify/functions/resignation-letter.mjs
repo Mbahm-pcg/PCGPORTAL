@@ -155,7 +155,7 @@ export default async (request) => {
         ? await db`SELECT *, (pdf IS NOT NULL) AS has_pdf FROM resignation_letters ORDER BY created_at DESC LIMIT 300`
         : await db`SELECT *, (pdf IS NOT NULL) AS has_pdf FROM resignation_letters WHERE submitted_by = ${mine} ORDER BY created_at DESC LIMIT 300`;
       const items = rows.map(r => ({ ...rowItem(r), mine: Number(r.submitted_by) === mine }));
-      const out = { myName, myTitle: titleForRole(realType), seeAll, stores: STORES.filter(s => inScope(s.pc)).map(s => ({ pc: String(s.pc), name: s.name })), employees: [],
+      const out = { myName, myTitle: titleForRole(realType, authed.username), seeAll, stores: STORES.filter(s => inScope(s.pc)).map(s => ({ pc: String(s.pc), name: s.name })), employees: [],
         waiting: items.filter(i => i.status === 'awaiting_signature'), complete: items.filter(i => i.status === 'signed') };
       const prog = await signProgress(db, 'resignation', out.waiting.map(x => x.id)).catch(e => { console.error('[resignation-letter] progress', e.message); return {}; });
       for (const x of out.waiting) x.signing = prog[x.id] || [];
