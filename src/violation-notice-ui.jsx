@@ -199,6 +199,19 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     if (hit) { setView('list'); setListTab('pending'); setReviewing(hit); }
   }).catch(e => { setError(e.message); setEmployees([]); });
   useEffect(() => { loadMain(); }, []);
+  // v22.99: keep the lists current — a signature from an emailed link (another device) or someone
+  // else's approval used to show only after a manual reload. Refresh on coming back to the tab and
+  // every minute while the list is on screen (not while a form is open).
+  const viewRef = React.useRef(view);
+  viewRef.current = view;
+  useEffect(() => {
+    const tick = () => { if (!document.hidden && viewRef.current === 'list') loadMain(); };
+    const onVis = () => { if (!document.hidden) tick(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', tick);
+    const t = setInterval(tick, 60000);
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', tick); clearInterval(t); };
+  }, []);
 
   const storeName = (pc) => stores.find(s => s.pc === String(pc))?.name || '';
   const form = { employee: picked, pc: picked?.pc, supervisor, date, notice, types, action, suspensionStart, suspensionReturn, violationDate, description, improvement, consequences, supervisorName, witnessName, employeeRefused };

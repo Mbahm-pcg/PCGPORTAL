@@ -3511,6 +3511,24 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     useEffect4(() => {
       loadMain();
     }, []);
+    const viewRef = React.useRef(view);
+    viewRef.current = view;
+    useEffect4(() => {
+      const tick = () => {
+        if (!document.hidden && viewRef.current === "list") loadMain();
+      };
+      const onVis = () => {
+        if (!document.hidden) tick();
+      };
+      document.addEventListener("visibilitychange", onVis);
+      window.addEventListener("focus", tick);
+      const t = setInterval(tick, 6e4);
+      return () => {
+        document.removeEventListener("visibilitychange", onVis);
+        window.removeEventListener("focus", tick);
+        clearInterval(t);
+      };
+    }, []);
     const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
     const form = { employee: picked, pc: picked?.pc, supervisor, date, notice, types, action, suspensionStart, suspensionReturn, violationDate, description, improvement, consequences, supervisorName, witnessName, employeeRefused };
     const base = violationValues(form);
@@ -4503,6 +4521,24 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     useEffect6(() => {
       loadMain();
     }, []);
+    const viewRef = React.useRef(view);
+    viewRef.current = view;
+    useEffect6(() => {
+      const tick = () => {
+        if (!document.hidden && viewRef.current === "list") loadMain();
+      };
+      const onVis = () => {
+        if (!document.hidden) tick();
+      };
+      document.addEventListener("visibilitychange", onVis);
+      window.addEventListener("focus", tick);
+      const t = setInterval(tick, 6e4);
+      return () => {
+        document.removeEventListener("visibilitychange", onVis);
+        window.removeEventListener("focus", tick);
+        clearInterval(t);
+      };
+    }, []);
     const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
     const form = { employee: picked, pc: picked?.pc, storeAddress, lastDay, date, supervisorName, supervisorTitle };
     const base = resignationValues(form);
@@ -4998,6 +5034,24 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     });
     useEffect7(() => {
       loadMain();
+    }, []);
+    const viewRef = React.useRef(view);
+    viewRef.current = view;
+    useEffect7(() => {
+      const tick = () => {
+        if (!document.hidden && viewRef.current === "list") loadMain();
+      };
+      const onVis = () => {
+        if (!document.hidden) tick();
+      };
+      document.addEventListener("visibilitychange", onVis);
+      window.addEventListener("focus", tick);
+      const t = setInterval(tick, 6e4);
+      return () => {
+        document.removeEventListener("visibilitychange", onVis);
+        window.removeEventListener("focus", tick);
+        clearInterval(t);
+      };
     }, []);
     const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
     const form = { employee: picked, pc: picked?.pc, rows, reason, signerName, date: today };
@@ -30739,7 +30793,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.98";
+  var APP_VERSION = "v22.99";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
