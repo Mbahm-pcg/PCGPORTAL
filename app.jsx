@@ -13,6 +13,7 @@ import { TimeOffRequest } from './src/time-off-request-ui.jsx';
 import { ResignationLetter } from './src/resignation-letter-ui.jsx';
 import { MissingHours } from './src/missing-hours-ui.jsx';
 import { TermsGate, fetchTermsStatus, TERMS_VERSION } from './src/terms-gate-ui.jsx';
+import { startUpdateWatch, reloadForUpdate } from './src/update-check.mjs';
 import { RemoteSignPage } from './src/remote-sign-ui.jsx';
 import { JoyLeaderboard, JoyMobileTile } from './src/joy-leaderboard-ui.jsx';
 import { isDirector, parseDistricts } from './src/director-scope.mjs';
@@ -32552,7 +32553,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.93";
+const APP_VERSION = "v22.94";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -55088,10 +55089,15 @@ function PCGPortal() {
   // sessionStorage['pcg_portal_token'] before this SPA boots. If we have that token but no
   // user yet, validate it server-side (portalMe) and restore the session — so the embedded
   // Portal tab is logged in without a second sign-in. Harmless in a normal browser (no token).
+  // v22.94: the token's claims carry the account id as `sub`, not `id` — a session restored this
+  // way (also after any page reload, incl. the new-version auto-refresh) used to come back with
+  // no user.id. Map it, and once the users list has loaded, fill in the full account record the
+  // same way the password login does (server-only fields win).
+  const restoredFromTokenRef = useRef(false);
   useEffect(() => {
     if (user || !getSessionToken()) return;
     let cancelled = false;
-    portalMe().then(u => { if (!cancelled && u) setUser(u); }).catch(() => {});
+    portalMe().then(u => { if (!cancelled && u) { restoredFromTokenRef.current = true; setUser({ ...u, id: u.id ?? u.sub }); } }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
   const [managerMode, setManagerMode] = useState(null);
@@ -55497,6 +55503,7 @@ function PCGPortal() {
         // No active session → nothing to time out; skip (avoids anonymous "—" rows).
         if (!user || user.userType?.startsWith('kiosk')) return;
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'background_tab', name: user?.name });
+        portalLogout(); // v22.94: drop the token too, or a reload (incl. the new-version auto-refresh) signs them straight back in
         try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
         setPreferFullPortal(false);
         setUser(null);
@@ -55511,6 +55518,7 @@ function PCGPortal() {
         // No active session → nothing to time out; skip (avoids anonymous "—" rows).
         if (!user || user.userType?.startsWith('kiosk')) return;
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'bfcache_restore', name: user?.name });
+        portalLogout(); // v22.94: drop the token too, or a reload (incl. the new-version auto-refresh) signs them straight back in
         try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
         setPreferFullPortal(false);
         setUser(null);
@@ -55526,6 +55534,32 @@ function PCGPortal() {
       window.removeEventListener('pageshow', onPageShow);
     };
   }, [user]);
+
+  // v22.94 New release while the Portal is open (iPhone home-screen app / desktop tab left open
+  // for days): it kept running the old app.js until force-quit, which is how people "fixed"
+  // being logged out after an update. Now: on the sign-in screen, or coming back after 2+ min
+  // away, it reloads onto the new version straight away; while someone is using it, a bar
+  // offers Refresh (so a half-filled form isn't lost). The sign-in survives the reload
+  // (the session token is in sessionStorage and is restored on load).
+  const [updateReady, setUpdateReady] = useState(false);
+  const signedInRef = useRef(false);
+  signedInRef.current = !!user;
+  useEffect(() => startUpdateWatch({
+    onUpdate: ({ hiddenMs }) => {
+      // Away 15+ min: the background sign-out (below) runs first; the reload follows once
+      // they're on the sign-in screen (effect below). 2-15 min away: reload now, still signed in.
+      const away = hiddenMs >= 2 * 60 * 1000 && hiddenMs < 15 * 60 * 1000;
+      if (!signedInRef.current || away) { if (reloadForUpdate()) return; }
+      setUpdateReady(true);
+    },
+  }), []);
+  useEffect(() => { if (updateReady && !user) reloadForUpdate(); }, [updateReady, user]);
+  useEffect(() => {
+    if (!updateReady) return;
+    const onVis = () => { if (!document.hidden) reloadForUpdate(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [updateReady]);
 
   // Sign-out-everywhere enforcement: re-validate the session with the server on load,
   // on tab refocus, and every 3 min. If the server says the session was revoked (e.g. IT
@@ -55576,6 +55610,7 @@ function PCGPortal() {
       const idle = Date.now() - lastActivityRef.current;
       if (idle >= LOGOUT_AFTER) {
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: 'inactivity', name: user?.name });
+        portalLogout(); // v22.94: drop the token too, or a reload (incl. the new-version auto-refresh) signs them straight back in
         try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
         setPreferFullPortal(false);
         setUser(null);
@@ -55610,6 +55645,7 @@ function PCGPortal() {
       const trusted = await isTwoFactorDeviceTrusted(user).catch(() => false);
       if (!trusted) {
         logClientEvent(user?.id, user?.userType, 'session_timeout', { reason: '2fa_trust_expired', name: user?.name });
+        portalLogout(); // v22.94: drop the token too, or a reload (incl. the new-version auto-refresh) signs them straight back in
         try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
         setPreferFullPortal(false);
         setUser(null);
@@ -55783,6 +55819,14 @@ function PCGPortal() {
       .then(data => { if (Array.isArray(data) && data.length > 0) setUsers(data); })
       .catch(() => {});
   }, []);
+  // v22.94: a session restored from the token (see portalMe above) gets the full account record
+  // once the users list is in — same merge as the password login (server-only fields kept).
+  useEffect(() => {
+    if (!restoredFromTokenRef.current || !rawUser || !users.length) return;
+    const acct = users.find(x => String(x.id) === String(rawUser.id) && x.active !== false);
+    restoredFromTokenRef.current = false;
+    if (acct) setUser(prev => (prev && String(prev.id) === String(acct.id) ? { ...acct, officeClockLinked: prev.officeClockLinked || false, districts: prev.districts ?? acct.districts } : prev));
+  }, [users, rawUser]);
 
   // Migrate project data from seed data + fix stale timestamps
   useEffect(() => {
@@ -57795,6 +57839,14 @@ function PCGPortal() {
 
   return (
     <div className="dash-enter" style={{ display: "flex", minHeight: "100vh", background: th.bg, color: th.text, transition: "background .3s, color .3s" }}>
+
+      {/* v22.94 New version ready (see startUpdateWatch above) */}
+      {updateReady && (
+        <div role="status" style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: "calc(16px + env(safe-area-inset-bottom, 0px))", zIndex: 9998, display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", justifyContent: "center", maxWidth: "calc(100vw - 32px)", background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: "0.6rem 0.75rem 0.6rem 1rem", boxShadow: "0 10px 30px rgba(0,0,0,0.25)", fontFamily: "'Source Sans 3', sans-serif", fontSize: "0.92rem" }}>
+          <span>A new version of the Portal is ready.</span>
+          <button type="button" onClick={() => window.location.reload()} style={{ background: "#FF671F", color: "#fff", border: "none", borderRadius: 10, padding: "0.45rem 0.9rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Refresh</button>
+        </div>
+      )}
 
       {/* Session timeout warning banner */}
       {showTimeoutWarning && (

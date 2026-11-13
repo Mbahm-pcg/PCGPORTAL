@@ -5070,6 +5070,64 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", background: th.bg, color: th.text, fontFamily: FONTS.body, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px", boxSizing: "border-box" } }, /* @__PURE__ */ React.createElement("div", { role: "dialog", "aria-labelledby": "terms-h", style: { width: "100%", maxWidth: 560, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 16, padding: "1.6rem 1.5rem", boxShadow: "0 20px 50px rgba(0,0,0,0.25)" } }, /* @__PURE__ */ React.createElement("h1", { id: "terms-h", style: { fontFamily: FONTS.head, fontWeight: 800, fontSize: "1.35rem", margin: "0 0 0.4rem" } }, "Terms of Use"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, margin: "0 0 1rem", fontSize: "0.92rem" } }, "Hi ", String(user?.name || "").split(" ")[0] || "there", ". Before you continue, please read and accept the Portal's Terms of Use. The main points:"), /* @__PURE__ */ React.createElement("ul", { style: { margin: "0 0 1rem", paddingLeft: "1.2rem", fontSize: "0.92rem", lineHeight: 1.5 } }, point("Your account is yours alone. Use the Portal only for work, and only look at what your role needs."), point("Employee, pay and sales information is confidential. Never share it outside PCG."), point("Signing a form on screen is your real signature, and you confirm what it says is true. Never sign for someone else."), point("PCG may send you work notices by email, text and phone notification."), point("Your activity in the Portal is recorded for security.")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.92rem", margin: "0 0 1rem" } }, "Read the full ", /* @__PURE__ */ React.createElement("a", { href: "/terms.html", target: "_blank", rel: "noreferrer", style: { color: O, fontWeight: 700 } }, "Terms of Use"), " and ", /* @__PURE__ */ React.createElement("a", { href: "/privacy-policy.html", target: "_blank", rel: "noreferrer", style: { color: O, fontWeight: 700 } }, "Privacy Policy"), " (they open in a new tab)."), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.6rem", alignItems: "flex-start", fontSize: "0.95rem", cursor: "pointer", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: agree, onChange: (e) => setAgree(e.target.checked), style: { accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 } }), "I have read and agree to the Terms of Use, and I've read the Privacy Policy."), err && /* @__PURE__ */ React.createElement("p", { role: "alert", style: { color: "#dc2626", fontSize: "0.88rem", margin: "0 0 0.8rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", justifyContent: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onSignOut, disabled: busy, style: { background: "none", border: `1px solid ${th.cardBorder}`, color: th.text, borderRadius: 10, padding: "0.6rem 1rem", fontWeight: 600, cursor: "pointer", fontFamily: FONTS.body } }, "Sign out"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: accept, disabled: !agree || busy, style: { background: O, color: "#fff", border: "none", borderRadius: 10, padding: "0.6rem 1.2rem", fontWeight: 700, fontFamily: FONTS.body, cursor: agree && !busy ? "pointer" : "not-allowed", opacity: agree && !busy ? 1 : 0.5 } }, busy ? "Saving\u2026" : "I agree, continue"))));
   }
 
+  // src/update-check.mjs
+  var URL_ = "/app.js";
+  var EVERY_MS = 5 * 60 * 1e3;
+  async function currentTag() {
+    try {
+      const res = await fetch(URL_, { method: "HEAD", cache: "no-store" });
+      if (!res.ok) return null;
+      return res.headers.get("etag") || res.headers.get("last-modified") || null;
+    } catch {
+      return null;
+    }
+  }
+  function startUpdateWatch({ onUpdate }) {
+    let base = null, done = false, hiddenAt = null, timer = null;
+    const check = async (hiddenMs = 0) => {
+      if (done) return;
+      const tag = await currentTag();
+      if (!tag) return;
+      if (!base) {
+        base = tag;
+        return;
+      }
+      if (tag !== base) {
+        done = true;
+        onUpdate({ hiddenMs });
+      }
+    };
+    const onVis = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      const hiddenMs = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = null;
+      check(hiddenMs);
+    };
+    check();
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    timer = setInterval(() => check(0), EVERY_MS);
+    return () => {
+      done = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
+  }
+  function reloadForUpdate() {
+    try {
+      const last = Number(sessionStorage.getItem("pcg_update_reload_at") || 0);
+      if (Date.now() - last < 6e4) return false;
+      sessionStorage.setItem("pcg_update_reload_at", String(Date.now()));
+    } catch {
+    }
+    window.location.reload();
+    return true;
+  }
+
   // src/remote-sign-ui.jsx
   var { useState: useState10, useEffect: useEffect8, useRef: useRef4 } = React;
   var call6 = async (body) => {
@@ -30546,7 +30604,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.93";
+  var APP_VERSION = "v22.94";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -44824,11 +44882,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (!rawUser || !isDirector(rawUser)) return rawUser;
       return { ...rawUser, userType: "director", realUserType: "director", district: null, districts: parseDistricts(rawUser.districts) };
     }, [rawUser]);
+    const restoredFromTokenRef = useRef5(false);
     useEffect10(() => {
       if (user || !getSessionToken()) return;
       let cancelled = false;
       portalMe().then((u) => {
-        if (!cancelled && u) setUser(u);
+        if (!cancelled && u) {
+          restoredFromTokenRef.current = true;
+          setUser({ ...u, id: u.id ?? u.sub });
+        }
       }).catch(() => {
       });
       return () => {
@@ -45275,6 +45337,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         } else if (hiddenAt.t && Date.now() - hiddenAt.t > TIMEOUT_MS) {
           if (!user || user.userType?.startsWith("kiosk")) return;
           logClientEvent(user?.id, user?.userType, "session_timeout", { reason: "background_tab", name: user?.name });
+          portalLogout();
           try {
             localStorage.removeItem("pcg_prefer_full_portal");
           } catch {
@@ -45289,6 +45352,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         if (e.persisted) {
           if (!user || user.userType?.startsWith("kiosk")) return;
           logClientEvent(user?.id, user?.userType, "session_timeout", { reason: "bfcache_restore", name: user?.name });
+          portalLogout();
           try {
             localStorage.removeItem("pcg_prefer_full_portal");
           } catch {
@@ -45306,6 +45370,29 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.removeEventListener("pageshow", onPageShow);
       };
     }, [user]);
+    const [updateReady, setUpdateReady] = useState12(false);
+    const signedInRef = useRef5(false);
+    signedInRef.current = !!user;
+    useEffect10(() => startUpdateWatch({
+      onUpdate: ({ hiddenMs }) => {
+        const away = hiddenMs >= 2 * 60 * 1e3 && hiddenMs < 15 * 60 * 1e3;
+        if (!signedInRef.current || away) {
+          if (reloadForUpdate()) return;
+        }
+        setUpdateReady(true);
+      }
+    }), []);
+    useEffect10(() => {
+      if (updateReady && !user) reloadForUpdate();
+    }, [updateReady, user]);
+    useEffect10(() => {
+      if (!updateReady) return;
+      const onVis = () => {
+        if (!document.hidden) reloadForUpdate();
+      };
+      document.addEventListener("visibilitychange", onVis);
+      return () => document.removeEventListener("visibilitychange", onVis);
+    }, [updateReady]);
     useEffect10(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       let cancelled = false;
@@ -45355,6 +45442,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         const idle = Date.now() - lastActivityRef.current;
         if (idle >= LOGOUT_AFTER) {
           logClientEvent(user?.id, user?.userType, "session_timeout", { reason: "inactivity", name: user?.name });
+          portalLogout();
           try {
             localStorage.removeItem("pcg_prefer_full_portal");
           } catch {
@@ -45386,6 +45474,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         const trusted = await isTwoFactorDeviceTrusted(user).catch(() => false);
         if (!trusted) {
           logClientEvent(user?.id, user?.userType, "session_timeout", { reason: "2fa_trust_expired", name: user?.name });
+          portalLogout();
           try {
             localStorage.removeItem("pcg_prefer_full_portal");
           } catch {
@@ -45548,6 +45637,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }).catch(() => {
       });
     }, []);
+    useEffect10(() => {
+      if (!restoredFromTokenRef.current || !rawUser || !users.length) return;
+      const acct = users.find((x) => String(x.id) === String(rawUser.id) && x.active !== false);
+      restoredFromTokenRef.current = false;
+      if (acct) setUser((prev) => prev && String(prev.id) === String(acct.id) ? { ...acct, officeClockLinked: prev.officeClockLinked || false, districts: prev.districts ?? acct.districts } : prev);
+    }, [users, rawUser]);
     useEffect10(() => {
       let updated = [...projects];
       let changed = false;
@@ -47449,7 +47544,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTab("expenses");
       }, todos, projects, users }));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "dash-enter", style: { display: "flex", minHeight: "100vh", background: th.bg, color: th.text, transition: "background .3s, color .3s" } }, showTimeoutWarning && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: timeoutCountdown <= 5 ? "#ef4444" : "#FF671F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.5rem", boxShadow: "0 2px 12px rgba(0,0,0,0.25)", transition: "background .3s", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.625rem", fontFamily: "'Source Sans 3'", fontSize: "0.9375rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u23F1\uFE0F"), /* @__PURE__ */ React.createElement("span", null, "You've been inactive \u2014 logging out in"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.125rem", minWidth: "2rem" } }, timeoutCountdown, "s")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "dash-enter", style: { display: "flex", minHeight: "100vh", background: th.bg, color: th.text, transition: "background .3s, color .3s" } }, updateReady && /* @__PURE__ */ React.createElement("div", { role: "status", style: { position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: "calc(16px + env(safe-area-inset-bottom, 0px))", zIndex: 9998, display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", justifyContent: "center", maxWidth: "calc(100vw - 32px)", background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: "0.6rem 0.75rem 0.6rem 1rem", boxShadow: "0 10px 30px rgba(0,0,0,0.25)", fontFamily: "'Source Sans 3', sans-serif", fontSize: "0.92rem" } }, /* @__PURE__ */ React.createElement("span", null, "A new version of the Portal is ready."), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => window.location.reload(), style: { background: "#FF671F", color: "#fff", border: "none", borderRadius: 10, padding: "0.45rem 0.9rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" } }, "Refresh")), showTimeoutWarning && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: timeoutCountdown <= 5 ? "#ef4444" : "#FF671F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.5rem", boxShadow: "0 2px 12px rgba(0,0,0,0.25)", transition: "background .3s", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.625rem", fontFamily: "'Source Sans 3'", fontSize: "0.9375rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u23F1\uFE0F"), /* @__PURE__ */ React.createElement("span", null, "You've been inactive \u2014 logging out in"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.125rem", minWidth: "2rem" } }, timeoutCountdown, "s")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => {
