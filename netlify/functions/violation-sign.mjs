@@ -21,7 +21,8 @@ import { sql } from './_shared/db.mjs';
 import { afterRemoteSign } from './violation-notice.mjs';
 import { afterResignationSign } from './resignation-letter.mjs';
 import { RES_SPOTS } from '../../src/resignation-letter-pdf.mjs';
-import { sendSms, sendHtmlEmail } from './_shared/channels.mjs';
+import { getStore } from '@netlify/blobs';
+import { sendSms, sendHtmlEmail, sendHtmlEmailTracked, sendPush } from './_shared/channels.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const TTL_DAYS = 3, MAX_TRIES = 5;
@@ -56,6 +57,16 @@ export async function ensureSignTable(db) {
   // acknowledgment page at the end). v22.87: 'resignation' — notice_id then points at
   // resignation_letters (resignation-letter.mjs), NOT violation_notices, so every query keeps the two apart.
   await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS layout text DEFAULT 'notice'`;
+  // v22.91 tracking: Resend's email id + what its webhook reports (resend-webhook.mjs), the first
+  // visit to the signing page (before the phone check), and the follow-ups already sent.
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS email_id text`;
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS email_delivered_at timestamptz`;
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS email_bounced_at timestamptz`;
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS email_bounce_reason text`;
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS email_opened_at timestamptz`;
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS first_seen_at timestamptz`;
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS followup_sent_at timestamptz`;
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS expiry_warned_at timestamptz`;
 }
 
 // ── Warning letters (v22.84, Sam: "drag and drop it on the portal and it gets sent to them and also
@@ -127,18 +138,20 @@ export async function createSignRequest(db, { request, role = 'employee', layout
   const token = randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + TTL_DAYS * 86400000);
   await db`UPDATE violation_sign_requests SET cancelled_at = now() WHERE notice_id = ${noticeId} AND (COALESCE(layout, 'notice') = 'resignation') = ${isRes} AND COALESCE(role, 'employee') = ${role} AND signed_at IS NULL AND cancelled_at IS NULL`;
-  await db`INSERT INTO violation_sign_requests (token_hash, notice_id, role, layout, signer_name, pc, store_name, employee_name, phone, email, file_name, pdf, created_by, created_by_name, expires_at)
-    VALUES (${hash(token)}, ${noticeId}, ${role}, ${layout}, ${signerName}, ${String(pc)}, ${storeName}, ${employeeName}, ${tenDigits(phone)}, ${email || null}, ${fileName}, ${pdf.toString('base64')}, ${createdBy}, ${createdByName}, ${expires.toISOString()})`;
+  const inserted = await db`INSERT INTO violation_sign_requests (token_hash, notice_id, role, layout, signer_name, pc, store_name, employee_name, phone, email, file_name, pdf, created_by, created_by_name, expires_at)
+    VALUES (${hash(token)}, ${noticeId}, ${role}, ${layout}, ${signerName}, ${String(pc)}, ${storeName}, ${employeeName}, ${tenDigits(phone)}, ${email || null}, ${fileName}, ${pdf.toString('base64')}, ${createdBy}, ${createdByName}, ${expires.toISOString()}) RETURNING id`;
   const link = `${signOrigin(request)}/?sign=${token}`;
   const until = etDate(expires);
   const what = isRes ? `review and sign your resignation letter for ${storeName}` : layout === 'letter' ? `review your warning letter from ${storeName} and sign to acknowledge you received it`
     : role === 'witness' ? `sign as witness on ${employeeName}'s Violation Notice from ${storeName}` : `review and sign your Violation Notice from ${storeName}`;
   // The link goes by EMAIL; the text is only a nudge with no link (user, 2026-11-11) — Textbelt
   // refuses any text with a link until the account is verified for links.
-  const emailed = await sendHtmlEmail([email], isRes ? 'Please review and sign your resignation letter' : layout === 'letter' ? 'Please review and acknowledge your warning letter' : role === 'witness' ? 'Please sign as witness on a Violation Notice' : 'Please review and sign your Violation Notice',
+  const sentMail = await sendHtmlEmailTracked([email], isRes ? 'Please review and sign your resignation letter' : layout === 'letter' ? 'Please review and acknowledge your warning letter' : role === 'witness' ? 'Please sign as witness on a Violation Notice' : 'Please review and sign your Violation Notice',
     `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Hi ${esc(signerName)},</p><p>People Capital Group asks you to ${esc(what)}.</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Review and sign</a></p>
 <p style="color:#666">This private link expires ${esc(until)}. You'll be asked for the last 4 digits of your phone number.${role === 'employee' && !isRes ? ' Signing confirms you received the notice, not that you agree with it.' : ''}</p></div>`);
+  const emailed = sentMail.ok;
+  if (sentMail.id) await db`UPDATE violation_sign_requests SET email_id = ${sentMail.id} WHERE id = ${inserted[0].id}`;
   const sms = await sendSms([tenDigits(phone)], `People Capital Group: we emailed you a request to ${what}. Please check your email inbox (and spam folder) and sign by ${until}.`);
   // No email address in the text: Textbelt reads "peoplecapitalgroup.com" in it as a link and refuses the whole text (2026-11-11).
   const smsError = sms.sent ? null : String(sms.results?.[0]?.error || 'not sent');
@@ -182,6 +195,94 @@ async function stampLetter(pdfB64, signature, phone) {
   return Buffer.from(await doc.save());
 }
 
+// ── v22.91 tracking: what each signing link has been through, for the screens ──
+const SIGN_FIELDS = (q) => ({ role: q.role || 'employee', signer: q.signer_name || q.employee_name, email: maskEmail(q.email), sentAt: q.created_at, emailed: !!q.email_id || null,
+  deliveredAt: q.email_delivered_at, bouncedAt: q.email_bounced_at, bounceReason: q.email_bounce_reason, emailOpenedAt: q.email_opened_at,
+  seenAt: q.first_seen_at, openedAt: q.opened_at, signedAt: q.signed_at, cancelledAt: q.cancelled_at, expiresAt: q.expires_at,
+  expired: !q.signed_at && new Date(q.expires_at) < new Date(), locked: !q.signed_at && (q.attempts || 0) >= MAX_TRIES });
+
+// { [noticeId]: [latest request per role] } for violation notices / warning letters ('violation') or resignation letters ('resignation').
+export async function signProgress(db, family, ids) {
+  const list = [...new Set((ids || []).map(Number).filter(Boolean))];
+  if (!list.length) return {};
+  await ensureSignTable(db);
+  const isRes = family === 'resignation';
+  const rows = await db`SELECT DISTINCT ON (notice_id, COALESCE(role, 'employee')) * FROM violation_sign_requests
+    WHERE notice_id = ANY(${list}) AND (COALESCE(layout, 'notice') = 'resignation') = ${isRes} ORDER BY notice_id, COALESCE(role, 'employee'), id DESC`;
+  const out = {};
+  for (const q of rows) (out[q.notice_id] ||= []).push(SIGN_FIELDS(q));
+  return out;
+}
+
+const blobs = () => getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
+const whatOf = (q) => (q.layout === 'resignation' ? 'resignation letter' : q.layout === 'letter' ? 'warning letter' : q.role === 'witness' ? `witness signature on ${q.employee_name}'s Violation Notice` : 'Violation Notice');
+const toolOf = (q) => (q.layout === 'resignation' ? 'Tools > Resignation Letter' : 'Tools > Violation Notice');
+
+// Push + bell + email to the person who sent the link. Never throws.
+export async function tellSender(db, q, title, line) {
+  try {
+    const u = (await db`SELECT id, email FROM users WHERE id = ${q.created_by}`)[0];
+    if (!u) return;
+    const b = blobs();
+    await Promise.all([sendPush(b, [String(u.id)], title, line, `sign-${q.id}`), u.email ? sendHtmlEmail([u.email], title, `<p style="font-family:Arial,sans-serif;font-size:14px">${esc(line)}</p>`) : null]);
+    const cur = await b.get('pcg_notifications_v1', { type: 'json' }).catch(() => null);
+    const arr = Array.isArray(cur) ? cur : (cur?.data || []);
+    await b.setJSON('pcg_notifications_v1', { savedAt: new Date().toISOString(), data: [{ id: `sign_${q.id}_${Date.now()}`, type: 'signing', message: line, onlyFor: [String(u.id)], read: false, createdAt: new Date().toISOString() }, ...arr].slice(0, 500) });
+  } catch (e) { console.error('[violation-sign] tell sender', e.message); }
+}
+
+// Called by resend-webhook.mjs for each Resend event. Returns false when the email isn't a signing email.
+export async function recordEmailEvent(db, type, emailId, data = {}) {
+  await ensureSignTable(db);
+  const q = (await db`SELECT * FROM violation_sign_requests WHERE email_id = ${emailId}`)[0];
+  if (!q) return false;
+  if (type === 'email.delivered') await db`UPDATE violation_sign_requests SET email_delivered_at = COALESCE(email_delivered_at, now()) WHERE id = ${q.id}`;
+  else if (type === 'email.opened') await db`UPDATE violation_sign_requests SET email_opened_at = COALESCE(email_opened_at, now()) WHERE id = ${q.id}`;
+  else if (type === 'email.bounced' || type === 'email.complained') {
+    const reason = String(data?.bounce?.message || data?.bounce?.subType || data?.bounce?.type || (type === 'email.complained' ? 'marked as spam' : 'bounced')).slice(0, 300);
+    const first = !q.email_bounced_at;
+    await db`UPDATE violation_sign_requests SET email_bounced_at = COALESCE(email_bounced_at, now()), email_bounce_reason = ${reason} WHERE id = ${q.id}`;
+    if (first && !q.signed_at && !q.cancelled_at) {
+      const who = q.signer_name || q.employee_name;
+      await tellSender(db, q, `Signing email bounced: ${who}`, `The email with ${who}'s signing link for their ${whatOf(q)} (${q.store_name}) did not go through (${reason}). Open ${toolOf(q)}, Waiting on signature, and use Fix email to send it to the right address.`);
+    }
+  }
+  return true;
+}
+
+// Every 15 minutes from pay-increase-reminder-cron.mjs (8am-9pm ET):
+//  - opened the link 24+ hours ago and still not signed → one reminder email + text to them;
+//  - the link runs out within 24 hours and is still not signed → a heads-up to whoever sent it.
+export async function runSignFollowups(db) {
+  await ensureSignTable(db);
+  let reminded = 0, warned = 0;
+  const stale = await db`SELECT * FROM violation_sign_requests WHERE signed_at IS NULL AND cancelled_at IS NULL AND expires_at > now() AND followup_sent_at IS NULL
+    AND email_bounced_at IS NULL AND attempts < ${MAX_TRIES} AND COALESCE(opened_at, first_seen_at) <= now() - interval '24 hours' LIMIT 50`;
+  for (const q of stale) {
+    const claimed = await db`UPDATE violation_sign_requests SET followup_sent_at = now() WHERE id = ${q.id} AND followup_sent_at IS NULL RETURNING id`;
+    if (!claimed.length) continue;
+    const who = q.signer_name || q.employee_name;
+    const until = etDate(new Date(q.expires_at));
+    // The link itself can't be sent again (only its hash is kept): point them at the email they already have.
+    await sendHtmlEmail([q.email], `Reminder: your ${whatOf(q)} is waiting for your signature`, `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Hi ${esc(who)},</p>
+<p>You opened your ${esc(whatOf(q))} from People Capital Group but haven't signed it yet. Please open our earlier email (sent ${esc(etDate(new Date(q.created_at)))}) and tap <b>Review and sign</b>. The link works until ${esc(until)}.</p>
+<p style="color:#666">If you can't find it, or something on it is wrong, talk to your supervisor.</p></div>`);
+    await sendSms([q.phone], `People Capital Group: reminder, your ${whatOf(q)} is still waiting for your signature. Please open our earlier email and sign by ${until}.`);
+    reminded++;
+  }
+  const soon = await db`SELECT * FROM violation_sign_requests WHERE signed_at IS NULL AND cancelled_at IS NULL AND expiry_warned_at IS NULL
+    AND expires_at > now() AND expires_at <= now() + interval '24 hours' LIMIT 50`;
+  for (const q of soon) {
+    const claimed = await db`UPDATE violation_sign_requests SET expiry_warned_at = now() WHERE id = ${q.id} AND expiry_warned_at IS NULL RETURNING id`;
+    if (!claimed.length) continue;
+    const who = q.signer_name || q.employee_name;
+    const seen = q.opened_at || q.first_seen_at ? 'They opened it but have not signed.' : 'They have not opened it.';
+    await tellSender(db, q, `Signing link runs out soon: ${who}`, `${who}'s signing link for their ${whatOf(q)} (${q.store_name}) runs out ${etStamp(new Date(q.expires_at))} ET. ${seen} Use Resend link in ${toolOf(q)}, or get it signed in person.`);
+    warned++;
+  }
+  return { reminded, warned };
+}
+
 export default async (request) => {
   if (request.method !== 'POST') return json(405, { error: 'Method not allowed' });
   const body = await request.json().catch(() => ({}));
@@ -200,6 +301,7 @@ export default async (request) => {
     const role = roleOf(r);
     const signer = r.signer_name || r.employee_name;
     const kind = r.layout === 'letter' || r.layout === 'resignation' ? r.layout : 'notice';
+    if (body.action === 'hello' && !r.first_seen_at) await db`UPDATE violation_sign_requests SET first_seen_at = now() WHERE id = ${r.id}`;
     if (body.action === 'hello') return json(200, { role, kind, firstName: String(signer || '').split(' ')[0], employeeName: role === 'witness' ? r.employee_name : undefined, storeName: r.store_name });
 
     if (digits(body.last4) !== r.phone.slice(-4)) {

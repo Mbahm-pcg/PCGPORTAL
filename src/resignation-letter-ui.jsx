@@ -11,6 +11,7 @@ import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
 import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { FormModal } from './pay-increase-ui.jsx';
+import { SignProgress } from './sign-progress-ui.jsx';
 import { buildResignationPdf, RES_FONT, RES_CHROME } from './resignation-letter-pdf.mjs';
 import { resignationValues, resignationFingerprint, missingResignationFields, usDate } from './resignation-letter.mjs';
 
@@ -146,11 +147,11 @@ export function ResignationLetter({ th, isMobile, onBack, storeAddresses = {} })
     </span>;
   };
 
-  const rowAction = async (item, action) => {
+  const rowAction = async (item, action, extra = {}) => {
     setRowBusy(item.id); setMsg(null);
     try {
-      const b = await call({ action, id: item.id });
-      if (action === 'resendLink') setMsg({ tone: b.sign?.sent ? 'success' : 'error', text: b.sign?.sent ? `New signing link emailed to ${item.employeeName}${b.sign.texted ? ', with a reminder text' : ''}. The old link no longer works.` : 'The signing email did not go through.' });
+      const b = await call({ action, id: item.id, ...extra });
+      if (action === 'resendLink') setMsg({ tone: b.sign?.sent ? 'success' : 'error', text: b.sign?.sent ? `New signing link emailed to ${extra.email || item.employeeName}${b.sign.texted ? ', with a reminder text' : ''}. The old link no longer works.` : 'The signing email did not go through.' });
       else setMsg({ tone: b.ok ? 'success' : 'error', text: b.ok ? `Filed ${item.employeeName}'s letter in Google Drive.` : `Still could not file it: ${b.drive?.error || 'error'}.` });
       loadMain();
     } catch (e) { setMsg({ tone: 'error', text: e.message }); }
@@ -187,7 +188,8 @@ export function ResignationLetter({ th, isMobile, onBack, storeAddresses = {} })
             {items.map(f => (
               <div key={f.id} style={rowStyle}>
                 <span style={{ minWidth: 0 }}>{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>
-                  Last day {usDate(f.lastDay)}. {seeAll ? `From ${f.submittedBy}, ` : 'Sent '}{day(f.createdAt)}{listTab === 'waiting' ? ': waiting on the employee to sign from their email link' : f.driveError && !f.driveLink ? ': signed, NOT filed in Google Drive yet' : f.signedAt ? `: signed ${day(f.signedAt)}` : ''}</span></span>
+                  Last day {usDate(f.lastDay)}. {seeAll ? `From ${f.submittedBy}, ` : 'Sent '}{day(f.createdAt)}{listTab === 'waiting' ? ': waiting on the employee to sign from their email link' : f.driveError && !f.driveLink ? ': signed, NOT filed in Google Drive yet' : f.signedAt ? `: signed ${day(f.signedAt)}` : ''}</span>
+                  {listTab === 'waiting' && <SignProgress th={th} signing={f.signing} busy={rowBusy === f.id} onFix={(role, email) => rowAction(f, 'resendLink', { email })} />}</span>
                 <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
                   {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View</button>}
                   {listTab === 'waiting' && <button type="button" className="fin-btn" disabled={rowBusy === f.id} onClick={() => rowAction(f, 'resendLink')} style={{ ...S.link, color: O }}>{rowBusy === f.id ? 'Sending…' : 'Resend link'}</button>}

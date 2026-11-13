@@ -44,6 +44,25 @@ export function sendHtmlEmail(to, subject, html) {
   });
 }
 
+// Same as sendHtmlEmail, but resolves { ok, id } — Resend's email id, which its delivered /
+// bounced / opened webhook events carry (resend-webhook.mjs). v22.91
+export function sendHtmlEmailTracked(to, subject, html) {
+  return new Promise((resolve) => {
+    const key = process.env.RESEND_API_KEY;
+    const list = (to || []).filter(Boolean);
+    if (!key || !list.length) return resolve({ ok: false, id: null });
+    const payload = JSON.stringify({ from: process.env.NOTIFY_FROM || 'PCG Portal <noreply@pcgops.com>', to: list, subject, html });
+    const req = https.request({ hostname: 'api.resend.com', path: '/emails', method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'Content-Length': Buffer.byteLength(payload) },
+    }, (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => { let id = null; try { id = JSON.parse(body).id || null; } catch {} resolve({ ok: res.statusCode < 300, id }); });
+    });
+    req.on('error', () => resolve({ ok: false, id: null })); req.write(payload); req.end();
+  });
+}
+
 export function sendEmail(to, subject, text) {
   return new Promise((resolve) => {
     const key = process.env.RESEND_API_KEY;

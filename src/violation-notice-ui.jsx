@@ -12,6 +12,7 @@ import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
 import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { FormPreview, FormModal } from './pay-increase-ui.jsx';
+import { SignProgress } from './sign-progress-ui.jsx';
 import { buildViolationPdf, VIO_FONT, VIO_CHROME, formatVioDate } from './violation-notice-pdf.mjs';
 import { NOTICE_TYPES, VIOLATION_TYPES, ACTIONS, DESCRIPTION_MIN, violationValues, violationFingerprint, missingViolationFields } from './violation-notice.mjs';
 
@@ -150,6 +151,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   const [decided, setDecided] = useState(null);
   // v22.83 Sent back: kept until its maker deletes it or fixes and resends it.
   const [sentBack, setSentBack] = useState([]);
+  const [myWaiting, setMyWaiting] = useState([]); // v22.91: the supervisor's own, with link progress
   const [fixing, setFixing] = useState(null); // the sent-back notice being fixed
   const [backMsg, setBackMsg] = useState(null);
   const [backBusy, setBackBusy] = useState(null);
@@ -164,6 +166,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     setListView(!!b.listView); setCanApprove(!!b.canApprove);
     setLists({ pending: b.pending || [], waiting: b.waiting || [], complete: b.complete || [] });
     setSentBack(b.sentBack || []);
+    setMyWaiting(b.myWaiting || []);
     // ?violation=<id> from the approval email opens that notice straight away.
     let open = null; try { open = sessionStorage.getItem('vn_open'); sessionStorage.removeItem('vn_open'); } catch {}
     const hit = open && (b.pending || []).find(x => String(x.id) === String(open));
@@ -345,6 +348,27 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   );
   const myBack = sentBack.filter(f => f.mine);
   const kindTag = (f) => (f.kind === 'letter' ? <span style={{ display: 'inline-block', fontSize: '0.72rem', fontWeight: 700, color: O, border: `1px solid ${O}`, borderRadius: 6, padding: '0 0.35rem', marginRight: '0.45rem' }}>Warning letter</span> : null);
+  // Fix email (v22.91): send a new link for one signer to a corrected address.
+  const fixEmail = async (item, role, email) => {
+    setBackBusy(item.id); setBackMsg(null);
+    try {
+      const b = await call({ action: 'resendLink', id: item.id, role, email });
+      const r = (b.resent || [])[0] || {};
+      setBackMsg({ tone: r.sent ? 'success' : 'error', text: r.sent ? `New signing link emailed to ${email}. The old link no longer works.` : 'The signing email did not go through. Check the address.' });
+      loadMain();
+    } catch (e) { setBackMsg({ tone: 'error', text: e.message }); }
+    setBackBusy(null);
+  };
+  const waitingRow = (f, rowStyle, day, who, showMaker) => (
+    <div key={f.id} style={rowStyle}>
+      <span style={{ minWidth: 0, flex: '1 1 20em' }}>{kindTag(f)}{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>{showMaker ? `From ${f.submittedBy}, ` : 'Sent '}{day(f.createdAt)}: {f.kind === 'letter' ? 'waiting on the employee to acknowledge it from their email link' : 'waiting on a signature from an email link'}</span>
+        <SignProgress th={th} signing={f.signing} busy={backBusy === f.id} onFix={(role, email) => fixEmail(f, role, email)} /></span>
+      <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
+        {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View</button>}
+        <button type="button" className="fin-btn" disabled={backBusy === f.id} onClick={() => resendLink(f)} style={{ ...S.link, color: O }}>{backBusy === f.id ? 'Sending…' : 'Resend link'}</button>
+      </span>
+    </div>
+  );
   const resendLink = async (item) => {
     setBackBusy(item.id); setBackMsg(null);
     try {
@@ -457,15 +481,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
           ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>Nothing waiting for approval.</p>)}
           {listTab === 'waiting' && (lists.waiting.length ? (
             <div style={{ display: 'grid', gap: '0.5rem' }}>
-              {lists.waiting.map(f => (
-                <div key={f.id} style={rowStyle}>
-                  <span style={{ minWidth: 0 }}>{kindTag(f)}{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}, {day(f.createdAt)}: {f.kind === 'letter' ? 'waiting on the employee to acknowledge it from their email link' : 'waiting on the employee or witness to sign from their email link'}</span></span>
-                  <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
-                    {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View</button>}
-                    <button type="button" className="fin-btn" disabled={backBusy === f.id} onClick={() => resendLink(f)} style={{ ...S.link, color: O }}>{backBusy === f.id ? 'Sending…' : 'Resend link'}</button>
-                  </span>
-                </div>
-              ))}
+              {lists.waiting.map(f => waitingRow(f, rowStyle, day, who, true))}
             </div>
           ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No notices waiting on signatures.</p>)}
           {listTab === 'complete' && (lists.complete.length ? (
@@ -500,6 +516,14 @@ export function ViolationNotice({ th, isMobile, onBack }) {
       <h2 style={S.title}>Violation Notice</h2>
       <p style={S.lede}>Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign here, or from an emailed link if they aren't there. Once everyone has signed it goes for approval, then it's filed.</p>
 
+      {!listView && !fixing && myWaiting.length > 0 && (
+        <section style={{ ...S.panel, padding: '0.9rem 1rem 1rem', marginBottom: '1.1rem' }} aria-label="Waiting on signatures">
+          <h3 style={{ ...S.panelTitle, margin: '0 0 0.6rem', fontSize: '1.05rem' }}>Waiting on signatures ({myWaiting.length})</h3>
+          {backMsg && !myBack.length && <FinBanner th={th} tone={backMsg.tone}>{backMsg.text}</FinBanner>}
+          <div style={{ display: 'grid', gap: '0.5rem' }}>{myWaiting.map(f => waitingRow(f, { display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body },
+            (d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), (x) => <><strong>{x.employeeName}</strong> <span style={{ color: th.muted }}>{x.storeName}</span></>, false))}</div>
+        </section>
+      )}
       {!listView && !fixing && myBack.length > 0 && (
         <section style={{ ...S.panel, padding: '0.9rem 1rem 1rem', marginBottom: '1.1rem' }} aria-label="Sent back">
           <h3 style={{ ...S.panelTitle, margin: '0 0 0.6rem', fontSize: '1.05rem' }}>Sent back ({myBack.length})</h3>

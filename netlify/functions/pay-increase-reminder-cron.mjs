@@ -8,6 +8,7 @@ import { sql } from './_shared/db.mjs';
 import { notifyApprovers } from './pay-increase.mjs';
 import { notifyViolationApprovers, ensureNoticeTable } from './violation-notice.mjs';
 import { notifyMissingHoursApprovers, ensureMissingHoursTable } from './missing-hours.mjs';
+import { runSignFollowups } from './violation-sign.mjs';
 
 export const config = { schedule: '*/15 * * * *' };
 
@@ -56,5 +57,8 @@ export default async () => {
     }
     if (mDue.length) console.log(`[missing-hours-reminder] ${mDue.length} reminder(s)`);
   } catch (e) { console.error('[missing-hours-reminder]', e.message); }
+  // v22.91: signing links opened 24h+ ago but not signed → one reminder; links running out → tell the sender.
+  try { const f = await runSignFollowups(db); if (f.reminded || f.warned) console.log('[sign-followups]', JSON.stringify(f)); }
+  catch (e) { console.error('[sign-followups]', e.message); }
   return new Response(`ok ${sent}`);
 };

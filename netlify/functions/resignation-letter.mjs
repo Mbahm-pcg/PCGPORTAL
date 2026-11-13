@@ -23,7 +23,7 @@ import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 import { syncDistricts } from './_shared/store-status.mjs';
 import { loadRoster, saveToDrive, emailWithPdf } from './transfer-notice.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
-import { createSignRequest, ensureSignTable } from './violation-sign.mjs';
+import { createSignRequest, ensureSignTable, signProgress } from './violation-sign.mjs';
 import { missingResignationFields, resignationFingerprint, resignationFileName, resignationAlertText, resignationEmailHtml, titleForRole } from '../../src/resignation-letter.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -156,6 +156,8 @@ export default async (request) => {
       const items = rows.map(r => ({ ...rowItem(r), mine: Number(r.submitted_by) === mine }));
       const out = { myName, myTitle: titleForRole(realType), seeAll, stores: STORES.filter(s => inScope(s.pc)).map(s => ({ pc: String(s.pc), name: s.name })), employees: [],
         waiting: items.filter(i => i.status === 'awaiting_signature'), complete: items.filter(i => i.status === 'signed') };
+      const prog = await signProgress(db, 'resignation', out.waiting.map(x => x.id)).catch(e => { console.error('[resignation-letter] progress', e.message); return {}; });
+      for (const x of out.waiting) x.signing = prog[x.id] || [];
       const roster = await loadRoster().catch(e => { console.error('[resignation-letter] roster', e.message); out.rosterError = 'Paycor is not responding, so employee search is unavailable. Try again in a minute.'; return { stores: {} }; });
       for (const s of out.stores) for (const e of roster.stores[s.pc] || []) out.employees.push({ ...e, pc: s.pc });
       out.employees.sort((a, b) => a.name.localeCompare(b.name));
@@ -171,9 +173,11 @@ export default async (request) => {
       await ensureSignTable(db);
       const q = (await db`SELECT * FROM violation_sign_requests WHERE notice_id = ${r.id} AND layout = 'resignation' ORDER BY id DESC LIMIT 1`)[0];
       if (!q) return json(409, { error: 'No signing link was ever sent for this one.' });
+      const newEmail = String(body.email || '').trim(); // Fix email (v22.91)
+      if (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) return json(400, { error: 'That email address does not look right.' });
       const store = storeOf(r.pc);
       const sign = await createSignRequest(db, { request, role: 'employee', layout: 'resignation', signerName: r.employee_name, noticeId: r.id, pc: r.pc, storeName: store?.name || q.store_name,
-        employeeName: r.employee_name, phone: q.phone, email: q.email, fileName: q.file_name, pdf: Buffer.from(r.pdf), createdBy: Number(authed.sub) || null, createdByName: myName });
+        employeeName: r.employee_name, phone: q.phone, email: newEmail || q.email, fileName: q.file_name, pdf: Buffer.from(r.pdf), createdBy: Number(authed.sub) || null, createdByName: myName });
       return json(200, { ok: true, sign });
     }
 

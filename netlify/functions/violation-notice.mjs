@@ -24,7 +24,7 @@ import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 import { syncDistricts } from './_shared/store-status.mjs';
 import { loadRoster, saveToDrive, emailWithPdf } from './transfer-notice.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
-import { createSignRequest, ensureSignTable } from './violation-sign.mjs';
+import { createSignRequest, ensureSignTable, signProgress } from './violation-sign.mjs';
 import { missingViolationFields, violationFingerprint, violationFileName, violationAlertText, violationEmailHtml } from '../../src/violation-notice.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -227,11 +227,17 @@ export default async (request) => {
         const canFix = own || realType === 'executive' || realType === 'it';
         return { ...rowItem(r), mine: own, canFix, employeeId: canFix ? r.employee_id : undefined, formValues: canFix ? (r.form_values || null) : undefined };
       });
+      // v22.91: `kind` added to these reads — without it a warning letter never got its tag here.
       if (listView) {
-        out.pending = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'pending' ORDER BY pending_at NULLS FIRST, created_at`).map(rowItem);
-        out.waiting = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'awaiting_signatures' ORDER BY created_at DESC LIMIT 100`).map(rowItem);
-        out.complete = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'approved' OR status IS NULL ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 300`).map(rowItem);
+        out.pending = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'pending' ORDER BY pending_at NULLS FIRST, created_at`).map(rowItem);
+        out.waiting = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'awaiting_signatures' ORDER BY created_at DESC LIMIT 100`).map(rowItem);
+        out.complete = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'approved' OR status IS NULL ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 300`).map(rowItem);
       }
+      // v22.91: the supervisor's own notices still waiting on signatures (shown on their screen too),
+      // and each signing link's progress (emailed → delivered / bounced → opened → signed).
+      out.myWaiting = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'awaiting_signatures' AND submitted_by = ${Number(mine) || -1} ORDER BY created_at DESC LIMIT 50`).map(rowItem);
+      const prog = await signProgress(db, 'violation', [...(out.waiting || []), ...out.myWaiting].map(x => x.id)).catch(e => { console.error('[violation-notice] progress', e.message); return {}; });
+      for (const x of [...(out.waiting || []), ...out.myWaiting]) x.signing = prog[x.id] || [];
       const roster = await loadRoster().catch(e => { console.error('[violation-notice] roster', e.message); out.rosterError = 'Paycor is not responding, so employee search is unavailable. Try again in a minute.'; return { stores: {} }; });
       for (const s of out.stores) for (const e of roster.stores[s.pc] || []) out.employees.push({ ...e, pc: s.pc });
       out.employees.sort((a, b) => a.name.localeCompare(b.name));
@@ -286,12 +292,17 @@ export default async (request) => {
       if (!(String(r.submitted_by) === String(authed.sub) || listView)) return json(403, { error: 'Only the person who sent it can resend the link.' });
       await ensureSignTable(db);
       const last = await db`SELECT DISTINCT ON (COALESCE(role, 'employee')) * FROM violation_sign_requests WHERE notice_id = ${r.id} AND COALESCE(layout, 'notice') <> 'resignation' ORDER BY COALESCE(role, 'employee'), id DESC`;
+      // Fix email (v22.91): a new address for one signer — only that signer's link is re-sent, to it.
+      const fixRole = body.role === 'witness' ? 'witness' : 'employee';
+      const newEmail = String(body.email || '').trim();
+      if (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) return json(400, { error: 'That email address does not look right.' });
       const out = [];
       for (const q of last) {
         if (q.signed_at) continue;
+        if (newEmail && (q.role || 'employee') !== fixRole) continue;
         const store = storeOf(r.pc);
         out.push(await createSignRequest(db, { request, role: q.role || 'employee', layout: q.layout || 'notice', signerName: q.signer_name || r.employee_name, noticeId: r.id, pc: r.pc, storeName: store?.name || q.store_name,
-          employeeName: r.employee_name, phone: q.phone, email: q.email, fileName: q.file_name, pdf: Buffer.from(r.pdf), createdBy: Number(authed.sub) || null, createdByName: myName }));
+          employeeName: r.employee_name, phone: q.phone, email: newEmail || q.email, fileName: q.file_name, pdf: Buffer.from(r.pdf), createdBy: Number(authed.sub) || null, createdByName: myName }));
       }
       if (!out.length) return json(409, { error: 'Everyone has already signed — reload.' });
       return json(200, { ok: true, resent: out });
