@@ -41,9 +41,9 @@ export const TRANSFER_BLANK_FIELDS = [
 ];
 
 // [{ field, y, x, raw }] for every underscore run in TRANSFER_LAYOUT, in reading order.
-export function transferBlanks() {
+export function transferBlanks(layout = TRANSFER_LAYOUT) {
   const out = [];
-  for (const [y, words] of TRANSFER_LAYOUT) for (const [x, raw] of words) {
+  for (const [y, words] of layout) for (const [x, raw] of words) {
     if (/_{3,}/.test(raw)) out.push({ field: TRANSFER_BLANK_FIELDS[out.length], y, x, raw });
   }
   return out;
@@ -97,7 +97,24 @@ export function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(12);
 
-  for (const [y, words] of TRANSFER_LAYOUT) {
+  // v22.96: the two "District Manager" approval lines carry the title of whoever approves it
+  // (HR / IT Administrator, Director of Operations, Vice President, ...); each blank then starts
+  // right after its label, like the Pay Increase form.
+  const title = String(values.approverTitle || 'District Manager').trim();
+  let layout = TRANSFER_LAYOUT;
+  if (title !== 'District Manager') {
+    doc.setFont(TRANSFER_FONT.family, 'normal');
+    const relabel = (row, label) => {
+      const [y, words] = row;
+      const run = words[words.length - 1][1];
+      const x = 72 + doc.getTextWidth(label + ' ') + 2;
+      let r = run;
+      while (r.length > 12 && x + doc.getTextWidth(r) > 470) r = r.slice(1);
+      return [y, [[72, label], [x, r]]];
+    };
+    layout = TRANSFER_LAYOUT.map(row => (row[0] === 596.9 ? relabel(row, `${title} Name:`) : row[0] === 629.25 ? relabel(row, `${title} Signature:`) : row));
+  }
+  for (const [y, words] of layout) {
     for (const [x, text, italic] of words) {
       doc.setFont(TRANSFER_FONT.family, italic ? 'italic' : 'normal');
       doc.text(text, x, y + BODY_OFFSET);
@@ -120,7 +137,7 @@ export function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
   const v = { ...values, date: formatLetterDate(values.date), effectiveDate: formatLetterDate(values.effectiveDate), hourlyWage: formatWage(values.hourlyWage),
     employeeSignedDate: formatLetterDate(values.employeeSignedDate), dmSignedDate: formatLetterDate(values.dmSignedDate) };
   doc.setFont(TRANSFER_FONT.family, 'normal');
-  for (const { field, y: y0, x, raw } of transferBlanks()) {
+  for (const { field, y: y0, x, raw } of transferBlanks(layout)) {
     const y = y0 + BODY_OFFSET;
     const text = field ? String(v[field] ?? '').trim() : '';
     if (!text) continue;

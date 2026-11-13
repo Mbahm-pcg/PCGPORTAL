@@ -35,7 +35,7 @@ export function readEmploymentType(emp) {
 // Everything the letter needs, from the picked employee + destination + form inputs.
 // Name, current PC# and wage come only from Paycor (locked on the form). The current title
 // is Paycor's too; only when Paycor has none on file (fromTitle) may the form supply it.
-export function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig }) {
+export function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig, approverTitle }) {
   return {
     date,
     employeeName: employee?.name || '',
@@ -49,6 +49,8 @@ export function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitl
     supervisorTitle: supervisorTitle || '',
     hourlyWage: employee?.payRate ?? '',
     dmName: dmName || '',
+    // v22.96: the approval line's title — 'District Manager' unless someone else approves (their own title).
+    approverTitle: approverTitle || 'District Manager',
     employeeSignature: employeeSig?.image || '',
     employeeSignedDate: employeeSig?.date || '',
     dmSignature: dmSig?.image || '',
@@ -60,7 +62,7 @@ export function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitl
 // version is void once any of this changes — no signing one letter and printing another.
 export function letterFingerprint(v) {
   return ['date', 'employeeName', 'fromTitle', 'fromPC', 'toPC', 'toTitle', 'employmentType', 'effectiveDate',
-    'supervisorName', 'supervisorTitle', 'hourlyWage', 'dmName'].map(k => String(v?.[k] ?? '').trim()).join('|');
+    'supervisorName', 'supervisorTitle', 'hourlyWage', 'dmName', 'approverTitle'].map(k => String(v?.[k] ?? '').trim()).join('|');
 }
 
 // ── v22.54: save to Google Drive + alert ──────────────────────────────────────
@@ -88,10 +90,10 @@ export function transferEmailHtml(v, fromName, toName, submittedBy, driveLink, c
     ['Employee', v.employeeName], ['Current position', v.fromTitle], ['From', `${fromName} (PC ${v.fromPC})${clients.from ? ` (Client ID ${clients.from})` : ''}`],
     ['To', `${toName} (PC ${v.toPC})${clients.to ? ` (Client ID ${clients.to})` : ''}`], ['New position', v.toTitle], ['Full / part time', v.employmentType],
     ['Effective', usDate(v.effectiveDate)], ['Hourly wage', money(v.hourlyWage)], ['New supervisor', `${v.supervisorName} — ${v.supervisorTitle}`],
-    ['District Manager', v.dmName], ['Submitted by', submittedBy || ''],
+    [v.approverTitle || 'District Manager', v.dmName], ['Submitted by', submittedBy || ''],
   ];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<p>A transfer notice was signed by the employee and the District Manager. The signed letter is attached.</p>
+<p>A transfer notice was signed by the employee and the ${esc(v.approverTitle || 'District Manager')}. The signed letter is attached.</p>
 <table cellpadding="6" style="border-collapse:collapse">${rows.map(([k, val]) => `<tr><td style="color:#666;padding-right:14px">${esc(k)}</td><td><b>${esc(val)}</b></td></tr>`).join('')}</table>
 ${driveLink ? `<p><a href="${esc(driveLink)}">Open it in Google Drive</a></p>` : ''}</div>`;
 }
@@ -100,7 +102,7 @@ ${driveLink ? `<p><a href="${esc(driveLink)}">Open it in Google Drive</a></p>` :
 export function missingTransferFields(v) {
   const need = [['employeeName', 'Employee'], ['fromTitle', 'Current position'], ['fromPC', 'Current store'], ['toPC', 'New store'], ['toTitle', 'New position'],
     ['employmentType', 'Full/part time'], ['effectiveDate', 'Effective date'], ['supervisorName', 'Supervisor name'],
-    ['supervisorTitle', 'Supervisor title'], ['dmName', 'District Manager'],
-    ['employeeSignature', 'Employee signature'], ['dmSignature', 'District Manager signature']];
+    ['supervisorTitle', 'Supervisor title'], ['dmName', v?.approverTitle || 'District Manager'],
+    ['employeeSignature', 'Employee signature'], ['dmSignature', `${v?.approverTitle || 'District Manager'} signature`]];
   return need.filter(([k]) => !String(v?.[k] ?? '').trim()).map(([, label]) => label);
 }

@@ -160,6 +160,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
   const [supervisorName, setSupervisorName] = useState('');
   const [supervisorTitle, setSupervisorTitle] = useState('Store Manager');
   const [dmName, setDmName] = useState('');
+  const [me, setMe] = useState(null); // v22.96 { name, approverTitle } — approverTitle null = a Store Manager (the DM approves)
   const [date, setDate] = useState(todayIso());
   const [employeeSig, setEmployeeSig] = useState(null); // { image, date, fp }
   const [dmSig, setDmSig] = useState(null);
@@ -168,7 +169,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
   const [saved, setSaved] = useState(null); // v22.54: Drive save + alert result for the last download
 
   useEffect(() => {
-    api().then(b => { setStores(b.stores || []); setEmployees(b.employees || []); })
+    api().then(b => { setStores(b.stores || []); setEmployees(b.employees || []); if (b.me) { setMe(b.me); if (b.me.approverTitle) setDmName(n => n || b.me.name || ''); } })
       .catch(e => { setError(e.message); setEmployees([]); });
   }, []);
 
@@ -187,21 +188,22 @@ export function TransferNotice({ th, isMobile, onBack }) {
   useEffect(() => {
     if (!toPC) return;
     let live = true;
-    api(`?dest=${encodeURIComponent(toPC)}`).then(b => { if (!live) return; setSupervisorName(b.manager || ''); setDmName(b.dm || ''); }).catch(() => {});
+    api(`?dest=${encodeURIComponent(toPC)}`).then(b => { if (!live) return; setSupervisorName(b.manager || ''); if (!me?.approverTitle) setDmName(b.dm || ''); }).catch(() => {});
     return () => { live = false; };
   }, [toPC]);
 
   const storeName = (pc) => stores.find(s => s.pc === String(pc))?.name || '';
+  const approverTitle = me?.approverTitle || 'District Manager';
   const fromPC = picked?.pc || '';
   const hourly = employee && /hour/i.test(employee.payType || 'Hourly') && employee.payRate > 0;
-  const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date });
+  const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, approverTitle });
   const fp = letterFingerprint(base);
   useEffect(() => { setSaved(null); }, [fp]); // a different letter → the last save status no longer applies
   // A signature only counts for the exact letter it was given on.
   const empSigOk = employeeSig && employeeSig.fp === fp ? employeeSig : null;
   const dmSigOk = dmSig && dmSig.fp === fp ? dmSig : null;
   const voided = (employeeSig && !empSigOk) || (dmSig && !dmSigOk);
-  const values = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig: empSigOk, dmSig: dmSigOk });
+  const values = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, approverTitle, employeeSig: empSigOk, dmSig: dmSigOk });
   const missing = missingTransferFields(values);
   const sameStore = fromPC && toPC && fromPC === toPC;
   const letterMissing = missingTransferFields(base).filter(m => !/signature/i.test(m));
@@ -347,8 +349,8 @@ export function TransferNotice({ th, isMobile, onBack }) {
         <p style={row}>Date: {signedDate(empSigOk)}</p>
 
         <p style={{ marginTop: '2.2em' }}>ACCEPTED AND APPROVED BY:</p>
-        <p style={row}>District Manager Name: {text(dmName, setDmName, 22, 'District Manager name')}</p>
-        <p style={row}>District Manager Signature:{sigLine('dm', dmSigOk, 'District Manager')}</p>
+        <p style={row}>{approverTitle} Name: {text(dmName, setDmName, 22, `${approverTitle} name`)}</p>
+        <p style={row}>{approverTitle} Signature:{sigLine('dm', dmSigOk, approverTitle)}</p>
         <p style={row}>Date: {signedDate(dmSigOk)}</p>
         <div style={{ textAlign: 'right', fontFamily: 'Times New Roman, Times, serif', fontSize: '0.75em', lineHeight: 1.3, color: '#111', marginTop: '2.4em' }}>
           {TRANSFER_CHROME.footer.map(f => <div key={f.text}>{f.text}</div>)}
@@ -364,7 +366,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
       {saved && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginTop: '-1.4rem', marginBottom: '2rem' }}>{savedLine()}{saved.pdfUrl && <div style={{ marginTop: '0.6rem' }}><PdfOpenButton url={saved.pdfUrl} style={{ ...S.ghost }} /></div>}</div>}
 
       {signing && (
-        <SignatureModal th={th} title={signing === 'employee' ? `Employee signature — ${employee?.name || ''}` : `District Manager signature — ${dmName}`}
+        <SignatureModal th={th} title={signing === 'employee' ? `Employee signature — ${employee?.name || ''}` : `${approverTitle} signature — ${dmName}`}
           onCancel={() => setSigning(null)}
           onDone={(image) => { const sig = { image, date: todayIso(), fp }; (signing === 'employee' ? setEmployeeSig : setDmSig)(sig); setSigning(null); }} />
       )}

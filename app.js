@@ -1724,9 +1724,9 @@
     "dmSignature",
     "dmSignedDate"
   ];
-  function transferBlanks() {
+  function transferBlanks(layout = TRANSFER_LAYOUT) {
     const out = [];
-    for (const [y, words] of TRANSFER_LAYOUT) for (const [x, raw] of words) {
+    for (const [y, words] of layout) for (const [x, raw] of words) {
       if (/_{3,}/.test(raw)) out.push({ field: TRANSFER_BLANK_FIELDS[out.length], y, x, raw });
     }
     return out;
@@ -1762,7 +1762,21 @@
     doc.setProperties({ title: "Employee Transfer", creator: "PCG Portal" });
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(12);
-    for (const [y, words] of TRANSFER_LAYOUT) {
+    const title = String(values.approverTitle || "District Manager").trim();
+    let layout = TRANSFER_LAYOUT;
+    if (title !== "District Manager") {
+      doc.setFont(TRANSFER_FONT.family, "normal");
+      const relabel = (row, label) => {
+        const [y, words] = row;
+        const run = words[words.length - 1][1];
+        const x = 72 + doc.getTextWidth(label + " ") + 2;
+        let r = run;
+        while (r.length > 12 && x + doc.getTextWidth(r) > 470) r = r.slice(1);
+        return [y, [[72, label], [x, r]]];
+      };
+      layout = TRANSFER_LAYOUT.map((row) => row[0] === 596.9 ? relabel(row, `${title} Name:`) : row[0] === 629.25 ? relabel(row, `${title} Signature:`) : row);
+    }
+    for (const [y, words] of layout) {
       for (const [x, text, italic] of words) {
         doc.setFont(TRANSFER_FONT.family, italic ? "italic" : "normal");
         doc.text(text, x, y + BODY_OFFSET);
@@ -1796,7 +1810,7 @@
       dmSignedDate: formatLetterDate(values.dmSignedDate)
     };
     doc.setFont(TRANSFER_FONT.family, "normal");
-    for (const { field, y: y0, x, raw } of transferBlanks()) {
+    for (const { field, y: y0, x, raw } of transferBlanks(layout)) {
       const y = y0 + BODY_OFFSET;
       const text = field ? String(v[field] ?? "").trim() : "";
       if (!text) continue;
@@ -1822,7 +1836,7 @@
   }
 
   // src/transfer-notice.mjs
-  function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig }) {
+  function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig, approverTitle }) {
     return {
       date,
       employeeName: employee?.name || "",
@@ -1836,6 +1850,8 @@
       supervisorTitle: supervisorTitle || "",
       hourlyWage: employee?.payRate ?? "",
       dmName: dmName || "",
+      // v22.96: the approval line's title — 'District Manager' unless someone else approves (their own title).
+      approverTitle: approverTitle || "District Manager",
       employeeSignature: employeeSig?.image || "",
       employeeSignedDate: employeeSig?.date || "",
       dmSignature: dmSig?.image || "",
@@ -1855,7 +1871,8 @@
       "supervisorName",
       "supervisorTitle",
       "hourlyWage",
-      "dmName"
+      "dmName",
+      "approverTitle"
     ].map((k) => String(v?.[k] ?? "").trim()).join("|");
   }
   function missingTransferFields(v) {
@@ -1869,9 +1886,9 @@
       ["effectiveDate", "Effective date"],
       ["supervisorName", "Supervisor name"],
       ["supervisorTitle", "Supervisor title"],
-      ["dmName", "District Manager"],
+      ["dmName", v?.approverTitle || "District Manager"],
       ["employeeSignature", "Employee signature"],
-      ["dmSignature", "District Manager signature"]
+      ["dmSignature", `${v?.approverTitle || "District Manager"} signature`]
     ];
     return need.filter(([k]) => !String(v?.[k] ?? "").trim()).map(([, label]) => label);
   }
@@ -2065,6 +2082,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [supervisorName, setSupervisorName] = useState2("");
     const [supervisorTitle, setSupervisorTitle] = useState2("Store Manager");
     const [dmName, setDmName] = useState2("");
+    const [me, setMe] = useState2(null);
     const [date, setDate] = useState2(todayIso2());
     const [employeeSig, setEmployeeSig] = useState2(null);
     const [dmSig, setDmSig] = useState2(null);
@@ -2075,6 +2093,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       api().then((b) => {
         setStores(b.stores || []);
         setEmployees(b.employees || []);
+        if (b.me) {
+          setMe(b.me);
+          if (b.me.approverTitle) setDmName((n) => n || b.me.name || "");
+        }
       }).catch((e) => {
         setError(e.message);
         setEmployees([]);
@@ -2101,7 +2123,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       api(`?dest=${encodeURIComponent(toPC)}`).then((b) => {
         if (!live) return;
         setSupervisorName(b.manager || "");
-        setDmName(b.dm || "");
+        if (!me?.approverTitle) setDmName(b.dm || "");
       }).catch(() => {
       });
       return () => {
@@ -2109,9 +2131,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       };
     }, [toPC]);
     const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
+    const approverTitle = me?.approverTitle || "District Manager";
     const fromPC = picked?.pc || "";
     const hourly = employee && /hour/i.test(employee.payType || "Hourly") && employee.payRate > 0;
-    const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date });
+    const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, approverTitle });
     const fp = letterFingerprint(base);
     useEffect2(() => {
       setSaved(null);
@@ -2119,7 +2142,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const empSigOk = employeeSig && employeeSig.fp === fp ? employeeSig : null;
     const dmSigOk = dmSig && dmSig.fp === fp ? dmSig : null;
     const voided = employeeSig && !empSigOk || dmSig && !dmSigOk;
-    const values = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig: empSigOk, dmSig: dmSigOk });
+    const values = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, approverTitle, employeeSig: empSigOk, dmSig: dmSigOk });
     const missing = missingTransferFields(values);
     const sameStore = fromPC && toPC && fromPC === toPC;
     const letterMissing = missingTransferFields(base).filter((m) => !/signature/i.test(m));
@@ -2231,11 +2254,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       backgroundRepeat: "no-repeat",
       backgroundPosition: "center 58%",
       backgroundSize: "77%"
-    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: "Times New Roman, Times, serif", lineHeight: 1.25 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1.17em", color: "#111" } }, "PEOPLE CAPITAL GROUP LLC"), /* @__PURE__ */ React.createElement("div", { style: { fontStyle: "italic", fontSize: "0.83em", color: "#6b7280" } }, "CONFIDENTIAL \u2014 INTERNAL USE ONLY")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #9aa5b1", margin: "0.9em -0.6em 2em" } }), /* @__PURE__ */ React.createElement("p", null, "Date: ", dateBlank(date, setDate, "Letter date")), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "People Capital Group LLC", /* @__PURE__ */ React.createElement("br", null), "ATTN: Human Resources Department", /* @__PURE__ */ React.createElement("br", null), "Subject: Employee Transfer"), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.4em", textAlign: isMobile ? "left" : "justify" } }, "I, ", empSearch, "(", /* @__PURE__ */ React.createElement("i", null, "Employee Name"), "), am requesting to resign from my current position as a ", employee && !employee.jobTitle ? text(fromTitle, setFromTitle, 14, "current position", { list: "tn-positions", title: "Paycor has no job title for this employee \u2014 fill it in" }) : locked(employee?.jobTitle, "from Paycor", 14), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "), located at PC# ", locked(employee ? fromPC : "", "from Paycor", 8), ", in order to voluntarily transfer to a better opportunity within the company located at PC#", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: isMobile ? "14ch" : "9.5ch" }, value: toPC, onChange: (e) => setToPC(e.target.value), "aria-label": "New store PC#", title: toPC ? storeName(toPC) : "New store" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), stores.filter((s) => s.pc !== fromPC).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.pc, " \xB7 ", s.name))), " ", "as a ", text(toTitle, setToTitle, 14, "new position", { list: "tn-positions" }), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "). I request that my", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: "10ch" }, value: employmentType, onChange: (e) => setEmploymentType(e.target.value), "aria-label": "Full or part time" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), /* @__PURE__ */ React.createElement("option", null, "Full time"), /* @__PURE__ */ React.createElement("option", null, "Part time")), " ", "(", /* @__PURE__ */ React.createElement("i", null, "full/part time"), ") employment is effective starting ", dateBlank(effectiveDate, setEffectiveDate, "Effective date"), "(", /* @__PURE__ */ React.createElement("i", null, "effective date"), ")."), /* @__PURE__ */ React.createElement("datalist", { id: "tn-positions" }, POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", textAlign: isMobile ? "left" : "justify" } }, "I acknowledge that I will now report to ", text(supervisorName, setSupervisorName, 16, "supervisor name"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor name"), ")/ ", text(supervisorTitle, setSupervisorTitle, 14, "supervisor title"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor title"), "). I also acknowledge that I will be compensated at an hourly wage of ", locked(hourly ? finMoney.format(employee.payRate) : "", "from Paycor", 8), " per hour and paid on a biweekly basis."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "I ACCEPT THE ABOVE CONDITIONS AND AM INDICATING MY ACCEPTANCE BY SIGNING THIS LETTER AND RETURNING IT VIA EMAIL TO THE HUMAN RESOURCES DEPARTMENT."), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Name: ", locked(employee?.name, "from Paycor", 22)), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Signature:", sigLine("employee", empSigOk, "employee")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(empSigOk)), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.2em" } }, "ACCEPTED AND APPROVED BY:"), /* @__PURE__ */ React.createElement("p", { style: row }, "District Manager Name: ", text(dmName, setDmName, 22, "District Manager name")), /* @__PURE__ */ React.createElement("p", { style: row }, "District Manager Signature:", sigLine("dm", dmSigOk, "District Manager")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(dmSigOk)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontFamily: "Times New Roman, Times, serif", fontSize: "0.75em", lineHeight: 1.3, color: "#111", marginTop: "2.4em" } }, TRANSFER_CHROME.footer.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.text }, f.text)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "2rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, sameStore ? "The new store must be different." : missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: download }, busy ? "Saving\u2026" : "Save & download signed PDF")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginTop: "-1.4rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: "Times New Roman, Times, serif", lineHeight: 1.25 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1.17em", color: "#111" } }, "PEOPLE CAPITAL GROUP LLC"), /* @__PURE__ */ React.createElement("div", { style: { fontStyle: "italic", fontSize: "0.83em", color: "#6b7280" } }, "CONFIDENTIAL \u2014 INTERNAL USE ONLY")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #9aa5b1", margin: "0.9em -0.6em 2em" } }), /* @__PURE__ */ React.createElement("p", null, "Date: ", dateBlank(date, setDate, "Letter date")), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "People Capital Group LLC", /* @__PURE__ */ React.createElement("br", null), "ATTN: Human Resources Department", /* @__PURE__ */ React.createElement("br", null), "Subject: Employee Transfer"), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.4em", textAlign: isMobile ? "left" : "justify" } }, "I, ", empSearch, "(", /* @__PURE__ */ React.createElement("i", null, "Employee Name"), "), am requesting to resign from my current position as a ", employee && !employee.jobTitle ? text(fromTitle, setFromTitle, 14, "current position", { list: "tn-positions", title: "Paycor has no job title for this employee \u2014 fill it in" }) : locked(employee?.jobTitle, "from Paycor", 14), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "), located at PC# ", locked(employee ? fromPC : "", "from Paycor", 8), ", in order to voluntarily transfer to a better opportunity within the company located at PC#", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: isMobile ? "14ch" : "9.5ch" }, value: toPC, onChange: (e) => setToPC(e.target.value), "aria-label": "New store PC#", title: toPC ? storeName(toPC) : "New store" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), stores.filter((s) => s.pc !== fromPC).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.pc, " \xB7 ", s.name))), " ", "as a ", text(toTitle, setToTitle, 14, "new position", { list: "tn-positions" }), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "). I request that my", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: "10ch" }, value: employmentType, onChange: (e) => setEmploymentType(e.target.value), "aria-label": "Full or part time" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), /* @__PURE__ */ React.createElement("option", null, "Full time"), /* @__PURE__ */ React.createElement("option", null, "Part time")), " ", "(", /* @__PURE__ */ React.createElement("i", null, "full/part time"), ") employment is effective starting ", dateBlank(effectiveDate, setEffectiveDate, "Effective date"), "(", /* @__PURE__ */ React.createElement("i", null, "effective date"), ")."), /* @__PURE__ */ React.createElement("datalist", { id: "tn-positions" }, POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", textAlign: isMobile ? "left" : "justify" } }, "I acknowledge that I will now report to ", text(supervisorName, setSupervisorName, 16, "supervisor name"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor name"), ")/ ", text(supervisorTitle, setSupervisorTitle, 14, "supervisor title"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor title"), "). I also acknowledge that I will be compensated at an hourly wage of ", locked(hourly ? finMoney.format(employee.payRate) : "", "from Paycor", 8), " per hour and paid on a biweekly basis."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "I ACCEPT THE ABOVE CONDITIONS AND AM INDICATING MY ACCEPTANCE BY SIGNING THIS LETTER AND RETURNING IT VIA EMAIL TO THE HUMAN RESOURCES DEPARTMENT."), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Name: ", locked(employee?.name, "from Paycor", 22)), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Signature:", sigLine("employee", empSigOk, "employee")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(empSigOk)), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.2em" } }, "ACCEPTED AND APPROVED BY:"), /* @__PURE__ */ React.createElement("p", { style: row }, approverTitle, " Name: ", text(dmName, setDmName, 22, `${approverTitle} name`)), /* @__PURE__ */ React.createElement("p", { style: row }, approverTitle, " Signature:", sigLine("dm", dmSigOk, approverTitle)), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(dmSigOk)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontFamily: "Times New Roman, Times, serif", fontSize: "0.75em", lineHeight: 1.3, color: "#111", marginTop: "2.4em" } }, TRANSFER_CHROME.footer.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.text }, f.text)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "2rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, sameStore ? "The new store must be different." : missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: download }, busy ? "Saving\u2026" : "Save & download signed PDF")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginTop: "-1.4rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
       SignatureModal,
       {
         th,
-        title: signing === "employee" ? `Employee signature \u2014 ${employee?.name || ""}` : `District Manager signature \u2014 ${dmName}`,
+        title: signing === "employee" ? `Employee signature \u2014 ${employee?.name || ""}` : `${approverTitle} signature \u2014 ${dmName}`,
         onCancel: () => setSigning(null),
         onDone: (image) => {
           const sig = { image, date: todayIso2(), fp };
@@ -30604,7 +30627,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.95";
+  var APP_VERSION = "v22.96";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

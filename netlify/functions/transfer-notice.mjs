@@ -264,7 +264,14 @@ export default async (request) => {
         for (const e of roster.stores[String(s.pc)] || []) employees.push({ ...e, pc: String(s.pc) });
       }
       employees.sort((a, b) => a.name.localeCompare(b.name));
-      return json(200, { stores, employees, rosterAt: roster.savedAt });
+      // v22.96: who's filling it in. Anyone but a Store Manager approves it themselves, so the
+      // approval line shows their own name and title (a Store Manager's goes to the store's DM).
+      const real = authed.realUserType || authed.userType;
+      const meRow = (await db`SELECT name, username FROM users WHERE id = ${authed.sub}`)[0] || {};
+      const approverTitle = real === 'manager' ? null : real === 'dm' ? 'District Manager' : real === 'director' ? 'Director of Operations'
+        : real === 'executive' ? (String(meRow.username || authed.username || '').toLowerCase() === 'mike.bahm' ? 'Vice President' : 'Executive')
+        : real === 'it' ? 'HR / IT Administrator' : real === 'office_staff' ? 'Office / HR' : null;
+      return json(200, { stores, employees, rosterAt: roster.savedAt, me: { name: meRow.name || authed.name || '', approverTitle } });
     }
 
     // One employee, live — only from the caller's own scope and only someone on that
