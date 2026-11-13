@@ -1,5 +1,6 @@
 // users.mjs — User management CRUD API.
 // list action is public (no auth). All mutations require a valid portal token.
+import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { parseDistricts, formatDistricts } from '../../src/director-scope.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
@@ -14,6 +15,38 @@ const cors = {
 const reply = (code, obj) => new Response(JSON.stringify(obj), { status: code, headers: cors });
 const lc = s => (s == null ? '' : String(s).trim().toLowerCase());
 const AUDITS_ACCESS_VALUES = new Set([null, 'view', 'full']);
+
+// v22.95: every Admin · Notifications list (ManualNotifyListPanel in app.jsx). Entries added by
+// name carry the user's id in emailOwners / phoneOwners; when that user's email / phone changes,
+// rewrite their entries here so the server (which sends the alerts) uses the new address at once.
+const NOTIFY_LIST_KEYS = ['pcg_fleet_notify_v1', 'pcg_food_license_notify_v1', 'pcg_system_health_notify_v1', 'pcg_minor_timecard_notify_v1',
+  'pcg_weekly_hours_schedule_notify_v1', 'pcg_transfer_notice_notify_v1', 'pcg_pay_increase_notify_v1', 'pcg_pay_increase_approvers_v1',
+  'pcg_violation_notice_notify_v1', 'pcg_time_off_notify_v1', 'pcg_violation_approvers_v1', 'pcg_resignation_notify_v1', 'pcg_missing_hours_approvers_v1'];
+export async function syncNotifyLists(userId, email, phone, store = getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN })) {
+  const uid = String(userId);
+  let touched = 0;
+  for (const key of NOTIFY_LIST_KEYS) {
+    const raw = await store.get(key, { type: 'json' }).catch(() => null);
+    if (!raw) continue;
+    const wrapped = raw && typeof raw === 'object' && raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data);
+    const l = wrapped ? raw.data : raw;
+    let changed = false;
+    const emails = (l.emails || []).map((e, i) => {
+      if (email && String((l.emailOwners || [])[i]) === uid && String(e).toLowerCase() !== String(email).toLowerCase()) { changed = true; return email; }
+      return e;
+    });
+    const phones = (l.phones || []).map((p, i) => {
+      if (phone && String((l.phoneOwners || [])[i]) === uid && String(p).replace(/\D/g, '') !== String(phone).replace(/\D/g, '')) { changed = true; return phone; }
+      return p;
+    });
+    if (!changed) continue;
+    const next = { ...l, emails, phones, updatedAt: new Date().toISOString(), updatedBy: 'contact sync' };
+    await store.setJSON(key, wrapped ? { ...raw, savedAt: new Date().toISOString(), data: next } : next);
+    touched++;
+  }
+  if (touched) console.log(`[users] contact change for user ${uid} applied to ${touched} notify list(s)`);
+  return touched;
+}
 
 // Idempotent column add — matches the codebase's self-managing-schema pattern
 // (see audits.mjs ensureTables). Module-level once-flag so a warm lambda only
@@ -259,7 +292,7 @@ export default async (request) => {
       const { id, patch } = body;
       if (!id || !patch) return reply(400, { error: 'id and patch required' });
 
-      const [target] = await db`SELECT id, username, user_type, audits_access, paycor_employee_id, paycor_department_id, director_districts FROM users WHERE id = ${id}`;
+      const [target] = await db`SELECT id, username, user_type, email, phone, audits_access, paycor_employee_id, paycor_department_id, director_districts FROM users WHERE id = ${id}`;
       if (!target) return reply(404, { error: 'user not found' });
       // Any authenticated user may update their OWN contact info (the profile
       // modal every role uses) even when their role wouldn't otherwise pass
@@ -389,6 +422,14 @@ export default async (request) => {
                email_notify, sms_notify, push_notify, aliases, director_districts
         FROM users WHERE id = ${id}
       `;
+      // v22.95: a changed email / phone follows this person onto every notify / approver list
+      // they were added to by name — right now, server-side. Before, the lists only caught up
+      // when someone opened that list's tab in Admin, so alerts in between went to the old
+      // address (payroll typo, 2026-11-13). Best-effort: never fails the save.
+      if ((updated.email || '') !== (target.email || '') || (updated.phone || '') !== (target.phone || '')) {
+        try { await syncNotifyLists(id, updated.email, updated.phone); }
+        catch (e) { console.error('[users] notify-list sync', e.message); }
+      }
       return reply(200, { user: toClient(updated) });
     }
 
