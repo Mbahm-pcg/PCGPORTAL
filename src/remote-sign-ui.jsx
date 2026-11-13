@@ -57,6 +57,7 @@ export function RemoteSignPage({ token }) {
   const [last4, setLast4] = useState('');
   const [doc, setDoc] = useState(null); // { employeeName, storeName, pdf }
   const [read, setRead] = useState(false);
+  const [consent, setConsent] = useState(false); // v22.92: consent to sign electronically (ESIGN / PA UETA)
   const [signing, setSigning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null); // { url }
@@ -75,7 +76,7 @@ export function RemoteSignPage({ token }) {
   const sign = async (signature) => {
     setSigning(false); setBusy(true); setError(null);
     try {
-      const b = await call({ token, last4, action: 'sign', signature });
+      const b = await call({ token, last4, action: 'sign', signature, esignConsent: consent });
       setDone({ url: URL.createObjectURL(new Blob([b64ToBytes(b.pdf)], { type: 'application/pdf' })) });
     } catch (err) { if (err.done) setDone({}); else setError(err.message); }
     setBusy(false);
@@ -87,6 +88,9 @@ export function RemoteSignPage({ token }) {
       <div style={{ maxWidth: 820, margin: '0 auto' }}>
         <img src="/pcg-logo-form.jpg" alt="People Capital Group" style={{ height: 56, display: 'block', margin: '0 auto 1rem' }} />
         {children}
+        <p style={{ textAlign: 'center', fontSize: '0.8rem', color: th.muted, marginTop: '2rem' }}>
+          <a href="/terms.html" target="_blank" rel="noreferrer" style={{ color: th.muted }}>Terms of Use</a>{'  ·  '}<a href="/privacy-policy.html" target="_blank" rel="noreferrer" style={{ color: th.muted }}>Privacy Policy</a>
+        </p>
       </div>
     </div>
   );
@@ -129,13 +133,27 @@ export function RemoteSignPage({ token }) {
       : 'Read the notice below, then sign at the bottom. Signing confirms you received it and discussed it with your manager; it does not mean you agree with it.'}</p>
     <PdfPages b64={doc.pdf} width={width} />
     <div style={{ ...S.panel, padding: '1.1rem 1.2rem', marginTop: '1.2rem' }}>
+      <section aria-labelledby="esign-h" style={{ fontSize: '0.86rem', lineHeight: 1.5, color: th.text, background: th.card3, borderRadius: 10, padding: '0.85rem 1rem', marginBottom: '1rem' }}>
+        <h2 id="esign-h" style={{ fontSize: '0.95rem', margin: '0 0 0.4rem', fontWeight: 700 }}>Signing electronically</h2>
+        <p style={{ margin: '0 0 0.4rem' }}>People Capital Group asks you to sign this document electronically. Your electronic signature has the same effect as signing on paper. Before you agree:</p>
+        <ul style={{ margin: '0 0 0.2rem', paddingLeft: '1.2rem' }}>
+          <li>You don't have to sign electronically. If you'd rather sign on paper, don't sign here; tell your supervisor or HR and they will give you a paper copy to sign.</li>
+          <li>You can ask HR for a free paper copy of this document at any time, signed or not.</li>
+          <li>After you sign you can open and save your signed copy (PDF) on this page. You need a phone or computer with a web browser that can open PDF files.</li>
+          <li>This agreement covers this one document only. You can withdraw it any time before you sign by closing this page and telling your supervisor or HR.</li>
+        </ul>
+      </section>
+      <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', fontSize: '0.95rem', lineHeight: 1.45, cursor: 'pointer', marginBottom: '0.7rem' }}>
+        <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} style={{ accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 }} />
+        I agree to receive and sign this document electronically.
+      </label>
       <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', fontSize: '0.95rem', lineHeight: 1.45, cursor: 'pointer' }}>
         <input type="checkbox" checked={read} onChange={e => setRead(e.target.checked)} style={{ accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 }} />
         {doc.kind === 'resignation' ? `I, ${doc.signerName}, have read this resignation letter and it is correct.` : doc.kind === 'letter' ? `I, ${doc.signerName}, have read this warning letter.` : doc.role === 'witness' ? `I, ${doc.signerName}, witnessed this Violation Notice for ${doc.employeeName}.` : `I, ${doc.signerName}, have read this Violation Notice.`}
       </label>
       {error && <div style={{ marginTop: '0.8rem' }}><FinBanner th={th} tone="error">{error}</FinBanner></div>}
-      <button type="button" className="fin-btn" disabled={!read || busy} onClick={() => setSigning(true)}
-        style={{ ...S.primary, width: '100%', marginTop: '1rem', opacity: read && !busy ? 1 : 0.5, cursor: read && !busy ? 'pointer' : 'not-allowed' }}>{busy ? 'Signing…' : doc.kind === 'resignation' ? 'Sign the letter' : doc.kind === 'letter' ? 'Sign the acknowledgment' : 'Sign the notice'}</button>
+      <button type="button" className="fin-btn" disabled={!read || !consent || busy} onClick={() => setSigning(true)}
+        style={{ ...S.primary, width: '100%', marginTop: '1rem', opacity: read && consent && !busy ? 1 : 0.5, cursor: read && consent && !busy ? 'pointer' : 'not-allowed' }}>{busy ? 'Signing…' : doc.kind === 'resignation' ? 'Sign the letter' : doc.kind === 'letter' ? 'Sign the acknowledgment' : 'Sign the notice'}</button>
     </div>
     {signing && <SignatureModal th={th} title={`Your signature — ${doc.signerName}`} onCancel={() => setSigning(false)} onDone={sign} />}
   </>);

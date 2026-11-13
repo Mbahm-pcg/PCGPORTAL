@@ -148,17 +148,16 @@ async function fileLetter(db, row) {
   if (!upd) return;
   const store = storeOf(upd.pc);
   const fileName = letterFileName(upd.employee_name, store?.name || upd.pc, upd.form_date);
-  let line = `${upd.employee_name} signed to acknowledge their warning letter.`;
+  // v22.93 (user, 2026-11-13: "you don't have to send this to anyone, we just have to make sure
+  // everything is on the drive"): no "signed / filed" message any more — only a Drive failure is reported.
   try {
     const f = await saveToDrive(Buffer.from(upd.pdf), [store?.name || upd.pc, upd.employee_name], fileName, `violation:${upd.form_key}`, process.env.VIOLATION_DRIVE_FOLDER_ID || '');
     await db`UPDATE violation_notices SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${upd.id}`;
-    line += ' It\'s filed in Google Drive.';
   } catch (e) {
     console.error('[violation-notice] letter drive', e.message);
     await db`UPDATE violation_notices SET drive_error = ${String(e.message).slice(0, 500)} WHERE id = ${upd.id}`;
-    line += ` It could NOT be filed in Google Drive (${e.message}) — tell IT.`;
+    await tellMaker(db, upd, `Warning letter NOT saved to Drive: ${upd.employee_name}`, `${upd.employee_name} signed their warning letter, but it could NOT be saved to Google Drive (${e.message}). Tell IT so it can be filed.`);
   }
-  await tellMaker(db, upd, `Warning letter acknowledged: ${upd.employee_name}`, line);
 }
 
 // Called by violation-sign.mjs after a remote signature: keep the latest PDF, and once nobody is
@@ -170,12 +169,9 @@ export async function afterRemoteSign(db, noticeId, signedPdf, signerLine) {
   const row = (await db`SELECT * FROM violation_notices WHERE id = ${noticeId}`)[0];
   if (!row) return;
   if (row.kind === 'letter') { if (!open.length) await fileLetter(db, row); return; }
-  if (open.length) { await tellMaker(db, row, `Violation notice signed: ${row.employee_name}`, `${signerLine} Still waiting on the other signature.`); return; }
+  if (open.length) return; // still waiting on the other signer (progress shows on the Waiting list)
   const moved = (await db`UPDATE violation_notices SET status = 'pending', pending_at = now() WHERE id = ${noticeId} AND status = 'awaiting_signatures' RETURNING *`)[0];
-  if (moved) {
-    await notifyViolationApprovers(db, moved);
-    await tellMaker(db, moved, `Violation notice signed: ${row.employee_name}`, `${signerLine} It's now waiting for approval.`);
-  }
+  if (moved) await notifyViolationApprovers(db, moved); // the approver must act; the maker isn't messaged (v22.93)
 }
 
 const rowItem = (r) => ({ id: r.id, pc: r.pc, storeName: storeOf(r.pc)?.name || '', employeeName: r.employee_name, jobTitle: r.job_title, notice: r.notice, types: r.types, action: r.action,
@@ -363,7 +359,8 @@ export default async (request) => {
         alert = await sendAlerts(v, store?.name, upd.submitted_by_name, drive.link, fileName, pdf, store?.paycor);
         await db`UPDATE violation_notices SET alerted_at = now(), alert_summary = ${JSON.stringify(alert)} WHERE id = ${upd.id}`;
       } catch (e) { console.error('[violation-notice] alert', e.message); alert = { error: e.message }; }
-      await tellMaker(db, upd, `Violation notice approved: ${upd.employee_name}`, `${myName} approved the Violation Notice for ${upd.employee_name}. It's filed in Google Drive.`);
+      // v22.93: no "approved / filed" message to the maker — only a Drive failure is reported.
+      if (!drive.saved) await tellMaker(db, upd, `Violation notice NOT saved to Drive: ${upd.employee_name}`, `${myName} approved the Violation Notice for ${upd.employee_name}, but it could NOT be saved to Google Drive (${drive.error}). Tell IT so it can be filed.`);
       return json(200, { ok: drive.saved && !alert?.error, drive, alert });
     }
 

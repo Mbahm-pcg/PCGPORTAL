@@ -12,6 +12,7 @@ import { ViolationNotice } from './src/violation-notice-ui.jsx';
 import { TimeOffRequest } from './src/time-off-request-ui.jsx';
 import { ResignationLetter } from './src/resignation-letter-ui.jsx';
 import { MissingHours } from './src/missing-hours-ui.jsx';
+import { TermsGate, fetchTermsStatus, TERMS_VERSION } from './src/terms-gate-ui.jsx';
 import { RemoteSignPage } from './src/remote-sign-ui.jsx';
 import { JoyLeaderboard, JoyMobileTile } from './src/joy-leaderboard-ui.jsx';
 import { isDirector, parseDistricts } from './src/director-scope.mjs';
@@ -32551,7 +32552,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.91";
+const APP_VERSION = "v22.93";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -55269,6 +55270,17 @@ function PCGPortal() {
   const [annGateQueue, setAnnGateQueue] = useState([]);
   const [annGateIdx, setAnnGateIdx] = useState(0);
   const [annGateDone, setAnnGateDone] = useState(false);
+  // v22.92 Terms of Use: asked once per TERMS_VERSION after sign-in ('checking' | 'needed' | 'ok').
+  // Shared tablets / kiosks are never asked; if the check can't reach the server the Portal opens.
+  const [termsState, setTermsState] = useState('checking');
+  useEffect(() => {
+    if (!user) { setTermsState('checking'); return; }
+    if (isSharedDeviceType(user.userType)) { setTermsState('ok'); return; }
+    let live = true;
+    fetchTermsStatus().then(b => { if (live) setTermsState(b.version === TERMS_VERSION ? 'ok' : 'needed'); })
+      .catch(e => { console.warn('[terms] check failed', e.message); if (live) setTermsState('ok'); });
+    return () => { live = false; };
+  }, [user?.id]);
   // Post-login "enable Face ID/fingerprint?" prompt — shown once per device.
   const [bioPromptDone, setBioPromptDone] = useState(false);
   const [bioPromptEligible, setBioPromptEligible] = useState(false);
@@ -57000,6 +57012,11 @@ function PCGPortal() {
   // per-person device-trust feature, meaningless on a device many people use.
   if (!bioPromptDone && bioPromptEligible && !isSharedDeviceType(user.userType)) {
     return <BiometricEnrollPrompt th={th} onDone={() => setBioPromptDone(true)} />;
+  }
+
+  // ── Terms of Use (v22.92) ──────────────────────────────────────────────────
+  if (termsState === 'needed' && !user.mustSetup) {
+    return <TermsGate th={th} user={user} onAccepted={() => setTermsState('ok')} onSignOut={handleLogout} />;
   }
 
   // ── Announcement Gate ──────────────────────────────────────────────────────

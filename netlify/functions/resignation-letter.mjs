@@ -114,8 +114,9 @@ export async function afterResignationSign(db, letterId, signedPdf) {
   const out = await fileLetter(db, letterId);
   if (!out) return;
   const { row, drive } = out;
-  await tellMaker(db, row, `Resignation letter signed: ${row.employee_name}`,
-    `${row.employee_name} signed their resignation letter. ${drive.saved ? 'It\'s filed in Google Drive.' : `It could NOT be filed in Google Drive (${drive.error}) — open Tools > Resignation Letter to retry.`}`);
+  // v22.93: no "signed / filed" message — only a Drive failure is reported (user, 2026-11-13).
+  if (!drive.saved) await tellMaker(db, row, `Resignation letter NOT saved to Drive: ${row.employee_name}`,
+    `${row.employee_name} signed their resignation letter, but it could NOT be saved to Google Drive (${drive.error}). Open Tools > Resignation Letter and use Retry filing.`);
 }
 
 const rowItem = (r) => ({ id: r.id, pc: r.pc, storeName: storeOf(r.pc)?.name || '', employeeName: r.employee_name, position: r.position, lastDay: r.last_day, formDate: r.form_date,

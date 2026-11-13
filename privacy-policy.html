@@ -7,111 +7,126 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@700;800;900&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<!-- v22.92 (2026-11-13): rewritten to match what the Portal actually does today. Have counsel
+     review before relying on it. Keep in step with terms.html (TERMS_VERSION in app.jsx). -->
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
   html{font-size:16px;}
-  body{
-    font-family:'Source Sans 3',sans-serif;
-    background:#111118;
-    color:#e8e8ee;
-    line-height:1.6;
-    padding:3rem 1.25rem 5rem;
-  }
-  .wrap{max-width:720px;margin:0 auto;}
-  h1{
-    font-family:'Raleway',sans-serif;
-    font-weight:900;
-    font-size:1.75rem;
-    color:#fff;
-    margin-bottom:0.25rem;
-  }
+  body{font-family:'Source Sans 3',sans-serif;background:#111118;color:#e8e8ee;line-height:1.6;padding:3rem 1.25rem 5rem;}
+  .wrap{max-width:760px;margin:0 auto;}
+  h1{font-family:'Raleway',sans-serif;font-weight:900;font-size:1.75rem;color:#fff;margin-bottom:0.25rem;}
   .sub{color:#9a9aa8;font-size:0.9rem;margin-bottom:2rem;}
-  h2{
-    font-family:'Raleway',sans-serif;
-    font-weight:800;
-    font-size:1.05rem;
-    color:#FF671F;
-    margin:2rem 0 0.75rem;
-  }
+  h2{font-family:'Raleway',sans-serif;font-weight:800;font-size:1.05rem;color:#FF671F;margin:2rem 0 0.75rem;}
   p{margin-bottom:0.9rem;font-size:0.96rem;}
   ul{margin:0 0 0.9rem 1.4rem;font-size:0.96rem;}
   li{margin-bottom:0.5rem;}
   a{color:#FF671F;}
-  table{width:100%;border-collapse:collapse;margin:0.75rem 0 1.25rem;font-size:0.88rem;}
-  th{text-align:left;color:#9a9aa8;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;font-size:0.7rem;padding:0.5rem 0.6rem;border-bottom:1px solid #2a2a38;}
+  .tablewrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;margin:0.75rem 0 1.25rem;font-size:0.88rem;min-width:520px;}
+  th{text-align:left;color:#9a9aa8;font-weight:700;font-size:0.78rem;padding:0.5rem 0.6rem;border-bottom:1px solid #2a2a38;}
   td{padding:0.6rem;border-bottom:1px solid #22222e;vertical-align:top;}
-  .card{
-    background:#1a1a24;
-    border:1px solid #2a2a38;
-    border-radius:0.75rem;
-    padding:1.25rem 1.5rem;
-    margin:1.5rem 0;
-  }
+  .card{background:#1a1a24;border:1px solid #2a2a38;border-radius:0.75rem;padding:1.25rem 1.5rem;margin:1.5rem 0;}
   footer{margin-top:2.5rem;color:#6a6a78;font-size:0.85rem;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Privacy Policy</h1>
-  <div class="sub">PCG Unified Operations Portal — People Capital Group · Last updated August 2026</div>
+  <div class="sub">PCG Unified Operations Portal — People Capital Group LLC · Last updated November 13, 2026</div>
 
-  <p>The PCG Unified Operations Portal ("the Portal", including the "PCG Pulse" Android/iOS
-  app) is an internal operations tool built for People Capital Group employees — store
-  managers, district managers, maintenance and construction staff, and corporate office
-  staff. It is not available to the public and does not collect data from customers or
-  general users; every account is provisioned by our IT/HR team.</p>
+  <p>The PCG Unified Operations Portal ("the Portal", including the "PCG Pulse" Android/iOS app) is
+  an internal tool People Capital Group LLC ("PCG", "we") uses to run its Dunkin' restaurants. It is
+  used by PCG staff (store managers, district managers, directors, office, maintenance and
+  construction staff) whose accounts are set up by our IT/HR team. It is not offered to the public
+  and does not collect information from restaurant guests.</p>
+  <p>Some PCG employees who don't have a Portal account also use one part of it: a private link,
+  sent to them by email, to read and sign a work document (see "Electronic signatures" below).
+  This policy covers them too.</p>
 
   <h2>What we collect</h2>
-  <table>
+  <div class="tablewrap"><table>
     <tr><th>Category</th><th>Examples</th><th>Why</th></tr>
-    <tr><td>Account info</td><td>Name, username, email address, phone number</td><td>Login, identifying who did what, sending you notifications</td></tr>
-    <tr><td>Location (optional)</td><td>Precise GPS coordinates</td><td>Verifying a task was completed on-site — off by default, requires your explicit opt-in toggle</td></tr>
-    <tr><td>Photos &amp; files</td><td>Maintenance ticket photos, task-completion photos, uploaded documents</td><td>Ticket/task records, construction document tracking</td></tr>
-    <tr><td>Messages</td><td>Chat messages you send in-app</td><td>Team communication (Chat feature)</td></tr>
-    <tr><td>Financial/payroll info</td><td>Hours worked, pay rate (from Paycor)</td><td>Labor cost reporting</td></tr>
-    <tr><td>App activity</td><td>Logins, actions taken, audit trail</td><td>Security, troubleshooting, accountability</td></tr>
-  </table>
+    <tr><td>Account information</td><td>Name, username, work email, phone number, role, store or district</td><td>Signing in, showing you the right stores, knowing who did what, sending you notifications</td></tr>
+    <tr><td>Employee records from Paycor (our payroll/HR system)</td><td>Name, job title, store, employee ID, hire and termination dates, time punches, schedules, hours, pay rate, time-off balances</td><td>Labor and payroll reporting, scheduling, tips, the HR forms in Tools</td></tr>
+    <tr><td>Date of birth (only the date)</td><td>Read from Paycor for employees under 18</td><td>Following Pennsylvania's rules for minors' work hours and breaks. We never take or keep Social Security numbers.</td></tr>
+    <tr><td>HR forms and documents</td><td>Violation notices, warning letters, resignation letters, transfer notices, pay increase forms, missing-hours forms, time-off requests and their attachments, workplace incident reports</td><td>Completing, approving and filing the form, and keeping it on the employee's record</td></tr>
+    <tr><td>Signatures and signing records</td><td>Your drawn signature, the date and time you signed, your agreement to sign electronically, the last 4 digits of the cell number used to check it was you, your IP address and browser</td><td>Making the signature valid and showing who signed what, when</td></tr>
+    <tr><td>Email and text delivery details</td><td>Whether an email reached you or bounced, whether it was opened, whether and when you opened a signing link</td><td>Making sure you actually got a document you need to sign, and following up if not</td></tr>
+    <tr><td>Location (optional)</td><td>Precise GPS position, only when you tap to share it</td><td>Showing a task was done on site. Off unless you turn it on.</td></tr>
+    <tr><td>Photos and files</td><td>Maintenance and task photos, daily report photos, uploaded documents</td><td>Tickets, tasks, reports and construction records</td></tr>
+    <tr><td>Messages</td><td>Chat messages you send in the Portal</td><td>Team communication</td></tr>
+    <tr><td>Job applicant information</td><td>Applicant name, position and store from our hiring system (Paradox)</td><td>Interview reminders and new-hire alerts to the right managers</td></tr>
+    <tr><td>Activity</td><td>Sign-ins, actions taken, audit trail, trusted devices</td><td>Security, troubleshooting and accountability</td></tr>
+  </table></div>
 
-  <h2>Third parties we work with</h2>
-  <p>We use the following service providers to run the Portal. They process data only to
-  provide their service to us — we do not sell data or share it for advertising.</p>
+  <h2>Electronic signatures</h2>
+  <p>Some forms are signed on screen in the Portal, or from a private link we email to the person
+  who needs to sign. Before signing from a link you confirm the last 4 digits of your cell number
+  and agree to sign electronically. You don't have to: you can ask your supervisor or HR to sign
+  on paper instead, and you can ask HR for a free paper copy of any document you signed. The
+  signed document records when and how it was signed. Links are private to you, expire after 3
+  days and stop working after 5 wrong tries.</p>
+
+  <h2>Emails and texts</h2>
+  <p>We send work notices by email and text: for example a document to sign, an approval request,
+  a schedule or labor alert, or a reminder. Texts are short work notices; we never send marketing.
+  Signing-link emails record whether they were delivered, bounced or opened, so we can follow up if
+  one doesn't reach you. To stop texts, tell your supervisor or HR and they will reach you another
+  way.</p>
+
+  <h2>Who we share it with</h2>
+  <p>We don't sell personal information or use it for advertising. We share it only with the
+  service providers that run the Portal for us, only for that purpose:</p>
   <ul>
-    <li><strong>Paycor</strong> — payroll/HR system of record (we pull data from Paycor; we don't send it there).</li>
-    <li><strong>Twilio</strong> — delivers SMS alerts to your phone number, if you opt in.</li>
-    <li><strong>Resend / Google Workspace SMTP / Gmail API</strong> — sends notification emails and syncs a shared company inbox displayed in the Portal's Email workspace.</li>
-    <li><strong>Google Sign-In</strong> — optional login method; shares your name/email with Google as the identity provider.</li>
-    <li><strong>Netlify</strong> — hosts the Portal and its serverless functions.</li>
-    <li><strong>Neon (Postgres)</strong> — stores account, ticket, chat, and audit data.</li>
-    <li><strong>Anthropic (Claude)</strong> — powers the "Orion" AI assistant feature; only the specific question/report data you ask about is sent, never your full account record.</li>
+    <li><strong>Paycor</strong>, our payroll/HR system. We read employee records from Paycor, and we send approved hours and tips into Paycor's payroll grid, where payroll staff review them before payroll is run.</li>
+    <li><strong>Google Workspace</strong>: Google Drive stores signed HR forms in company folders; Gmail and Google's email service send some notices; Google Sign-In is an optional way to sign in.</li>
+    <li><strong>Resend</strong> sends emails and tells us whether they were delivered or opened.</li>
+    <li><strong>Textbelt and Twilio</strong> send text messages.</li>
+    <li><strong>Netlify</strong> hosts the Portal; <strong>Neon</strong> stores its database.</li>
+    <li><strong>Paradox</strong>, our hiring system, sends us applicant and interview details.</li>
+    <li><strong>Anthropic (Claude)</strong> powers the "Orion" assistant. Only the data needed to answer a question or build a report is sent.</li>
   </ul>
+  <p>We may also share information when the law requires it, to protect people's safety, or with
+  our franchisor or advisers where needed to run the business.</p>
+
+  <h2>Who can see what</h2>
+  <p>Access follows your role. A store manager sees their own store, a district manager or
+  director their own districts, and only executives and IT/HR see every store. HR forms are seen by
+  the person who made them, the people who approve them, and HR.</p>
 
   <h2>Security</h2>
-  <p>All traffic to and from the Portal is encrypted in transit (HTTPS/TLS), including the
-  database connection. Passwords are hashed, never stored in plain text. Accounts lock
-  after repeated failed login attempts.</p>
+  <p>All traffic to and from the Portal is encrypted (HTTPS/TLS), including the database
+  connection. Passwords are hashed, never stored in plain text. Accounts lock after repeated
+  failed sign-ins, and signing links are single-use and expire.</p>
 
-  <h2>Data retention &amp; deletion</h2>
-  <p>We keep your account data for as long as you're an active employee/user of the Portal.
-  You (or your admin, on your behalf) can request that your account and its associated
-  personal data be deleted at any time — see our
-  <a href="/delete-account.html">Delete Account &amp; Data</a> page for how. Some operational
-  records you contributed (chat messages, ticket comments, audit entries) are retained for
-  business record-keeping after your account is deleted, no longer linked to your name.</p>
+  <h2>How long we keep it</h2>
+  <p>Account data is kept while you use the Portal. Signed HR documents and payroll-related
+  records are kept as long as the law requires us to keep employment records, and as long as we
+  need them for the business. You or your admin can ask for your account to be deleted; see
+  <a href="/delete-account.html">Delete Account &amp; Data</a>. Some records you took part in
+  (signed documents, chat messages, ticket comments, audit entries) are kept after an account is
+  deleted, because they are business or employment records.</p>
 
-  <h2>Children's privacy</h2>
-  <p>The Portal is an internal workplace tool for employees and is not directed at, or
-  knowingly used by, children.</p>
+  <h2>Employees under 18</h2>
+  <p>The Portal is a workplace tool and is not meant for children. Some of our employees are
+  16 or 17, and the Portal handles their work records (including date of birth) so we can follow
+  the labor rules for minors.</p>
 
-  <h2>Changes to this policy</h2>
-  <p>If we make a material change to this policy, we'll post it here and notify you in the
-  Portal.</p>
+  <h2>Your choices</h2>
+  <p>You can ask HR to see or correct information we hold about you, for a paper copy of a
+  document you signed, or to stop receiving texts. Location sharing is always your choice.</p>
+
+  <h2>Changes</h2>
+  <p>If we change this policy in a meaningful way, we'll update the date above and let Portal
+  users know in the Portal.</p>
 
   <div class="card">
-    <h2 style="margin-top:0;">Questions?</h2>
-    <p style="margin-bottom:0;">Contact <a href="mailto:ahmed@peoplecapitalgroup.com">ahmed@peoplecapitalgroup.com</a>.</p>
+    <h2 style="margin-top:0;">Questions</h2>
+    <p style="margin-bottom:0;">People Capital Group LLC, Human Resources, 2200 Michener St STE 4, Philadelphia, PA 19115.
+    Email <a href="mailto:ahmed@peoplecapitalgroup.com">ahmed@peoplecapitalgroup.com</a>.</p>
   </div>
 
-  <footer>People Capital Group · PCG Unified Operations Portal</footer>
+  <footer>People Capital Group LLC · PCG Unified Operations Portal · <a href="/terms.html">Terms of Use</a></footer>
 </div>
 </body>
 </html>

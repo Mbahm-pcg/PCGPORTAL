@@ -67,6 +67,8 @@ export async function ensureSignTable(db) {
   await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS first_seen_at timestamptz`;
   await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS followup_sent_at timestamptz`;
   await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS expiry_warned_at timestamptz`;
+  // v22.92: when the signer agreed to sign electronically (the consent box on the signing page).
+  await db`ALTER TABLE violation_sign_requests ADD COLUMN IF NOT EXISTS esign_consent_at timestamptz`;
 }
 
 // ── Warning letters (v22.84, Sam: "drag and drop it on the portal and it gets sent to them and also
@@ -149,7 +151,7 @@ export async function createSignRequest(db, { request, role = 'employee', layout
   const sentMail = await sendHtmlEmailTracked([email], isRes ? 'Please review and sign your resignation letter' : layout === 'letter' ? 'Please review and acknowledge your warning letter' : role === 'witness' ? 'Please sign as witness on a Violation Notice' : 'Please review and sign your Violation Notice',
     `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Hi ${esc(signerName)},</p><p>People Capital Group asks you to ${esc(what)}.</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Review and sign</a></p>
-<p style="color:#666">This private link expires ${esc(until)}. You'll be asked for the last 4 digits of your phone number.${role === 'employee' && !isRes ? ' Signing confirms you received the notice, not that you agree with it.' : ''}</p></div>`);
+<p style="color:#666">This private link expires ${esc(until)}. You'll be asked for the last 4 digits of your phone number, and to agree to sign electronically. If you'd rather sign on paper, tell your supervisor or HR.${role === 'employee' && !isRes ? ' Signing confirms you received the notice, not that you agree with it.' : ''}</p></div>`);
   const emailed = sentMail.ok;
   if (sentMail.id) await db`UPDATE violation_sign_requests SET email_id = ${sentMail.id} WHERE id = ${inserted[0].id}`;
   const sms = await sendSms([tenDigits(phone)], `People Capital Group: we emailed you a request to ${what}. Please check your email inbox (and spam folder) and sign by ${until}.`);
@@ -174,7 +176,7 @@ export async function stampPdf(pdfB64, signature, phone, role = 'employee', layo
   const date = etDate();
   const dsz = layout === 'resignation' ? 12 : 9;
   page.drawText(date, { x: sp.dateX - font.widthOfTextAtSize(date, dsz) / 2, y: H - sp.dateY, size: dsz, font, color: rgb(0, 0, 0) });
-  const audit = `${sp.label} signed electronically ${etStamp()} ET via a private emailed link (verified with the cell number ending ${tenDigits(phone).slice(-4)}).`;
+  const audit = `${sp.label} signed electronically ${etStamp()} ET via a private emailed link after agreeing to sign electronically (verified with the cell number ending ${tenDigits(phone).slice(-4)}).`;
   page.drawText(audit, { x: 36, y: sp.auditY, size: 7, font, color: rgb(0.35, 0.35, 0.35) });
   doc.setModificationDate(new Date());
   return Buffer.from(await doc.save());
@@ -190,7 +192,7 @@ async function stampLetter(pdfB64, signature, phone) {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const date = etDate();
   page.drawText(date, { x: ACK.dateX - font.widthOfTextAtSize(date, 11) / 2, y: ACK.dateY, size: 11, font, color: rgb(0, 0, 0) });
-  page.drawText(`Signed electronically ${etStamp()} ET via a private emailed link (verified with the cell number ending ${tenDigits(phone).slice(-4)}).`, { x: 56, y: 340, size: 8, font, color: rgb(0.35, 0.35, 0.35) });
+  page.drawText(`Signed electronically ${etStamp()} ET via a private emailed link after agreeing to sign electronically (verified with the cell number ending ${tenDigits(phone).slice(-4)}).`, { x: 56, y: 340, size: 8, font, color: rgb(0.35, 0.35, 0.35) });
   doc.setModificationDate(new Date());
   return Buffer.from(await doc.save());
 }
@@ -316,9 +318,10 @@ export default async (request) => {
     }
     if (body.action !== 'sign') return json(400, { error: 'Unknown action' });
     if (!isSig(body.signature)) return json(400, { error: 'Sign again — the signature did not come through.' });
+    if (body.esignConsent !== true) return json(400, { error: 'Tick the box agreeing to sign electronically first, or tell your supervisor you would rather sign on paper.' });
 
     // Claim it first so a double tap can't sign (or alert) twice.
-    const claimed = await db`UPDATE violation_sign_requests SET signed_at = now(), signer_ip = ${request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for') || null},
+    const claimed = await db`UPDATE violation_sign_requests SET signed_at = now(), esign_consent_at = now(), signer_ip = ${request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for') || null},
       signer_agent = ${String(request.headers.get('user-agent') || '').slice(0, 300)} WHERE id = ${r.id} AND signed_at IS NULL RETURNING id`;
     if (!claimed.length) return json(410, { error: 'This has already been signed. Thank you.', done: true });
 
