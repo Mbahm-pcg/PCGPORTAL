@@ -13,6 +13,7 @@ import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
 import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { FormPreview, FormModal } from './pay-increase-ui.jsx';
 import { SignProgress } from './sign-progress-ui.jsx';
+import { VnCollect } from './violation-collect-ui.jsx';
 import { buildViolationPdf, VIO_FONT, VIO_CHROME, formatVioDate } from './violation-notice-pdf.mjs';
 import { NOTICE_TYPES, VIOLATION_TYPES, ACTIONS, DESCRIPTION_MIN, violationValues, violationFingerprint, missingViolationFields } from './violation-notice.mjs';
 
@@ -62,18 +63,23 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) { .vn-blank, .vn-sigbtn { transition: none; } }`;
 
 // Approver's view of one waiting notice: the signed PDF, then Approve or Send back (like Pay Increase).
-function VnReview({ th, isMobile, form, onClose, canApprove }) {
+function VnReview({ th, isMobile, form, onClose, canApprove, onEdit }) {
   const S = finStyles(th);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [backing, setBacking] = useState(false);
   const [note, setNote] = useState('');
+  const isNew = form.flow === 'v2';
+  const [sendTo, setSendTo] = useState({ on: false, email: '', phone: '' });
+  const [hrSigning, setHrSigning] = useState(false); // v22.98: HR signs the approval line
+  const toOk = !sendTo.on || (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sendTo.email.trim()) && (() => { const d = sendTo.phone.replace(/\D/g, ''); return !d || d.length === 10 || (d.length === 11 && d[0] === '1'); })());
   const src = `/.netlify/functions/violation-notice?pdf=${form.id}`;
-  const decide = async (action) => {
+  const decide = async (action, hrSignature) => {
     setBusy(true); setErr(null);
     try {
-      const b = await call({ action, id: form.id, note: note.trim() });
+      const b = await call({ action, id: form.id, note: note.trim(), hrSignature, sendTo: isNew && sendTo.on ? { email: sendTo.email.trim(), phone: sendTo.phone } : null });
       if (action === 'reject') return onClose(`Sent back to ${form.submittedBy}.`);
+      if (isNew) return onClose(`Approved. ${b.sign?.sent ? `${form.employeeName} was emailed a link to sign.` : b.sign?.error ? b.sign.error : `It's under Waiting on signatures until ${form.employeeName} signs (in person or by link).`}`);
       const d = b.drive || {}, a = b.alert || {};
       onClose(`Approved: ${d.saved ? 'filed in Google Drive' : `not saved to Drive (${d.error || 'error'})`}, ${a.error ? `alert failed (${a.error})` : a.recipients ? `the Violation Notice list was alerted (${a.recipients})` : 'no one is on the Violation Notice alert list yet'}. ${form.submittedBy} was told.`);
     } catch (e) { setErr(e.message); setBusy(false); }
@@ -89,6 +95,20 @@ function VnReview({ th, isMobile, form, onClose, canApprove }) {
         <p style={{ fontSize: '0.82rem', color: th.muted, margin: 0, maxWidth: '22em' }}>Click the form to see it full size. <a href={src} target="_blank" rel="noreferrer" style={{ color: O }}>Download the PDF</a></p>
       </div>
       {err && <FinBanner th={th} tone="error" style={{ marginTop: '0.8rem' }}>{err}</FinBanner>}
+      {isNew && canApprove && !backing && (
+        <div style={{ marginTop: '0.9rem', fontFamily: FONTS.body, fontSize: '0.88rem' }}>
+          <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', cursor: 'pointer' }}>
+            <input type="checkbox" checked={sendTo.on} onChange={e => setSendTo(x => ({ ...x, on: e.target.checked }))} style={{ accentColor: O, width: 18, height: 18 }} />
+            Also email {form.employeeName} a link to sign it now <span style={{ color: th.muted }}>(otherwise the supervisor gets it signed, in person or by link)</span>
+          </label>
+          {sendTo.on && (
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+              <input type="email" inputMode="email" autoComplete="off" placeholder="Employee email" aria-label="Employee email" value={sendTo.email} onChange={e => setSendTo(x => ({ ...x, email: e.target.value }))} style={{ ...S.input, flex: '1 1 14em', padding: '0.45rem 0.6rem' }} />
+              <input type="tel" inputMode="tel" autoComplete="off" placeholder="Cell (optional)" aria-label="Employee cell (optional)" value={sendTo.phone} onChange={e => setSendTo(x => ({ ...x, phone: e.target.value }))} style={{ ...S.input, flex: '1 1 10em', padding: '0.45rem 0.6rem' }} />
+            </div>
+          )}
+        </div>
+      )}
       {backing && (
         <div style={{ marginTop: '0.8rem' }}>
           <label htmlFor="vn-note" style={{ display: 'block', fontWeight: 700, marginBottom: '0.3rem', color: th.text }}>Why is it being sent back?</label>
@@ -101,7 +121,9 @@ function VnReview({ th, isMobile, form, onClose, canApprove }) {
         {canApprove && (backing
           ? <button type="button" className="fin-btn" style={{ ...S.primary, background: '#b91c1c', opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }} disabled={note.trim().length < 3 || busy} onClick={() => decide('reject')}>{busy ? 'Sending…' : 'Send back'}</button>
           : <button type="button" className="fin-btn" style={S.ghost} onClick={() => setBacking(true)} disabled={busy}>Send back…</button>)}
-        {canApprove && !backing && <button type="button" className="fin-btn" style={S.primary} disabled={busy} onClick={() => decide('approve')}>{busy ? 'Approving…' : 'Approve & file'}</button>}
+        {canApprove && !backing && isNew && onEdit && <button type="button" className="fin-btn" style={S.ghost} disabled={busy} onClick={() => onEdit(form)}>Edit before approving</button>}
+        {canApprove && !backing && <button type="button" className="fin-btn" style={{ ...S.primary, opacity: toOk ? 1 : 0.5 }} disabled={busy || !toOk} onClick={() => (isNew ? setHrSigning(true) : decide('approve'))}>{busy ? 'Approving…' : isNew ? 'Sign & approve' : 'Approve & file'}</button>}
+      {hrSigning && <SignatureModal th={th} title="Your signature — HR approval" onCancel={() => setHrSigning(false)} onDone={(img) => { setHrSigning(false); decide('approve', img); }} />}
       </div>
     </div>
   );
@@ -153,6 +175,10 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   const [sentBack, setSentBack] = useState([]);
   const [myWaiting, setMyWaiting] = useState([]); // v22.91: the supervisor's own, with link progress
   const [fixing, setFixing] = useState(null); // the sent-back notice being fixed
+  const [editing, setEditing] = useState(null); // v22.98: the approver editing a pending notice before approving
+  const [approveTo, setApproveTo] = useState({ on: false, email: '', phone: '' });
+  const [collecting, setCollecting] = useState(null);
+  const [hrSig, setHrSig] = useState(null); // v22.98: HR's signature for an edit-and-approve // v22.98: id of the approved notice whose signatures are being collected
   const [backMsg, setBackMsg] = useState(null);
   const [backBusy, setBackBusy] = useState(null);
   // v22.84 warning-letter upload (Sam / exec / IT).
@@ -178,7 +204,9 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   const form = { employee: picked, pc: picked?.pc, supervisor, date, notice, types, action, suspensionStart, suspensionReturn, violationDate, description, improvement, consequences, supervisorName, witnessName, employeeRefused };
   const base = violationValues(form);
   const fp = violationFingerprint(base);
-  const sigOk = (k) => (sigs[k] && sigs[k].fp === fp ? sigs[k] : null);
+  // v22.98: the supervisor's signature stays through later edits (user, 2026-11-13); employee /
+  // witness sign only after approval, on the approved PDF.
+  const sigOk = (k) => (sigs[k] && (k === 'supervisor' || sigs[k].fp === fp) ? sigs[k] : null);
   const voided = Object.keys(sigs).some(k => sigs[k] && sigs[k].fp !== fp);
   const values = violationValues({ ...form, employeeSig: sigOk('employee'), supervisorSig: sigOk('supervisor'), witnessSig: sigOk('witness') });
   const formMissing = missingViolationFields({ ...base, supervisorSignature: 'x' });
@@ -199,7 +227,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   const pick = (e) => { setPicked(e); setQuery(e.name); setListOpen(false); };
   const toggleType = (k) => setTypes(t => (t.includes(k) ? t.filter(x => x !== k) : [...t, k]));
 
-  const send = async () => {
+  const send = async (hrSigArg) => {
     if (!ready) return;
     setBusy(true); setError(null);
     try {
@@ -210,7 +238,13 @@ export function ViolationNotice({ th, isMobile, onBack }) {
       const fileName = `Violation-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, '-')}-${date}.pdf`;
       // Send first, then hand over the PDF (on a phone a download would replace the portal).
       setSaved({ state: 'saving' });
-      try { const b = await call({ values, employeeId: picked.id, pdf: doc.output('datauristring'), remoteSign: Object.fromEntries(['employee', 'witness'].filter(remoteOn).map(role => [role, { phone: remote[role].phone, email: remote[role].email.trim() }])), replaces: fixing?.id }); setSaved({ state: 'done', ...b, pdfUrl: deliverPdf(doc, fileName) }); if (fixing) { setFixing(null); loadMain(); } }
+      if (editing) {
+        const b = await call({ action: 'approve', id: editing.id, values, pdf: doc.output('datauristring'), hrSignature: hrSigArg || hrSig, sendTo: approveTo.on ? { email: approveTo.email.trim(), phone: approveTo.phone } : null });
+        setSaved(null); const who = editing.employeeName; setEditing(null); setView('list'); loadMain();
+        setDecided(`Approved${b.edited ? ' with your changes' : ''}. ${b.sign?.sent ? `${who} was emailed a link to sign.` : b.sign?.error ? b.sign.error : `It's under Waiting on signatures until ${who} signs.`}`);
+        setBusy(false); return;
+      }
+      try { const b = await call({ flow: 'v2', values, employeeId: picked.id, pdf: doc.output('datauristring'), replaces: fixing?.id }); setSaved({ state: 'done', ...b, pdfUrl: deliverPdf(doc, fileName) }); if (fixing) { setFixing(null); loadMain(); } }
       catch (e) { setSaved({ state: 'failed', error: e.message, pdfUrl: deliverPdf(doc, fileName) }); }
     } catch (e) { setError(e.message); }
     setBusy(false);
@@ -222,7 +256,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     return (
       <span style={{ color: '#16a34a' }}>
         {saved.status === 'awaiting_signatures' ? 'Saved. Once the signatures below come in, it goes for approval; you\'ll be told when it\'s approved.'
-          : saved.status === 'pending' ? `Sent for approval${saved.notified ? '' : ' (no approver is set up yet — ask IT)'}. Once it's approved it's filed in Google Drive and you'll be told.`
+          : saved.status === 'pending' ? `Sent to HR for approval${saved.notified ? '' : ' (no approver is set up yet — ask IT)'}. Once it's approved, get the employee's signature from Waiting on signatures (in person or by emailed link).`
           : saved.status === 'approved' ? 'This notice was already approved and filed.'
           : 'Saved.'}
         {(saved.remoteSign || []).map(r => {
@@ -309,10 +343,15 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     setSuspensionStart(fv.suspensionStart || ''); setSuspensionReturn(fv.suspensionReturn || '');
     setViolationDate(fv.violationDate || ''); setDescription(fv.description || ''); setImprovement(fv.improvement || ''); setConsequences(fv.consequences || '');
     setWitnessName(fv.witnessName || ''); setEmployeeRefused(false);
-    // Something will change, so nobody's old signature stands — everyone signs the fixed version.
-    setSigs({}); setRemoteState({ employee: { on: false, phone: '', email: '' }, witness: { on: false, phone: '', email: '' } });
+    // v22.98: the supervisor's signature stays (user, 2026-11-13); the employee signs after approval.
+    setSigs(fv.supervisorSignature ? { supervisor: { image: fv.supervisorSignature, date: fv.supervisorSignedDate || todayIso(), fp: '' } } : {}); setRemoteState({ employee: { on: false, phone: '', email: '' }, witness: { on: false, phone: '', email: '' } });
     setSaved(null); setBackMsg(null); setFixing(item); setView('form');
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+  };
+  // v22.98: the approver opens a pending new-flow notice in the form, changes anything, and approves.
+  const editNotice = (item) => {
+    fixNotice(item);
+    setFixing(null); setEditing(item); setReviewing(null); setApproveTo({ on: false, email: '', phone: '' });
   };
   const resendAsIs = async (item) => {
     setBackBusy(item.id); setBackMsg(null);
@@ -361,12 +400,15 @@ export function ViolationNotice({ th, isMobile, onBack }) {
   };
   const waitingRow = (f, rowStyle, day, who, showMaker) => (
     <div key={f.id} style={rowStyle}>
-      <span style={{ minWidth: 0, flex: '1 1 20em' }}>{kindTag(f)}{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>{showMaker ? `From ${f.submittedBy}, ` : 'Sent '}{day(f.createdAt)}: {f.kind === 'letter' ? 'waiting on the employee to acknowledge it from their email link' : 'waiting on a signature from an email link'}</span>
+      <span style={{ minWidth: 0, flex: '1 1 20em' }}>{kindTag(f)}{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>{showMaker ? `From ${f.submittedBy}, ` : 'Sent '}{day(f.createdAt)}: {f.kind === 'letter' ? 'waiting on the employee to acknowledge it from their email link'
+          : f.status === 'awaiting_employee' ? `approved by ${f.decidedBy || 'HR'}${f.editedBy ? ' (with changes)' : ''}; waiting on the employee's signature` : 'waiting on a signature from an email link'}</span>
         <SignProgress th={th} signing={f.signing} busy={backBusy === f.id} onFix={(role, email) => fixEmail(f, role, email)} /></span>
       <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
         {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View</button>}
-        <button type="button" className="fin-btn" disabled={backBusy === f.id} onClick={() => resendLink(f)} style={{ ...S.link, color: O }}>{backBusy === f.id ? 'Sending…' : 'Resend link'}</button>
+        {f.status === 'awaiting_employee' && <button type="button" className="fin-btn" onClick={() => setCollecting(collecting === f.id ? null : f.id)} style={{ ...S.link, color: O }}>{collecting === f.id ? 'Close' : 'Get signatures'}</button>}
+        {(f.status !== 'awaiting_employee' || (f.signing || []).some(x => !x.signedAt)) && <button type="button" className="fin-btn" disabled={backBusy === f.id} onClick={() => resendLink(f)} style={{ ...S.link, color: O }}>{backBusy === f.id ? 'Sending…' : 'Resend link'}</button>}
       </span>
+      {collecting === f.id && <div style={{ flexBasis: '100%' }}><VnCollect th={th} item={f} call={call} onDone={loadMain} /></div>}
     </div>
   );
   const resendLink = async (item) => {
@@ -446,16 +488,17 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', textAlign: 'left', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body };
     const who = (f) => <><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}{f.jobTitle ? `, ${f.jobTitle}` : ''}</span></>;
     // In the order a notice moves through them (user, 2026-11-11): signatures → approval → complete.
-    const tabs = [['waiting', `Waiting on signatures${lists.waiting.length ? ` (${lists.waiting.length})` : ''}`], ['pending', `Pending approval${lists.pending.length ? ` (${lists.pending.length})` : ''}`], ['sentback', `Sent back${sentBack.length ? ` (${sentBack.length})` : ''}`], ['complete', 'Complete']];
+    // v22.98 order (new flow): approval → sent back → employee signs → complete.
+    const tabs = [['pending', `Pending approval${lists.pending.length ? ` (${lists.pending.length})` : ''}`], ['sentback', `Sent back${sentBack.length ? ` (${sentBack.length})` : ''}`], ['waiting', `Waiting on signatures${lists.waiting.length ? ` (${lists.waiting.length})` : ''}`], ['complete', 'Complete']];
     return (
       <div className="fin-root" style={{ maxWidth: 940, margin: '0 auto' }}>
         <style>{FIN_CSS(th) + CSS}</style>
         {onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
         <h2 style={S.title}>Violation Notice</h2>
-        <p style={S.lede}>Violation notices from supervisors. Once everyone has signed they wait for approval; approved ones are filed in Google Drive and show under Complete.</p>
+        <p style={S.lede}>Violation notices from supervisors, signed by them. Approve them as they are, edit them before approving, or send them back. Once approved, the employee signs (in person or by emailed link) and it's filed in Google Drive.</p>
         {decided && <FinBanner th={th} tone="success">{decided}</FinBanner>}
         {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
-        {reviewing ? <VnReview th={th} isMobile={isMobile} form={reviewing} canApprove={canApprove} onClose={(msg) => { setReviewing(null); loadMain(); if (msg) setDecided(msg); }} /> : (<>
+        {reviewing ? <VnReview th={th} isMobile={isMobile} form={reviewing} canApprove={canApprove} onEdit={editNotice} onClose={(msg) => { setReviewing(null); loadMain(); if (msg) setDecided(msg); }} /> : (<>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             <div role="tablist" aria-label="Violation notices" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
               {tabs.map(([k, label]) => (
@@ -473,7 +516,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
             <div style={{ display: 'grid', gap: '0.5rem' }}>
               {lists.pending.map(f => (
                 <button key={f.id} type="button" className="fin-btn" onClick={() => setReviewing(f)} style={{ ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: 'pointer' }}>
-                  <span style={{ minWidth: 0 }}>{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}, {day(f.createdAt)}</span></span>
+                  <span style={{ minWidth: 0 }}>{who(f)}<span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>From {f.submittedBy}, {day(f.createdAt)}{f.flow === 'v2' ? '' : ' (signed under the old process)'}</span></span>
                   <span style={{ color: canApprove ? O : th.muted, fontWeight: 700, fontSize: '0.85rem', alignSelf: 'center' }}>{canApprove ? 'Review' : 'View'}</span>
                 </button>
               ))}
@@ -511,10 +554,11 @@ export function ViolationNotice({ th, isMobile, onBack }) {
     <div className="fin-root" style={{ maxWidth: 940, margin: '0 auto' }}>
       <style>{FIN_CSS(th) + CSS}</style>
       {listView
-        ? <button type="button" className="fin-btn" onClick={() => { setView('list'); loadMain(); }} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Violation Notices</button>
+        ? <button type="button" className="fin-btn" onClick={() => { setView('list'); setEditing(null); loadMain(); }} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Violation Notices</button>
         : onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
       <h2 style={S.title}>Violation Notice</h2>
-      <p style={S.lede}>Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign here, or from an emailed link if they aren't there. Once everyone has signed it goes for approval, then it's filed.</p>
+      <p style={S.lede}>{editing ? `Editing ${editing.employeeName}'s notice from ${editing.submittedBy}. Change anything, then approve. ${editing.submittedBy}'s signature stays, and the notice will say you revised and approved it.`
+        : "Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. It goes to HR for approval; once approved, the employee signs (here or by emailed link) and it's filed."}</p>
 
       {!listView && !fixing && myWaiting.length > 0 && (
         <section style={{ ...S.panel, padding: '0.9rem 1rem 1rem', marginBottom: '1.1rem' }} aria-label="Waiting on signatures">
@@ -534,7 +578,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
       {!listView && !fixing && !myBack.length && backMsg && <FinBanner th={th} tone={backMsg.tone}>{backMsg.text}</FinBanner>}
       {fixing && (
         <FinBanner th={th} tone="warn">
-          Fixing the notice for {fixing.employeeName} that {fixing.decidedBy || 'the approver'} sent back{fixing.note ? `: "${fixing.note}"` : ''}. Make the change, then everyone signs again (here or by emailed link) and it goes back for approval.{' '}
+          Fixing the notice for {fixing.employeeName} that {fixing.decidedBy || 'the approver'} sent back{fixing.note ? `: "${fixing.note}"` : ''}. Make the change and send it again; {fixing.formValues?.supervisorSignature ? 'your signature stays' : 'sign it'}, and it goes back to HR.{' '}
           <button type="button" className="fin-btn" onClick={() => { setFixing(null); setView(listView ? 'list' : 'form'); }} style={{ ...S.link, color: 'inherit', textDecoration: 'underline' }}>Cancel</button>
         </FinBanner>
       )}
@@ -591,20 +635,32 @@ export function ViolationNotice({ th, isMobile, onBack }) {
         <p className="vn-h">Acknowledgment:</p>
         <p style={{ fontSize: '0.9em' }}>By signing this form, you confirm that you understand the information on this violation. You also confirm that you and your manager have discussed the violation and plan for improvement. Signing this form does not necessarily indicate that you agree with this violation. If you are provided this notice by email, it is not necessary for the employee to sign the acknowledgement as the email serves as a formal acknowledgment.</p>
 
-        {sigBlock('employee', 'Employee', <Locked value={picked?.name || ''} placeholder="employee" w="11em" />)}
-        {sigBlock('supervisor', 'Supervisor', <input className="vn-blank" style={{ width: '11em' }} value={supervisorName} maxLength={80} onChange={e => setSupervisorName(e.target.value)} aria-label="Supervisor name" />)}
-        {sigBlock('witness', 'Witness', <input className="vn-blank" style={{ width: '11em' }} value={witnessName} maxLength={80} onChange={e => setWitnessName(e.target.value)} placeholder="witness name" aria-label="Witness name" />)}
+        {editing ? (
+          <div className="vn-row" style={{ marginTop: '0.9em' }}>
+            <span className="vn-f"><b><u>Supervisor</u> - Name:</b><Locked value={supervisorName} w="11em" /></span>
+            <span className="vn-f"><b>Signature:</b><span className="vn-sigline">{sigOk('supervisor') && <img src={sigOk('supervisor').image} alt="Supervisor signature" style={{ maxHeight: '2.3em', maxWidth: '12em', objectFit: 'contain' }} />}</span></span>
+            <span className="vn-f"><b>Date:</b><Locked value={sigOk('supervisor') ? formatVioDate(sigOk('supervisor').date) : ''} w="6.5em" /></span>
+          </div>
+        ) : sigBlock('supervisor', 'Supervisor', <input className="vn-blank" style={{ width: '11em' }} value={supervisorName} maxLength={80} onChange={e => setSupervisorName(e.target.value)} aria-label="Supervisor name" />)}
+        <p style={{ fontFamily: FONTS.body, fontSize: '0.82rem', color: '#6b6158', marginTop: '0.9em' }}>The employee (and a witness, if there is one) sign after HR approves this notice, here on screen or from an emailed link.</p>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.9rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
         {!ready && <span style={{ color: th.muted, fontSize: '0.82rem' }}>{missing.length ? `Still needed: ${missing.join(', ')}` : ''}</span>}
-        <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? 'pointer' : 'not-allowed' }} disabled={!ready} onClick={send}>{busy ? 'Saving…' : 'Save & send'}</button>
+        {editing && (
+          <label style={{ display: 'flex', gap: '0.45rem', alignItems: 'center', fontSize: '0.85rem', flexWrap: 'wrap' }}>
+            <input type="checkbox" checked={approveTo.on} onChange={e => setApproveTo(x => ({ ...x, on: e.target.checked }))} style={{ accentColor: O, width: 18, height: 18 }} /> Also email the employee a link
+            {approveTo.on && <><input type="email" placeholder="Employee email" aria-label="Employee email" value={approveTo.email} onChange={e => setApproveTo(x => ({ ...x, email: e.target.value }))} style={{ ...S.input, width: '13em', padding: '0.4rem 0.55rem' }} />
+              <input type="tel" placeholder="Cell (optional)" aria-label="Employee cell (optional)" value={approveTo.phone} onChange={e => setApproveTo(x => ({ ...x, phone: e.target.value }))} style={{ ...S.input, width: '9.5em', padding: '0.4rem 0.55rem' }} /></>}
+          </label>
+        )}
+        <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? 'pointer' : 'not-allowed' }} disabled={!ready} onClick={() => (editing ? setSigning('hr') : send())}>{busy ? 'Saving…' : editing ? 'Sign, save changes & approve' : 'Sign & send to HR'}</button>
       </div>
       {saved && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginBottom: '2rem' }}>{savedLine()}{saved.pdfUrl && <div style={{ marginTop: '0.6rem' }}><PdfOpenButton url={saved.pdfUrl} style={{ ...S.ghost }} /></div>}</div>}
 
       {signing && (
-        <SignatureModal th={th} title={`${signing === 'employee' ? 'Employee' : signing === 'supervisor' ? 'Supervisor' : 'Witness'} signature — ${picked?.name || ''}`} onCancel={() => setSigning(null)}
-          onDone={(image) => { setSigs(x => ({ ...x, [signing]: { image, date: todayIso(), fp } })); if (signing === 'employee') setEmployeeRefused(false); setSigning(null); }} />
+        <SignatureModal th={th} title={signing === 'hr' ? 'Your signature — HR approval' : `${signing === 'employee' ? 'Employee' : signing === 'supervisor' ? 'Supervisor' : 'Witness'} signature — ${picked?.name || ''}`} onCancel={() => setSigning(null)}
+          onDone={(image) => { if (signing === 'hr') { setSigning(null); setHrSig(image); send(image); return; } setSigs(x => ({ ...x, [signing]: { image, date: todayIso(), fp } })); if (signing === 'employee') setEmployeeRefused(false); setSigning(null); }} />
       )}
     </div>
   );

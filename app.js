@@ -3000,6 +3000,77 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return /* @__PURE__ */ React.createElement("div", null, signing.map((s) => /* @__PURE__ */ React.createElement(SignerRow, { key: s.role, th, s, showRole: many, onFix, busy })));
   }
 
+  // src/violation-collect-ui.jsx
+  var { useState: useState5 } = React;
+  var emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || "").trim());
+  var phoneOk = (p) => {
+    const d = String(p || "").replace(/\D/g, "");
+    return !d || d.length === 10 || d.length === 11 && d[0] === "1";
+  };
+  function VnCollect({ th, item, call: call7, onDone }) {
+    const S = finStyles(th);
+    const [busy, setBusy] = useState5(false);
+    const [msg, setMsg] = useState5(null);
+    const [signing, setSigning] = useState5(null);
+    const [linkFor, setLinkFor] = useState5(null);
+    const [email, setEmail] = useState5("");
+    const [phone, setPhone] = useState5("");
+    const [witnessName, setWitnessName] = useState5(item.witnessName || "");
+    const empDone = item.employeeSigned || item.employeeRefused;
+    const run = async (body, okText) => {
+      setBusy(true);
+      setMsg(null);
+      try {
+        const b = await call7({ id: item.id, ...body });
+        if (body.action === "sendLink") {
+          const s = b.sign || {};
+          setMsg({ tone: s.sent ? "success" : "error", text: s.sent ? `Link emailed${s.texted ? ", with a reminder text" : s.phone ? "" : " (no cell number, so no reminder text)"}. It expires ${new Date(s.expiresAt).toLocaleDateString("en-US")}.` : "The email did not go through. Check the address." });
+          setLinkFor(null);
+        } else setMsg({ tone: "success", text: b.filed ? `${okText} The notice is complete and filed.` : okText });
+        onDone && onDone();
+      } catch (e) {
+        setMsg({ tone: "error", text: e.message });
+      }
+      setBusy(false);
+    };
+    const btn2 = (label, onClick, opts = {}) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "fin-btn",
+        disabled: busy || opts.disabled,
+        onClick,
+        style: { ...opts.primary ? S.primary : S.ghost, minHeight: 34, padding: "0.35rem 0.8rem", fontSize: "0.85rem", ...opts.danger ? { color: "#b91c1c" } : {}, opacity: busy || opts.disabled ? 0.5 : 1 }
+      },
+      label
+    );
+    const inputStyle = { ...S.input, padding: "0.45rem 0.6rem", fontSize: "0.9rem" };
+    const linkForm = (role) => linkFor === role && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, flex: "1 1 14em" } }, role === "witness" ? "Witness" : "Employee", " email", /* @__PURE__ */ React.createElement("input", { type: "email", inputMode: "email", autoComplete: "off", value: email, onChange: (e) => setEmail(e.target.value), style: inputStyle })), /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, flex: "1 1 10em" } }, "Cell (optional)", /* @__PURE__ */ React.createElement("input", { type: "tel", inputMode: "tel", autoComplete: "off", value: phone, onChange: (e) => setPhone(e.target.value), placeholder: "(215) 555-0100", style: inputStyle })), btn2("Send link", () => run({ action: "sendLink", role, email: email.trim(), phone, witnessName }), { primary: true, disabled: !emailOk(email) || !phoneOk(phone) || role === "witness" && !witnessName.trim() }), /* @__PURE__ */ React.createElement("span", { style: { flexBasis: "100%", fontSize: "0.8rem", color: th.muted } }, "With a cell number they also get a reminder text and confirm its last 4 digits before signing. Without one, the email link alone opens it, and the signed notice says so."));
+    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.7rem", padding: "0.8rem 0.9rem", borderRadius: 10, background: th.card3, fontFamily: FONTS.body, fontSize: "0.9rem" } }, msg && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: msg.tone }, msg.text)), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, marginBottom: "0.35rem" } }, "Witness ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: th.muted } }, "(optional: add them before the employee signs)")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { value: witnessName, onChange: (e) => setWitnessName(e.target.value), placeholder: "Witness name", "aria-label": "Witness name", maxLength: 80, style: { ...inputStyle, width: "13em" } }), btn2("Witness signs here", () => setSigning("witness"), { disabled: !witnessName.trim() }), btn2("Email the witness a link", () => {
+      setLinkFor(linkFor === "witness" ? null : "witness");
+      setEmail("");
+      setPhone("");
+    }, { disabled: !witnessName.trim() })), linkForm("witness"), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, margin: "0.9rem 0 0.35rem" } }, "Employee: ", item.employeeName), empDone ? /* @__PURE__ */ React.createElement("div", { style: { color: "#16a34a", fontWeight: 600 } }, item.employeeRefused ? "Recorded as refused to sign." : "Signed.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, btn2("Employee signs here", () => setSigning("employee"), { primary: true }), btn2("Email the employee a link", () => {
+      setLinkFor(linkFor === "employee" ? null : "employee");
+      setEmail("");
+      setPhone("");
+    }), btn2("Employee refused to sign", () => {
+      if (window.confirm(`Record that ${item.employeeName} refused to sign? The notice will be filed with "Refused to sign".`)) run({ action: "refused", role: "employee" }, "Recorded as refused to sign.");
+    }, { danger: true })), linkForm("employee")), signing && /* @__PURE__ */ React.createElement(
+      SignatureModal,
+      {
+        th,
+        title: signing === "employee" ? `Employee signature \u2014 ${item.employeeName}` : `Witness signature \u2014 ${witnessName}`,
+        onCancel: () => setSigning(null),
+        onDone: (image) => {
+          const role = signing;
+          setSigning(null);
+          run({ action: "signHere", role, signature: image, witnessName }, role === "employee" ? "Employee signed." : "Witness signed.");
+        }
+      }
+    ));
+  }
+
   // src/violation-notice-pdf.mjs
   var VIO_LAYOUT = [
     [52.15, 15, [[250.89, "Violation", 1], [317.29, "Notice", 1]]],
@@ -3282,7 +3353,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/violation-notice-ui.jsx
-  var { useState: useState5, useEffect: useEffect4 } = React;
+  var { useState: useState6, useEffect: useEffect4 } = React;
   var todayIso4 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   var call2 = async (body) => {
     const res = await fetch("/.netlify/functions/violation-notice", {
@@ -3328,19 +3399,27 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .vn-sigimg { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: flex-end; }
 .vn-blank:focus-visible, .vn-lines:focus-visible, .vn-sigbtn:focus-visible, .vn-sigimg:focus-visible, .vn-check input:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .vn-blank, .vn-sigbtn { transition: none; } }`;
-  function VnReview({ th, isMobile, form, onClose, canApprove }) {
+  function VnReview({ th, isMobile, form, onClose, canApprove, onEdit }) {
     const S = finStyles(th);
-    const [busy, setBusy] = useState5(false);
-    const [err, setErr] = useState5(null);
-    const [backing, setBacking] = useState5(false);
-    const [note, setNote] = useState5("");
+    const [busy, setBusy] = useState6(false);
+    const [err, setErr] = useState6(null);
+    const [backing, setBacking] = useState6(false);
+    const [note, setNote] = useState6("");
+    const isNew = form.flow === "v2";
+    const [sendTo, setSendTo] = useState6({ on: false, email: "", phone: "" });
+    const [hrSigning, setHrSigning] = useState6(false);
+    const toOk = !sendTo.on || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sendTo.email.trim()) && (() => {
+      const d = sendTo.phone.replace(/\D/g, "");
+      return !d || d.length === 10 || d.length === 11 && d[0] === "1";
+    })();
     const src = `/.netlify/functions/violation-notice?pdf=${form.id}`;
-    const decide = async (action) => {
+    const decide = async (action, hrSignature) => {
       setBusy(true);
       setErr(null);
       try {
-        const b = await call2({ action, id: form.id, note: note.trim() });
+        const b = await call2({ action, id: form.id, note: note.trim(), hrSignature, sendTo: isNew && sendTo.on ? { email: sendTo.email.trim(), phone: sendTo.phone } : null });
         if (action === "reject") return onClose(`Sent back to ${form.submittedBy}.`);
+        if (isNew) return onClose(`Approved. ${b.sign?.sent ? `${form.employeeName} was emailed a link to sign.` : b.sign?.error ? b.sign.error : `It's under Waiting on signatures until ${form.employeeName} signs (in person or by link).`}`);
         const d = b.drive || {}, a = b.alert || {};
         onClose(`Approved: ${d.saved ? "filed in Google Drive" : `not saved to Drive (${d.error || "error"})`}, ${a.error ? `alert failed (${a.error})` : a.recipients ? `the Violation Notice list was alerted (${a.recipients})` : "no one is on the Violation Notice alert list yet"}. ${form.submittedBy} was told.`);
       } catch (e) {
@@ -3348,53 +3427,60 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setBusy(false);
       }
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "From ", form.submittedBy, form.violationDate ? `, violation on ${formatVioDate(form.violationDate)}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: src, title: `Violation notice for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: src, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "vn-note", style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement("textarea", { id: "vn-note", value: note, maxLength: 400, rows: 3, onChange: (e) => setNote(e.target.value), style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the violation notice approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving\u2026" : "Approve & file")));
+    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "From ", form.submittedBy, form.violationDate ? `, violation on ${formatVioDate(form.violationDate)}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: src, title: `Violation notice for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: src, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), isNew && canApprove && !backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.9rem", fontFamily: FONTS.body, fontSize: "0.88rem" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.5rem", alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: sendTo.on, onChange: (e) => setSendTo((x) => ({ ...x, on: e.target.checked })), style: { accentColor: O, width: 18, height: 18 } }), "Also email ", form.employeeName, " a link to sign it now ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(otherwise the supervisor gets it signed, in person or by link)")), sendTo.on && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("input", { type: "email", inputMode: "email", autoComplete: "off", placeholder: "Employee email", "aria-label": "Employee email", value: sendTo.email, onChange: (e) => setSendTo((x) => ({ ...x, email: e.target.value })), style: { ...S.input, flex: "1 1 14em", padding: "0.45rem 0.6rem" } }), /* @__PURE__ */ React.createElement("input", { type: "tel", inputMode: "tel", autoComplete: "off", placeholder: "Cell (optional)", "aria-label": "Employee cell (optional)", value: sendTo.phone, onChange: (e) => setSendTo((x) => ({ ...x, phone: e.target.value })), style: { ...S.input, flex: "1 1 10em", padding: "0.45rem 0.6rem" } }))), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "vn-note", style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement("textarea", { id: "vn-note", value: note, maxLength: 400, rows: 3, onChange: (e) => setNote(e.target.value), style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the violation notice approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canApprove && !backing && isNew && onEdit && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, disabled: busy, onClick: () => onEdit(form) }, "Edit before approving"), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: toOk ? 1 : 0.5 }, disabled: busy || !toOk, onClick: () => isNew ? setHrSigning(true) : decide("approve") }, busy ? "Approving\u2026" : isNew ? "Sign & approve" : "Approve & file"), hrSigning && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: "Your signature \u2014 HR approval", onCancel: () => setHrSigning(false), onDone: (img) => {
+      setHrSigning(false);
+      decide("approve", img);
+    } })));
   }
   var Locked2 = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `vn-locked${value ? "" : " vn-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function ViolationNotice({ th, isMobile, onBack }) {
     const S = finStyles(th);
-    const [stores, setStores] = useState5([]);
-    const [employees, setEmployees] = useState5(null);
-    const [error, setError] = useState5(null);
-    const [query, setQuery] = useState5("");
-    const [listOpen, setListOpen] = useState5(false);
-    const [picked, setPicked] = useState5(null);
-    const [supervisor, setSupervisor] = useState5("");
-    const [supervisorName, setSupervisorName] = useState5("");
-    const [date] = useState5(todayIso4());
-    const [notice, setNotice] = useState5("");
-    const [types, setTypes] = useState5([]);
-    const [action, setAction] = useState5("");
-    const [suspensionStart, setSuspensionStart] = useState5("");
-    const [suspensionReturn, setSuspensionReturn] = useState5("");
-    const [violationDate, setViolationDate] = useState5("");
-    const [description, setDescription] = useState5("");
-    const [descTouched, setDescTouched] = useState5(false);
-    const [improvement, setImprovement] = useState5("");
-    const [consequences, setConsequences] = useState5("");
-    const [witnessName, setWitnessName] = useState5("");
-    const [employeeRefused, setEmployeeRefused] = useState5(false);
-    const [remote, setRemoteState] = useState5({ employee: { on: false, phone: "", email: "" }, witness: { on: false, phone: "", email: "" } });
+    const [stores, setStores] = useState6([]);
+    const [employees, setEmployees] = useState6(null);
+    const [error, setError] = useState6(null);
+    const [query, setQuery] = useState6("");
+    const [listOpen, setListOpen] = useState6(false);
+    const [picked, setPicked] = useState6(null);
+    const [supervisor, setSupervisor] = useState6("");
+    const [supervisorName, setSupervisorName] = useState6("");
+    const [date] = useState6(todayIso4());
+    const [notice, setNotice] = useState6("");
+    const [types, setTypes] = useState6([]);
+    const [action, setAction] = useState6("");
+    const [suspensionStart, setSuspensionStart] = useState6("");
+    const [suspensionReturn, setSuspensionReturn] = useState6("");
+    const [violationDate, setViolationDate] = useState6("");
+    const [description, setDescription] = useState6("");
+    const [descTouched, setDescTouched] = useState6(false);
+    const [improvement, setImprovement] = useState6("");
+    const [consequences, setConsequences] = useState6("");
+    const [witnessName, setWitnessName] = useState6("");
+    const [employeeRefused, setEmployeeRefused] = useState6(false);
+    const [remote, setRemoteState] = useState6({ employee: { on: false, phone: "", email: "" }, witness: { on: false, phone: "", email: "" } });
     const setRemote = (role, patch) => setRemoteState((r) => ({ ...r, [role]: { ...r[role], ...patch } }));
-    const [sigs, setSigs] = useState5({});
-    const [signing, setSigning] = useState5(null);
-    const [busy, setBusy] = useState5(false);
-    const [saved, setSaved] = useState5(null);
-    const [listView, setListView] = useState5(false);
-    const [canApprove, setCanApprove] = useState5(false);
-    const [lists, setLists] = useState5({ pending: [], waiting: [], complete: [] });
-    const [view, setView] = useState5("list");
-    const [listTab, setListTab] = useState5("pending");
-    const [reviewing, setReviewing] = useState5(null);
-    const [viewing, setViewing] = useState5(null);
-    const [decided, setDecided] = useState5(null);
-    const [sentBack, setSentBack] = useState5([]);
-    const [myWaiting, setMyWaiting] = useState5([]);
-    const [fixing, setFixing] = useState5(null);
-    const [backMsg, setBackMsg] = useState5(null);
-    const [backBusy, setBackBusy] = useState5(null);
+    const [sigs, setSigs] = useState6({});
+    const [signing, setSigning] = useState6(null);
+    const [busy, setBusy] = useState6(false);
+    const [saved, setSaved] = useState6(null);
+    const [listView, setListView] = useState6(false);
+    const [canApprove, setCanApprove] = useState6(false);
+    const [lists, setLists] = useState6({ pending: [], waiting: [], complete: [] });
+    const [view, setView] = useState6("list");
+    const [listTab, setListTab] = useState6("pending");
+    const [reviewing, setReviewing] = useState6(null);
+    const [viewing, setViewing] = useState6(null);
+    const [decided, setDecided] = useState6(null);
+    const [sentBack, setSentBack] = useState6([]);
+    const [myWaiting, setMyWaiting] = useState6([]);
+    const [fixing, setFixing] = useState6(null);
+    const [editing, setEditing] = useState6(null);
+    const [approveTo, setApproveTo] = useState6({ on: false, email: "", phone: "" });
+    const [collecting, setCollecting] = useState6(null);
+    const [hrSig, setHrSig] = useState6(null);
+    const [backMsg, setBackMsg] = useState6(null);
+    const [backBusy, setBackBusy] = useState6(null);
     const LETTER0 = () => ({ file: null, date: todayIso4(), email: "", phone: "", busy: false, error: null, result: null, drag: false });
-    const [letter, setLetter] = useState5(LETTER0);
+    const [letter, setLetter] = useState6(LETTER0);
     const loadMain = () => call2().then((b) => {
       setStores(b.stores || []);
       setEmployees(b.employees || []);
@@ -3429,20 +3515,20 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const form = { employee: picked, pc: picked?.pc, supervisor, date, notice, types, action, suspensionStart, suspensionReturn, violationDate, description, improvement, consequences, supervisorName, witnessName, employeeRefused };
     const base = violationValues(form);
     const fp = violationFingerprint(base);
-    const sigOk = (k) => sigs[k] && sigs[k].fp === fp ? sigs[k] : null;
+    const sigOk = (k) => sigs[k] && (k === "supervisor" || sigs[k].fp === fp) ? sigs[k] : null;
     const voided = Object.keys(sigs).some((k) => sigs[k] && sigs[k].fp !== fp);
     const values = violationValues({ ...form, employeeSig: sigOk("employee"), supervisorSig: sigOk("supervisor"), witnessSig: sigOk("witness") });
     const formMissing = missingViolationFields({ ...base, supervisorSignature: "x" });
     const canSign = !formMissing.length;
     const remoteOn = (role) => remote[role].on && !sigOk(role) && (role !== "employee" || !employeeRefused);
-    const phoneOk = (p) => {
+    const phoneOk2 = (p) => {
       const d = p.replace(/\D/g, "");
       return d.length === 10 || d.length === 11 && d[0] === "1";
     };
-    const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+    const emailOk2 = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
     const remoteMissing = ["employee", "witness"].filter(remoteOn).flatMap((role) => {
       const who = role === "employee" ? "Employee" : "Witness";
-      return [...role === "witness" && !witnessName.trim() ? ["Witness name"] : [], ...!emailOk(remote[role].email) ? [`${who}'s email for the signing link`] : [], ...!phoneOk(remote[role].phone) ? [`${who}'s cell number`] : []];
+      return [...role === "witness" && !witnessName.trim() ? ["Witness name"] : [], ...!emailOk2(remote[role].email) ? [`${who}'s email for the signing link`] : [], ...!phoneOk2(remote[role].phone) ? [`${who}'s cell number`] : []];
     });
     const missing = [...missingViolationFields(values), ...remoteMissing];
     const ready = !missing.length && !busy;
@@ -3457,7 +3543,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setListOpen(false);
     };
     const toggleType = (k) => setTypes((t) => t.includes(k) ? t.filter((x) => x !== k) : [...t, k]);
-    const send = async () => {
+    const send = async (hrSigArg) => {
       if (!ready) return;
       setBusy(true);
       setError(null);
@@ -3468,8 +3554,19 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const doc = buildViolationPdf(JsPDF, fonts, values, { watermark });
         const fileName = `Violation-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
         setSaved({ state: "saving" });
+        if (editing) {
+          const b = await call2({ action: "approve", id: editing.id, values, pdf: doc.output("datauristring"), hrSignature: hrSigArg || hrSig, sendTo: approveTo.on ? { email: approveTo.email.trim(), phone: approveTo.phone } : null });
+          setSaved(null);
+          const who = editing.employeeName;
+          setEditing(null);
+          setView("list");
+          loadMain();
+          setDecided(`Approved${b.edited ? " with your changes" : ""}. ${b.sign?.sent ? `${who} was emailed a link to sign.` : b.sign?.error ? b.sign.error : `It's under Waiting on signatures until ${who} signs.`}`);
+          setBusy(false);
+          return;
+        }
         try {
-          const b = await call2({ values, employeeId: picked.id, pdf: doc.output("datauristring"), remoteSign: Object.fromEntries(["employee", "witness"].filter(remoteOn).map((role) => [role, { phone: remote[role].phone, email: remote[role].email.trim() }])), replaces: fixing?.id });
+          const b = await call2({ flow: "v2", values, employeeId: picked.id, pdf: doc.output("datauristring"), replaces: fixing?.id });
           setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
           if (fixing) {
             setFixing(null);
@@ -3487,7 +3584,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       if (!saved) return null;
       if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Saving and sending\u2026");
       if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Not saved: ", saved.error, ". Press the button again to retry.");
-      return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, saved.status === "awaiting_signatures" ? "Saved. Once the signatures below come in, it goes for approval; you'll be told when it's approved." : saved.status === "pending" ? `Sent for approval${saved.notified ? "" : " (no approver is set up yet \u2014 ask IT)"}. Once it's approved it's filed in Google Drive and you'll be told.` : saved.status === "approved" ? "This notice was already approved and filed." : "Saved.", (saved.remoteSign || []).map((r) => {
+      return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, saved.status === "awaiting_signatures" ? "Saved. Once the signatures below come in, it goes for approval; you'll be told when it's approved." : saved.status === "pending" ? `Sent to HR for approval${saved.notified ? "" : " (no approver is set up yet \u2014 ask IT)"}. Once it's approved, get the employee's signature from Waiting on signatures (in person or by emailed link).` : saved.status === "approved" ? "This notice was already approved and filed." : "Saved.", (saved.remoteSign || []).map((r) => {
         const who = r.role === "witness" ? "witness" : "employee";
         return /* @__PURE__ */ React.createElement("span", { key: r.role, style: { display: "block", marginTop: "0.3rem", color: r.sent ? r.textNote ? "#d97706" : "#16a34a" : "#dc2626" } }, r.error ? `The ${who}'s signing link was not sent: ${r.error}. Press the button again to retry.` : r.already ? `The ${who}'s signing link was just sent.` : r.signedAlready ? `The ${who} has already signed.` : r.sent ? `Signing link emailed to the ${who} (${r.email})${r.texted ? `, with a reminder text to ${r.phone}` : ""}. It expires ${new Date(r.expiresAt).toLocaleDateString("en-US")}. You'll get an alert when they sign.${r.textNote ? ` ${r.textNote}.` : ""}` : `The ${who}'s signing email did not go through. Check the address and press the button again.`);
       }));
@@ -3546,7 +3643,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         if (e.target.checked) setRemote("employee", { on: false });
       } }), " Employee refused to sign"), key !== "supervisor" && !s && !refused && /* @__PURE__ */ React.createElement("label", { className: "vn-check", style: { fontFamily: FONTS.body, fontSize: "0.8rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: remote[key].on, onChange: (e) => setRemote(key, { on: e.target.checked }) }), " ", label, " isn't here: email them a link to sign"), key !== "supervisor" && remoteOn(key) && (() => {
         const r = remote[key];
-        return /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { fontFamily: FONTS.body, fontSize: "0.85rem", width: "100%", marginTop: "0.2em" } }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, label, " email:"), /* @__PURE__ */ React.createElement("input", { className: "vn-blank", type: "email", inputMode: "email", autoComplete: "off", style: { width: "13em", ...r.email && !emailOk(r.email) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: r.email, maxLength: 120, onChange: (e) => setRemote(key, { email: e.target.value }), "aria-label": `${label} email` })), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, label, " cell:"), /* @__PURE__ */ React.createElement("input", { className: "vn-blank", type: "tel", inputMode: "tel", autoComplete: "off", style: { width: "9.5em", ...r.phone && !phoneOk(r.phone) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: r.phone, maxLength: 20, onChange: (e) => setRemote(key, { phone: e.target.value }), placeholder: "(215) 555-0100", "aria-label": `${label} cell number` })), /* @__PURE__ */ React.createElement("span", { style: { color: "#6b6158", fontSize: "0.9em", flexBasis: "100%" } }, `On "Save & send" they're emailed a private link (expires in 3 days) and get a text reminding them to check their email. They confirm the last 4 digits of this cell number, read the notice and sign on their phone; the signed copy is filed and you're alerted.`));
+        return /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { fontFamily: FONTS.body, fontSize: "0.85rem", width: "100%", marginTop: "0.2em" } }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, label, " email:"), /* @__PURE__ */ React.createElement("input", { className: "vn-blank", type: "email", inputMode: "email", autoComplete: "off", style: { width: "13em", ...r.email && !emailOk2(r.email) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: r.email, maxLength: 120, onChange: (e) => setRemote(key, { email: e.target.value }), "aria-label": `${label} email` })), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, label, " cell:"), /* @__PURE__ */ React.createElement("input", { className: "vn-blank", type: "tel", inputMode: "tel", autoComplete: "off", style: { width: "9.5em", ...r.phone && !phoneOk2(r.phone) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: r.phone, maxLength: 20, onChange: (e) => setRemote(key, { phone: e.target.value }), placeholder: "(215) 555-0100", "aria-label": `${label} cell number` })), /* @__PURE__ */ React.createElement("span", { style: { color: "#6b6158", fontSize: "0.9em", flexBasis: "100%" } }, `On "Save & send" they're emailed a private link (expires in 3 days) and get a text reminding them to check their email. They confirm the last 4 digits of this cell number, read the notice and sign on their phone; the signed copy is filed and you're alerted.`));
       })());
     };
     const fixNotice = (item) => {
@@ -3566,7 +3663,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setConsequences(fv.consequences || "");
       setWitnessName(fv.witnessName || "");
       setEmployeeRefused(false);
-      setSigs({});
+      setSigs(fv.supervisorSignature ? { supervisor: { image: fv.supervisorSignature, date: fv.supervisorSignedDate || todayIso4(), fp: "" } } : {});
       setRemoteState({ employee: { on: false, phone: "", email: "" }, witness: { on: false, phone: "", email: "" } });
       setSaved(null);
       setBackMsg(null);
@@ -3576,6 +3673,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch {
       }
+    };
+    const editNotice = (item) => {
+      fixNotice(item);
+      setFixing(null);
+      setEditing(item);
+      setReviewing(null);
+      setApproveTo({ on: false, email: "", phone: "" });
     };
     const resendAsIs = async (item) => {
       setBackBusy(item.id);
@@ -3619,7 +3723,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setBackBusy(null);
     };
-    const waitingRow = (f, rowStyle, day, who, showMaker) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0, flex: "1 1 20em" } }, kindTag(f), who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, showMaker ? `From ${f.submittedBy}, ` : "Sent ", day(f.createdAt), ": ", f.kind === "letter" ? "waiting on the employee to acknowledge it from their email link" : "waiting on a signature from an email link"), /* @__PURE__ */ React.createElement(SignProgress, { th, signing: f.signing, busy: backBusy === f.id, onFix: (role, email) => fixEmail(f, role, email) })), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: backBusy === f.id, onClick: () => resendLink(f), style: { ...S.link, color: O } }, backBusy === f.id ? "Sending\u2026" : "Resend link")));
+    const waitingRow = (f, rowStyle, day, who, showMaker) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0, flex: "1 1 20em" } }, kindTag(f), who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, showMaker ? `From ${f.submittedBy}, ` : "Sent ", day(f.createdAt), ": ", f.kind === "letter" ? "waiting on the employee to acknowledge it from their email link" : f.status === "awaiting_employee" ? `approved by ${f.decidedBy || "HR"}${f.editedBy ? " (with changes)" : ""}; waiting on the employee's signature` : "waiting on a signature from an email link"), /* @__PURE__ */ React.createElement(SignProgress, { th, signing: f.signing, busy: backBusy === f.id, onFix: (role, email) => fixEmail(f, role, email) })), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View"), f.status === "awaiting_employee" && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setCollecting(collecting === f.id ? null : f.id), style: { ...S.link, color: O } }, collecting === f.id ? "Close" : "Get signatures"), (f.status !== "awaiting_employee" || (f.signing || []).some((x) => !x.signedAt)) && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: backBusy === f.id, onClick: () => resendLink(f), style: { ...S.link, color: O } }, backBusy === f.id ? "Sending\u2026" : "Resend link")), collecting === f.id && /* @__PURE__ */ React.createElement("div", { style: { flexBasis: "100%" } }, /* @__PURE__ */ React.createElement(VnCollect, { th, item: f, call: call2, onDone: loadMain })));
     const resendLink = async (item) => {
       setBackBusy(item.id);
       setBackMsg(null);
@@ -3701,8 +3805,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       const day = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
       const rowStyle = { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", textAlign: "left", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body };
       const who = (f) => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, f.jobTitle ? `, ${f.jobTitle}` : ""));
-      const tabs = [["waiting", `Waiting on signatures${lists.waiting.length ? ` (${lists.waiting.length})` : ""}`], ["pending", `Pending approval${lists.pending.length ? ` (${lists.pending.length})` : ""}`], ["sentback", `Sent back${sentBack.length ? ` (${sentBack.length})` : ""}`], ["complete", "Complete"]];
-      return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Violation notices from supervisors. Once everyone has signed they wait for approval; approved ones are filed in Google Drive and show under Complete."), decided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, decided), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), reviewing ? /* @__PURE__ */ React.createElement(VnReview, { th, isMobile, form: reviewing, canApprove, onClose: (msg) => {
+      const tabs = [["pending", `Pending approval${lists.pending.length ? ` (${lists.pending.length})` : ""}`], ["sentback", `Sent back${sentBack.length ? ` (${sentBack.length})` : ""}`], ["waiting", `Waiting on signatures${lists.waiting.length ? ` (${lists.waiting.length})` : ""}`], ["complete", "Complete"]];
+      return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Violation notices from supervisors, signed by them. Approve them as they are, edit them before approving, or send them back. Once approved, the employee signs (in person or by emailed link) and it's filed in Google Drive."), decided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, decided), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), reviewing ? /* @__PURE__ */ React.createElement(VnReview, { th, isMobile, form: reviewing, canApprove, onEdit: editNotice, onClose: (msg) => {
         setReviewing(null);
         loadMain();
         if (msg) setDecided(msg);
@@ -3727,18 +3831,19 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       } }, "Upload a warning letter"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
         setDecided(null);
         setView("form");
-      } }, "Start a violation notice"))), listTab === "waiting" && backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), listTab === "pending" && (lists.pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.pending.map((f) => /* @__PURE__ */ React.createElement("button", { key: f.id, type: "button", className: "fin-btn", onClick: () => setReviewing(f), style: { ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, ", ", day(f.createdAt))), /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "waiting" && (lists.waiting.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.waiting.map((f) => waitingRow(f, rowStyle, day, who, true))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No notices waiting on signatures.")), listTab === "complete" && (lists.complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, kindTag(f), who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, f.kind === "letter" && f.decidedAt ? `, acknowledged and filed ${day(f.decidedAt)}` : f.decidedBy ? `, approved by ${f.decidedBy} on ${day(f.decidedAt)}` : `, ${day(f.createdAt)}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved violation notices yet.")), listTab === "sentback" && /* @__PURE__ */ React.createElement(React.Fragment, null, backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), sentBack.length ? sentBackList(sentBack, true) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing sent back.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/violation-notice?pdf=${viewing.id}`, title: `Violation notice for ${viewing.employeeName}`, onClose: () => setViewing(null) })));
+      } }, "Start a violation notice"))), listTab === "waiting" && backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), listTab === "pending" && (lists.pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.pending.map((f) => /* @__PURE__ */ React.createElement("button", { key: f.id, type: "button", className: "fin-btn", onClick: () => setReviewing(f), style: { ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, ", ", day(f.createdAt), f.flow === "v2" ? "" : " (signed under the old process)")), /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "waiting" && (lists.waiting.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.waiting.map((f) => waitingRow(f, rowStyle, day, who, true))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No notices waiting on signatures.")), listTab === "complete" && (lists.complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, kindTag(f), who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "From ", f.submittedBy, f.kind === "letter" && f.decidedAt ? `, acknowledged and filed ${day(f.decidedAt)}` : f.decidedBy ? `, approved by ${f.decidedBy} on ${day(f.decidedAt)}` : `, ${day(f.createdAt)}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved violation notices yet.")), listTab === "sentback" && /* @__PURE__ */ React.createElement(React.Fragment, null, backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), sentBack.length ? sentBackList(sentBack, true) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing sent back.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/violation-notice?pdf=${viewing.id}`, title: `Violation notice for ${viewing.employeeName}`, onClose: () => setViewing(null) })));
     }
     return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + CSS), listView ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
       setView("list");
+      setEditing(null);
       loadMain();
-    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Violation Notices") : onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. The employee and a witness sign here, or from an emailed link if they aren't there. Once everyone has signed it goes for approval, then it's filed."), !listView && !fixing && myWaiting.length > 0 && /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem 1rem", marginBottom: "1.1rem" }, "aria-label": "Waiting on signatures" }, /* @__PURE__ */ React.createElement("h3", { style: { ...S.panelTitle, margin: "0 0 0.6rem", fontSize: "1.05rem" } }, "Waiting on signatures (", myWaiting.length, ")"), backMsg && !myBack.length && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, myWaiting.map((f) => waitingRow(
+    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Violation Notices") : onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, editing ? `Editing ${editing.employeeName}'s notice from ${editing.submittedBy}. Change anything, then approve. ${editing.submittedBy}'s signature stays, and the notice will say you revised and approved it.` : "Fill in the notice: the employee's name, job title and store come straight from Paycor. Check the boxes, describe what happened, then sign. It goes to HR for approval; once approved, the employee signs (here or by emailed link) and it's filed."), !listView && !fixing && myWaiting.length > 0 && /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem 1rem", marginBottom: "1.1rem" }, "aria-label": "Waiting on signatures" }, /* @__PURE__ */ React.createElement("h3", { style: { ...S.panelTitle, margin: "0 0 0.6rem", fontSize: "1.05rem" } }, "Waiting on signatures (", myWaiting.length, ")"), backMsg && !myBack.length && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, myWaiting.map((f) => waitingRow(
       f,
       { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body },
       (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
       (x) => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, x.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, x.storeName)),
       false
-    )))), !listView && !fixing && myBack.length > 0 && /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem 1rem", marginBottom: "1.1rem" }, "aria-label": "Sent back" }, /* @__PURE__ */ React.createElement("h3", { style: { ...S.panelTitle, margin: "0 0 0.6rem", fontSize: "1.05rem" } }, "Sent back (", myBack.length, ")"), backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), sentBackList(myBack, false)), !listView && !fixing && !myBack.length && backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), fixing && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Fixing the notice for ", fixing.employeeName, " that ", fixing.decidedBy || "the approver", " sent back", fixing.note ? `: "${fixing.note}"` : "", ". Make the change, then everyone signs again (here or by emailed link) and it goes back for approval.", " ", /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
+    )))), !listView && !fixing && myBack.length > 0 && /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem 1rem", marginBottom: "1.1rem" }, "aria-label": "Sent back" }, /* @__PURE__ */ React.createElement("h3", { style: { ...S.panelTitle, margin: "0 0 0.6rem", fontSize: "1.05rem" } }, "Sent back (", myBack.length, ")"), backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), sentBackList(myBack, false)), !listView && !fixing && !myBack.length && backMsg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: backMsg.tone }, backMsg.text), fixing && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Fixing the notice for ", fixing.employeeName, " that ", fixing.decidedBy || "the approver", " sent back", fixing.note ? `: "${fixing.note}"` : "", ". Make the change and send it again; ", fixing.formValues?.supervisorSignature ? "your signature stays" : "sign it", ", and it goes back to HR.", " ", /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
       setFixing(null);
       setView(listView ? "list" : "form");
     }, style: { ...S.link, color: "inherit", textDecoration: "underline" } }, "Cancel")), viewing && !listView && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/violation-notice?pdf=${viewing.id}`, title: `Violation notice for ${viewing.employeeName}`, onClose: () => setViewing(null) }), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The notice changed after it was signed, so those signatures no longer count. Sign again."), employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "There's no one you can pick yet. If you're a Store Manager, ask IT to link your account to your store."), /* @__PURE__ */ React.createElement("div", { className: "vn-paper", style: {
@@ -3767,13 +3872,19 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         placeholder: "Required: what happened, when, and where",
         "aria-label": "Description of violation (required)"
       }
-    ), description.trim().length < DESCRIPTION_MIN && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78em", color: descTouched ? "#dc2626" : "#8a7f76", fontFamily: FONTS.body } }, "Required: write at least a sentence (", description.trim().length, "/", DESCRIPTION_MIN, " characters)."), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Disciplinary Action Taken:"), /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { gap: "0 0.2em" } }, ACTIONS.map(([k, l]) => check(action === k, () => setAction(action === k ? "" : k), l, k)), action === "suspension" && /* @__PURE__ */ React.createElement("span", { className: "vn-f", style: { flexWrap: "wrap" } }, "(Start Date:", dateIn(suspensionStart, setSuspensionStart, "Suspension start date"), " Return to Work Date", " ", /* @__PURE__ */ React.createElement("input", { type: "date", className: "vn-blank", style: { width: "9.5em" }, value: suspensionReturn, min: suspensionStart || void 0, onChange: (e) => setSuspensionReturn(e.target.value), "aria-label": "Return to work date" }), ")")), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Plans for Improvement (If Applicable):"), /* @__PURE__ */ React.createElement("textarea", { className: "vn-lines", rows: 2, value: improvement, maxLength: 400, onChange: (e) => setImprovement(e.target.value), "aria-label": "Plans for improvement" }), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Consequences of Further Policy Violation:"), /* @__PURE__ */ React.createElement("textarea", { className: "vn-lines", rows: 1, value: consequences, maxLength: 200, onChange: (e) => setConsequences(e.target.value), "aria-label": "Consequences of further policy violation" }), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Acknowledgment:"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.9em" } }, "By signing this form, you confirm that you understand the information on this violation. You also confirm that you and your manager have discussed the violation and plan for improvement. Signing this form does not necessarily indicate that you agree with this violation. If you are provided this notice by email, it is not necessary for the employee to sign the acknowledgement as the email serves as a formal acknowledgment."), sigBlock("employee", "Employee", /* @__PURE__ */ React.createElement(Locked2, { value: picked?.name || "", placeholder: "employee", w: "11em" })), sigBlock("supervisor", "Supervisor", /* @__PURE__ */ React.createElement("input", { className: "vn-blank", style: { width: "11em" }, value: supervisorName, maxLength: 80, onChange: (e) => setSupervisorName(e.target.value), "aria-label": "Supervisor name" })), sigBlock("witness", "Witness", /* @__PURE__ */ React.createElement("input", { className: "vn-blank", style: { width: "11em" }, value: witnessName, maxLength: 80, onChange: (e) => setWitnessName(e.target.value), placeholder: "witness name", "aria-label": "Witness name" }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send }, busy ? "Saving\u2026" : "Save & send")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
+    ), description.trim().length < DESCRIPTION_MIN && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78em", color: descTouched ? "#dc2626" : "#8a7f76", fontFamily: FONTS.body } }, "Required: write at least a sentence (", description.trim().length, "/", DESCRIPTION_MIN, " characters)."), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Disciplinary Action Taken:"), /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { gap: "0 0.2em" } }, ACTIONS.map(([k, l]) => check(action === k, () => setAction(action === k ? "" : k), l, k)), action === "suspension" && /* @__PURE__ */ React.createElement("span", { className: "vn-f", style: { flexWrap: "wrap" } }, "(Start Date:", dateIn(suspensionStart, setSuspensionStart, "Suspension start date"), " Return to Work Date", " ", /* @__PURE__ */ React.createElement("input", { type: "date", className: "vn-blank", style: { width: "9.5em" }, value: suspensionReturn, min: suspensionStart || void 0, onChange: (e) => setSuspensionReturn(e.target.value), "aria-label": "Return to work date" }), ")")), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Plans for Improvement (If Applicable):"), /* @__PURE__ */ React.createElement("textarea", { className: "vn-lines", rows: 2, value: improvement, maxLength: 400, onChange: (e) => setImprovement(e.target.value), "aria-label": "Plans for improvement" }), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Consequences of Further Policy Violation:"), /* @__PURE__ */ React.createElement("textarea", { className: "vn-lines", rows: 1, value: consequences, maxLength: 200, onChange: (e) => setConsequences(e.target.value), "aria-label": "Consequences of further policy violation" }), /* @__PURE__ */ React.createElement("p", { className: "vn-h" }, "Acknowledgment:"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.9em" } }, "By signing this form, you confirm that you understand the information on this violation. You also confirm that you and your manager have discussed the violation and plan for improvement. Signing this form does not necessarily indicate that you agree with this violation. If you are provided this notice by email, it is not necessary for the employee to sign the acknowledgement as the email serves as a formal acknowledgment."), editing ? /* @__PURE__ */ React.createElement("div", { className: "vn-row", style: { marginTop: "0.9em" } }, /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement("u", null, "Supervisor"), " - Name:"), /* @__PURE__ */ React.createElement(Locked2, { value: supervisorName, w: "11em" })), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Signature:"), /* @__PURE__ */ React.createElement("span", { className: "vn-sigline" }, sigOk("supervisor") && /* @__PURE__ */ React.createElement("img", { src: sigOk("supervisor").image, alt: "Supervisor signature", style: { maxHeight: "2.3em", maxWidth: "12em", objectFit: "contain" } }))), /* @__PURE__ */ React.createElement("span", { className: "vn-f" }, /* @__PURE__ */ React.createElement("b", null, "Date:"), /* @__PURE__ */ React.createElement(Locked2, { value: sigOk("supervisor") ? formatVioDate(sigOk("supervisor").date) : "", w: "6.5em" }))) : sigBlock("supervisor", "Supervisor", /* @__PURE__ */ React.createElement("input", { className: "vn-blank", style: { width: "11em" }, value: supervisorName, maxLength: 80, onChange: (e) => setSupervisorName(e.target.value), "aria-label": "Supervisor name" })), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: FONTS.body, fontSize: "0.82rem", color: "#6b6158", marginTop: "0.9em" } }, "The employee (and a witness, if there is one) sign after HR approves this notice, here on screen or from an emailed link.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, missing.length ? `Still needed: ${missing.join(", ")}` : ""), editing && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.45rem", alignItems: "center", fontSize: "0.85rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: approveTo.on, onChange: (e) => setApproveTo((x) => ({ ...x, on: e.target.checked })), style: { accentColor: O, width: 18, height: 18 } }), " Also email the employee a link", approveTo.on && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { type: "email", placeholder: "Employee email", "aria-label": "Employee email", value: approveTo.email, onChange: (e) => setApproveTo((x) => ({ ...x, email: e.target.value })), style: { ...S.input, width: "13em", padding: "0.4rem 0.55rem" } }), /* @__PURE__ */ React.createElement("input", { type: "tel", placeholder: "Cell (optional)", "aria-label": "Employee cell (optional)", value: approveTo.phone, onChange: (e) => setApproveTo((x) => ({ ...x, phone: e.target.value })), style: { ...S.input, width: "9.5em", padding: "0.4rem 0.55rem" } }))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: () => editing ? setSigning("hr") : send() }, busy ? "Saving\u2026" : editing ? "Sign, save changes & approve" : "Sign & send to HR")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
       SignatureModal,
       {
         th,
-        title: `${signing === "employee" ? "Employee" : signing === "supervisor" ? "Supervisor" : "Witness"} signature \u2014 ${picked?.name || ""}`,
+        title: signing === "hr" ? "Your signature \u2014 HR approval" : `${signing === "employee" ? "Employee" : signing === "supervisor" ? "Supervisor" : "Witness"} signature \u2014 ${picked?.name || ""}`,
         onCancel: () => setSigning(null),
         onDone: (image) => {
+          if (signing === "hr") {
+            setSigning(null);
+            setHrSig(image);
+            send(image);
+            return;
+          }
           setSigs((x) => ({ ...x, [signing]: { image, date: todayIso4(), fp } }));
           if (signing === "employee") setEmployeeRefused(false);
           setSigning(null);
@@ -3994,7 +4105,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/time-off-request-ui.jsx
-  var { useState: useState6, useEffect: useEffect5 } = React;
+  var { useState: useState7, useEffect: useEffect5 } = React;
   var todayIso5 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   var MAX_DOCS = 5;
   var MAX_DOC_BYTES = 3.5 * 1024 * 1024;
@@ -4051,9 +4162,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var fmtHrs = (n) => n == null || n === "" ? "\u2014" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
   function TimeOffRequest({ th, isMobile, onBack }) {
     const S = finStyles(th);
-    const [info, setInfo] = useState6(null);
-    const [error, setError] = useState6(null);
-    const [f, setF] = useState6({
+    const [info, setInfo] = useState7(null);
+    const [error, setError] = useState7(null);
+    const [f, setF] = useState7({
       email: "",
       employeeName: "",
       address: "",
@@ -4074,12 +4185,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       leaveOther: "",
       lastWorked: ""
     });
-    const [docs, setDocs] = useState6([]);
-    const [sig, setSig] = useState6(null);
-    const [signing, setSigning] = useState6(false);
-    const [busy, setBusy] = useState6(false);
-    const [saved, setSaved] = useState6(null);
-    const [touched, setTouched] = useState6(false);
+    const [docs, setDocs] = useState7([]);
+    const [sig, setSig] = useState7(null);
+    const [signing, setSigning] = useState7(false);
+    const [busy, setBusy] = useState7(false);
+    const [saved, setSaved] = useState7(null);
+    const [touched, setTouched] = useState7(false);
     const set = (k) => (e) => {
       const val = e && e.target ? e.target.value : e;
       setF((x) => ({ ...x, [k]: val }));
@@ -4312,7 +4423,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/resignation-letter-ui.jsx
-  var { useState: useState7, useEffect: useEffect6 } = React;
+  var { useState: useState8, useEffect: useEffect6 } = React;
   var todayIso6 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   var FN3 = "/.netlify/functions/resignation-letter";
   var call4 = async (body) => {
@@ -4353,30 +4464,30 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var Locked3 = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `rl-locked${value ? "" : " rl-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function ResignationLetter({ th, isMobile, onBack, storeAddresses = {} }) {
     const S = finStyles(th);
-    const [stores, setStores] = useState7([]);
-    const [employees, setEmployees] = useState7(null);
-    const [error, setError] = useState7(null);
-    const [query, setQuery] = useState7("");
-    const [listOpen, setListOpen] = useState7(false);
-    const [picked, setPicked] = useState7(null);
-    const [storeAddress, setStoreAddress] = useState7("");
-    const [lastDay, setLastDay] = useState7("");
-    const [date] = useState7(todayIso6());
-    const [supervisorName, setSupervisorName] = useState7("");
-    const [supervisorTitle, setSupervisorTitle] = useState7("");
-    const [remote, setRemoteState] = useState7({ on: false, phone: "", email: "" });
+    const [stores, setStores] = useState8([]);
+    const [employees, setEmployees] = useState8(null);
+    const [error, setError] = useState8(null);
+    const [query, setQuery] = useState8("");
+    const [listOpen, setListOpen] = useState8(false);
+    const [picked, setPicked] = useState8(null);
+    const [storeAddress, setStoreAddress] = useState8("");
+    const [lastDay, setLastDay] = useState8("");
+    const [date] = useState8(todayIso6());
+    const [supervisorName, setSupervisorName] = useState8("");
+    const [supervisorTitle, setSupervisorTitle] = useState8("");
+    const [remote, setRemoteState] = useState8({ on: false, phone: "", email: "" });
     const setRemote = (patch) => setRemoteState((r) => ({ ...r, ...patch }));
-    const [sigs, setSigs] = useState7({});
-    const [signing, setSigning] = useState7(null);
-    const [busy, setBusy] = useState7(false);
-    const [saved, setSaved] = useState7(null);
-    const [lists, setLists] = useState7({ waiting: [], complete: [] });
-    const [seeAll, setSeeAll] = useState7(false);
-    const [view, setView] = useState7("list");
-    const [listTab, setListTab] = useState7("waiting");
-    const [viewing, setViewing] = useState7(null);
-    const [msg, setMsg] = useState7(null);
-    const [rowBusy, setRowBusy] = useState7(null);
+    const [sigs, setSigs] = useState8({});
+    const [signing, setSigning] = useState8(null);
+    const [busy, setBusy] = useState8(false);
+    const [saved, setSaved] = useState8(null);
+    const [lists, setLists] = useState8({ waiting: [], complete: [] });
+    const [seeAll, setSeeAll] = useState8(false);
+    const [view, setView] = useState8("list");
+    const [listTab, setListTab] = useState8("waiting");
+    const [viewing, setViewing] = useState8(null);
+    const [msg, setMsg] = useState8(null);
+    const [rowBusy, setRowBusy] = useState8(null);
     const loadMain = () => call4().then((b) => {
       setStores(b.stores || []);
       setEmployees(b.employees || []);
@@ -4401,16 +4512,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const values = resignationValues({ ...form, employeeSig: sigOk("employee"), supervisorSig: sigOk("supervisor") });
     const canSign = !missingResignationFields({ ...base, supervisorSignature: "x" }).length;
     const remoteOn = remote.on && !sigOk("employee");
-    const phoneOk = (p) => {
+    const phoneOk2 = (p) => {
       const d = p.replace(/\D/g, "");
       return d.length === 10 || d.length === 11 && d[0] === "1";
     };
-    const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+    const emailOk2 = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
     const missing = [
       ...missingResignationFields(values),
       ...!values.employeeSignature && !remoteOn ? ["Employee signature (or email them a link)"] : [],
-      ...remoteOn && !emailOk(remote.email) ? ["Employee's email for the signing link"] : [],
-      ...remoteOn && !phoneOk(remote.phone) ? ["Employee's cell number"] : []
+      ...remoteOn && !emailOk2(remote.email) ? ["Employee's email for the signing link"] : [],
+      ...remoteOn && !phoneOk2(remote.phone) ? ["Employee's cell number"] : []
     ];
     const ready = !missing.length && !busy;
     useEffect6(() => {
@@ -4567,7 +4678,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       backgroundRepeat: "no-repeat",
       backgroundPosition: "center 45%",
       backgroundSize: "72%"
-    } }, /* @__PURE__ */ React.createElement("img", { src: `/${RES_CHROME.logo.src}`, alt: "People Capital Group", style: { display: "block", height: 64, margin: "0 auto 1.4em" } }), /* @__PURE__ */ React.createElement("p", null, "People Capital Group LLC"), /* @__PURE__ */ React.createElement("p", null, "Human Resources Department"), /* @__PURE__ */ React.createElement("p", null, "2200 Michener St STE 4 Philadelphia, PA 19115"), /* @__PURE__ */ React.createElement("p", { style: { margin: "1.6em 0 1.2em" } }, "Dear HR Administrator:"), /* @__PURE__ */ React.createElement("p", { style: { lineHeight: 2.1 } }, "Please accept this letter as a formal notification that I am voluntarily resigning from my position as a Dunkin' Donuts", " ", /* @__PURE__ */ React.createElement(Locked3, { value: picked?.jobTitle || "", placeholder: "position" }), " (position) at PC# ", /* @__PURE__ */ React.createElement(Locked3, { value: picked?.pc || "", w: "5.5em" }), ", located at", " ", /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: isMobile ? "100%" : "24em" }, value: storeAddress, maxLength: 160, onChange: (e) => setStoreAddress(e.target.value), placeholder: "store address", "aria-label": "Store address" }), " ", "(store address). I understand that two weeks' notice is standard. I would appreciate it if you release me from my employment with the Company effective", " ", /* @__PURE__ */ React.createElement("input", { type: "date", className: "rl-blank", style: { width: "9.5em" }, value: lastDay, onChange: (e) => setLastDay(e.target.value), "aria-label": "Last day of employment" }), " (last day of employment)."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em" } }, "Sincerely,"), /* @__PURE__ */ React.createElement("div", { className: "rl-sig" }, /* @__PURE__ */ React.createElement("span", { className: "rl-line" }, sigLine("employee", "Employee")), /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "center", paddingBottom: "0.15em" } }, sigOk("employee") ? usDate2(sigOk("employee").date) : /* @__PURE__ */ React.createElement("span", { className: "rl-when" }, remoteOn ? "when they sign" : "on signing")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Signature)"), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Date)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.9em", maxWidth: "18em" } }, /* @__PURE__ */ React.createElement("div", { className: "rl-line", style: { minHeight: "1.8em", paddingLeft: "0.3em" } }, picked?.name || /* @__PURE__ */ React.createElement("span", { style: { color: "#9a8f86", fontStyle: "italic" } }, "pick the employee above")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Print Name)")), !sigOk("employee") && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.7em", fontFamily: FONTS.body, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("label", { className: "rl-check" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: remote.on, onChange: (e) => setRemote({ on: e.target.checked }) }), " Employee isn't here: email them a link to sign"), remote.on && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5em 1.2em", marginTop: "0.4em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", gap: "0.35em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("b", null, "Employee email:"), /* @__PURE__ */ React.createElement("input", { className: "rl-blank", type: "email", inputMode: "email", autoComplete: "off", style: { width: "13em", ...remote.email && !emailOk(remote.email) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: remote.email, maxLength: 120, onChange: (e) => setRemote({ email: e.target.value }) })), /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", gap: "0.35em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("b", null, "Employee cell:"), /* @__PURE__ */ React.createElement("input", { className: "rl-blank", type: "tel", inputMode: "tel", autoComplete: "off", style: { width: "9.5em", ...remote.phone && !phoneOk(remote.phone) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: remote.phone, maxLength: 20, placeholder: "(215) 555-0100", onChange: (e) => setRemote({ phone: e.target.value }) })), /* @__PURE__ */ React.createElement("span", { style: { color: "#6b6158", flexBasis: "100%" } }, `On "Save & send" they're emailed a private link (expires in 3 days) and get a text telling them to check their email. They confirm the last 4 digits of this cell number, read the letter and sign; then it's filed and you're told.`))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2em" } }, "Acknowledged by:"), /* @__PURE__ */ React.createElement("div", { className: "rl-sig", style: { marginTop: "0.6em" } }, /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "space-between" } }, sigLine("supervisor", "Supervisor"), /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.15em", fontSize: "0.85em" } }, "/ ", /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: "11.5em", fontSize: "1em" }, value: supervisorTitle, maxLength: 60, onChange: (e) => setSupervisorTitle(e.target.value), placeholder: "your title", "aria-label": "Supervisor title" }))), /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "center", paddingBottom: "0.15em" } }, sigOk("supervisor") ? usDate2(sigOk("supervisor").date) : /* @__PURE__ */ React.createElement("span", { className: "rl-when" }, "on signing")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Supervisor Signature / Title)"), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Date)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.9em", maxWidth: "18em" } }, /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: "100%", textAlign: "left", background: FILL4 }, value: supervisorName, maxLength: 80, onChange: (e) => setSupervisorName(e.target.value), "aria-label": "Supervisor print name" }), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Supervisor - Print Name)"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && missing.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", missing.join(", ")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send }, busy ? "Saving\u2026" : "Save & send")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("img", { src: `/${RES_CHROME.logo.src}`, alt: "People Capital Group", style: { display: "block", height: 64, margin: "0 auto 1.4em" } }), /* @__PURE__ */ React.createElement("p", null, "People Capital Group LLC"), /* @__PURE__ */ React.createElement("p", null, "Human Resources Department"), /* @__PURE__ */ React.createElement("p", null, "2200 Michener St STE 4 Philadelphia, PA 19115"), /* @__PURE__ */ React.createElement("p", { style: { margin: "1.6em 0 1.2em" } }, "Dear HR Administrator:"), /* @__PURE__ */ React.createElement("p", { style: { lineHeight: 2.1 } }, "Please accept this letter as a formal notification that I am voluntarily resigning from my position as a Dunkin' Donuts", " ", /* @__PURE__ */ React.createElement(Locked3, { value: picked?.jobTitle || "", placeholder: "position" }), " (position) at PC# ", /* @__PURE__ */ React.createElement(Locked3, { value: picked?.pc || "", w: "5.5em" }), ", located at", " ", /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: isMobile ? "100%" : "24em" }, value: storeAddress, maxLength: 160, onChange: (e) => setStoreAddress(e.target.value), placeholder: "store address", "aria-label": "Store address" }), " ", "(store address). I understand that two weeks' notice is standard. I would appreciate it if you release me from my employment with the Company effective", " ", /* @__PURE__ */ React.createElement("input", { type: "date", className: "rl-blank", style: { width: "9.5em" }, value: lastDay, onChange: (e) => setLastDay(e.target.value), "aria-label": "Last day of employment" }), " (last day of employment)."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em" } }, "Sincerely,"), /* @__PURE__ */ React.createElement("div", { className: "rl-sig" }, /* @__PURE__ */ React.createElement("span", { className: "rl-line" }, sigLine("employee", "Employee")), /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "center", paddingBottom: "0.15em" } }, sigOk("employee") ? usDate2(sigOk("employee").date) : /* @__PURE__ */ React.createElement("span", { className: "rl-when" }, remoteOn ? "when they sign" : "on signing")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Signature)"), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Date)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.9em", maxWidth: "18em" } }, /* @__PURE__ */ React.createElement("div", { className: "rl-line", style: { minHeight: "1.8em", paddingLeft: "0.3em" } }, picked?.name || /* @__PURE__ */ React.createElement("span", { style: { color: "#9a8f86", fontStyle: "italic" } }, "pick the employee above")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Print Name)")), !sigOk("employee") && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.7em", fontFamily: FONTS.body, fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("label", { className: "rl-check" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: remote.on, onChange: (e) => setRemote({ on: e.target.checked }) }), " Employee isn't here: email them a link to sign"), remote.on && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5em 1.2em", marginTop: "0.4em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", gap: "0.35em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("b", null, "Employee email:"), /* @__PURE__ */ React.createElement("input", { className: "rl-blank", type: "email", inputMode: "email", autoComplete: "off", style: { width: "13em", ...remote.email && !emailOk2(remote.email) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: remote.email, maxLength: 120, onChange: (e) => setRemote({ email: e.target.value }) })), /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", gap: "0.35em", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("b", null, "Employee cell:"), /* @__PURE__ */ React.createElement("input", { className: "rl-blank", type: "tel", inputMode: "tel", autoComplete: "off", style: { width: "9.5em", ...remote.phone && !phoneOk2(remote.phone) ? { boxShadow: "inset 0 -2px 0 #dc2626" } : {} }, value: remote.phone, maxLength: 20, placeholder: "(215) 555-0100", onChange: (e) => setRemote({ phone: e.target.value }) })), /* @__PURE__ */ React.createElement("span", { style: { color: "#6b6158", flexBasis: "100%" } }, `On "Save & send" they're emailed a private link (expires in 3 days) and get a text telling them to check their email. They confirm the last 4 digits of this cell number, read the letter and sign; then it's filed and you're told.`))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2em" } }, "Acknowledged by:"), /* @__PURE__ */ React.createElement("div", { className: "rl-sig", style: { marginTop: "0.6em" } }, /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "space-between" } }, sigLine("supervisor", "Supervisor"), /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: "0.15em", fontSize: "0.85em" } }, "/ ", /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: "11.5em", fontSize: "1em" }, value: supervisorTitle, maxLength: 60, onChange: (e) => setSupervisorTitle(e.target.value), placeholder: "your title", "aria-label": "Supervisor title" }))), /* @__PURE__ */ React.createElement("span", { className: "rl-line", style: { justifyContent: "center", paddingBottom: "0.15em" } }, sigOk("supervisor") ? usDate2(sigOk("supervisor").date) : /* @__PURE__ */ React.createElement("span", { className: "rl-when" }, "on signing")), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Supervisor Signature / Title)"), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Date)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.9em", maxWidth: "18em" } }, /* @__PURE__ */ React.createElement("input", { className: "rl-blank", style: { width: "100%", textAlign: "left", background: FILL4 }, value: supervisorName, maxLength: 80, onChange: (e) => setSupervisorName(e.target.value), "aria-label": "Supervisor print name" }), /* @__PURE__ */ React.createElement("span", { className: "rl-cap" }, "(Supervisor - Print Name)"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && missing.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", missing.join(", ")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send }, busy ? "Saving\u2026" : "Save & send")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
       SignatureModal,
       {
         th,
@@ -4780,7 +4891,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/missing-hours-ui.jsx
-  var { useState: useState8, useEffect: useEffect7 } = React;
+  var { useState: useState9, useEffect: useEffect7 } = React;
   var todayIso7 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   var FN4 = "/.netlify/functions/missing-hours";
   var call5 = async (body) => {
@@ -4815,10 +4926,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .mh-blank:focus-visible, .mh-table td input:focus-visible, .mh-sigbtn:focus-visible, .mh-sigimg:focus-visible, .mh-x:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }`;
   function MhReview({ th, isMobile, form, canApprove, onClose }) {
     const S = finStyles(th);
-    const [busy, setBusy] = useState8(false);
-    const [err, setErr] = useState8(null);
-    const [backing, setBacking] = useState8(false);
-    const [note, setNote] = useState8("");
+    const [busy, setBusy] = useState9(false);
+    const [err, setErr] = useState9(null);
+    const [backing, setBacking] = useState9(false);
+    const [note, setNote] = useState9("");
     const src = `${FN4}?pdf=${form.id}`;
     const decide = async (action) => {
       setBusy(true);
@@ -4837,29 +4948,29 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function MissingHours({ th, isMobile, onBack, userType, username }) {
     const S = finStyles(th);
-    const [stores, setStores] = useState8([]);
-    const [employees, setEmployees] = useState8(null);
-    const [error, setError] = useState8(null);
-    const [query, setQuery] = useState8("");
-    const [listOpen, setListOpen] = useState8(false);
-    const [picked, setPicked] = useState8(null);
-    const [rows, setRows] = useState8(ROWS0);
-    const [reason, setReason] = useState8("");
-    const [signerName, setSignerName] = useState8("");
-    const [sig, setSig] = useState8(null);
-    const [signing, setSigning] = useState8(false);
-    const [busy, setBusy] = useState8(false);
-    const [saved, setSaved] = useState8(null);
-    const [canApprove, setCanApprove] = useState8(false);
-    const [seeAll, setSeeAll] = useState8(false);
-    const [lists, setLists] = useState8({ pending: [], sentBack: [], complete: [] });
-    const [view, setView] = useState8("list");
-    const [listTab, setListTab] = useState8("pending");
-    const [reviewing, setReviewing] = useState8(null);
-    const [viewing, setViewing] = useState8(null);
-    const [msg, setMsg] = useState8(null);
-    const [rowBusy, setRowBusy] = useState8(null);
-    const [fixing, setFixing] = useState8(null);
+    const [stores, setStores] = useState9([]);
+    const [employees, setEmployees] = useState9(null);
+    const [error, setError] = useState9(null);
+    const [query, setQuery] = useState9("");
+    const [listOpen, setListOpen] = useState9(false);
+    const [picked, setPicked] = useState9(null);
+    const [rows, setRows] = useState9(ROWS0);
+    const [reason, setReason] = useState9("");
+    const [signerName, setSignerName] = useState9("");
+    const [sig, setSig] = useState9(null);
+    const [signing, setSigning] = useState9(false);
+    const [busy, setBusy] = useState9(false);
+    const [saved, setSaved] = useState9(null);
+    const [canApprove, setCanApprove] = useState9(false);
+    const [seeAll, setSeeAll] = useState9(false);
+    const [lists, setLists] = useState9({ pending: [], sentBack: [], complete: [] });
+    const [view, setView] = useState9("list");
+    const [listTab, setListTab] = useState9("pending");
+    const [reviewing, setReviewing] = useState9(null);
+    const [viewing, setViewing] = useState9(null);
+    const [msg, setMsg] = useState9(null);
+    const [rowBusy, setRowBusy] = useState9(null);
+    const [fixing, setFixing] = useState9(null);
     const today = todayIso7();
     const loadMain = () => call5().then((b) => {
       setStores(b.stores || []);
@@ -5066,7 +5177,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/terms-gate-ui.jsx
-  var { useState: useState9 } = React;
+  var { useState: useState10 } = React;
   var TERMS_VERSION = "2026-11-13";
   async function fetchTermsStatus() {
     const res = await fetch("/.netlify/functions/terms-accept", { credentials: "include", headers: { ...authHeader() } });
@@ -5074,9 +5185,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return res.json();
   }
   function TermsGate({ th, user, onAccepted, onSignOut }) {
-    const [agree, setAgree] = useState9(false);
-    const [busy, setBusy] = useState9(false);
-    const [err, setErr] = useState9(null);
+    const [agree, setAgree] = useState10(false);
+    const [busy, setBusy] = useState10(false);
+    const [err, setErr] = useState10(null);
     const accept = async () => {
       setBusy(true);
       setErr(null);
@@ -5153,7 +5264,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/remote-sign-ui.jsx
-  var { useState: useState10, useEffect: useEffect8, useRef: useRef4 } = React;
+  var { useState: useState11, useEffect: useEffect8, useRef: useRef4 } = React;
   var call6 = async (body) => {
     const res = await fetch("/.netlify/functions/violation-sign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const b = await res.json().catch(() => ({}));
@@ -5172,7 +5283,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   };
   function PdfPages({ b64, width }) {
     const ref = useRef4(null);
-    const [err, setErr] = useState10(null);
+    const [err, setErr] = useState11(null);
     useEffect8(() => {
       let live = true;
       (async () => {
@@ -5210,16 +5321,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   function RemoteSignPage({ token }) {
     const th = getTheme(false);
     const S = finStyles(th);
-    const [hello, setHello] = useState10(null);
-    const [error, setError] = useState10(null);
-    const [fatal, setFatal] = useState10(null);
-    const [last4, setLast4] = useState10("");
-    const [doc, setDoc] = useState10(null);
-    const [read, setRead] = useState10(false);
-    const [consent, setConsent] = useState10(false);
-    const [signing, setSigning] = useState10(false);
-    const [busy, setBusy] = useState10(false);
-    const [done, setDone] = useState10(null);
+    const [hello, setHello] = useState11(null);
+    const [error, setError] = useState11(null);
+    const [fatal, setFatal] = useState11(null);
+    const [last4, setLast4] = useState11("");
+    const [doc, setDoc] = useState11(null);
+    const [read, setRead] = useState11(false);
+    const [consent, setConsent] = useState11(false);
+    const [signing, setSigning] = useState11(false);
+    const [busy, setBusy] = useState11(false);
+    const [done, setDone] = useState11(null);
     const width = Math.min(820, (typeof window !== "undefined" ? window.innerWidth : 820) - 32);
     useEffect8(() => {
       document.title = "Review and sign \xB7 PCG";
@@ -5227,7 +5338,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, []);
     const open = async (e) => {
       e.preventDefault();
-      if (!/^\d{4}$/.test(last4)) {
+      if (hello?.needsLast4 !== false && !/^\d{4}$/.test(last4)) {
         setError("Enter the last 4 digits of your phone number.");
         return;
       }
@@ -5259,7 +5370,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     if (fatal) return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, textAlign: "center" } }, "This link can't be used"), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, textAlign: "center", margin: "0 auto" } }, fatal)));
     if (!hello) return shell(/* @__PURE__ */ React.createElement("p", { style: { color: th.muted, textAlign: "center" } }, "Loading\u2026"));
     if (!doc) return shell(
-      /* @__PURE__ */ React.createElement("form", { onSubmit: open, style: { ...S.panel, padding: "1.3rem 1.2rem", maxWidth: 440, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, fontSize: "1.3rem" } }, "Hi ", hello.firstName), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: "1rem" } }, hello.kind === "resignation" ? `People Capital Group has your resignation letter for ${hello.storeName} ready for you to review and sign.` : hello.kind === "letter" ? `People Capital Group has a warning letter from ${hello.storeName} for you to read and acknowledge.` : hello.role === "witness" ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.` : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`, " To open it, enter the last 4 digits of the cell number your supervisor has for you."), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Last 4 digits of your phone", /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement("form", { onSubmit: open, style: { ...S.panel, padding: "1.3rem 1.2rem", maxWidth: 440, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, fontSize: "1.3rem" } }, "Hi ", hello.firstName), /* @__PURE__ */ React.createElement("p", { style: { ...S.lede, marginBottom: "1rem" } }, hello.kind === "resignation" ? `People Capital Group has your resignation letter for ${hello.storeName} ready for you to review and sign.` : hello.kind === "letter" ? `People Capital Group has a warning letter from ${hello.storeName} for you to read and acknowledge.` : hello.role === "witness" ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.` : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`, hello.needsLast4 === false ? "" : " To open it, enter the last 4 digits of the cell number your supervisor has for you."), hello.needsLast4 !== false && /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Last 4 digits of your phone", /* @__PURE__ */ React.createElement(
         "input",
         {
           style: { ...S.input, fontSize: "1.3rem", letterSpacing: "0.3em", textAlign: "center", fontVariantNumeric: "lining-nums tabular-nums" },
@@ -5287,7 +5398,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/joy-leaderboard-ui.jsx
-  var { useState: useState11, useEffect: useEffect9 } = React;
+  var { useState: useState12, useEffect: useEffect9 } = React;
   var FONT_H = "'Raleway'";
   var FONT_B = "'Source Sans 3'";
   var NUM = { fontVariantNumeric: "lining-nums tabular-nums" };
@@ -5311,13 +5422,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var HeartIcon = ({ color }) => /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M12 20s-7-4.4-9.2-8.6C1.3 8.4 3.2 5 6.6 5c2 0 3.4 1.1 4.4 2.6C12 6.1 13.4 5 15.4 5c3.4 0 5.3 3.4 3.8 6.4C17 15.6 12 20 12 20Z" }));
   var Chevron = ({ dir, color }) => /* @__PURE__ */ React.createElement("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: dir === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6" }));
   function JoyLeaderboard({ th, isMobile }) {
-    const [data, setData] = useState11(null);
-    const [err, setErr] = useState11(null);
-    const [date, setDate] = useState11(null);
-    const [mode, setMode] = useState11("day");
-    const [month, setMonth] = useState11(null);
-    const [loading, setLoading] = useState11(false);
-    const [showAll, setShowAll] = useState11(false);
+    const [data, setData] = useState12(null);
+    const [err, setErr] = useState12(null);
+    const [date, setDate] = useState12(null);
+    const [mode, setMode] = useState12("day");
+    const [month, setMonth] = useState12(null);
+    const [loading, setLoading] = useState12(false);
+    const [showAll, setShowAll] = useState12(false);
     useEffect9(() => {
       let live = true;
       const load = () => {
@@ -5403,8 +5514,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return /* @__PURE__ */ React.createElement("section", { style: cardStyle, "aria-label": "Joy in Childhood leaderboard" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(HeartIcon, { color: O }), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontFamily: FONT_H, fontWeight: 800, fontSize: "1.02rem", color: th.text } }, "Joy in Childhood"), data?.updatedAt && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontFamily: FONT_B } }, "Updated ", ago(data.updatedAt)))), data && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", fontFamily: FONT_B, flexWrap: "wrap", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("span", { role: "group", "aria-label": "Show one day or the whole month", style: { display: "inline-flex", gap: 2, padding: 2, borderRadius: 999, border: `1px solid ${th.cardBorder}` } }, seg("day", "Day"), seg("month", "Month")), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, arrow("left", canBack, () => step(-1), isMonth ? "Previous month" : "Previous day"), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { minWidth: "7.5em", textAlign: "center", fontWeight: 700, color: th.text, fontSize: "0.9rem", opacity: loading ? 0.6 : 1 } }, isMonth ? monthLabel(shownMonth, data.thisMonth) : dayLabel(shown, today)), arrow("right", canFwd, () => step(1), isMonth ? "Next month" : "Next day")))), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: "#dc2626", fontFamily: FONT_B, padding: "0.3rem 0" } }, err), data && isStore && rows[0] && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.6rem", padding: "0.4rem 0.2rem", fontFamily: FONT_B, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_H, fontWeight: 900, fontSize: "2.4rem", color: O, lineHeight: 1, ...NUM } }, rows[0].noData ? "\u2014" : rows[0].cnt.toLocaleString()), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, rows[0].noData ? `no data yet for ${rows[0].name}` : `donation${rows[0].cnt === 1 ? "" : "s"} at ${rows[0].name}`), !rows[0].noData && rows[0].ttl > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "$", rows[0].ttl.toLocaleString(void 0, { maximumFractionDigits: 2 }), " raised for Joy in Childhood")), data && isStore && !rows[0] && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, fontFamily: FONT_B } }, "Your account isn't linked to a store yet."), data && !isStore && /* @__PURE__ */ React.createElement(React.Fragment, null, rows.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, fontFamily: FONT_B, marginBottom: "0.3rem" } }, data.total.toLocaleString(), " donations across ", rows.filter((r) => !r.noData).length, " stores"), rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, fontFamily: FONT_B, padding: "0.4rem 0.2rem" } }, "No numbers for this ", isMonth ? "month" : "day", " yet. They fill in every hour."), !rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("ol", { style: { listStyle: "none", margin: 0, padding: 0 } }, rows.slice(0, limit).map((r) => /* @__PURE__ */ React.createElement("li", { key: r.pc, style: { display: "grid", gridTemplateColumns: isMobile ? "1.6rem minmax(0, 1.7fr) minmax(0, 1fr) 3rem" : "2rem minmax(0, 1fr) minmax(0, 1.4fr) 3.5rem", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.2rem", borderTop: `1px solid ${th.cardBorder}`, fontFamily: FONT_B } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_H, fontWeight: 900, color: r.rank && r.rank <= 3 ? O : th.muted, fontSize: "0.95rem", ...NUM } }, r.rank || ""), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.name, !isMobile && /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: th.muted, fontSize: "0.78rem" } }, " D", r.district)), /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { height: 8, borderRadius: 4, background: th.cardBorder, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "block", height: "100%", width: `${r.noData ? 0 : Math.max(2, r.cnt / max * 100)}%`, background: O, borderRadius: 4 } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", fontWeight: 800, color: th.text, ...NUM } }, r.noData ? "\u2014" : r.cnt.toLocaleString())))), data.scope === "all" && rows.length > 5 && !rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("div", { style: { paddingTop: "0.55rem", textAlign: "center" } }, linkBtn(showAll ? "Show top 5" : `Show all ${rows.length} stores`, () => setShowAll((v) => !v)))));
   }
   function JoyMobileTile({ cardStyle, mono, display, muted, secondary }) {
-    const [today, setToday] = useState11(null);
-    const [month, setMonth] = useState11(null);
+    const [today, setToday] = useState12(null);
+    const [month, setMonth] = useState12(null);
     useEffect9(() => {
       let live = true;
       const get = (qs) => fetch("/.netlify/functions/joy" + qs, { credentials: "include", headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).catch(() => null);
@@ -6188,7 +6299,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // app.jsx
-  var { useState: useState12, useRef: useRef5, useCallback, useEffect: useEffect10 } = React;
+  var { useState: useState13, useRef: useRef5, useCallback, useEffect: useEffect10 } = React;
   var Guard = class extends React.Component {
     constructor(props) {
       super(props);
@@ -6211,7 +6322,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
   var GOOGLE_ALLOWED_DOMAINS = ["peoplecapitalgroup.com", "rgi.life", "Raogroupinc.com"];
   function useIsMobile() {
-    const [isMobile, setIsMobile] = useState12(() => window.innerWidth <= 768);
+    const [isMobile, setIsMobile] = useState13(() => window.innerWidth <= 768);
     useEffect10(() => {
       const handler = () => setIsMobile(window.innerWidth <= 768);
       window.addEventListener("resize", handler);
@@ -6220,7 +6331,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return isMobile;
   }
   function useNoHoverDevice() {
-    const [noHover, setNoHover] = useState12(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
+    const [noHover, setNoHover] = useState13(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
     useEffect10(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mq = window.matchMedia("(hover: none)");
@@ -6233,7 +6344,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return noHover;
   }
   function useFrameHeight(frameRef, min = 360, gutter = 20, dep) {
-    const [frameH, setFrameH] = useState12(null);
+    const [frameH, setFrameH] = useState13(null);
     useEffect10(() => {
       const measure = () => {
         const el = frameRef.current;
@@ -7332,45 +7443,45 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Login({ onLogin, dark, toggleDark, users }) {
     const th = getTheme(dark);
-    const [form, setForm] = useState12({ u: (() => {
+    const [form, setForm] = useState13({ u: (() => {
       try {
         return localStorage.getItem("pcg_remember_username") || "";
       } catch {
         return "";
       }
     })(), p: "" });
-    const [rememberMe, setRememberMe] = useState12(() => {
+    const [rememberMe, setRememberMe] = useState13(() => {
       try {
         return !!localStorage.getItem("pcg_remember_username");
       } catch {
         return false;
       }
     });
-    const [authStage, setAuthStage] = useState12("password");
-    const [pendingUser, setPendingUser] = useState12(null);
-    const [twoFactorCode, setTwoFactorCode] = useState12("");
-    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState12("");
-    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState12(false);
-    const [trustDevice, setTrustDevice] = useState12(true);
-    const [err, setErr] = useState12("");
-    const [show, setShow] = useState12(false);
-    const [logoAnim, setLogoAnim] = useState12(false);
-    const [shake, setShake] = useState12(false);
-    const [loading, setLoading] = useState12(false);
-    const [exiting, setExiting] = useState12(false);
-    const [focusField, setFocusField] = useState12(null);
-    const [now, setNow] = useState12(/* @__PURE__ */ new Date());
-    const [mounted, setMounted] = useState12(false);
-    const [showItModal, setShowItModal] = useState12(false);
-    const [narrow, setNarrow] = useState12(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
-    const [tinyScreen, setTinyScreen] = useState12(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
+    const [authStage, setAuthStage] = useState13("password");
+    const [pendingUser, setPendingUser] = useState13(null);
+    const [twoFactorCode, setTwoFactorCode] = useState13("");
+    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState13("");
+    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState13(false);
+    const [trustDevice, setTrustDevice] = useState13(true);
+    const [err, setErr] = useState13("");
+    const [show, setShow] = useState13(false);
+    const [logoAnim, setLogoAnim] = useState13(false);
+    const [shake, setShake] = useState13(false);
+    const [loading, setLoading] = useState13(false);
+    const [exiting, setExiting] = useState13(false);
+    const [focusField, setFocusField] = useState13(null);
+    const [now, setNow] = useState13(/* @__PURE__ */ new Date());
+    const [mounted, setMounted] = useState13(false);
+    const [showItModal, setShowItModal] = useState13(false);
+    const [narrow, setNarrow] = useState13(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
+    const [tinyScreen, setTinyScreen] = useState13(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
     const toggleBtnRef = useRef5(null);
     const logoRef = useRef5(null);
     const googleBtnRef = useRef5(null);
     const tokenClientRef = useRef5(null);
-    const [bioAvailable, setBioAvailable] = useState12(false);
-    const [bioLoading, setBioLoading] = useState12(false);
-    const [bioAutoPrompting, setBioAutoPrompting] = useState12(false);
+    const [bioAvailable, setBioAvailable] = useState13(false);
+    const [bioLoading, setBioLoading] = useState13(false);
+    const [bioAutoPrompting, setBioAutoPrompting] = useState13(false);
     const bioAutoTriedRef = useRef5(false);
     useEffect10(() => {
       webauthnAvailable().then(setBioAvailable);
@@ -8463,15 +8574,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ))));
   }
   function LinksHub({ links, setLinks, th, user }) {
-    const [search, setSearch] = useState12("");
-    const [editMode, setEditMode] = useState12(false);
-    const [addMode, setAddMode] = useState12(false);
-    const [editingLink, setEditingLink] = useState12(null);
-    const [newLink, setNewLink] = useState12({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
-    const [editForm, setEditForm] = useState12({ name: "", url: "", desc: "", cat: "", visibility: "all" });
-    const [dragId, setDragId] = useState12(null);
-    const [dragCat, setDragCat] = useState12(null);
-    const [dragOverId, setDragOverId] = useState12(null);
+    const [search, setSearch] = useState13("");
+    const [editMode, setEditMode] = useState13(false);
+    const [addMode, setAddMode] = useState13(false);
+    const [editingLink, setEditingLink] = useState13(null);
+    const [newLink, setNewLink] = useState13({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
+    const [editForm, setEditForm] = useState13({ name: "", url: "", desc: "", cat: "", visibility: "all" });
+    const [dragId, setDragId] = useState13(null);
+    const [dragCat, setDragCat] = useState13(null);
+    const [dragOverId, setDragOverId] = useState13(null);
     const canAdmin = isFullAdmin(user) || user?.userType === "office_staff";
     const isFieldUser = user?.userType === "dm" || user?.userType === "manager";
     const allCats = Object.keys(links);
@@ -8744,12 +8855,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         [user.id]: typeof updater === "function" ? updater(prev[user.id] || []) : updater
       }));
     };
-    const [editing, setEditing] = useState12(null);
-    const [form, setForm] = useState12({ title: "", body: "" });
-    const [adding, setAdding] = useState12(false);
-    const [recording, setRecording] = useState12(false);
-    const [interimText, setInterimText] = useState12("");
-    const [recordError, setRecordError] = useState12("");
+    const [editing, setEditing] = useState13(null);
+    const [form, setForm] = useState13({ title: "", body: "" });
+    const [adding, setAdding] = useState13(false);
+    const [recording, setRecording] = useState13(false);
+    const [interimText, setInterimText] = useState13("");
+    const [recordError, setRecordError] = useState13("");
     const recognitionRef = useRef5(null);
     const baseBodyRef = useRef5("");
     const finalChunksRef = useRef5("");
@@ -9146,11 +9257,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Todos({ todos, setTodos, user, users, th, deepLinkRef }) {
     const emptyForm = { text: "", priority: "Medium", assigneeIds: [user.id], dueDate: "", note: "" };
-    const [form, setForm] = useState12(emptyForm);
-    const [addOpen, setAddOpen] = useState12(false);
-    const [viewTab, setViewTab] = useState12("mine");
-    const [detailId, setDetailId] = useState12(null);
-    const [assignDropOpen, setAssignDropOpen] = useState12(false);
+    const [form, setForm] = useState13(emptyForm);
+    const [addOpen, setAddOpen] = useState13(false);
+    const [viewTab, setViewTab] = useState13("mine");
+    const [detailId, setDetailId] = useState13(null);
+    const [assignDropOpen, setAssignDropOpen] = useState13(false);
     const getUserById = (id) => users.find((u) => u.id === id);
     useEffect10(() => {
       if (deepLinkRef?.current) {
@@ -9596,21 +9707,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         return st;
       }));
     };
-    const [view, setView] = useState12("list");
-    const [editId, setEditId] = useState12(null);
-    const [showPw, setShowPw] = useState12(false);
-    const [form, setForm] = useState12({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
-    const [search, setSearch] = useState12("");
-    const [welcomeSent, setWelcomeSent] = useState12(null);
-    const [saveFlash, setSaveFlash] = useState12(false);
-    const [confirmDeleteId, setConfirmDeleteId] = useState12(null);
+    const [view, setView] = useState13("list");
+    const [editId, setEditId] = useState13(null);
+    const [showPw, setShowPw] = useState13(false);
+    const [form, setForm] = useState13({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
+    const [search, setSearch] = useState13("");
+    const [welcomeSent, setWelcomeSent] = useState13(null);
+    const [saveFlash, setSaveFlash] = useState13(false);
+    const [confirmDeleteId, setConfirmDeleteId] = useState13(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const canLinkTimeOff = isFullAdmin(currentUser);
-    const [timeOff, setTimeOff] = useState12({});
-    const [timeOffSync, setTimeOffSync] = useState12(null);
-    const [timeOffSyncing, setTimeOffSyncing] = useState12(false);
-    const [linkTarget, setLinkTarget] = useState12(null);
+    const [timeOff, setTimeOff] = useState13({});
+    const [timeOffSync, setTimeOffSync] = useState13(null);
+    const [timeOffSyncing, setTimeOffSyncing] = useState13(false);
+    const [linkTarget, setLinkTarget] = useState13(null);
     const loadTimeOff = useCallback(() => {
       timeOffApi("users").then((j) => setTimeOff(j.users || {})).catch(() => {
       });
@@ -9653,11 +9764,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, [loadTimeOff]);
     const nextId = () => Math.max(0, ...users.map((u) => u.id)) + 1;
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-    const [emailAction, setEmailAction] = useState12(null);
-    const [revokeAction, setRevokeAction] = useState12(null);
-    const [statusFilter, setStatusFilter] = useState12("all");
-    const [flashUserKey, setFlashUserKey] = useState12(null);
-    const [leavingUserIds, setLeavingUserIds] = useState12([]);
+    const [emailAction, setEmailAction] = useState13(null);
+    const [revokeAction, setRevokeAction] = useState13(null);
+    const [statusFilter, setStatusFilter] = useState13("all");
+    const [flashUserKey, setFlashUserKey] = useState13(null);
+    const [leavingUserIds, setLeavingUserIds] = useState13([]);
     const prevUserIdsRef = useRef5(/* @__PURE__ */ new Set());
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
@@ -9896,8 +10007,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
     const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development", "Field Operations Auditor"] : ["District Manager", "Store Manager", "Construction & Development"];
     const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
-    const [roleFilter, setRoleFilter] = useState12("all");
-    const [isMobileUsers, setIsMobileUsers] = useState12(() => window.innerWidth < 700);
+    const [roleFilter, setRoleFilter] = useState13("all");
+    const [isMobileUsers, setIsMobileUsers] = useState13(() => window.innerWidth < 700);
     React.useEffect(() => {
       const fn = () => setIsMobileUsers(window.innerWidth < 700);
       window.addEventListener("resize", fn);
@@ -10713,17 +10824,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var openStoreList = () => LIVE_OPEN_STORES || STORES_SEED.filter((s) => s.status !== PERMANENTLY_CLOSED);
   function ClosestToFinder({ th, onClose }) {
     const O2 = "#FF671F";
-    const [addr, setAddr] = useState12("");
-    const [origin, setOrigin] = useState12(null);
-    const [ranked, setRanked] = useState12([]);
-    const [drive, setDrive] = useState12({});
-    const [busy, setBusy] = useState12(false);
-    const [status, setStatus] = useState12("");
-    const [hoverPc, setHoverPc] = useState12(null);
-    const [suggestions, setSuggestions] = useState12([]);
-    const [showSuggestions, setShowSuggestions] = useState12(false);
-    const [suggestLoading, setSuggestLoading] = useState12(false);
-    const [activeSugIdx, setActiveSugIdx] = useState12(-1);
+    const [addr, setAddr] = useState13("");
+    const [origin, setOrigin] = useState13(null);
+    const [ranked, setRanked] = useState13([]);
+    const [drive, setDrive] = useState13({});
+    const [busy, setBusy] = useState13(false);
+    const [status, setStatus] = useState13("");
+    const [hoverPc, setHoverPc] = useState13(null);
+    const [suggestions, setSuggestions] = useState13([]);
+    const [showSuggestions, setShowSuggestions] = useState13(false);
+    const [suggestLoading, setSuggestLoading] = useState13(false);
+    const [activeSugIdx, setActiveSugIdx] = useState13(-1);
     const suggestTimer = useRef5(null);
     const mapDiv = useRef5(null);
     const mapRef = useRef5(null);
@@ -10927,7 +11038,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
     const mgrOf = (s) => storeMgrName(s, users);
-    const [laborData, setLaborData] = useState12(null);
+    const [laborData, setLaborData] = useState13(null);
     useEffect10(() => {
       cloudLoad("pcg_labor_v1").then((d) => {
         if (d?.stores) setLaborData(d.stores);
@@ -10935,22 +11046,22 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       });
     }, []);
     const employeeCountOf = (s) => laborData?.[s.pc]?.today?.employees;
-    const [filterState, setFilterState] = useState12("All");
-    const [filterStatus, setFilterStatus] = useState12("All");
-    const [filterDistrict, setFilterDistrict] = useState12("All");
-    const [filterNxt, setFilterNxt] = useState12(false);
-    const [filterBaskin, setFilterBaskin] = useState12(false);
-    const [search, setSearch] = useState12("");
-    const [editStore, setEditStore] = useState12(null);
-    const [addMode, setAddMode] = useState12(false);
-    const [selectedStore, setSelectedStore] = useState12(null);
-    const [sortCol, setSortCol] = useState12("pc");
-    const [sortDir, setSortDir] = useState12("asc");
-    const [copiedId, setCopiedId] = useState12(null);
-    const [cityData, setCityData] = useState12(null);
-    const [cityLoading, setCityLoading] = useState12(false);
-    const [foodLicenses, setFoodLicenses] = useState12({});
-    const [foodLicensesLoading, setFoodLicensesLoading] = useState12(false);
+    const [filterState, setFilterState] = useState13("All");
+    const [filterStatus, setFilterStatus] = useState13("All");
+    const [filterDistrict, setFilterDistrict] = useState13("All");
+    const [filterNxt, setFilterNxt] = useState13(false);
+    const [filterBaskin, setFilterBaskin] = useState13(false);
+    const [search, setSearch] = useState13("");
+    const [editStore, setEditStore] = useState13(null);
+    const [addMode, setAddMode] = useState13(false);
+    const [selectedStore, setSelectedStore] = useState13(null);
+    const [sortCol, setSortCol] = useState13("pc");
+    const [sortDir, setSortDir] = useState13("asc");
+    const [copiedId, setCopiedId] = useState13(null);
+    const [cityData, setCityData] = useState13(null);
+    const [cityLoading, setCityLoading] = useState13(false);
+    const [foodLicenses, setFoodLicenses] = useState13({});
+    const [foodLicensesLoading, setFoodLicensesLoading] = useState13(false);
     const loadFoodLicenses = async () => {
       setFoodLicensesLoading(true);
       try {
@@ -10966,14 +11077,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setFoodLicensesLoading(false);
     };
-    const [toolsOpen, setToolsOpen] = useState12(false);
-    const [activeTool, setActiveTool] = useState12(null);
-    const [viewMode, setViewMode] = useState12("list");
+    const [toolsOpen, setToolsOpen] = useState13(false);
+    const [activeTool, setActiveTool] = useState13(null);
+    const [viewMode, setViewMode] = useState13("list");
     useEffect10(() => {
       onMapModeChange?.(viewMode === "map");
       return () => onMapModeChange?.(false);
     }, [viewMode]);
-    const [isNarrow, setIsNarrow] = useState12(() => typeof window !== "undefined" && window.innerWidth < 760);
+    const [isNarrow, setIsNarrow] = useState13(() => typeof window !== "undefined" && window.innerWidth < 760);
     const frameRef = useRef5(null);
     const frameH = useFrameHeight(frameRef, 340, 16);
     useEffect10(() => {
@@ -11015,7 +11126,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     const emptyStore = { pc: "", paycor: "", legal: "", name: "", address: "", city: "", state: "PA", zip: "", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "", district: "", dmName: "", dmEmail: "", status: "Coming Soon", closedDate: "", employees: 0, sales: 0 };
-    const [newStore, setNewStore] = useState12(emptyStore);
+    const [newStore, setNewStore] = useState13(emptyStore);
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
     const isDM = user?.userType === "dm";
@@ -12222,12 +12333,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
-    const [editDist, setEditDist] = useState12(null);
-    const [distForm, setDistForm] = useState12({});
-    const [addMode, setAddMode] = useState12(false);
-    const [newDist, setNewDist] = useState12({ num: "", name: "", email: "" });
-    const [expandedDist, setExpandedDist] = useState12(null);
-    const [moveStore, setMoveStore] = useState12(null);
+    const [editDist, setEditDist] = useState13(null);
+    const [distForm, setDistForm] = useState13({});
+    const [addMode, setAddMode] = useState13(false);
+    const [newDist, setNewDist] = useState13({ num: "", name: "", email: "" });
+    const [expandedDist, setExpandedDist] = useState13(null);
+    const [moveStore, setMoveStore] = useState13(null);
     const distList = Object.values(districts).sort((a, b) => a.num - b.num);
     const mgrOf = (s) => storeMgrName(s, users);
     const saveEdit = () => {
@@ -12627,14 +12738,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const canUpload = user?.username === "mike.bahm";
     const isDMViewer = user?.userType === "dm";
     const dmDistrict = isDMViewer ? user?.district || null : null;
-    const [uploading, setUploading] = useState12(false);
-    const [uploadErr, setUploadErr] = useState12(null);
-    const [selWeek, setSelWeek] = useState12(0);
-    const [sortCol, setSortCol] = useState12("lwSale");
-    const [sortDir, setSortDir] = useState12(-1);
-    const [distFilter, setDistFilter] = useState12(isDMViewer ? dmDistrict || 0 : 0);
-    const [debugLines, setDebugLines] = useState12(null);
-    const [showDebug, setShowDebug] = useState12(false);
+    const [uploading, setUploading] = useState13(false);
+    const [uploadErr, setUploadErr] = useState13(null);
+    const [selWeek, setSelWeek] = useState13(0);
+    const [sortCol, setSortCol] = useState13("lwSale");
+    const [sortDir, setSortDir] = useState13(-1);
+    const [distFilter, setDistFilter] = useState13(isDMViewer ? dmDistrict || 0 : 0);
+    const [debugLines, setDebugLines] = useState13(null);
+    const [showDebug, setShowDebug] = useState13(false);
     const fileRef = useRef5(null);
     const detailTableRef = useRef5(null);
     const fmtSales = (n) => {
@@ -12898,26 +13009,26 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     "Other": { color: "#aaa", bg: "#aaa18" }
   };
   function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, currentUser, th }) {
-    const [search, setSearch] = useState12("");
-    const [modal, setModal] = useState12(null);
-    const [editItem, setEditItem] = useState12(null);
-    const [form, setForm] = useState12({});
-    const [deptDropOpen, setDeptDropOpen] = useState12(false);
-    const [showInternal, setShowInternal] = useState12(() => {
+    const [search, setSearch] = useState13("");
+    const [modal, setModal] = useState13(null);
+    const [editItem, setEditItem] = useState13(null);
+    const [form, setForm] = useState13({});
+    const [deptDropOpen, setDeptDropOpen] = useState13(false);
+    const [showInternal, setShowInternal] = useState13(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_internal") ?? "true");
       } catch {
         return true;
       }
     });
-    const [showVendors, setShowVendors] = useState12(() => {
+    const [showVendors, setShowVendors] = useState13(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_vendors") ?? "true");
       } catch {
         return true;
       }
     });
-    const [dragId, setDragId] = useState12(null);
+    const [dragId, setDragId] = useState13(null);
     useEffect10(() => {
       localStorage.setItem("pcg_show_internal", JSON.stringify(showInternal));
     }, [showInternal]);
@@ -14101,9 +14212,9 @@ ${pendingEmail.emails.join("\n")}`,
     }, user, standalone: true, txnDeepLinkRef, initialTab: initialTab || "sales" }));
   }
   function AdminSchedule({ stores, th, user }) {
-    const [selectedStore, setSelectedStore] = useState12(null);
-    const [search, setSearch] = useState12("");
-    const [filterDistrict, setFilterDistrict] = useState12("All");
+    const [selectedStore, setSelectedStore] = useState13(null);
+    const [search, setSearch] = useState13("");
+    const [filterDistrict, setFilterDistrict] = useState13("All");
     const isDM = user?.userType === "dm";
     const visibleStores = React.useMemo(() => {
       if (isDM && user?.district != null) return (stores || []).filter((s) => String(s.district) === String(user.district));
@@ -14141,7 +14252,7 @@ ${pendingEmail.emails.join("\n")}`,
     ))));
   }
   function ManagerSchedule({ stores, th, user }) {
-    const [mode, setMode] = useState12("build");
+    const [mode, setMode] = useState13("build");
     const store = getManagerStore(stores, user);
     if (!store?.pc) {
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "No store is linked to your account yet. Ask an admin to assign one.");
@@ -16863,7 +16974,7 @@ ${pendingEmail.emails.join("\n")}`,
   function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
     const G = "#00d084";
     const isMobile = useIsMobile();
-    const [laborData, setLaborData] = useState12(null);
+    const [laborData, setLaborData] = useState13(null);
     const fetchLaborData = useCallback(async () => {
       try {
         const data = await cloudLoad("pcg_labor_v1");
@@ -16882,29 +16993,29 @@ ${pendingEmail.emails.join("\n")}`,
       const d = /* @__PURE__ */ new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     })();
-    const [busDt, setBusDt] = useState12(todayStr);
-    const [storeData, setStoreData] = useState12({});
-    const [loading, setLoading] = useState12(false);
-    const [progress, setProgress] = useState12(0);
-    const [lastRefresh, setLastRefresh] = useState12(null);
-    const [countdown, setCountdown] = useState12(300);
+    const [busDt, setBusDt] = useState13(todayStr);
+    const [storeData, setStoreData] = useState13({});
+    const [loading, setLoading] = useState13(false);
+    const [progress, setProgress] = useState13(0);
+    const [lastRefresh, setLastRefresh] = useState13(null);
+    const [countdown, setCountdown] = useState13(300);
     const isDMUser = user?.userType === "dm";
     const dmDistrict = isDMUser && user?.district ? Number(user.district) : 0;
-    const [distFilter, setDistFilter] = useState12(dmDistrict);
-    const [autoRefresh, setAutoRefresh] = useState12(true);
-    const [testResult, setTestResult] = useState12(null);
-    const [testing, setTesting] = useState12(false);
-    const [dateCache, setDateCache] = useState12({});
-    const [lyCache, setLyCache] = useState12({});
-    const [wtdLoading, setWtdLoading] = useState12(false);
-    const [viewMode, setViewMode] = useState12("day");
-    const [weekStoreData, setWeekStoreData] = useState12({});
-    const [weekLoading, setWeekLoading] = useState12(false);
-    const [dayStoreCache, setDayStoreCache] = useState12({});
-    const [comparisonsLoading, setComparisonsLoading] = useState12(false);
-    const [hourlyHistories, setHourlyHistories] = useState12(null);
-    const [collapsed, setCollapsed] = useState12(/* @__PURE__ */ new Set());
-    const [tipsSnapshot, setTipsSnapshot] = useState12(null);
+    const [distFilter, setDistFilter] = useState13(dmDistrict);
+    const [autoRefresh, setAutoRefresh] = useState13(true);
+    const [testResult, setTestResult] = useState13(null);
+    const [testing, setTesting] = useState13(false);
+    const [dateCache, setDateCache] = useState13({});
+    const [lyCache, setLyCache] = useState13({});
+    const [wtdLoading, setWtdLoading] = useState13(false);
+    const [viewMode, setViewMode] = useState13("day");
+    const [weekStoreData, setWeekStoreData] = useState13({});
+    const [weekLoading, setWeekLoading] = useState13(false);
+    const [dayStoreCache, setDayStoreCache] = useState13({});
+    const [comparisonsLoading, setComparisonsLoading] = useState13(false);
+    const [hourlyHistories, setHourlyHistories] = useState13(null);
+    const [collapsed, setCollapsed] = useState13(/* @__PURE__ */ new Set());
+    const [tipsSnapshot, setTipsSnapshot] = useState13(null);
     useEffect10(() => {
       let alive = true;
       setTipsSnapshot(null);
@@ -16922,7 +17033,7 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [busDt]);
-    const [laborDailyByStore, setLaborDailyByStore] = useState12({});
+    const [laborDailyByStore, setLaborDailyByStore] = useState13({});
     useEffect10(() => {
       let alive = true;
       Promise.all((stores || []).map(
@@ -16956,9 +17067,9 @@ ${pendingEmail.emails.join("\n")}`,
       if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
       return daily ? daily.find((e) => e.date === busDt) || null : null;
     }, [laborDailyByStore, viewMode, busDt, todayStr, laborData]);
-    const [pulseView, setPulseView] = useState12(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
-    const [weatherForecast, setWeatherForecast] = useState12(null);
-    const [networkReviews, setNetworkReviews] = useState12(null);
+    const [pulseView, setPulseView] = useState13(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
+    const [weatherForecast, setWeatherForecast] = useState13(null);
+    const [networkReviews, setNetworkReviews] = useState13(null);
     const cdRef = useRef5(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
@@ -18234,9 +18345,9 @@ ${t2.slice(0, 300)}`);
     return doc;
   }
   function ReportPhotoRestore({ th, showAlert: showAlert2 }) {
-    const [open, setOpen] = useState12(false);
-    const [busy, setBusy] = useState12(null);
-    const [status, setStatus] = useState12(null);
+    const [open, setOpen] = useState13(false);
+    const [busy, setBusy] = useState13(null);
+    const [status, setStatus] = useState13(null);
     const call7 = async (mode, extra = {}) => {
       setBusy(mode);
       let before = null;
@@ -18292,10 +18403,10 @@ ${t2.slice(0, 300)}`);
   }
   function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert: showAlert2, editable }) {
     const dailyReports = _dr2 || [];
-    const [drView, setDrView] = useState12("list");
-    const [editReport, setEditReport] = useState12(null);
-    const [rForm, setRForm] = useState12({ ...EMPTY_DAILY_REPORT });
-    const [wxLoading, setWxLoading] = useState12(false);
+    const [drView, setDrView] = useState13("list");
+    const [editReport, setEditReport] = useState13(null);
+    const [rForm, setRForm] = useState13({ ...EMPTY_DAILY_REPORT });
+    const [wxLoading, setWxLoading] = useState13(false);
     const fileInputRefs = useRef5({});
     const projReports = dailyReports.filter((r) => r.projectId === project.id).sort((a, b) => b.date.localeCompare(a.date));
     const nextId = () => {
@@ -18423,11 +18534,11 @@ ${t2.slice(0, 300)}`);
     const totalWorkers = (r) => (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
     const totalHrs = (r) => (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
     const pdfImportRef = useRef5(null);
-    const [pdfImporting, setPdfImporting] = useState12(false);
-    const [forceSyncState, setForceSyncState] = useState12("idle");
-    const [forceSyncMsg, setForceSyncMsg] = useState12("");
-    const [backupState, setBackupState] = useState12("idle");
-    const [lastBackupTime, setLastBackupTime] = useState12(null);
+    const [pdfImporting, setPdfImporting] = useState13(false);
+    const [forceSyncState, setForceSyncState] = useState13("idle");
+    const [forceSyncMsg, setForceSyncMsg] = useState13("");
+    const [backupState, setBackupState] = useState13("idle");
+    const [lastBackupTime, setLastBackupTime] = useState13(null);
     useEffect10(() => {
       const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
       cloudLoad(`pcg_daily_reports_backup_${date}`).then((data) => {
@@ -18579,12 +18690,12 @@ ${t2.slice(0, 300)}`);
         if (pdfImportRef.current) pdfImportRef.current.value = "";
       }
     };
-    const [pdfLoading, setPdfLoading] = useState12(false);
-    const [emailModal, setEmailModal] = useState12(false);
-    const [emailTo, setEmailTo] = useState12("");
-    const [emailSubject, setEmailSubject] = useState12("");
-    const [emailSending, setEmailSending] = useState12(false);
-    const [lightbox, setLightbox] = useState12(null);
+    const [pdfLoading, setPdfLoading] = useState13(false);
+    const [emailModal, setEmailModal] = useState13(false);
+    const [emailTo, setEmailTo] = useState13("");
+    const [emailSubject, setEmailSubject] = useState13("");
+    const [emailSending, setEmailSending] = useState13(false);
+    const [lightbox, setLightbox] = useState13(null);
     const buildNativePdf = (report, projOverride) => buildReportPdf(report, projOverride || project);
     const _legacyPdfBody = async (report, project2) => {
       const _proj = project2;
@@ -19800,31 +19911,31 @@ ${t2.slice(0, 300)}`);
   }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
-    const [view, setView] = useState12("table");
+    const [view, setView] = useState13("table");
     const tableFrameRef = useRef5(null);
     const isMobile = useIsMobile();
     const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
-    const [selectedProject, setSelectedProject] = useState12(null);
-    const [detailTab, setDetailTab] = useState12("checklist");
-    const [addMode, setAddMode] = useState12(false);
-    const [editId, setEditId] = useState12(null);
-    const [form, setForm] = useState12({ ...EMPTY_PROJECT });
-    const [filterType, setFilterType] = useState12("All");
-    const [filterPhase, setFilterPhase] = useState12("All");
-    const [search, setSearch] = useState12("");
-    const [manualAddr, setManualAddr] = useState12(false);
-    const [sortCol, setSortCol] = useState12("priority");
-    const [sortDir, setSortDir] = useState12("asc");
-    const [reorderLocked, setReorderLocked] = useState12(true);
-    const [dragIdx, setDragIdx] = useState12(null);
-    const [dragOverIdx, setDragOverIdx] = useState12(null);
-    const [zoningOverlay, setZoningOverlay] = useState12(null);
-    const [zoningLoading, setZoningLoading] = useState12(false);
-    const [zoningData, setZoningData] = useState12(null);
-    const [permitUploading, setPermitUploading] = useState12(null);
-    const [permitDetailData, setPermitDetailData] = useState12(null);
-    const [docViewerData, setDocViewerData] = useState12(null);
-    const [docBlobUrl, setDocBlobUrl] = useState12(null);
+    const [selectedProject, setSelectedProject] = useState13(null);
+    const [detailTab, setDetailTab] = useState13("checklist");
+    const [addMode, setAddMode] = useState13(false);
+    const [editId, setEditId] = useState13(null);
+    const [form, setForm] = useState13({ ...EMPTY_PROJECT });
+    const [filterType, setFilterType] = useState13("All");
+    const [filterPhase, setFilterPhase] = useState13("All");
+    const [search, setSearch] = useState13("");
+    const [manualAddr, setManualAddr] = useState13(false);
+    const [sortCol, setSortCol] = useState13("priority");
+    const [sortDir, setSortDir] = useState13("asc");
+    const [reorderLocked, setReorderLocked] = useState13(true);
+    const [dragIdx, setDragIdx] = useState13(null);
+    const [dragOverIdx, setDragOverIdx] = useState13(null);
+    const [zoningOverlay, setZoningOverlay] = useState13(null);
+    const [zoningLoading, setZoningLoading] = useState13(false);
+    const [zoningData, setZoningData] = useState13(null);
+    const [permitUploading, setPermitUploading] = useState13(null);
+    const [permitDetailData, setPermitDetailData] = useState13(null);
+    const [docViewerData, setDocViewerData] = useState13(null);
+    const [docBlobUrl, setDocBlobUrl] = useState13(null);
     useEffect10(() => {
       if (!docViewerData?.data || docViewerData.type && docViewerData.type.startsWith("image/")) {
         setDocBlobUrl(null);
@@ -19843,9 +19954,9 @@ ${t2.slice(0, 300)}`);
         setDocBlobUrl(null);
       }
     }, [docViewerData]);
-    const [planUploading, setPlanUploading] = useState12(null);
-    const [projCityData, setProjCityData] = useState12(null);
-    const [projCityLoading, setProjCityLoading] = useState12(false);
+    const [planUploading, setPlanUploading] = useState13(null);
+    const [projCityData, setProjCityData] = useState13(null);
+    const [projCityLoading, setProjCityLoading] = useState13(false);
     const pros = professionals || DEFAULT_PROFESSIONALS;
     useEffect10(() => {
       setProjCityData(null);
@@ -21467,11 +21578,11 @@ ${t2.slice(0, 300)}`);
   var accIco = (k, c, s = 18) => /* @__PURE__ */ React.createElement(HubIcon, { d: ACCESS_ICONS[k], color: c, size: s });
   var initialsOf = (name) => String(name || "?").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "?";
   function PnlAccessPanel({ th, user, users, showAlert: showAlert2 }) {
-    const [allowed, setAllowed] = useState12(null);
-    const [query, setQuery] = useState12("");
-    const [adding, setAdding] = useState12(false);
-    const [addQuery, setAddQuery] = useState12("");
-    const [saving, setSaving] = useState12(false);
+    const [allowed, setAllowed] = useState13(null);
+    const [query, setQuery] = useState13("");
+    const [adding, setAdding] = useState13(false);
+    const [addQuery, setAddQuery] = useState13("");
+    const [saving, setSaving] = useState13(false);
     useEffect10(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => setAllowed(Array.isArray(d?.allowed) ? d.allowed : [...DEFAULT_PNL_ALLOWED])).catch(() => setAllowed([...DEFAULT_PNL_ALLOWED]));
     }, []);
@@ -21575,9 +21686,9 @@ ${t2.slice(0, 300)}`);
     });
     const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
     const ov = accessOverrides || {};
-    const [expandedHubs, setExpandedHubs] = useState12(/* @__PURE__ */ new Set());
-    const [openRoles, setOpenRoles] = useState12(/* @__PURE__ */ new Set());
-    const [showMore, setShowMore] = useState12(false);
+    const [expandedHubs, setExpandedHubs] = useState13(/* @__PURE__ */ new Set());
+    const [openRoles, setOpenRoles] = useState13(/* @__PURE__ */ new Set());
+    const [showMore, setShowMore] = useState13(false);
     const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
       const next = new Set(prev);
       if (next.has(hubId)) next.delete(hubId);
@@ -21704,7 +21815,7 @@ ${t2.slice(0, 300)}`);
     );
   }
   function WeeklyReportSendNow({ th, showAlert: showAlert2 }) {
-    const [state, setState] = useState12("idle");
+    const [state, setState] = useState13("idle");
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const today = /* @__PURE__ */ new Date();
     const daysSinceSat = (today.getDay() + 1) % 7 || 7;
@@ -21753,21 +21864,21 @@ ${t2.slice(0, 300)}`);
   var irIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS[k] || NOTIFY_ICONS[k], color: c, size: s });
   function InterviewRemindersPanel({ th, showAlert: showAlert2, users }) {
     const O2 = "#FF671F";
-    const [data, setData] = useState12(null);
-    const [err, setErr] = useState12(null);
-    const [running, setRunning] = useState12(false);
-    const [ivQ, setIvQ] = useState12("");
-    const [ivStatus, setIvStatus] = useState12("all");
-    const [ivRange, setIvRange] = useState12("today");
-    const [ivShowAll, setIvShowAll] = useState12(false);
-    const [peopleOpen, setPeopleOpen] = useState12(true);
-    const [activityOpen, setActivityOpen] = useState12(false);
-    const [peopleQ, setPeopleQ] = useState12("");
-    const [peopleRole, setPeopleRole] = useState12("all");
-    const [picked, setPicked] = useState12([]);
-    const [savingMuted, setSavingMuted] = useState12(false);
-    const [savingSource, setSavingSource] = useState12(false);
-    const [pxCheck, setPxCheck] = useState12(null);
+    const [data, setData] = useState13(null);
+    const [err, setErr] = useState13(null);
+    const [running, setRunning] = useState13(false);
+    const [ivQ, setIvQ] = useState13("");
+    const [ivStatus, setIvStatus] = useState13("all");
+    const [ivRange, setIvRange] = useState13("today");
+    const [ivShowAll, setIvShowAll] = useState13(false);
+    const [peopleOpen, setPeopleOpen] = useState13(true);
+    const [activityOpen, setActivityOpen] = useState13(false);
+    const [peopleQ, setPeopleQ] = useState13("");
+    const [peopleRole, setPeopleRole] = useState13("all");
+    const [picked, setPicked] = useState13([]);
+    const [savingMuted, setSavingMuted] = useState13(false);
+    const [savingSource, setSavingSource] = useState13(false);
+    const [pxCheck, setPxCheck] = useState13(null);
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -21953,13 +22064,13 @@ ${t2.slice(0, 300)}`);
     ), activityOpen && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column" } }, (st?.sent || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No reminders sent yet."), (st?.sent || []).slice(0, 25).map((s, i, arr) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.5rem 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtAgo(s.at)), " \xB7 ", s.kind === "hour" ? "1-hour reminder" : "1-day reminder", " \xB7 ", s.store, " \xB7 ", s.candidate || "candidate", " \xB7 ", s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`, " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: s.smsSent ? "#16a34a" : "#dc2626" } }, s.smsSent ? "text sent" : "no text"), s.emails ? " \xB7 email sent" : "")))));
   }
   function NewHiresPanel({ th, showAlert: showAlert2, users }) {
-    const [data, setData] = useState12(null);
-    const [err, setErr] = useState12(null);
-    const [running, setRunning] = useState12(false);
-    const [testing, setTesting] = useState12(null);
-    const [draft, setDraft] = useState12(null);
-    const [savingCfg, setSavingCfg] = useState12(false);
-    const [pickQ, setPickQ] = useState12("");
+    const [data, setData] = useState13(null);
+    const [err, setErr] = useState13(null);
+    const [running, setRunning] = useState13(false);
+    const [testing, setTesting] = useState13(null);
+    const [draft, setDraft] = useState13(null);
+    const [savingCfg, setSavingCfg] = useState13(false);
+    const [pickQ, setPickQ] = useState13("");
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -22226,15 +22337,15 @@ ${t2.slice(0, 300)}`);
     ), children);
   }
   function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel, seedUserTypes, tagKey = "mail", onCountChange }) {
-    const [emails, setEmails] = useState12(null);
-    const [phones, setPhones] = useState12(null);
-    const [emailOwners, setEmailOwners] = useState12(null);
-    const [phoneOwners, setPhoneOwners] = useState12(null);
-    const [newEmail, setNewEmail] = useState12("");
-    const [newPhone, setNewPhone] = useState12("");
-    const [nameQuery, setNameQuery] = useState12("");
-    const [showSuggestions, setShowSuggestions] = useState12(false);
-    const [saving, setSaving] = useState12(false);
+    const [emails, setEmails] = useState13(null);
+    const [phones, setPhones] = useState13(null);
+    const [emailOwners, setEmailOwners] = useState13(null);
+    const [phoneOwners, setPhoneOwners] = useState13(null);
+    const [newEmail, setNewEmail] = useState13("");
+    const [newPhone, setNewPhone] = useState13("");
+    const [nameQuery, setNameQuery] = useState13("");
+    const [showSuggestions, setShowSuggestions] = useState13(false);
+    const [saving, setSaving] = useState13(false);
     useEffect10(() => {
       cloudLoad(blobKey).then((d) => {
         if (!d?.updatedAt && seedUserTypes && (users || []).length) {
@@ -22442,19 +22553,19 @@ ${t2.slice(0, 300)}`);
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey, tagText: NOTIFY_TAGS[tagKey] || "Notifications", onRemove: () => removeEmail(idx), disabled: saving }))), smsLabel && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "SMS", onRemove: () => removePhone(idx), disabled: saving })))));
   }
   function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
-    const [newEmail, setNewEmail] = useState12("");
-    const [newTicketEmail, setNewTicketEmail] = useState12("");
-    const [newTicketPhone, setNewTicketPhone] = useState12("");
-    const [ticketNameQuery, setTicketNameQuery] = useState12("");
-    const [ticketShowSuggestions, setTicketShowSuggestions] = useState12(false);
-    const [notifyLog, setNotifyLog] = useState12(null);
-    const [logLoading, setLogLoading] = useState12(false);
-    const [logOpen, setLogOpen] = useState12(false);
-    const [pushSubs, setPushSubs] = useState12(null);
-    const [notifyInfoOpen, setNotifyInfoOpen] = useState12(false);
-    const [notifSubTab, setNotifSubTab] = useState12("project");
+    const [newEmail, setNewEmail] = useState13("");
+    const [newTicketEmail, setNewTicketEmail] = useState13("");
+    const [newTicketPhone, setNewTicketPhone] = useState13("");
+    const [ticketNameQuery, setTicketNameQuery] = useState13("");
+    const [ticketShowSuggestions, setTicketShowSuggestions] = useState13(false);
+    const [notifyLog, setNotifyLog] = useState13(null);
+    const [logLoading, setLogLoading] = useState13(false);
+    const [logOpen, setLogOpen] = useState13(false);
+    const [pushSubs, setPushSubs] = useState13(null);
+    const [notifyInfoOpen, setNotifyInfoOpen] = useState13(false);
+    const [notifSubTab, setNotifSubTab] = useState13("project");
     const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1", resignationLetter: "pcg_resignation_notify_v1", missingHoursApprovers: "pcg_missing_hours_approvers_v1" };
-    const [notifCounts, setNotifCounts] = useState12({});
+    const [notifCounts, setNotifCounts] = useState13({});
     useEffect10(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
         cloudLoad(key).then((d) => {
@@ -22466,11 +22577,11 @@ ${t2.slice(0, 300)}`);
       });
     }, [(users || []).length > 0]);
     const setNotifCount = (id) => (n) => setNotifCounts((c) => c[id] === n ? c : { ...c, [id]: n });
-    const [userNotifsOpen, setUserNotifsOpen] = useState12(false);
-    const [reportSettings, setReportSettings] = useState12(null);
-    const [reportLoading, setReportLoading] = useState12(false);
-    const [reportOpen, setReportOpen] = useState12(false);
-    const [newReportCC, setNewReportCC] = useState12("");
+    const [userNotifsOpen, setUserNotifsOpen] = useState13(false);
+    const [reportSettings, setReportSettings] = useState13(null);
+    const [reportLoading, setReportLoading] = useState13(false);
+    const [reportOpen, setReportOpen] = useState13(false);
+    const [newReportCC, setNewReportCC] = useState13("");
     const loadReportSettings = async () => {
       setReportLoading(true);
       try {
@@ -22527,7 +22638,7 @@ ${t2.slice(0, 300)}`);
       setNewEmail("");
       showAlert2("success", "Email added to global notify list");
     };
-    const [projectShowSuggestions, setProjectShowSuggestions] = useState12(false);
+    const [projectShowSuggestions, setProjectShowSuggestions] = useState13(false);
     const projectTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim()) ? newEmail.trim() : null;
     const projectNameMatches = (users || []).filter((u) => newEmail.trim().length > 0 && !projectTypedEmail && (u.name || "").toLowerCase().includes(newEmail.trim().toLowerCase()) && u.email).slice(0, 8);
     const removeEmail = (idx) => {
@@ -25404,18 +25515,18 @@ ${t2.slice(0, 300)}`);
   var TASK_TYPES = ["shift", "general"];
   var NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
   function AdminTaskManager({ th, user, stores, showAlert: showAlert2 }) {
-    const [templates, setTemplates] = useState12(null);
-    const [loading, setLoading] = useState12(false);
-    const [q, setQ] = useState12("");
-    const [catFilter, setCatFilter] = useState12("all");
-    const [activeFilter, setActiveFilter] = useState12("all");
-    const [editing, setEditing] = useState12(null);
-    const [locFor, setLocFor] = useState12(null);
-    const [locPcs, setLocPcs] = useState12([]);
-    const [itemsFor, setItemsFor] = useState12(null);
-    const [templateItems, setTemplateItems] = useState12([]);
-    const [templateEquip, setTemplateEquip] = useState12([]);
-    const [busy, setBusy] = useState12(false);
+    const [templates, setTemplates] = useState13(null);
+    const [loading, setLoading] = useState13(false);
+    const [q, setQ] = useState13("");
+    const [catFilter, setCatFilter] = useState13("all");
+    const [activeFilter, setActiveFilter] = useState13("all");
+    const [editing, setEditing] = useState13(null);
+    const [locFor, setLocFor] = useState13(null);
+    const [locPcs, setLocPcs] = useState13([]);
+    const [itemsFor, setItemsFor] = useState13(null);
+    const [templateItems, setTemplateItems] = useState13([]);
+    const [templateEquip, setTemplateEquip] = useState13([]);
+    const [busy, setBusy] = useState13(false);
     const api2 = useCallback(async (action, payload = {}) => {
       const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
       return r.json();
@@ -25753,7 +25864,7 @@ ${t2.slice(0, 300)}`);
     })));
   }
   function AdminSensors({ th, user, stores }) {
-    const [shellyDevices, setShellyDevices] = useState12(null);
+    const [shellyDevices, setShellyDevices] = useState13(null);
     const loadShellyTemp = () => {
       setShellyDevices(null);
       fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
@@ -25761,7 +25872,7 @@ ${t2.slice(0, 300)}`);
     useEffect10(() => {
       loadShellyTemp();
     }, []);
-    const [shellyDeviceMap, setShellyDeviceMap] = useState12({});
+    const [shellyDeviceMap, setShellyDeviceMap] = useState13({});
     useEffect10(() => {
       cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
       });
@@ -26039,15 +26150,15 @@ ${t2.slice(0, 300)}`);
     })))), displayed.length > PAGE && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAll((s) => !s), style: { ...btn(th, { padding: "0.3rem 1rem", fontSize: "0.75rem" }) } }, showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", textAlign: "right" } }, "Showing ", visibleRows.length, " of ", displayed.length, " event", displayed.length !== 1 ? "s" : ""))));
   }
   function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert: showAlert2, users }) {
-    const [editingId, setEditingId] = useState12(null);
-    const [editForm, setEditForm] = useState12({ title: "", message: "" });
-    const [addMode, setAddMode] = useState12(false);
-    const [newTitle, setNewTitle] = useState12("");
-    const [newMsg, setNewMsg] = useState12("");
-    const [newTargets, setNewTargets] = useState12([]);
-    const [newUserTargets, setNewUserTargets] = useState12([]);
-    const [newForceAll, setNewForceAll] = useState12(false);
-    const [expandedRole, setExpandedRole] = useState12(null);
+    const [editingId, setEditingId] = useState13(null);
+    const [editForm, setEditForm] = useState13({ title: "", message: "" });
+    const [addMode, setAddMode] = useState13(false);
+    const [newTitle, setNewTitle] = useState13("");
+    const [newMsg, setNewMsg] = useState13("");
+    const [newTargets, setNewTargets] = useState13([]);
+    const [newUserTargets, setNewUserTargets] = useState13([]);
+    const [newForceAll, setNewForceAll] = useState13(false);
+    const [expandedRole, setExpandedRole] = useState13(null);
     const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
     const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
     const ANN_ROLES = [
@@ -27321,8 +27432,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: save, style: { ...btn(th), minHeight: 40 } }, "Save signature"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clear, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Clear")));
   }
   function SafeAuditsPane({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState12("list");
-    const [sel, setSel] = useState12(null);
+    const [view, setView] = useState13("list");
+    const [sel, setSel] = useState13(null);
     const openConduct = (id, storePC) => {
       setSel({ id, storePC });
       setView("conduct");
@@ -27367,11 +27478,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
   }
   function SafeAuditList({ user, th, stores, showAlert: showAlert2, onConduct, onViewReport }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState12(null);
-    const [err, setErr] = useState12(false);
-    const [picking, setPicking] = useState12(false);
-    const [pickStore, setPickStore] = useState12("");
-    const [starting, setStarting] = useState12(false);
+    const [audits, setAudits] = useState13(null);
+    const [err, setErr] = useState13(false);
+    const [picking, setPicking] = useState13(false);
+    const [pickStore, setPickStore] = useState13("");
+    const [starting, setStarting] = useState13(false);
     const canConduct = safeCanConduct(user);
     const load = useCallback(() => {
       setErr(false);
@@ -27459,14 +27570,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const storeName = store?.name || storePC;
     const storeDistrict = store?.district ?? null;
     const localKey = "pcg_safe_draft_" + auditId;
-    const [loading, setLoading] = useState12(true);
-    const [loadErr, setLoadErr] = useState12(false);
-    const [setting, setSetting] = useState12(null);
-    const [savingExpected, setSavingExpected] = useState12(false);
-    const [submitting, setSubmitting] = useState12(false);
-    const [submitted, setSubmitted] = useState12(null);
+    const [loading, setLoading] = useState13(true);
+    const [loadErr, setLoadErr] = useState13(false);
+    const [setting, setSetting] = useState13(null);
+    const [savingExpected, setSavingExpected] = useState13(false);
+    const [submitting, setSubmitting] = useState13(false);
+    const [submitted, setSubmitted] = useState13(null);
     const didHydrate = useRef5(false);
-    const [f, setF] = useState12({
+    const [f, setF] = useState13({
       reason: "",
       safeCode: "",
       codeLastChanged: "",
@@ -27751,8 +27862,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function SafeSigImage({ sigKey, th, label }) {
-    const [src, setSrc] = useState12(null);
-    const [loading, setLoading] = useState12(!!sigKey);
+    const [src, setSrc] = useState13(null);
+    const [loading, setLoading] = useState13(!!sigKey);
     useEffect10(() => {
       let cancelled = false;
       if (!sigKey) {
@@ -28403,10 +28514,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const store = stores?.find((s) => String(s.pc) === String(storePC));
     const storeName = store?.name || storePC;
     const storeAddress = store ? [store.address, store.city, store.state, store.zip].filter(Boolean).join(", ") : "";
-    const [audit, setAudit] = useState12(null);
-    const [err, setErr] = useState12(false);
-    const [lightbox, setLightbox] = useState12(null);
-    const [exporting, setExporting] = useState12(false);
+    const [audit, setAudit] = useState13(null);
+    const [err, setErr] = useState13(false);
+    const [lightbox, setLightbox] = useState13(null);
+    const [exporting, setExporting] = useState13(false);
     const printRef = useRef5(null);
     useEffect10(() => {
       let cancelled = false;
@@ -28464,9 +28575,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Back to safe audits"), /* @__PURE__ */ React.createElement("button", { onClick: exportPdf, disabled: exporting, style: { ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 } }, exporting ? "Exporting\u2026" : "\u2913 Export PDF")), /* @__PURE__ */ React.createElement("div", { ref: printRef }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "flex-start", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: pageTitle(th) }, storeName, " ", storePC ? `(${storePC})` : ""), storeAddress && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", marginTop: "0.15rem" } }, storeAddress), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Auditor: ", audit.auditorName || "\u2014", audit.auditorRole ? ` (${audit.auditorRole})` : ""), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginTop: "0.25rem" } }, "Started ", audit.startedAt ? new Date(audit.startedAt).toLocaleString() : "\u2014", " \xB7 Submitted ", audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "\u2014", durationLabel ? ` \xB7 Duration ${durationLabel}` : "")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.4rem" } }, "Accounted ", fmtSafeMoney(audit.accountedTotal), " vs Expected ", fmtSafeMoney(audit.expectedPettyCash))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "General Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Reason for audit", value: audit.reason || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Current safe code", value: audit.safeCode || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Code last changed", value: audit.codeLastChanged || "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Store Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store manager", value: audit.storeManagerName || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: audit.district != null ? districtLabel(audit.district) : "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Petty Cash Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Expected petty cash", value: fmtSafeMoney(audit.expectedPettyCash), th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts in safe", value: audit.hasReceipts ? "Yes" : "No", th }), audit.hasReceipts && /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts total", value: fmtSafeMoney(audit.receiptsTotal), th })), audit.hasReceipts && audit.receiptPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Receipt photos (", audit.receiptPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.receiptPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "left" } }, "Denomination"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Count"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Value"))), /* @__PURE__ */ React.createElement("tbody", null, SAFE_BILLS.map((d) => denomRow(d, "billCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Bills"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.billsTotal))), SAFE_COINS.map((d) => denomRow(d, "coinCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Coins"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.coinsTotal))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, "Counted Total"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, fmtSafeMoney(audit.countedTotal)))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between", marginTop: "0.9rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 700 } }, "Accounted total (counted + receipts): ", fmtSafeMoney(audit.accountedTotal)), /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.9rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: audit.hasCounterfeit ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit cash found", value: audit.hasCounterfeit ? "Yes" : "No", color: audit.hasCounterfeit ? "#ef4444" : void 0, th }), audit.hasCounterfeit && /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit total", value: fmtSafeMoney(audit.counterfeitTotal), color: "#ef4444", th })), audit.hasCounterfeit && audit.counterfeitPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Counterfeit photos (", audit.counterfeitPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.counterfeitPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Signatures"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem" } }, /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.conductorSigKey, th, label: `Conductor \u2014 ${audit.auditorName || "\u2014"}` }), /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.managerSigKey, th, label: `Store manager / witness${audit.managerAckName ? ` \u2014 ${audit.managerAckName}` : ""}` }))), audit.notes && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, whiteSpace: "pre-wrap" } }, audit.notes))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
   }
   function SystemHealth({ th, user }) {
-    const [snap, setSnap] = useState12(null);
-    const [loading, setLoading] = useState12(true);
-    const [refreshing, setRefreshing] = useState12(false);
+    const [snap, setSnap] = useState13(null);
+    const [loading, setLoading] = useState13(true);
+    const [refreshing, setRefreshing] = useState13(false);
     const load = useCallback(async () => {
       setLoading(true);
       const d = await cloudLoad("pcg_system_health_v1");
@@ -28513,7 +28624,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function AuditsTab({ user, th, stores, showAlert: showAlert2, setTab }) {
     const canFieldOps = auditCanView(user);
     const canSafe = safeCanView(user);
-    const [mode, setMode] = useState12(canFieldOps ? "field" : "safe");
+    const [mode, setMode] = useState13(canFieldOps ? "field" : "safe");
     const both = canFieldOps && canSafe;
     const effectiveMode = canFieldOps ? mode : "safe";
     const seg = both ? /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", padding: 3, gap: 3, borderRadius: 999, background: th.card2, border: `1px solid ${th.cardBorder}` } }, [["field", "Field Ops"], ["safe", "Safe"]].map(([m, lbl]) => /* @__PURE__ */ React.createElement(
@@ -28528,8 +28639,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, seg, effectiveMode === "safe" ? /* @__PURE__ */ React.createElement(SafeAuditsPane, { user, th, stores, showAlert: showAlert2, setTab }) : /* @__PURE__ */ React.createElement(FieldOpsAudits, { user, th, stores, showAlert: showAlert2, setTab }));
   }
   function FieldOpsAudits({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState12(null);
-    const [conduct, setConduct] = useState12(null);
+    const [view, setView] = useState13(null);
+    const [conduct, setConduct] = useState13(null);
     const canConduct = auditCanAudit(user);
     const canSeeCapBoard = auditCanView(user);
     const canSeeDashboard = canSeeCapBoard;
@@ -28629,11 +28740,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function AuditList({ user, th, stores, showAlert: showAlert2, canConduct, canSeeCapBoard, canSeeDashboard, onConduct, onViewReport, onOpenCapBoard, onOpenDashboard }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState12(null);
-    const [err, setErr] = useState12(false);
-    const [picking, setPicking] = useState12(false);
-    const [pickStore, setPickStore] = useState12("");
-    const [starting, setStarting] = useState12(false);
+    const [audits, setAudits] = useState13(null);
+    const [err, setErr] = useState13(false);
+    const [picking, setPicking] = useState13(false);
+    const [pickStore, setPickStore] = useState13("");
+    const [starting, setStarting] = useState13(false);
     const load = useCallback(() => {
       setErr(false);
       auditsApi("list").then((j) => setAudits(Array.isArray(j.audits) ? j.audits : [])).catch(() => {
@@ -28705,14 +28816,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeDashboard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenDashboard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Dashboard"), canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
   }
   function AuditConduct({ user, th, stores, showAlert: showAlert2, auditId, storePC, onExit, onViewReport }) {
-    const [template, setTemplate] = useState12(null);
-    const [results, setResults] = useState12({});
-    const [secIdx, setSecIdx] = useState12(0);
-    const [loading, setLoading] = useState12(true);
-    const [loadErr, setLoadErr] = useState12(false);
-    const [submitting, setSubmitting] = useState12(false);
-    const [submitted, setSubmitted] = useState12(null);
-    const [gpsStatus, setGpsStatus] = useState12("");
+    const [template, setTemplate] = useState13(null);
+    const [results, setResults] = useState13({});
+    const [secIdx, setSecIdx] = useState13(0);
+    const [loading, setLoading] = useState13(true);
+    const [loadErr, setLoadErr] = useState13(false);
+    const [submitting, setSubmitting] = useState13(false);
+    const [submitted, setSubmitted] = useState13(null);
+    const [gpsStatus, setGpsStatus] = useState13("");
     const didHydrate = useRef5(false);
     const localKey = "pcg_audit_draft_" + auditId;
     const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
@@ -28968,8 +29079,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   };
   var capStatusMeta = (s) => CAP_STATUS_META[s] || { label: s || "\u2014", color: "#6b7280" };
   function AuditPhotoThumb({ photoKey, th, onZoom, size = 64 }) {
-    const [src, setSrc] = useState12(null);
-    const [loading, setLoading] = useState12(true);
+    const [src, setSrc] = useState13(null);
+    const [loading, setLoading] = useState13(true);
     useEffect10(() => {
       let cancelled = false;
       setLoading(true);
@@ -28995,10 +29106,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", cursor: "zoom-out" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "Full size", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "100%", borderRadius: "0.75rem", objectFit: "contain", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.25rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"));
   }
   function CapResolveForm({ th, user, cap, showAlert: showAlert2, onDone, onCancel }) {
-    const [note, setNote] = useState12("");
-    const [photoKeys, setPhotoKeys] = useState12([]);
-    const [uploading, setUploading] = useState12(false);
-    const [saving, setSaving] = useState12(false);
+    const [note, setNote] = useState13("");
+    const [photoKeys, setPhotoKeys] = useState13([]);
+    const [uploading, setUploading] = useState13(false);
+    const [saving, setSaving] = useState13(false);
     const addPhotos = async (fileList) => {
       const files = Array.from(fileList || []);
       if (!files.length) return;
@@ -29065,13 +29176,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function AuditReport({ user, th, stores, showAlert: showAlert2, auditId, storePC, onBack }) {
-    const [audit, setAudit] = useState12(null);
-    const [items, setItems] = useState12([]);
-    const [caps, setCaps] = useState12([]);
-    const [loading, setLoading] = useState12(true);
-    const [err, setErr] = useState12(false);
-    const [lightbox, setLightbox] = useState12(null);
-    const [exporting, setExporting] = useState12(false);
+    const [audit, setAudit] = useState13(null);
+    const [items, setItems] = useState13([]);
+    const [caps, setCaps] = useState13([]);
+    const [loading, setLoading] = useState13(true);
+    const [err, setErr] = useState13(false);
+    const [lightbox, setLightbox] = useState13(null);
+    const [exporting, setExporting] = useState13(false);
     const printRef = useRef5(null);
     const load = useCallback(() => {
       setLoading(true);
@@ -29158,16 +29269,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function CapBoard({ user, th, stores, showAlert: showAlert2, onBack }) {
     const isMobile = useIsMobile();
-    const [rows, setRows] = useState12(null);
-    const [err, setErr] = useState12(false);
-    const [statusFilter, setStatusFilter] = useState12("all");
-    const [districtFilter, setDistrictFilter] = useState12("all");
-    const [ownerFilter, setOwnerFilter] = useState12("all");
-    const [expanded, setExpanded] = useState12(null);
-    const [rejectFor, setRejectFor] = useState12(null);
-    const [rejectNote, setRejectNote] = useState12("");
-    const [busyId, setBusyId] = useState12(null);
-    const [lightbox, setLightbox] = useState12(null);
+    const [rows, setRows] = useState13(null);
+    const [err, setErr] = useState13(false);
+    const [statusFilter, setStatusFilter] = useState13("all");
+    const [districtFilter, setDistrictFilter] = useState13("all");
+    const [ownerFilter, setOwnerFilter] = useState13("all");
+    const [expanded, setExpanded] = useState13(null);
+    const [rejectFor, setRejectFor] = useState13(null);
+    const [rejectNote, setRejectNote] = useState13("");
+    const [busyId, setBusyId] = useState13(null);
+    const [lightbox, setLightbox] = useState13(null);
     const canAudit = auditCanAudit(user);
     const load = useCallback(() => {
       setErr(false);
@@ -29292,8 +29403,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var DISTRICT_TREND_COLORS = ["#3b82f6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#14b8a6", "#eab308", "#ec4899"];
   function AuditDashboard({ user, th, stores, showAlert: showAlert2, onOpenReport, onGoList, onGoCaps }) {
-    const [data, setData] = useState12(null);
-    const [err, setErr] = useState12(false);
+    const [data, setData] = useState13(null);
+    const [err, setErr] = useState13(false);
     const isFull = auditCanView(user) && user?.userType !== "dm";
     const isDm = user?.userType === "dm";
     const canSeeManagerRanking = auditCanAudit(user);
@@ -29461,9 +29572,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ManagerCapCard({ user, th, stores, showAlert: showAlert2 }) {
     const store = getManagerStore(stores, user);
-    const [caps, setCaps] = useState12(null);
-    const [err, setErr] = useState12(false);
-    const [expanded, setExpanded] = useState12(null);
+    const [caps, setCaps] = useState13(null);
+    const [err, setErr] = useState13(false);
+    const [expanded, setExpanded] = useState13(null);
     const load = useCallback(() => {
       if (!store?.pc) {
         setCaps([]);
@@ -29730,9 +29841,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return visible;
   };
   function ManagerOrionBrief({ pc, storeName, th }) {
-    const [brief, setBrief] = useState12(null);
-    const [loading, setLoading] = useState12(true);
-    const [err, setErr] = useState12(false);
+    const [brief, setBrief] = useState13(null);
+    const [loading, setLoading] = useState13(true);
+    const [err, setErr] = useState13(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -29767,9 +29878,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Reading your store\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Brief unavailable right now \u2014 try again shortly.") : brief && brief.content ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(brief.content, th)) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "No brief yet \u2014 not enough data for this store."));
   }
   function ForecastPrePlanCard({ pc, storeName, th }) {
-    const [plan, setPlan] = useState12(null);
-    const [loading, setLoading] = useState12(true);
-    const [err, setErr] = useState12(false);
+    const [plan, setPlan] = useState13(null);
+    const [loading, setLoading] = useState13(true);
+    const [err, setErr] = useState13(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -29809,13 +29920,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Building your game plan\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Pre-plan unavailable right now \u2014 try again shortly.") : !fc ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Not enough history yet \u2014 the model is still collecting data.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.8rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.66rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high), fc.holidayName ? ` \xB7 \u{1F389} ${fc.holidayName}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginTop: "0.7rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 7, padding: "0.4rem 0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.5rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.72rem", marginTop: "0.15rem" } }, f(v))))), par && (par.donut || par.munchkin) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.55rem", fontSize: "0.62rem", color: th.muted } }, par.donut && /* @__PURE__ */ React.createElement("span", null, "\u{1F369} Donut par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.donut.par)), par.munchkin && /* @__PURE__ */ React.createElement("span", null, "\xB7 Munchkin par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.munchkin.par))), plan && plan.content && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.78rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(plan.content, th))));
   }
   function StoreForecastTab({ pc, date, actualHourly, th }) {
-    const [mode, setMode] = useState12("day");
-    const [data, setData] = useState12(null);
-    const [loading, setLoading] = useState12(true);
-    const [err, setErr] = useState12(false);
-    const [week, setWeek] = useState12(null);
-    const [weekLoading, setWeekLoading] = useState12(false);
-    const [weekErr, setWeekErr] = useState12(false);
+    const [mode, setMode] = useState13("day");
+    const [data, setData] = useState13(null);
+    const [loading, setLoading] = useState13(true);
+    const [err, setErr] = useState13(false);
+    const [week, setWeek] = useState13(null);
+    const [weekLoading, setWeekLoading] = useState13(false);
+    const [weekErr, setWeekErr] = useState13(false);
     useEffect10(() => {
       if (!pc) {
         setLoading(false);
@@ -30027,37 +30138,37 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 364);
       return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     })();
-    const [sales, setSales] = useState12(null);
-    const [tappedHour, setTappedHour] = useState12(null);
-    const [salesYesterday, setSalesYesterday] = useState12(null);
-    const [salesLastYear, setSalesLastYear] = useState12(null);
-    const [labor, setLabor] = useState12(null);
-    const [hourly, setHourly] = useState12(null);
-    const [workers, setWorkers] = useState12([]);
-    const [lwDaySales, setLwDaySales] = useState12(null);
-    const [carouselPage, setCarouselPage] = useState12(0);
+    const [sales, setSales] = useState13(null);
+    const [tappedHour, setTappedHour] = useState13(null);
+    const [salesYesterday, setSalesYesterday] = useState13(null);
+    const [salesLastYear, setSalesLastYear] = useState13(null);
+    const [labor, setLabor] = useState13(null);
+    const [hourly, setHourly] = useState13(null);
+    const [workers, setWorkers] = useState13([]);
+    const [lwDaySales, setLwDaySales] = useState13(null);
+    const [carouselPage, setCarouselPage] = useState13(0);
     const touchStartX = useRef5(null);
     const carouselInnerRef = useRef5(null);
     const fetchTokenRef = useRef5(0);
-    const [loading, setLoading] = useState12(true);
-    const [refreshing, setRefreshing] = useState12(false);
-    const [lastRefresh, setLastRefresh] = useState12(null);
-    const [showStoreInfo, setShowStoreInfo] = useState12(false);
-    const [showUserMenu, setShowUserMenu] = useState12(false);
-    const [dayOffset, setDayOffset] = useState12(0);
-    const [storeBlob, setStoreBlob] = useState12(null);
-    const [histHourly, setHistHourly] = useState12(null);
-    const [liveHistCache, setLiveHistCache] = useState12({});
-    const [histLoading, setHistLoading] = useState12(false);
-    const [storeTickets, setStoreTickets] = useState12([]);
-    const [taskSummary, setTaskSummary] = useState12(null);
-    const [mgrCaps, setMgrCaps] = useState12(null);
-    const [mgrCapsErr, setMgrCapsErr] = useState12(false);
-    const [expandedCap, setExpandedCap] = useState12(null);
+    const [loading, setLoading] = useState13(true);
+    const [refreshing, setRefreshing] = useState13(false);
+    const [lastRefresh, setLastRefresh] = useState13(null);
+    const [showStoreInfo, setShowStoreInfo] = useState13(false);
+    const [showUserMenu, setShowUserMenu] = useState13(false);
+    const [dayOffset, setDayOffset] = useState13(0);
+    const [storeBlob, setStoreBlob] = useState13(null);
+    const [histHourly, setHistHourly] = useState13(null);
+    const [liveHistCache, setLiveHistCache] = useState13({});
+    const [histLoading, setHistLoading] = useState13(false);
+    const [storeTickets, setStoreTickets] = useState13([]);
+    const [taskSummary, setTaskSummary] = useState13(null);
+    const [mgrCaps, setMgrCaps] = useState13(null);
+    const [mgrCapsErr, setMgrCapsErr] = useState13(false);
+    const [expandedCap, setExpandedCap] = useState13(null);
     const toggleBtnRef = useRef5(null);
-    const [voiceState, setVoiceState] = useState12("idle");
-    const [voiceTranscript, setVoiceTranscript] = useState12("");
-    const [voiceReply, setVoiceReply] = useState12("");
+    const [voiceState, setVoiceState] = useState13("idle");
+    const [voiceTranscript, setVoiceTranscript] = useState13("");
+    const [voiceReply, setVoiceReply] = useState13("");
     const recogRef = useRef5(null);
     const handleToggle = useCallback(() => {
       const btn2 = toggleBtnRef.current;
@@ -30628,7 +30739,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.97";
+  var APP_VERSION = "v22.98";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -30714,22 +30825,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     reader.readAsText(file);
   }
   function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert: showAlert2, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores, onDrillIn }) {
-    const [chatView, setChatView] = useState12(initialChannelId ? "thread" : "list");
-    const [activeChannelId, setActiveChannelId] = useState12(initialChannelId || null);
-    const [msgText, setMsgText] = useState12("");
-    const [searchTerm, setSearchTerm] = useState12("");
-    const [pendingAttachments, setPendingAttachments] = useState12([]);
-    const [mentionQuery, setMentionQuery] = useState12(null);
-    const [groupName, setGroupName] = useState12("");
-    const [groupMembers, setGroupMembers] = useState12([]);
-    const [dmSearch, setDmSearch] = useState12("");
-    const [orionThinking, setOrionThinking] = useState12(false);
-    const [replyToThread, setReplyToThread] = useState12(null);
-    const [expandedThreads, setExpandedThreads] = useState12(/* @__PURE__ */ new Set());
-    const [orionFeedback, setOrionFeedback] = useState12({});
-    const [editMembers, setEditMembers] = useState12(null);
-    const [chatMenuOpen, setChatMenuOpen] = useState12(false);
-    const [chatConfirm, setChatConfirm] = useState12(null);
+    const [chatView, setChatView] = useState13(initialChannelId ? "thread" : "list");
+    const [activeChannelId, setActiveChannelId] = useState13(initialChannelId || null);
+    const [msgText, setMsgText] = useState13("");
+    const [searchTerm, setSearchTerm] = useState13("");
+    const [pendingAttachments, setPendingAttachments] = useState13([]);
+    const [mentionQuery, setMentionQuery] = useState13(null);
+    const [groupName, setGroupName] = useState13("");
+    const [groupMembers, setGroupMembers] = useState13([]);
+    const [dmSearch, setDmSearch] = useState13("");
+    const [orionThinking, setOrionThinking] = useState13(false);
+    const [replyToThread, setReplyToThread] = useState13(null);
+    const [expandedThreads, setExpandedThreads] = useState13(/* @__PURE__ */ new Set());
+    const [orionFeedback, setOrionFeedback] = useState13({});
+    const [editMembers, setEditMembers] = useState13(null);
+    const [chatMenuOpen, setChatMenuOpen] = useState13(false);
+    const [chatConfirm, setChatConfirm] = useState13(null);
     const sendOrionFeedback = (messageId, rating) => {
       if (!messageId) return;
       setOrionFeedback((prev) => ({ ...prev, [messageId]: rating }));
@@ -30948,7 +31059,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setOrionThinking(false);
     };
-    const [logFilters, setLogFilters] = useState12({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
+    const [logFilters, setLogFilters] = useState13({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
     const messagesEndRef = useRef5(null);
     const inputRef = useRef5(null);
     const fileRef = useRef5(null);
@@ -31732,8 +31843,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: () => setChatView("list"), style: { color: th.muted, cursor: "pointer" } }, "\u2190 Back to Chat");
   }
   function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
-    const [uploading, setUploading] = useState12(false);
-    const [uploadMsg, setUploadMsg] = useState12(null);
+    const [uploading, setUploading] = useState13(false);
+    const [uploadMsg, setUploadMsg] = useState13(null);
     const fileRef = useRef5(null);
     const handleUpload = async (e) => {
       const file = e.target.files?.[0];
@@ -31777,8 +31888,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     } }, uploadMsg.text), currentWeek && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.5rem", padding: "1rem", background: th.card2, borderRadius: "0.5rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Currently Loaded"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", color: th.text, fontWeight: 700 } }, "Week #", currentWeek.weekNum, " \u2014 ", currentWeek.weekEnd, currentWeek.isDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#ffa94d", fontWeight: 700, marginLeft: "0.4rem", fontSize: "0.65rem", border: "1px solid #ffa94d", borderRadius: "4px", padding: "1px 6px" } }, "DRAFT") : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, currentWeek.stores.length, " stores")), salesWeeks.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Previous Weeks"), salesWeeks.slice(1).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.25rem 0" } }, "Week #", w.weekNum, " \u2014 ", w.weekEnd, w.isDraft ? " (Draft)" : "", " (", w.stores.length, " stores)")))));
   }
   function BiometricEnrollPrompt({ th, onDone }) {
-    const [busy, setBusy] = useState12(false);
-    const [err, setErr] = useState12("");
+    const [busy, setBusy] = useState13(false);
+    const [err, setErr] = useState13("");
     const enable = async () => {
       setBusy(true);
       setErr("");
@@ -31801,8 +31912,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), maxWidth: 380, width: "100%", padding: "1.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 28, color: O })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Enable Face ID / Fingerprint?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" } }, "Skip typing your password next time you sign in on this device."), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.75rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted, flex: 1 }), onClick: decline, disabled: busy }, "Not now"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { flex: 1 }), onClick: enable, disabled: busy }, busy ? "Enabling..." : "Enable"))));
   }
   function FirstLoginSetup({ user, setUser, setUsers, th }) {
-    const [step, setStep] = useState12(1);
-    const [form, setForm] = useState12({
+    const [step, setStep] = useState13(1);
+    const [form, setForm] = useState13({
       newPassword: "",
       confirmPassword: "",
       showNew: false,
@@ -31813,7 +31924,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       smsNotify: false,
       pushNotify: false
     });
-    const [err, setErr] = useState12("");
+    const [err, setErr] = useState13("");
     const handleStep1 = () => {
       setErr("");
       if (!isSharedDeviceType(user.userType)) {
@@ -31938,7 +32049,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return j;
   }
   function MyTimeOffCard({ th }) {
-    const [data, setData] = useState12(null);
+    const [data, setData] = useState13(null);
     useEffect10(() => {
       timeOffApi("mine").then(setData).catch(() => setData({ linked: false, balances: [] }));
     }, []);
@@ -31968,9 +32079,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), canLink && /* @__PURE__ */ React.createElement("button", { onClick: onLink, title: "Change the linked Paycor employee", style: { fontSize: "0.62rem", color: th.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" } }, "change"));
   }
   function TimeOffLinkPicker({ th, target, onClose, onSaved, showAlert: showAlert2 }) {
-    const [q, setQ] = useState12("");
-    const [list, setList] = useState12(null);
-    const [saving, setSaving] = useState12(false);
+    const [q, setQ] = useState13("");
+    const [list, setList] = useState13(null);
+    const [saving, setSaving] = useState13(false);
     useEffect10(() => {
       let cancelled = false;
       const t = setTimeout(() => {
@@ -32018,7 +32129,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     );
   }
   function ProfileModal({ user, setUser, setUsers, th, onClose }) {
-    const [profileForm, setProfileForm] = useState12({
+    const [profileForm, setProfileForm] = useState13({
       email: user.email || "",
       phone: user.phone || "",
       emailNotify: user.emailNotify !== false,
@@ -32031,10 +32142,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       showNew: false,
       showConfirm: false
     });
-    const [profileMsg, setProfileMsg] = useState12(null);
-    const [bioAvailable, setBioAvailable] = useState12(false);
-    const [bioCreds, setBioCreds] = useState12([]);
-    const [bioBusy, setBioBusy] = useState12(false);
+    const [profileMsg, setProfileMsg] = useState13(null);
+    const [bioAvailable, setBioAvailable] = useState13(false);
+    const [bioCreds, setBioCreds] = useState13([]);
+    const [bioBusy, setBioBusy] = useState13(false);
     const refreshBioCreds = () => webauthnList().then(setBioCreds);
     useEffect10(() => {
       webauthnAvailable().then(setBioAvailable);
@@ -32876,8 +32987,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const firstName2 = (user?.name || "").split(" ")[0];
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    const [weather, setWeather] = useState12(null);
-    const [showWeekWeather, setShowWeekWeather] = useState12(false);
+    const [weather, setWeather] = useState13(null);
+    const [showWeekWeather, setShowWeekWeather] = useState13(false);
     const weatherRectRef = useRef5(null);
     const weatherCloseTimer = useRef5(null);
     const openWeekWeather = (e) => {
@@ -33075,7 +33186,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))));
   }
   function DashboardHeadlines({ th, isMobile, dailyFeed }) {
-    const [newsTab, setNewsTab] = useState12("general");
+    const [newsTab, setNewsTab] = useState13("general");
     return /* @__PURE__ */ React.createElement(React.Fragment, null, dailyFeed?.news && Object.values(dailyFeed.news).some((arr) => Array.isArray(arr) && arr.length > 0) && (() => {
       const SOURCE_COLORS = {
         "Fox News": "#003366",
@@ -33241,7 +33352,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return all;
     }, [stores, user, isDM, isManager]);
     const { actions, acknowledge, delegate, delegating } = useActionQueue({ stores: scopedStores, user, users, showAlert: showAlert2, enabled: opsRole });
-    const [foodSafety, setFoodSafety] = useState12(null);
+    const [foodSafety, setFoodSafety] = useState13(null);
     useEffect10(() => {
       if (!opsRole) return;
       if (isManager && !scopedStores.length) return;
@@ -33276,8 +33387,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [opsRole, scopedStores.length]);
-    const [cases, setCases] = useState12(null);
-    const [showAllCases, setShowAllCases] = useState12(false);
+    const [cases, setCases] = useState13(null);
+    const [showAllCases, setShowAllCases] = useState13(false);
     useEffect10(() => {
       if (!isExecIT) return;
       fetch("/.netlify/functions/analyst", {
@@ -33288,15 +33399,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [isExecIT]);
     const CLOSED_CASE = /* @__PURE__ */ new Set(["Done", "Dismissed", "Rejected", "Closed"]);
     const openCases = (cases || []).filter((c) => !CLOSED_CASE.has(c.status)).sort((a, b) => (b.dollarOpportunity || 0) - (a.dollarOpportunity || 0));
-    const [dailyFeed, setDailyFeed] = useState12(null);
+    const [dailyFeed, setDailyFeed] = useState13(null);
     useEffect10(() => {
       fetch("/.netlify/functions/daily-feed").then((r) => r.ok ? r.json() : null).then((d) => {
         if (d) setDailyFeed(d);
       }).catch(() => {
       });
     }, []);
-    const [showAllAttention, setShowAllAttention] = useState12(false);
-    const [showBrief, setShowBrief] = useState12(false);
+    const [showAllAttention, setShowAllAttention] = useState13(false);
+    const [showBrief, setShowBrief] = useState13(false);
     const now = /* @__PURE__ */ new Date();
     const sevRank = { High: 0, Medium: 1, Low: 2 };
     const ICON_STORE = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M3 9h18M9 20v-6h6v6" }));
@@ -33547,19 +33658,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return d.getDay() === 0;
   }
   function SalesReconciliation({ th, user, showAlert: showAlert2 }) {
-    const [busDt, setBusDt] = useState12(() => {
+    const [busDt, setBusDt] = useState13(() => {
       const d = /* @__PURE__ */ new Date();
       d.setDate(d.getDate() - 1);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     });
-    const [snapping, setSnapping] = useState12(false);
-    const [comparing, setComparing] = useState12(false);
-    const [result, setResult] = useState12(null);
-    const [history, setHistory] = useState12(null);
-    const [wtdSnapshots, setWtdSnapshots] = useState12(null);
-    const [wtdHistory, setWtdHistory] = useState12(null);
-    const [wtdDetail, setWtdDetail] = useState12(null);
-    const [view, setView] = useState12("main");
+    const [snapping, setSnapping] = useState13(false);
+    const [comparing, setComparing] = useState13(false);
+    const [result, setResult] = useState13(null);
+    const [history, setHistory] = useState13(null);
+    const [wtdSnapshots, setWtdSnapshots] = useState13(null);
+    const [wtdHistory, setWtdHistory] = useState13(null);
+    const [wtdDetail, setWtdDetail] = useState13(null);
+    const [view, setView] = useState13("main");
     const callRecon = async (action, extra = {}) => {
       const res = await fetch("/.netlify/functions/reconciliation", {
         method: "POST",
@@ -33680,19 +33791,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canEdit = isCashAdmin(user);
     const isDM = user?.userType === "dm";
     const dmDistrict = isDM ? user?.district : null;
-    const [noteModal, setNoteModal] = useState12(null);
-    const [noteText, setNoteText] = useState12("");
-    const [editDep, setEditDep] = useState12(null);
-    const [editForm, setEditForm] = useState12({ depositDate: "", amount: "" });
-    const [posLoading, setPosLoading] = useState12(false);
-    const [posProgress, setPosProgress] = useState12(0);
+    const [noteModal, setNoteModal] = useState13(null);
+    const [noteText, setNoteText] = useState13("");
+    const [editDep, setEditDep] = useState13(null);
+    const [editForm, setEditForm] = useState13({ depositDate: "", amount: "" });
+    const [posLoading, setPosLoading] = useState13(false);
+    const [posProgress, setPosProgress] = useState13(0);
     const fileRef = useRef5(null);
-    const [uploading, setUploading] = useState12(false);
-    const [uploadErr, setUploadErr] = useState12(null);
-    const [view, setView] = useState12("alerts");
-    const [weekOffset, setWeekOffset] = useState12(0);
-    const [storeFilter, setStoreFilter] = useState12(null);
-    const [distFilter, setDistFilter] = useState12(isDM ? dmDistrict : 0);
+    const [uploading, setUploading] = useState13(false);
+    const [uploadErr, setUploadErr] = useState13(null);
+    const [view, setView] = useState13("alerts");
+    const [weekOffset, setWeekOffset] = useState13(0);
+    const [storeFilter, setStoreFilter] = useState13(null);
+    const [distFilter, setDistFilter] = useState13(isDM ? dmDistrict : 0);
     const fmtUSD = (v) => "$" + (Math.round(v * 100) / 100).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtUSDRound = (v) => "$" + Math.round(v).toLocaleString();
     const fmtShort = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
@@ -34669,7 +34780,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var SCHEDULE_DESKTOP_BREAKPOINT = 1024;
   function useIsDesktopViewport() {
-    const [isDesktop, setIsDesktop] = useState12(
+    const [isDesktop, setIsDesktop] = useState13(
       () => typeof window !== "undefined" ? window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT : true
     );
     useEffect10(() => {
@@ -34760,8 +34871,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setUTCDate(d.getUTCDate() + i);
       return d;
     });
-    const [hoveredCell, setHoveredCell] = useState12(null);
-    const [clipboard, setClipboard] = useState12(null);
+    const [hoveredCell, setHoveredCell] = useState13(null);
+    const [clipboard, setClipboard] = useState13(null);
     useEffect10(() => {
       const onKeyDown = (e) => {
         if (e.key === "Escape") setClipboard(null);
@@ -34786,8 +34897,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const handleAddShift = (employeeId, dayOffset) => {
       onCardsChange(addShiftToEmployee(cards, employeeId, { dayOffset, startTime: "09:00", endTime: "17:00" }));
     };
-    const [editingShift, setEditingShift] = useState12(null);
-    const [editDraft, setEditDraft] = useState12({ startTime: "", endTime: "", reassignTo: "" });
+    const [editingShift, setEditingShift] = useState13(null);
+    const [editDraft, setEditDraft] = useState13({ startTime: "", endTime: "", reassignTo: "" });
     const openEdit = (employeeId, shift) => {
       setEditingShift({ employeeId, shift });
       setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: "" });
@@ -34863,8 +34974,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "sticky", top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.85rem 1.1rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Projected Weekly Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color } }, "$", weeklyTotal.totalDollars.toFixed(2), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 600 } }, "(", pct.toFixed(1), "%)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, weeklyTotal.totalHours.toFixed(1), " total hours"), overtimeEmployees.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b", fontWeight: 600 } }, "\u26A0 ", overtimeEmployees.length, " employee(s) over 40h this week"));
   }
   function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmployees = [], onReassign, startInEdit = false }) {
-    const [editing, setEditing] = useState12(startInEdit);
-    const [draftShifts, setDraftShifts] = useState12(cardData.shifts || []);
+    const [editing, setEditing] = useState13(startInEdit);
+    const [draftShifts, setDraftShifts] = useState13(cardData.shifts || []);
     const updateShift = (idx, field, value) => {
       setDraftShifts((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
     };
@@ -34898,17 +35009,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ScheduleBuilder({ store, th, mode }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [weekStart, setWeekStart] = useState12("");
-    const [loading, setLoading] = useState12(false);
-    const [error, setError] = useState12(null);
-    const [cards, setCards] = useState12(null);
-    const [cardIndex, setCardIndex] = useState12(0);
-    const [approvedCards, setApprovedCards] = useState12([]);
-    const [payRates, setPayRates] = useState12({});
-    const [openShiftGroups, setOpenShiftGroups] = useState12([]);
-    const [submitResult, setSubmitResult] = useState12(null);
-    const [showBuildPreview, setShowBuildPreview] = useState12(false);
-    const [reopenEmployeeId, setReopenEmployeeId] = useState12(null);
+    const [weekStart, setWeekStart] = useState13("");
+    const [loading, setLoading] = useState13(false);
+    const [error, setError] = useState13(null);
+    const [cards, setCards] = useState13(null);
+    const [cardIndex, setCardIndex] = useState13(0);
+    const [approvedCards, setApprovedCards] = useState13([]);
+    const [payRates, setPayRates] = useState13({});
+    const [openShiftGroups, setOpenShiftGroups] = useState13([]);
+    const [submitResult, setSubmitResult] = useState13(null);
+    const [showBuildPreview, setShowBuildPreview] = useState13(false);
+    const [reopenEmployeeId, setReopenEmployeeId] = useState13(null);
     const load = async () => {
       if (!weekStart) return;
       setLoading(true);
@@ -35166,21 +35277,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
-    const [activeTab, setActiveTab] = useState12("hourly");
-    const [laborHoverHr, setLaborHoverHr] = useState12(null);
-    const [punches, setPunches] = useState12([]);
-    const [employees, setEmployees] = useState12([]);
-    const [storeHistory, setStoreHistory] = useState12(null);
-    const [hourlySales, setHourlySales] = useState12({});
-    const [scheduleShifts, setScheduleShifts] = useState12([]);
-    const [livePunches, setLivePunches] = useState12({});
-    const [liveSummary, setLiveSummary] = useState12(null);
-    const [loading, setLoading] = useState12(true);
-    const [fetchError, setFetchError] = useState12(false);
-    const [empExpanded, setEmpExpanded] = useState12(false);
-    const [weekSchedule, setWeekSchedule] = useState12(null);
-    const [expandedDay, setExpandedDay] = useState12(null);
-    const [empHourAdj, setEmpHourAdj] = useState12({});
+    const [activeTab, setActiveTab] = useState13("hourly");
+    const [laborHoverHr, setLaborHoverHr] = useState13(null);
+    const [punches, setPunches] = useState13([]);
+    const [employees, setEmployees] = useState13([]);
+    const [storeHistory, setStoreHistory] = useState13(null);
+    const [hourlySales, setHourlySales] = useState13({});
+    const [scheduleShifts, setScheduleShifts] = useState13([]);
+    const [livePunches, setLivePunches] = useState13({});
+    const [liveSummary, setLiveSummary] = useState13(null);
+    const [loading, setLoading] = useState13(true);
+    const [fetchError, setFetchError] = useState13(false);
+    const [empExpanded, setEmpExpanded] = useState13(false);
+    const [weekSchedule, setWeekSchedule] = useState13(null);
+    const [expandedDay, setExpandedDay] = useState13(null);
+    const [empHourAdj, setEmpHourAdj] = useState13({});
     const storeInfo = stores.find((s) => s.pc === store.pc) || {};
     const mgrName = storeMgrName(storeInfo, users) || "Unassigned";
     const todayStr = localDateStr(/* @__PURE__ */ new Date());
@@ -35786,20 +35897,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return Math.floor(hrs / 24) + "d ago";
   }
   function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn, users }) {
-    const [laborData, setLaborData] = useState12(null);
-    const [loading, setLoading] = useState12(true);
-    const [error, setError] = useState12(null);
-    const [selectedStore, setSelectedStore] = useState12(null);
+    const [laborData, setLaborData] = useState13(null);
+    const [loading, setLoading] = useState13(true);
+    const [error, setError] = useState13(null);
+    const [selectedStore, setSelectedStore] = useState13(null);
     useEffect10(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
-    const [timeFilter, setTimeFilter] = useState12("today");
-    const [districtFilter, setDistrictFilter] = useState12("all");
-    const [storeQuery, setStoreQuery] = useState12("");
-    const [viewDate, setViewDate] = useState12("");
-    const [dayData, setDayData] = useState12(null);
-    const [dayLoading, setDayLoading] = useState12(false);
-    const [dayError, setDayError] = useState12(null);
+    const [timeFilter, setTimeFilter] = useState13("today");
+    const [districtFilter, setDistrictFilter] = useState13("all");
+    const [storeQuery, setStoreQuery] = useState13("");
+    const [viewDate, setViewDate] = useState13("");
+    const [dayData, setDayData] = useState13(null);
+    const [dayLoading, setDayLoading] = useState13(false);
+    const [dayError, setDayError] = useState13(null);
     useEffect10(() => {
       if (!viewDate) {
         setDayData(null);
@@ -35829,7 +35940,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [viewDate]);
-    const [forecastData, setForecastData] = useState12({});
+    const [forecastData, setForecastData] = useState13({});
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const next7Days = React.useMemo(() => {
@@ -36106,7 +36217,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })));
   }
   function PnLStoreDetail({ store, th, onClose }) {
-    const [history, setHistory] = useState12(null);
+    const [history, setHistory] = useState13(null);
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
     useEffect10(() => {
@@ -36257,58 +36368,58 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
       return f.format(/* @__PURE__ */ new Date());
     };
-    const [view, setView] = useState12(isManager ? "tasks" : "dashboard");
+    const [view, setView] = useState13(isManager ? "tasks" : "dashboard");
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef, 420, 20, view);
-    const [storePc, setStorePc] = useState12(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
-    const [date, setDate] = useState12(todayET());
-    const [seg, setSeg] = useState12("open");
-    const [data, setData] = useState12(null);
-    const [dash, setDash] = useState12(null);
-    const [rollup, setRollup] = useState12(null);
-    const [loading, setLoading] = useState12(false);
-    const [busyId, setBusyId] = useState12(null);
-    const [openEntry, setOpenEntry] = useState12(null);
-    const [entryVal, setEntryVal] = useState12("");
-    const [keypad, setKeypad] = useState12(null);
-    const [expandedId, setExpandedId] = useState12(null);
-    const [localAnswers, setLocalAnswers] = useState12({});
-    const [cas, setCas] = useState12(null);
-    const [caFilter, setCaFilter] = useState12("open");
-    const [loadingCAs, setLoadingCAs] = useState12(false);
-    const [gpsRows, setGpsRows] = useState12(null);
-    const [gpsLoading, setGpsLoading] = useState12(false);
-    const [gpsDays, setGpsDays] = useState12(7);
-    const [gpsTab, setGpsTab] = useState12("list");
+    const [storePc, setStorePc] = useState13(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
+    const [date, setDate] = useState13(todayET());
+    const [seg, setSeg] = useState13("open");
+    const [data, setData] = useState13(null);
+    const [dash, setDash] = useState13(null);
+    const [rollup, setRollup] = useState13(null);
+    const [loading, setLoading] = useState13(false);
+    const [busyId, setBusyId] = useState13(null);
+    const [openEntry, setOpenEntry] = useState13(null);
+    const [entryVal, setEntryVal] = useState13("");
+    const [keypad, setKeypad] = useState13(null);
+    const [expandedId, setExpandedId] = useState13(null);
+    const [localAnswers, setLocalAnswers] = useState13({});
+    const [cas, setCas] = useState13(null);
+    const [caFilter, setCaFilter] = useState13("open");
+    const [loadingCAs, setLoadingCAs] = useState13(false);
+    const [gpsRows, setGpsRows] = useState13(null);
+    const [gpsLoading, setGpsLoading] = useState13(false);
+    const [gpsDays, setGpsDays] = useState13(7);
+    const [gpsTab, setGpsTab] = useState13("list");
     const gpsMapDiv = useRef5(null);
     const gpsMapRef = useRef5(null);
     const gpsLayerRef = useRef5(null);
-    const [auditData, setAuditData] = useState12(null);
-    const [auditLoading, setAuditLoading] = useState12(false);
-    const [auditStore, setAuditStore] = useState12("");
-    const [auditFrom, setAuditFrom] = useState12("");
-    const [auditTo, setAuditTo] = useState12("");
-    const [auditPhotos, setAuditPhotos] = useState12(false);
-    const [auditPhotoUrls, setAuditPhotoUrls] = useState12({});
-    const [auditExporting, setAuditExporting] = useState12(false);
+    const [auditData, setAuditData] = useState13(null);
+    const [auditLoading, setAuditLoading] = useState13(false);
+    const [auditStore, setAuditStore] = useState13("");
+    const [auditFrom, setAuditFrom] = useState13("");
+    const [auditTo, setAuditTo] = useState13("");
+    const [auditPhotos, setAuditPhotos] = useState13(false);
+    const [auditPhotoUrls, setAuditPhotoUrls] = useState13({});
+    const [auditExporting, setAuditExporting] = useState13(false);
     const auditRef = useRef5(null);
-    const [photoLightbox, setPhotoLightbox] = useState12(null);
-    const [photoUrls, setPhotoUrls] = useState12({});
-    const [merch, setMerch] = useState12(null);
-    const [merchPage, setMerchPage] = useState12(1);
-    const [merchLoading, setMerchLoading] = useState12(false);
-    const [merchAllDates, setMerchAllDates] = useState12(false);
+    const [photoLightbox, setPhotoLightbox] = useState13(null);
+    const [photoUrls, setPhotoUrls] = useState13({});
+    const [merch, setMerch] = useState13(null);
+    const [merchPage, setMerchPage] = useState13(1);
+    const [merchLoading, setMerchLoading] = useState13(false);
+    const [merchAllDates, setMerchAllDates] = useState13(false);
     const MERCH_PAGE_SIZE = 8;
-    const [rangeDays, setRangeDays] = useState12(14);
-    const [reportData, setReportData] = useState12(null);
-    const [reportLoading, setReportLoading] = useState12(false);
-    const [hist, setHist] = useState12(null);
-    const [histLoading, setHistLoading] = useState12(false);
-    const [histPage, setHistPage] = useState12(1);
-    const [histStatus, setHistStatus] = useState12("all");
-    const [tempLog, setTempLog] = useState12(null);
-    const [tempLoading, setTempLoading] = useState12(false);
-    const [tempPage, setTempPage] = useState12(1);
+    const [rangeDays, setRangeDays] = useState13(14);
+    const [reportData, setReportData] = useState13(null);
+    const [reportLoading, setReportLoading] = useState13(false);
+    const [hist, setHist] = useState13(null);
+    const [histLoading, setHistLoading] = useState13(false);
+    const [histPage, setHistPage] = useState13(1);
+    const [histStatus, setHistStatus] = useState13("all");
+    const [tempLog, setTempLog] = useState13(null);
+    const [tempLoading, setTempLoading] = useState13(false);
+    const [tempPage, setTempPage] = useState13(1);
     const byName = user?.name || user?.email || "user";
     const SHIFT_WINDOWS_CLIENT = {
       "1 AM": 0,
@@ -36338,7 +36449,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const geoRef = useRef5(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
     const locDefaultOn = user?.userType === "store_tablet";
-    const [shareLoc, setShareLoc] = useState12(() => {
+    const [shareLoc, setShareLoc] = useState13(() => {
       try {
         const v = localStorage.getItem("pcg_share_location");
         if (v === "1") return true;
@@ -36348,14 +36459,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return locDefaultOn;
       }
     });
-    const [locAsked, setLocAsked] = useState12(() => {
+    const [locAsked, setLocAsked] = useState13(() => {
       try {
         return localStorage.getItem("pcg_share_location") != null;
       } catch {
         return true;
       }
     });
-    const [locDenied, setLocDenied] = useState12(false);
+    const [locDenied, setLocDenied] = useState13(false);
     const persistLoc = (on) => {
       try {
         localStorage.setItem("pcg_share_location", on ? "1" : "0");
@@ -37240,23 +37351,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), photoLightbox && /* @__PURE__ */ React.createElement("div", { onClick: () => setPhotoLightbox(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoLightbox(null), style: { position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: photoLightbox, alt: "Full size photo", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } }))))));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
-    const [eventAddr, setEventAddr] = useState12("2310 W Passyunk Ave, Philadelphia, PA 19145");
-    const [eventLatLng, setEventLatLng] = useState12(null);
-    const [eventDate, setEventDate] = useState12("2025-12-28");
-    const [weeksBefore, setWeeksBefore] = useState12(13);
-    const [weeksAfter, setWeeksAfter] = useState12("");
-    const [coords, setCoords] = useState12(null);
-    const [ranked, setRanked] = useState12([]);
-    const [impactedPc, setImpactedPc] = useState12(null);
-    const [controlPcs, setControlPcs] = useState12([]);
-    const [status, setStatus] = useState12("");
-    const [busy, setBusy] = useState12(false);
-    const [results, setResults] = useState12(null);
+    const [eventAddr, setEventAddr] = useState13("2310 W Passyunk Ave, Philadelphia, PA 19145");
+    const [eventLatLng, setEventLatLng] = useState13(null);
+    const [eventDate, setEventDate] = useState13("2025-12-28");
+    const [weeksBefore, setWeeksBefore] = useState13(13);
+    const [weeksAfter, setWeeksAfter] = useState13("");
+    const [coords, setCoords] = useState13(null);
+    const [ranked, setRanked] = useState13([]);
+    const [impactedPc, setImpactedPc] = useState13(null);
+    const [controlPcs, setControlPcs] = useState13([]);
+    const [status, setStatus] = useState13("");
+    const [busy, setBusy] = useState13(false);
+    const [results, setResults] = useState13(null);
     const chartCanvas = useRef5(null);
     const chartRef = useRef5(null);
     const mapDiv = useRef5(null);
     const mapRef = useRef5(null);
-    const [radiusMi, setRadiusMi] = useState12(1);
+    const [radiusMi, setRadiusMi] = useState13(1);
     const histCache = useRef5(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
@@ -37565,22 +37676,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })(), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", color: th.muted, fontSize: 12 } }, /* @__PURE__ */ React.createElement("th", { style: { padding: 6 } }, "Store"), /* @__PURE__ */ React.createElement("th", null, "Distance"), /* @__PURE__ */ React.createElement("th", null, "Before $/wk"), /* @__PURE__ */ React.createElement("th", null, "After $/wk"), /* @__PURE__ */ React.createElement("th", null, "%\u0394"), /* @__PURE__ */ React.createElement("th", null, "Weeks"))), /* @__PURE__ */ React.createElement("tbody", null, [results.impacted, ...results.controls].map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: row.pc, style: { borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: 6 } }, row.name, i === 0 ? " (impacted)" : ""), /* @__PURE__ */ React.createElement("td", null, row.distance != null ? `${row.distance.toFixed(1)} mi` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgBefore)), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgAfter)), /* @__PURE__ */ React.createElement("td", { style: { color: row.deltaPct < -15 ? "#dc2626" : row.deltaPct < -7 ? "#d97706" : th.text } }, fmtPct(row.deltaPct)), /* @__PURE__ */ React.createElement("td", { style: { color: row.weeksBeforeUsed < weeksBefore ? "#d97706" : th.muted } }, row.weeksBeforeUsed, "/", row.weeksAfterUsed, row.weeksBeforeUsed < weeksBefore ? " \u26A0" : ""))))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 11, marginTop: 8 } }, "Source: ", results.impacted.source === "scorecard" ? `uploaded weekly scorecards (${results.impacted.weeksAvailable} wks available for the impacted store)` : `Pulse net sales via labor blobs (~13-week retention; ${results.impacted.weeksAvailable} wks available)`, ". \u26A0 = fewer weeks than requested.")));
   }
   function AdminNdcp({ th, user }) {
-    const [orders, setOrders] = useState12(null);
-    const [err, setErr] = useState12(null);
-    const [q, setQ] = useState12("");
-    const [storeFilter, setStoreFilter] = useState12("");
-    const [sel, setSel] = useState12(null);
-    const [detail, setDetail] = useState12(null);
-    const [detailLoading, setDetailLoading] = useState12(false);
+    const [orders, setOrders] = useState13(null);
+    const [err, setErr] = useState13(null);
+    const [q, setQ] = useState13("");
+    const [storeFilter, setStoreFilter] = useState13("");
+    const [sel, setSel] = useState13(null);
+    const [detail, setDetail] = useState13(null);
+    const [detailLoading, setDetailLoading] = useState13(false);
     const todayISO = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const ago2 = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-    const [from, setFrom] = useState12(ago2(13 * 7));
-    const [to, setTo] = useState12(todayISO);
-    const [view, setView] = useState12("weekly");
-    const [summary, setSummary] = useState12(null);
-    const [labor, setLabor] = useState12(null);
-    const [expandWeek, setExpandWeek] = useState12(null);
-    const [expandDist, setExpandDist] = useState12(null);
+    const [from, setFrom] = useState13(ago2(13 * 7));
+    const [to, setTo] = useState13(todayISO);
+    const [view, setView] = useState13("weekly");
+    const [summary, setSummary] = useState13(null);
+    const [labor, setLabor] = useState13(null);
+    const [expandWeek, setExpandWeek] = useState13(null);
+    const [expandDist, setExpandDist] = useState13(null);
     const dcpPct = (spend, sales) => {
       if (spend == null || sales == null) return null;
       const sp = +spend, sl = +sales;
@@ -37881,65 +37992,65 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
     const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
     const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
-    const [deals, setDeals] = useState12([]);
-    const [loading, setLoading] = useState12(true);
-    const [error, setError] = useState12(null);
-    const [view, setView] = useState12("kanban");
-    const [filterBrand, setFilterBrand] = useState12("all");
-    const [filterType, setFilterType] = useState12("all");
-    const [filterState, setFilterState] = useState12("all");
-    const [filterStage, setFilterStage] = useState12("all");
-    const [filterLead, setFilterLead] = useState12("all");
-    const [sortCol, setSortCol] = useState12("name");
-    const [sortDir, setSortDir] = useState12("asc");
-    const [selectedDeal, setSelectedDeal] = useState12(null);
-    const [detailDeal, setDetailDeal] = useState12(null);
-    const [detailDates, setDetailDates] = useState12([]);
-    const [detailNotes, setDetailNotes] = useState12([]);
-    const [detailLoading, setDetailLoading] = useState12(false);
-    const [detailError, setDetailError] = useState12(null);
-    const [editFields, setEditFields] = useState12({});
-    const [saving, setSaving] = useState12(false);
-    const [saveMsg, setSaveMsg] = useState12(null);
-    const [newNote, setNewNote] = useState12("");
-    const [addingNote, setAddingNote] = useState12(false);
-    const [noteErr, setNoteErr] = useState12(null);
-    const [actionErr, setActionErr] = useState12(null);
-    const [showCreate, setShowCreate] = useState12(false);
-    const [createForm, setCreateForm] = useState12({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
-    const [creating, setCreating] = useState12(false);
-    const [createError, setCreateError] = useState12(null);
-    const [docs, setDocs] = useState12([]);
-    const [docVersions, setDocVersions] = useState12([]);
-    const [docBusy, setDocBusy] = useState12(false);
-    const [docErr, setDocErr] = useState12(null);
-    const [newDocType, setNewDocType] = useState12("loi");
-    const [allDates, setAllDates] = useState12([]);
-    const [newDateType, setNewDateType] = useState12(DATE_TYPES[0]?.id || "");
-    const [newDateDue, setNewDateDue] = useState12("");
-    const [newDateTiers, setNewDateTiers] = useState12(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
-    const [newDateNotes, setNewDateNotes] = useState12("");
-    const [newDateRecurring, setNewDateRecurring] = useState12("");
-    const [dateAdding, setDateAdding] = useState12(false);
-    const [dateErr, setDateErr] = useState12(null);
-    const [showAccess, setShowAccess] = useState12(false);
-    const [accessRows, setAccessRows] = useState12(null);
-    const [accessInput, setAccessInput] = useState12("");
-    const [accessRole, setAccessRole] = useState12("view");
-    const [accessBusy, setAccessBusy] = useState12(false);
-    const [accessErr, setAccessErr] = useState12(null);
-    const [dealLeads, setDealLeads] = useState12([]);
-    const [newLeadName, setNewLeadName] = useState12("");
-    const [deadFor, setDeadFor] = useState12(null);
-    const [deadReason, setDeadReason] = useState12(DEAD_REASONS[0]);
-    const [deadNote, setDeadNote] = useState12("");
-    const [deadBusy, setDeadBusy] = useState12(false);
-    const [deadErr, setDeadErr] = useState12(null);
-    const [remindFor, setRemindFor] = useState12(null);
-    const [remindPhone, setRemindPhone] = useState12("");
-    const [remindMsg, setRemindMsg] = useState12("");
-    const [remindBusy, setRemindBusy] = useState12(false);
-    const [remindStatus, setRemindStatus] = useState12(null);
+    const [deals, setDeals] = useState13([]);
+    const [loading, setLoading] = useState13(true);
+    const [error, setError] = useState13(null);
+    const [view, setView] = useState13("kanban");
+    const [filterBrand, setFilterBrand] = useState13("all");
+    const [filterType, setFilterType] = useState13("all");
+    const [filterState, setFilterState] = useState13("all");
+    const [filterStage, setFilterStage] = useState13("all");
+    const [filterLead, setFilterLead] = useState13("all");
+    const [sortCol, setSortCol] = useState13("name");
+    const [sortDir, setSortDir] = useState13("asc");
+    const [selectedDeal, setSelectedDeal] = useState13(null);
+    const [detailDeal, setDetailDeal] = useState13(null);
+    const [detailDates, setDetailDates] = useState13([]);
+    const [detailNotes, setDetailNotes] = useState13([]);
+    const [detailLoading, setDetailLoading] = useState13(false);
+    const [detailError, setDetailError] = useState13(null);
+    const [editFields, setEditFields] = useState13({});
+    const [saving, setSaving] = useState13(false);
+    const [saveMsg, setSaveMsg] = useState13(null);
+    const [newNote, setNewNote] = useState13("");
+    const [addingNote, setAddingNote] = useState13(false);
+    const [noteErr, setNoteErr] = useState13(null);
+    const [actionErr, setActionErr] = useState13(null);
+    const [showCreate, setShowCreate] = useState13(false);
+    const [createForm, setCreateForm] = useState13({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
+    const [creating, setCreating] = useState13(false);
+    const [createError, setCreateError] = useState13(null);
+    const [docs, setDocs] = useState13([]);
+    const [docVersions, setDocVersions] = useState13([]);
+    const [docBusy, setDocBusy] = useState13(false);
+    const [docErr, setDocErr] = useState13(null);
+    const [newDocType, setNewDocType] = useState13("loi");
+    const [allDates, setAllDates] = useState13([]);
+    const [newDateType, setNewDateType] = useState13(DATE_TYPES[0]?.id || "");
+    const [newDateDue, setNewDateDue] = useState13("");
+    const [newDateTiers, setNewDateTiers] = useState13(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
+    const [newDateNotes, setNewDateNotes] = useState13("");
+    const [newDateRecurring, setNewDateRecurring] = useState13("");
+    const [dateAdding, setDateAdding] = useState13(false);
+    const [dateErr, setDateErr] = useState13(null);
+    const [showAccess, setShowAccess] = useState13(false);
+    const [accessRows, setAccessRows] = useState13(null);
+    const [accessInput, setAccessInput] = useState13("");
+    const [accessRole, setAccessRole] = useState13("view");
+    const [accessBusy, setAccessBusy] = useState13(false);
+    const [accessErr, setAccessErr] = useState13(null);
+    const [dealLeads, setDealLeads] = useState13([]);
+    const [newLeadName, setNewLeadName] = useState13("");
+    const [deadFor, setDeadFor] = useState13(null);
+    const [deadReason, setDeadReason] = useState13(DEAD_REASONS[0]);
+    const [deadNote, setDeadNote] = useState13("");
+    const [deadBusy, setDeadBusy] = useState13(false);
+    const [deadErr, setDeadErr] = useState13(null);
+    const [remindFor, setRemindFor] = useState13(null);
+    const [remindPhone, setRemindPhone] = useState13("");
+    const [remindMsg, setRemindMsg] = useState13("");
+    const [remindBusy, setRemindBusy] = useState13(false);
+    const [remindStatus, setRemindStatus] = useState13(null);
     const loadList = () => {
       setLoading(true);
       return dealApi(token, { action: "list", status: "active" }).then((r) => {
@@ -38785,10 +38896,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ));
   }
   function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
-    const [pnl, setPnl] = useState12(null);
-    const [loading, setLoading] = useState12(true);
-    const [error, setError] = useState12(null);
-    const [selectedStore, setSelectedStore] = useState12(null);
+    const [pnl, setPnl] = useState13(null);
+    const [loading, setLoading] = useState13(true);
+    const [error, setError] = useState13(null);
+    const [selectedStore, setSelectedStore] = useState13(null);
     useEffect10(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
@@ -38987,8 +39098,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var QUICKFIND_HUB_LABELS = { "ops-hub": "Operations", "team-hub": "Team & Sites", "system-hub": "System", "tools-hub": "Tools", finance: "Finance" };
   function QuickFindBar({ th, tabs, onNavigate, compact }) {
-    const [query, setQuery] = useState12("");
-    const [showSuggestions, setShowSuggestions] = useState12(false);
+    const [query, setQuery] = useState13("");
+    const [showSuggestions, setShowSuggestions] = useState13(false);
     const matches = React.useMemo(() => {
       const q = query.trim().toLowerCase();
       if (!q) return [];
@@ -39124,10 +39235,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
     const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
-    const [viewMode, setViewMode] = useState12("overview");
-    const [hubQuery, setHubQuery] = useState12("");
-    const [pnlOv, setPnlOv] = useState12(null);
-    const [expPending, setExpPending] = useState12(null);
+    const [viewMode, setViewMode] = useState13("overview");
+    const [hubQuery, setHubQuery] = useState13("");
+    const [pnlOv, setPnlOv] = useState13(null);
+    const [expPending, setExpPending] = useState13(null);
     useEffect10(() => {
       if (viewMode !== "overview") return;
       if (canPnl && !pnlOv) cloudLoad("pcg_pnl_live_v1").then((d) => {
@@ -39412,20 +39523,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function TipsReportBuilder({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [periodStart, setPeriodStart] = useState12("");
-    const [loading, setLoading] = useState12(false);
-    const [error, setError] = useState12(null);
-    const [dayInfo, setDayInfo] = useState12(null);
-    const [snapshots, setSnapshots] = useState12(null);
-    const [grandTotal, setGrandTotal] = useState12(0);
+    const [periodStart, setPeriodStart] = useState13("");
+    const [loading, setLoading] = useState13(false);
+    const [error, setError] = useState13(null);
+    const [dayInfo, setDayInfo] = useState13(null);
+    const [snapshots, setSnapshots] = useState13(null);
+    const [grandTotal, setGrandTotal] = useState13(0);
     const canPushToPaycor = canPaycorPush(user);
-    const [paycorCfg, setPaycorCfg] = useState12({});
-    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState12(false);
-    const [paycorPush, setPaycorPush] = useState12(null);
-    const [singleSendPc, setSingleSendPc] = useState12("");
-    const [singleSending, setSingleSending] = useState12(false);
-    const [refreshingDates, setRefreshingDates] = useState12(() => /* @__PURE__ */ new Set());
-    const [refreshingStores, setRefreshingStores] = useState12(() => /* @__PURE__ */ new Set());
+    const [paycorCfg, setPaycorCfg] = useState13({});
+    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState13(false);
+    const [paycorPush, setPaycorPush] = useState13(null);
+    const [singleSendPc, setSingleSendPc] = useState13("");
+    const [singleSending, setSingleSending] = useState13(false);
+    const [refreshingDates, setRefreshingDates] = useState13(() => /* @__PURE__ */ new Set());
+    const [refreshingStores, setRefreshingStores] = useState13(() => /* @__PURE__ */ new Set());
     useEffect10(() => {
       if (!canPushToPaycor || paycorCfgLoaded) return;
       cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
@@ -39447,7 +39558,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
       fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc));
     }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
-    const [missingCheck, setMissingCheck] = useState12(null);
+    const [missingCheck, setMissingCheck] = useState13(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
     const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 864e5) : 0;
@@ -39839,7 +39950,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   var teHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
-    const [shown, setShown] = useState12(target);
+    const [shown, setShown] = useState13(target);
     const fromRef = useRef5(target);
     useEffect10(() => {
       const from = fromRef.current;
@@ -39959,20 +40070,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 14);
       return tipsFormatISODate(d);
     })();
-    const [storePc, setStorePc] = useState12("");
-    const [roster, setRoster] = useState12(null);
-    const [rosterLoading, setRosterLoading] = useState12(false);
-    const [personQuery, setPersonQuery] = useState12("");
-    const [person, setPerson] = useState12(null);
-    const [startDate, setStartDate] = useState12(twoWeeksAgo);
-    const [endDate, setEndDate] = useState12(yesterday);
-    const [days, setDays] = useState12(null);
-    const [edits, setEdits] = useState12({});
-    const [loading, setLoading] = useState12(false);
-    const [saving, setSaving] = useState12(false);
-    const [error, setError] = useState12(null);
-    const [result, setResult] = useState12(null);
-    const [reason, setReason] = useState12("");
+    const [storePc, setStorePc] = useState13("");
+    const [roster, setRoster] = useState13(null);
+    const [rosterLoading, setRosterLoading] = useState13(false);
+    const [personQuery, setPersonQuery] = useState13("");
+    const [person, setPerson] = useState13(null);
+    const [startDate, setStartDate] = useState13(twoWeeksAgo);
+    const [endDate, setEndDate] = useState13(yesterday);
+    const [days, setDays] = useState13(null);
+    const [edits, setEdits] = useState13({});
+    const [loading, setLoading] = useState13(false);
+    const [saving, setSaving] = useState13(false);
+    const [error, setError] = useState13(null);
+    const [result, setResult] = useState13(null);
+    const [reason, setReason] = useState13("");
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const api2 = async (body) => {
       const res = await fetch("/.netlify/functions/tips-manual-edit", {
@@ -40111,25 +40222,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.88rem", fontWeight: 600, color: th.text, marginBottom: "0.35rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("textarea", { rows: 2, className: "te-input", placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: FONTS.body, fontSize: "0.92rem" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.84rem", color: th.muted, marginRight: "auto" } }, /* @__PURE__ */ React.createElement(TeTicker, { value: checkedDays.length, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
   }
   function TipsEditor({ th, stores, user, onGoToReport }) {
-    const [mode, setMode] = useState12("day");
+    const [mode, setMode] = useState13("day");
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState12("");
-    const [dateStr, setDateStr] = useState12(todayStr);
-    const [loading, setLoading] = useState12(false);
-    const [error, setError] = useState12(null);
-    const [store, setStore] = useState12(null);
-    const [crew, setCrew] = useState12([]);
-    const [saving, setSaving] = useState12(false);
-    const [savedMsg, setSavedMsg] = useState12(null);
-    const [reason, setReason] = useState12("");
-    const [roster, setRoster] = useState12(null);
-    const [rosterLoading, setRosterLoading] = useState12(false);
-    const [rosterQuery, setRosterQuery] = useState12("");
-    const [showRoster, setShowRoster] = useState12(false);
-    const [hoverKey, setHoverKey] = useState12(null);
-    const [leavingKeys, setLeavingKeys] = useState12([]);
-    const [justSaved, setJustSaved] = useState12(false);
-    const [addedKeys, setAddedKeys] = useState12([]);
+    const [storePc, setStorePc] = useState13("");
+    const [dateStr, setDateStr] = useState13(todayStr);
+    const [loading, setLoading] = useState13(false);
+    const [error, setError] = useState13(null);
+    const [store, setStore] = useState13(null);
+    const [crew, setCrew] = useState13([]);
+    const [saving, setSaving] = useState13(false);
+    const [savedMsg, setSavedMsg] = useState13(null);
+    const [reason, setReason] = useState13("");
+    const [roster, setRoster] = useState13(null);
+    const [rosterLoading, setRosterLoading] = useState13(false);
+    const [rosterQuery, setRosterQuery] = useState13("");
+    const [showRoster, setShowRoster] = useState13(false);
+    const [hoverKey, setHoverKey] = useState13(null);
+    const [leavingKeys, setLeavingKeys] = useState13([]);
+    const [justSaved, setJustSaved] = useState13(false);
+    const [addedKeys, setAddedKeys] = useState13([]);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const pool = tipsRound2(store?.tipPool || 0);
     const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
@@ -40318,13 +40429,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function EmployeeHoursReport({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState12("");
-    const [startDate, setStartDate] = useState12("");
-    const [endDate, setEndDate] = useState12("");
-    const [status, setStatus] = useState12(null);
-    const [step, setStep] = useState12("");
-    const [error, setError] = useState12(null);
-    const [result, setResult] = useState12(null);
+    const [storePc, setStorePc] = useState13("");
+    const [startDate, setStartDate] = useState13("");
+    const [endDate, setEndDate] = useState13("");
+    const [status, setStatus] = useState13(null);
+    const [step, setStep] = useState13("");
+    const [error, setError] = useState13(null);
+    const [result, setResult] = useState13(null);
     const pollRef = useRef5(null);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     React.useEffect(() => () => {
@@ -40515,11 +40626,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return React.createElement("div", { style: { fontFamily: "'Source Sans 3'", fontSize: "0.875rem" } }, elements);
   }
   function AskBar({ user, stores, th, onNavigate }) {
-    const [open, setOpen] = useState12(false);
-    const [query, setQuery] = useState12("");
-    const [answer, setAnswer] = useState12(null);
-    const [loading, setLoading] = useState12(false);
-    const [feedback, setFeedback] = useState12(null);
+    const [open, setOpen] = useState13(false);
+    const [query, setQuery] = useState13("");
+    const [answer, setAnswer] = useState13(null);
+    const [loading, setLoading] = useState13(false);
+    const [feedback, setFeedback] = useState13(null);
     const inputRef = useRef5(null);
     useEffect10(() => {
       const handler = (e) => {
@@ -40920,11 +41031,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     doc.save(`business_cases_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.pdf`);
   }
   function TodayBrief({ user, th, setAnnouncements, showAlert: showAlert2, announcementsDismissed, setAnnouncementsDismissed }) {
-    const [brief, setBrief] = useState12(null);
-    const [loading, setLoading] = useState12(true);
-    const [refreshing, setRefreshing] = useState12(false);
-    const [collapsed, setCollapsed] = useState12(false);
-    const [posting, setPosting] = useState12(false);
+    const [brief, setBrief] = useState13(null);
+    const [loading, setLoading] = useState13(true);
+    const [refreshing, setRefreshing] = useState13(false);
+    const [collapsed, setCollapsed] = useState13(false);
+    const [posting, setPosting] = useState13(false);
     const fetchBrief = async (refresh) => {
       if (refresh) setRefreshing(true);
       else setLoading(true);
@@ -40971,15 +41082,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, collapsed ? "\u25BC" : "\u25B2"))), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem" } }, renderAnalystMarkdown(brief.content, th)));
   }
   function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnouncements, showAlert: showAlert2 }) {
-    const [cases, setCases] = useState12([]);
-    const [totalOpp, setTotalOpp] = useState12(0);
-    const [byStatus, setByStatus] = useState12({});
-    const [loading, setLoading] = useState12(true);
-    const [expanded, setExpanded] = useState12(null);
-    const [caseAction, setCaseAction] = useState12({});
-    const [reasonPrompt, setReasonPrompt] = useState12(null);
-    const [decisionLog, setDecisionLog] = useState12([]);
-    const [showDecisionLog, setShowDecisionLog] = useState12(false);
+    const [cases, setCases] = useState13([]);
+    const [totalOpp, setTotalOpp] = useState13(0);
+    const [byStatus, setByStatus] = useState13({});
+    const [loading, setLoading] = useState13(true);
+    const [expanded, setExpanded] = useState13(null);
+    const [caseAction, setCaseAction] = useState13({});
+    const [reasonPrompt, setReasonPrompt] = useState13(null);
+    const [decisionLog, setDecisionLog] = useState13([]);
+    const [showDecisionLog, setShowDecisionLog] = useState13(false);
     useEffect10(() => {
       (async () => {
         try {
@@ -41799,18 +41910,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const CAT_COLORS = { "Setup Guide": "#3b82f6", "SOP": "#8b5cf6", "Training": "#22c55e", "Policy": "#ef4444", "Reference": "#f59e0b" };
     const isAdmin = user && (user.userType === "executive" || user.userType === "it");
     const [kbSection, setKbSection] = React.useState("articles");
-    const [articles, setArticles] = useState12([]);
-    const [selectedArticle, setSelectedArticle] = useState12(null);
-    const [articleContent, setArticleContent] = useState12(null);
-    const [loading, setLoading] = useState12(true);
+    const [articles, setArticles] = useState13([]);
+    const [selectedArticle, setSelectedArticle] = useState13(null);
+    const [articleContent, setArticleContent] = useState13(null);
+    const [loading, setLoading] = useState13(true);
     const kbContentRef = useRef5(null);
-    const [search, setSearch] = useState12("");
-    const [catFilter, setCatFilter] = useState12("All");
-    const [showForm, setShowForm] = useState12(false);
-    const [showPdfModal, setShowPdfModal] = useState12(false);
-    const [editing, setEditing] = useState12(false);
-    const [editForm, setEditForm] = useState12({ title: "", category: "", description: "", content: "" });
-    const [form, setForm] = useState12({ title: "", category: "Setup Guide", description: "", content: "" });
+    const [search, setSearch] = useState13("");
+    const [catFilter, setCatFilter] = useState13("All");
+    const [showForm, setShowForm] = useState13(false);
+    const [showPdfModal, setShowPdfModal] = useState13(false);
+    const [editing, setEditing] = useState13(false);
+    const [editForm, setEditForm] = useState13({ title: "", category: "", description: "", content: "" });
+    const [form, setForm] = useState13({ title: "", category: "Setup Guide", description: "", content: "" });
     useEffect10(() => {
       if (!kbContentRef.current || !articleContent) return;
       kbContentRef.current.querySelectorAll("script").forEach((old) => {
@@ -42323,14 +42434,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     );
   }
   function EmailTab({ th, user }) {
-    const [emails, setEmails] = useState12([]);
-    const [loading, setLoading] = useState12(true);
-    const [filter, setFilter] = useState12("all");
-    const [selectedEmail, setSelectedEmail] = useState12(null);
-    const [composing, setComposing] = useState12(false);
-    const [composeData, setComposeData] = useState12({ to: "", cc: "", subject: "", body: "" });
-    const [sending, setSending] = useState12(false);
-    const [lastSync, setLastSync] = useState12(null);
+    const [emails, setEmails] = useState13([]);
+    const [loading, setLoading] = useState13(true);
+    const [filter, setFilter] = useState13("all");
+    const [selectedEmail, setSelectedEmail] = useState13(null);
+    const [composing, setComposing] = useState13(false);
+    const [composeData, setComposeData] = useState13({ to: "", cc: "", subject: "", body: "" });
+    const [sending, setSending] = useState13(false);
+    const [lastSync, setLastSync] = useState13(null);
     const loadEmails = async () => {
       setLoading(true);
       try {
@@ -43534,16 +43645,16 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   };
   function ConstructionMobileView({ th, user, stores, projects, setProjects, todos, setTodos, onFullPortal, onOpenChat, onLogout }) {
     const O2 = "#FF671F";
-    const [navTab, setNavTab] = useState12("projects");
-    const [screen, setScreen] = useState12("list");
-    const [detailTab, setDetailTab] = useState12("reports");
-    const [calWeekOffset, setCalWeekOffset] = useState12(0);
-    const [calSelectedDay, setCalSelectedDay] = useState12(() => {
+    const [navTab, setNavTab] = useState13("projects");
+    const [screen, setScreen] = useState13("list");
+    const [detailTab, setDetailTab] = useState13("reports");
+    const [calWeekOffset, setCalWeekOffset] = useState13(0);
+    const [calSelectedDay, setCalSelectedDay] = useState13(() => {
       const d = /* @__PURE__ */ new Date();
       d.setHours(0, 0, 0, 0);
       return d;
     });
-    const [calSchedules, setCalSchedules] = useState12([]);
+    const [calSchedules, setCalSchedules] = useState13([]);
     useEffect10(() => {
       const load = () => cloudLoad(typeof MAINT_SCHEDULE_KEY !== "undefined" ? MAINT_SCHEDULE_KEY : "pcg_maint_schedules_v1").then((d) => {
         if (Array.isArray(d)) setCalSchedules(d);
@@ -43553,9 +43664,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const id = setInterval(load, 6e4);
       return () => clearInterval(id);
     }, []);
-    const [selectedProject, setSelectedProject] = useState12(null);
-    const [dailyReports, setDailyReports] = useState12([]);
-    const [loadingReports, setLoadingReports] = useState12(false);
+    const [selectedProject, setSelectedProject] = useState13(null);
+    const [dailyReports, setDailyReports] = useState13([]);
+    const [loadingReports, setLoadingReports] = useState13(false);
     const EMPTY_LOG = { name: "", description: "", quantity: "", totalHours: "", hoursToDate: "", photos: [] };
     const SURVEY_KEYS = ["accidents", "scheduleDelays", "weatherDelays", "visitors", "blockedAreas", "rentedEquipment"];
     const SURVEY_LABELS = {
@@ -43571,7 +43682,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { time: "12:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" },
       { time: "4:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" }
     ];
-    const [rForm, setRForm] = useState12({
+    const [rForm, setRForm] = useState13({
       date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
       preparedBy: user?.name || "",
       jobNumber: "",
@@ -43583,8 +43694,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       survey: Object.fromEntries(SURVEY_KEYS.map((k) => [k, null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map((k) => [k, ""]))
     });
-    const [rSaving, setRSaving] = useState12(false);
-    const [wxLoading, setWxLoading] = useState12(false);
+    const [rSaving, setRSaving] = useState13(false);
+    const [wxLoading, setWxLoading] = useState13(false);
     const autoFillWeather = async (proj, date) => {
       const zip = proj?.zip;
       if (!zip) {
@@ -43608,17 +43719,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setWxLoading(false);
     };
-    const [syncing, setSyncing] = useState12(false);
-    const [syncMsg, setSyncMsg] = useState12("");
-    const [selectedReport, setSelectedReport] = useState12(null);
-    const [loadingReport, setLoadingReport] = useState12(false);
-    const [lightboxSrc, setLightboxSrc] = useState12(null);
-    const [expandedLogs, setExpandedLogs] = useState12({});
-    const [pdfLoading, setPdfLoading] = useState12(false);
-    const [emailModal, setEmailModal] = useState12(false);
-    const [emailTo, setEmailTo] = useState12("");
-    const [emailSubject, setEmailSubject] = useState12("");
-    const [emailSending, setEmailSending] = useState12(false);
+    const [syncing, setSyncing] = useState13(false);
+    const [syncMsg, setSyncMsg] = useState13("");
+    const [selectedReport, setSelectedReport] = useState13(null);
+    const [loadingReport, setLoadingReport] = useState13(false);
+    const [lightboxSrc, setLightboxSrc] = useState13(null);
+    const [expandedLogs, setExpandedLogs] = useState13({});
+    const [pdfLoading, setPdfLoading] = useState13(false);
+    const [emailModal, setEmailModal] = useState13(false);
+    const [emailTo, setEmailTo] = useState13("");
+    const [emailSubject, setEmailSubject] = useState13("");
+    const [emailSending, setEmailSending] = useState13(false);
     const mobileGeneratePdf = async (r, proj, download = true) => {
       setPdfLoading(true);
       try {
@@ -44424,7 +44535,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const deleteSchedule = (id) => saveSchedules(schedules.filter((s) => s.id !== id));
     const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
     const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const [isNarrow, setIsNarrow] = useState12(() => typeof window !== "undefined" && window.innerWidth < 760);
+    const [isNarrow, setIsNarrow] = useState13(() => typeof window !== "undefined" && window.innerWidth < 760);
     useEffect10(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
@@ -44792,22 +44903,22 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const store = (stores || []).find((s) => String(s.pc) === String(pc));
     const storeName = store?.name || pc;
     const existingUsernames = users.map((u) => u.username);
-    const [selectedCandidateId, setSelectedCandidateId] = useState12(
+    const [selectedCandidateId, setSelectedCandidateId] = useState13(
       item.kind === "needsReview" ? null : item.candidate?.employeeId || null
     );
     const candidate = item.kind === "needsReview" ? (item.candidates || []).find((c) => c.employeeId === selectedCandidateId) || null : item.kind === "vacant" ? null : item.candidate;
     const existingAccount = item.kind === "replace" ? item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId) : null : users.find((u) => u.userType === "manager" && u.active !== false && String(u.storePC) === String(pc));
     const oldAlreadyDeactivated = existingAccount ? existingAccount.active === false : true;
-    const [deactivateOld, setDeactivateOld] = useState12(true);
-    const [form, setForm] = useState12({
+    const [deactivateOld, setDeactivateOld] = useState13(true);
+    const [form, setForm] = useState13({
       name: candidate?.name || "",
       username: candidate ? suggestUsername(candidate.name, existingUsernames) : "",
       password: generatePassword(),
       email: `${pc}@peoplecapitalgroup.com`,
       role: ""
     });
-    const [showPw, setShowPw] = useState12(false);
-    const [saving, setSaving] = useState12(false);
+    const [showPw, setShowPw] = useState13(false);
+    const [saving, setSaving] = useState13(false);
     const prevCandidateName = useRef5(candidate?.name || null);
     useEffect10(() => {
       if (!candidate || candidate.name === prevCandidateName.current) return;
@@ -44901,7 +45012,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 } }, "Dismiss")))))));
   }
   function PCGPortal() {
-    const [rawUser, setUser] = useState12(null);
+    const [rawUser, setUser] = useState13(null);
     const user = React.useMemo(() => {
       if (!rawUser || !isDirector(rawUser)) return rawUser;
       return { ...rawUser, userType: "director", realUserType: "director", district: null, districts: parseDistricts(rawUser.districts) };
@@ -44921,8 +45032,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    const [managerMode, setManagerMode] = useState12(null);
-    const [preferFullPortal, setPreferFullPortal] = useState12(() => {
+    const [managerMode, setManagerMode] = useState13(null);
+    const [preferFullPortal, setPreferFullPortal] = useState13(() => {
       try {
         return localStorage.getItem("pcg_prefer_full_portal") === "true";
       } catch {
@@ -44971,18 +45082,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setPreferFullPortal(false);
       setUser(null);
     };
-    const [tab, setTab] = useState12("dashboard");
-    const [pulseInitialTab, setPulseInitialTab] = useState12("sales");
+    const [tab, setTab] = useState13("dashboard");
+    const [pulseInitialTab, setPulseInitialTab] = useState13("sales");
     useEffect10(() => {
       window.scrollTo(0, 0);
     }, [tab]);
-    const [pendingOrionQuestion, setPendingOrionQuestion] = useState12(null);
-    const [orionIntent, setOrionIntent] = useState12(false);
+    const [pendingOrionQuestion, setPendingOrionQuestion] = useState13(null);
+    const [orionIntent, setOrionIntent] = useState13(false);
     useEffect10(() => {
       if (tab !== "chat" && orionIntent) setOrionIntent(false);
     }, [tab, orionIntent]);
-    const [drillInStore, setDrillInStore] = useState12(null);
-    const [locationsMapMode, setLocationsMapMode] = useState12(false);
+    const [drillInStore, setDrillInStore] = useState13(null);
+    const [locationsMapMode, setLocationsMapMode] = useState13(false);
     const handleDrillIn = (storePC, targetTab) => {
       setDrillInStore(storePC);
       setTab(targetTab);
@@ -44991,7 +45102,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const isGoingBackRef = useRef5(false);
     const sidebarNavRef = useRef5(null);
     const sidebarScrollPos = useRef5(0);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState12(() => {
+    const [sidebarCollapsed, setSidebarCollapsed] = useState13(() => {
       try {
         const v = localStorage.getItem("pcg_sidebar_collapsed");
         return v === null ? true : v === "true";
@@ -44999,7 +45110,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return true;
       }
     });
-    const [pinnedTabIds, setPinnedTabIds] = useState12(null);
+    const [pinnedTabIds, setPinnedTabIds] = useState13(null);
     useEffect10(() => {
       if (!user?.id) {
         setPinnedTabIds(null);
@@ -45051,7 +45162,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, [user?.id]);
-    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState12(() => {
+    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState13(() => {
       try {
         const s = localStorage.getItem("pcg_sidebar_sections");
         if (s) return JSON.parse(s);
@@ -45059,21 +45170,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return {};
     });
-    const [managingFavorites, setManagingFavorites] = useState12(false);
-    const [links, setLinks] = useState12(() => {
+    const [managingFavorites, setManagingFavorites] = useState13(false);
+    const [links, setLinks] = useState13(() => {
       const s = loadFromStorage();
       return s?.links || INIT_LINKS;
     });
-    const [notes, setNotes] = useState12(() => {
+    const [notes, setNotes] = useState13(() => {
       const s = loadFromStorage();
       return s?.notes || {};
     });
-    const [todos, setTodos] = useState12(() => {
+    const [todos, setTodos] = useState13(() => {
       const s = loadFromStorage();
       return s?.todos || [];
     });
-    const [users, setUsers] = useState12([]);
-    const [stores, setStores] = useState12(() => {
+    const [users, setUsers] = useState13([]);
+    const [stores, setStores] = useState13(() => {
       const s = loadFromStorage();
       return s?.stores || STORES_SEED;
     });
@@ -45089,7 +45200,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     useEffect10(() => {
       LIVE_OPEN_STORES = openStores;
     }, [openStores]);
-    const [districts, setDistricts] = useState12(() => {
+    const [districts, setDistricts] = useState13(() => {
       const s = loadFromStorage();
       return s?.districts || DISTRICTS_SEED;
     });
@@ -45097,15 +45208,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     React.useEffect(() => {
       setDistrictsRef(districts);
     }, [districts]);
-    const [contacts, setContacts] = useState12(() => {
+    const [contacts, setContacts] = useState13(() => {
       const s = loadFromStorage();
       return s?.contacts || CONTACTS_SEED;
     });
-    const [vendors, setVendors] = useState12(() => {
+    const [vendors, setVendors] = useState13(() => {
       const s = loadFromStorage();
       return s?.vendors || VENDORS_SEED;
     });
-    const [dark, setDark] = useState12(() => {
+    const [dark, setDark] = useState13(() => {
       try {
         const v = localStorage.getItem("pcg_dark_mode");
         if (v !== null) return JSON.parse(v);
@@ -45114,50 +45225,50 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.dark ?? false;
     });
-    const [projects, setProjects] = useState12(() => {
+    const [projects, setProjects] = useState13(() => {
       const s = loadFromStorage();
       const p = s?.projects;
       return p && p.length > 0 ? p : PROJECTS_SEED;
     });
-    const [notifications, setNotifications] = useState12(() => {
+    const [notifications, setNotifications] = useState13(() => {
       const s = loadFromStorage();
       return s?.notifications || [];
     });
-    const [dailyReports, setDailyReports] = useState12(() => {
+    const [dailyReports, setDailyReports] = useState13(() => {
       const s = loadFromStorage();
       return s?.dailyReports || [];
     });
     const DEFAULT_GLOBAL_NOTIFY = ["Mike@peoplecapitalgroup.com", "Bill@Raogroupinc.com", "Sam@peoplecapitalgroup.com", "Casey@peoplecapitalgroup.com"];
-    const [globalNotifyEmails, setGlobalNotifyEmails] = useState12(() => {
+    const [globalNotifyEmails, setGlobalNotifyEmails] = useState13(() => {
       const s = loadFromStorage();
       return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY;
     });
     const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter((e) => e.toLowerCase() !== "sam@peoplecapitalgroup.com");
-    const [ticketNotifyEmails, setTicketNotifyEmails] = useState12(() => {
+    const [ticketNotifyEmails, setTicketNotifyEmails] = useState13(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY;
     });
-    const [ticketNotifyPhones, setTicketNotifyPhones] = useState12(() => {
+    const [ticketNotifyPhones, setTicketNotifyPhones] = useState13(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhones || [];
     });
-    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState12(() => {
+    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState13(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmailOwners || ticketNotifyEmails.map(() => null);
     });
-    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState12(() => {
+    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState13(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhoneOwners || ticketNotifyPhones.map(() => null);
     });
-    const [chatChannels, setChatChannels] = useState12([]);
-    const [chatMessages, setChatMessages] = useState12([]);
-    const [chatReadState, setChatReadState] = useState12({});
-    const [announcements, setAnnouncements] = useState12([]);
-    const [announcementsDismissed, setAnnouncementsDismissed] = useState12({});
-    const [annGateQueue, setAnnGateQueue] = useState12([]);
-    const [annGateIdx, setAnnGateIdx] = useState12(0);
-    const [annGateDone, setAnnGateDone] = useState12(false);
-    const [termsState, setTermsState] = useState12("checking");
+    const [chatChannels, setChatChannels] = useState13([]);
+    const [chatMessages, setChatMessages] = useState13([]);
+    const [chatReadState, setChatReadState] = useState13({});
+    const [announcements, setAnnouncements] = useState13([]);
+    const [announcementsDismissed, setAnnouncementsDismissed] = useState13({});
+    const [annGateQueue, setAnnGateQueue] = useState13([]);
+    const [annGateIdx, setAnnGateIdx] = useState13(0);
+    const [annGateDone, setAnnGateDone] = useState13(false);
+    const [termsState, setTermsState] = useState13("checking");
     useEffect10(() => {
       if (!user) {
         setTermsState("checking");
@@ -45178,15 +45289,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         live = false;
       };
     }, [user?.id]);
-    const [bioPromptDone, setBioPromptDone] = useState12(false);
-    const [bioPromptEligible, setBioPromptEligible] = useState12(false);
+    const [bioPromptDone, setBioPromptDone] = useState13(false);
+    const [bioPromptEligible, setBioPromptEligible] = useState13(false);
     useEffect10(() => {
       if (!user) return;
       webauthnAvailable().then((avail) => {
         setBioPromptEligible(avail && !webauthnDeviceEnrolled() && !webauthnDeviceDeclined());
       });
     }, [user?.id]);
-    const [accessOverrides, setAccessOverrides] = useState12({});
+    const [accessOverrides, setAccessOverrides] = useState13({});
     const cloudAccessLoaded = useRef5(false);
     const cloudProjectsLoaded = useRef5(false);
     const cloudDailyReportsLoaded = useRef5(false);
@@ -45209,7 +45320,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const projectsUserEdited = useRef5(false);
     const dailyReportsUserEdited = useRef5(false);
     const prevDailyReportsRef = useRef5([]);
-    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState12({});
+    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState13({});
     useEffect10(() => {
       const handler = (e) => {
         const pending = Object.values(dailyReportSyncStatus).some((s) => s === "syncing" || s === "failed");
@@ -45231,27 +45342,27 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     useEffect10(() => {
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
-    const [showNotifs, setShowNotifs] = useState12(false);
+    const [showNotifs, setShowNotifs] = useState13(false);
     const notifRef = useRef5(null);
     const chatPanelRef = useRef5(null);
-    const [showChatPanel, setShowChatPanel] = useState12(false);
-    const [chatQuickReply, setChatQuickReply] = useState12({ channelId: null, text: "" });
-    const [salesWeeks, setSalesWeeks] = useState12([]);
-    const [cashDeposits, setCashDeposits] = useState12([]);
-    const [cashUploads, setCashUploads] = useState12([]);
-    const [cashNotes, setCashNotes] = useState12([]);
-    const [cashPOS, setCashPOS] = useState12({});
+    const [showChatPanel, setShowChatPanel] = useState13(false);
+    const [chatQuickReply, setChatQuickReply] = useState13({ channelId: null, text: "" });
+    const [salesWeeks, setSalesWeeks] = useState13([]);
+    const [cashDeposits, setCashDeposits] = useState13([]);
+    const [cashUploads, setCashUploads] = useState13([]);
+    const [cashNotes, setCashNotes] = useState13([]);
+    const [cashPOS, setCashPOS] = useState13({});
     const cloudCashLoaded = useRef5(false);
-    const [professionals, setProfessionals] = useState12(DEFAULT_PROFESSIONALS);
+    const [professionals, setProfessionals] = useState13(DEFAULT_PROFESSIONALS);
     const cloudProfessionalsLoaded = useRef5(false);
-    const [showProfile, setShowProfile] = useState12(false);
-    const [cloudStatus, setCloudStatus] = useState12("idle");
-    const [logoAnim, setLogoAnim] = useState12(false);
-    const [showTimeoutWarning, setShowTimeoutWarning] = useState12(false);
-    const [timeoutCountdown, setTimeoutCountdown] = useState12(60);
+    const [showProfile, setShowProfile] = useState13(false);
+    const [cloudStatus, setCloudStatus] = useState13("idle");
+    const [logoAnim, setLogoAnim] = useState13(false);
+    const [showTimeoutWarning, setShowTimeoutWarning] = useState13(false);
+    const [timeoutCountdown, setTimeoutCountdown] = useState13(60);
     const lastActivityRef = useRef5(Date.now());
     const warningActiveRef = useRef5(false);
-    const [dataAlert, setDataAlert] = useState12(null);
+    const [dataAlert, setDataAlert] = useState13(null);
     const importRef = useRef5(null);
     const logoRef = useRef5(null);
     const toggleBtnRef = useRef5(null);
@@ -45261,7 +45372,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const txnDeepLinkRef = useRef5(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
-    const [pnlAllowed, setPnlAllowed] = useState12(DEFAULT_PNL_ALLOWED);
+    const [pnlAllowed, setPnlAllowed] = useState13(DEFAULT_PNL_ALLOWED);
     useEffect10(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => {
         if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed);
@@ -45270,7 +45381,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, []);
     const canPnl = canViewPnl(user, pnlAllowed);
     const canManagePnl = canManagePnlAccess(user);
-    const [dealAuth, setDealAuth] = useState12({ token: null, role: null, loaded: false });
+    const [dealAuth, setDealAuth] = useState13({ token: null, role: null, loaded: false });
     useEffect10(() => {
       if (!user) {
         setDealAuth({ token: null, role: null, loaded: false });
@@ -45394,7 +45505,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.removeEventListener("pageshow", onPageShow);
       };
     }, [user]);
-    const [updateReady, setUpdateReady] = useState12(false);
+    const [updateReady, setUpdateReady] = useState13(false);
     const signedInRef = useRef5(false);
     signedInRef.current = !!user;
     useEffect10(() => startUpdateWatch({
@@ -46656,7 +46767,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDataAlert({ type, msg });
       setTimeout(() => setDataAlert(null), 3500);
     };
-    const [managerPending, setManagerPending] = useState12({});
+    const [managerPending, setManagerPending] = useState13({});
     const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
     });
     useEffect10(() => {
@@ -46690,7 +46801,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const openStorePcs = React.useMemo(() => new Set(openStores.map((s) => String(s.pc))), [openStores]);
     const managerPendingCount = Object.entries(managerPending).filter(([pc, item]) => openStorePcs.has(String(pc)) && managerPendingIsActionable(item)).length;
-    const [managerReviewPc, setManagerReviewPc] = useState12(null);
+    const [managerReviewPc, setManagerReviewPc] = useState13(null);
     const handleToggle = useCallback(() => {
       const newDark = !dark;
       setLogoAnim(true);

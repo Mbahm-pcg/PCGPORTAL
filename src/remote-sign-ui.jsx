@@ -67,7 +67,8 @@ export function RemoteSignPage({ token }) {
 
   const open = async (e) => {
     e.preventDefault();
-    if (!/^\d{4}$/.test(last4)) { setError('Enter the last 4 digits of your phone number.'); return; }
+    // v22.98: a link sent without a cell number has no last-4 check.
+    if (hello?.needsLast4 !== false && !/^\d{4}$/.test(last4)) { setError('Enter the last 4 digits of your phone number.'); return; }
     setBusy(true); setError(null);
     try { setDoc(await call({ token, last4, action: 'open' })); }
     catch (err) { if (/locked|expired|replaced|signed/.test(err.message)) setFatal(err.message); else setError(err.message); }
@@ -112,11 +113,11 @@ export function RemoteSignPage({ token }) {
         ? `People Capital Group has a warning letter from ${hello.storeName} for you to read and acknowledge.`
         : hello.role === 'witness'
         ? `People Capital Group asks you to sign as witness on ${hello.employeeName}'s Violation Notice from ${hello.storeName}.`
-        : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`} To open it, enter the last 4 digits of the cell number your supervisor has for you.</p>
-      <label style={S.fieldLabel}>Last 4 digits of your phone
+        : `People Capital Group has a Violation Notice from ${hello.storeName} for you to review and sign.`}{hello.needsLast4 === false ? '' : ' To open it, enter the last 4 digits of the cell number your supervisor has for you.'}</p>
+      {hello.needsLast4 !== false && <label style={S.fieldLabel}>Last 4 digits of your phone
         <input style={{ ...S.input, fontSize: '1.3rem', letterSpacing: '0.3em', textAlign: 'center', fontVariantNumeric: 'lining-nums tabular-nums' }} value={last4} onChange={e => setLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
           inputMode="numeric" autoComplete="off" maxLength={4} aria-label="Last 4 digits of your phone" autoFocus />
-      </label>
+      </label>}
       {error && <div style={{ marginTop: '0.8rem' }}><FinBanner th={th} tone="error">{error}</FinBanner></div>}
       <button type="submit" className="fin-btn" disabled={busy} style={{ ...S.primary, width: '100%', marginTop: '1rem' }}>{busy ? 'Checking…' : hello.kind === 'resignation' || hello.kind === 'letter' ? 'Open the letter' : 'Open the notice'}</button>
     </form>

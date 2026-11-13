@@ -24,7 +24,7 @@ import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 import { syncDistricts } from './_shared/store-status.mjs';
 import { loadRoster, saveToDrive, emailWithPdf } from './transfer-notice.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
-import { createSignRequest, ensureSignTable, signProgress } from './violation-sign.mjs';
+import { createSignRequest, ensureSignTable, signProgress, stampInPerson, stampRefused, stampFooter, stampWitnessName, stampHrApproval } from './violation-sign.mjs';
 import { missingViolationFields, violationFingerprint, violationFileName, violationAlertText, violationEmailHtml } from '../../src/violation-notice.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -136,6 +136,11 @@ export async function ensureNoticeTable(db) {
   await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS resent_as integer`;
   // v22.84: 'letter' = a warning letter Sam / exec / IT uploaded (NULL = the Violation Notice form).
   await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS kind text`;
+  // v22.98 new flow ('v2'): supervisor signs → Sam approves (may edit; the supervisor's signature
+  // stays) → status 'awaiting_employee' → employee signs (in person / emailed link) or refuses →
+  // filed. NULL = the old flow (everyone signs first), left to finish as it was.
+  await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS flow text`;
+  await db`ALTER TABLE violation_notices ADD COLUMN IF NOT EXISTS edited_by_name text`;
 }
 
 const usDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || ''); };
@@ -160,6 +165,37 @@ async function fileLetter(db, row) {
   }
 }
 
+const etStampNow = () => new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(',', '');
+
+// v22.98: an approved notice whose employee has signed (or refused) and with no signing link still
+// open is final — file it in Drive (store → employee) and alert the Violation Notice list.
+export async function maybeFileApproved(db, noticeId) {
+  const open = await db`SELECT id FROM violation_sign_requests WHERE notice_id = ${noticeId} AND COALESCE(layout, 'notice') <> 'resignation' AND signed_at IS NULL AND cancelled_at IS NULL AND expires_at > now()`;
+  if (open.length) return null;
+  const upd = (await db`UPDATE violation_notices SET status = 'approved' WHERE id = ${noticeId} AND status = 'awaiting_employee' AND (employee_signed IS TRUE OR employee_refused IS TRUE) RETURNING *`)[0];
+  if (!upd) return null;
+  const store = storeOf(upd.pc);
+  const v = upd.form_values || {};
+  const pdf = Buffer.from(upd.pdf);
+  const fileName = violationFileName(v, store?.name || upd.pc);
+  const drive = { saved: false, link: '', error: null };
+  try {
+    const f = await saveToDrive(pdf, [store?.name || upd.pc, upd.employee_name], fileName, `violation:${upd.form_key}`, process.env.VIOLATION_DRIVE_FOLDER_ID || '');
+    drive.saved = true; drive.link = f.webViewLink || '';
+    await db`UPDATE violation_notices SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${upd.id}`;
+  } catch (e) {
+    drive.error = e.message;
+    console.error('[violation-notice] drive', e.message);
+    await db`UPDATE violation_notices SET drive_error = ${String(e.message).slice(0, 500)} WHERE id = ${upd.id}`;
+    await tellMaker(db, upd, `Violation notice NOT saved to Drive: ${upd.employee_name}`, `The Violation Notice for ${upd.employee_name} is complete, but it could NOT be saved to Google Drive (${e.message}). Tell IT so it can be filed.`);
+  }
+  try {
+    const alert = await sendAlerts({ ...v, employeeSignature: upd.employee_signed ? 'x' : '', employeeRefused: !!upd.employee_refused, witnessSignature: upd.witness_name ? 'x' : '', witnessName: upd.witness_name || '' }, store?.name, upd.submitted_by_name, drive.link, fileName, pdf, store?.paycor);
+    await db`UPDATE violation_notices SET alerted_at = now(), alert_summary = ${JSON.stringify(alert)} WHERE id = ${upd.id}`;
+  } catch (e) { console.error('[violation-notice] alert', e.message); }
+  return { drive };
+}
+
 // Called by violation-sign.mjs after a remote signature: keep the latest PDF, and once nobody is
 // left to sign, move it to the approver.
 export async function afterRemoteSign(db, noticeId, signedPdf, signerLine) {
@@ -169,6 +205,7 @@ export async function afterRemoteSign(db, noticeId, signedPdf, signerLine) {
   const row = (await db`SELECT * FROM violation_notices WHERE id = ${noticeId}`)[0];
   if (!row) return;
   if (row.kind === 'letter') { if (!open.length) await fileLetter(db, row); return; }
+  if (row.status === 'awaiting_employee') { await maybeFileApproved(db, noticeId); return; } // v22.98 new flow
   if (open.length) return; // still waiting on the other signer (progress shows on the Waiting list)
   const moved = (await db`UPDATE violation_notices SET status = 'pending', pending_at = now() WHERE id = ${noticeId} AND status = 'awaiting_signatures' RETURNING *`)[0];
   if (moved) await notifyViolationApprovers(db, moved); // the approver must act; the maker isn't messaged (v22.93)
@@ -176,7 +213,8 @@ export async function afterRemoteSign(db, noticeId, signedPdf, signerLine) {
 
 const rowItem = (r) => ({ id: r.id, pc: r.pc, storeName: storeOf(r.pc)?.name || '', employeeName: r.employee_name, jobTitle: r.job_title, notice: r.notice, types: r.types, action: r.action,
   violationDate: r.violation_date, formDate: r.form_date, submittedBy: r.submitted_by_name, createdAt: r.created_at, status: r.status, kind: r.kind || 'notice',
-  decidedBy: r.decided_by_name || null, decidedAt: r.decided_at || null, note: r.decision_note || null, driveLink: r.drive_link || null, hasPdf: !!r.has_pdf });
+  decidedBy: r.decided_by_name || null, decidedAt: r.decided_at || null, note: r.decision_note || null, driveLink: r.drive_link || null, hasPdf: !!r.has_pdf,
+  flow: r.flow || null, employeeSigned: !!r.employee_signed, employeeRefused: !!r.employee_refused, witnessName: r.witness_name || null, editedBy: r.edited_by_name || null });
 
 export default async (request) => {
   const db = sql();
@@ -225,13 +263,14 @@ export default async (request) => {
       });
       // v22.91: `kind` added to these reads — without it a warning letter never got its tag here.
       if (listView) {
-        out.pending = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'pending' ORDER BY pending_at NULLS FIRST, created_at`).map(rowItem);
-        out.waiting = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'awaiting_signatures' ORDER BY created_at DESC LIMIT 100`).map(rowItem);
+        // v22.98: the approver gets the saved answers too, to edit a new-flow notice before approving.
+        out.pending = (await db`SELECT id, pc, employee_id, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, submitted_by, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, flow, employee_signed, employee_refused, witness_name, edited_by_name, (pdf IS NOT NULL) AS has_pdf, form_values FROM violation_notices WHERE status = 'pending' ORDER BY pending_at NULLS FIRST, created_at`).map(r => ({ ...rowItem(r), employeeId: r.employee_id, formValues: r.flow === 'v2' ? (r.form_values || null) : undefined }));
+        out.waiting = (await db`SELECT id, pc, employee_id, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, submitted_by, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, flow, employee_signed, employee_refused, witness_name, edited_by_name, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status IN ('awaiting_signatures', 'awaiting_employee') ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 100`).map(rowItem);
         out.complete = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'approved' OR status IS NULL ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 300`).map(rowItem);
       }
       // v22.91: the supervisor's own notices still waiting on signatures (shown on their screen too),
       // and each signing link's progress (emailed → delivered / bounced → opened → signed).
-      out.myWaiting = (await db`SELECT id, pc, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status = 'awaiting_signatures' AND submitted_by = ${Number(mine) || -1} ORDER BY created_at DESC LIMIT 50`).map(rowItem);
+      out.myWaiting = (await db`SELECT id, pc, employee_id, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, submitted_by, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, flow, employee_signed, employee_refused, witness_name, edited_by_name, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status IN ('awaiting_signatures', 'awaiting_employee') AND submitted_by = ${Number(mine) || -1} ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 50`).map(rowItem);
       const prog = await signProgress(db, 'violation', [...(out.waiting || []), ...out.myWaiting].map(x => x.id)).catch(e => { console.error('[violation-notice] progress', e.message); return {}; });
       for (const x of [...(out.waiting || []), ...out.myWaiting]) x.signing = prog[x.id] || [];
       const roster = await loadRoster().catch(e => { console.error('[violation-notice] roster', e.message); out.rosterError = 'Paycor is not responding, so employee search is unavailable. Try again in a minute.'; return { stores: {} }; });
@@ -283,7 +322,7 @@ export default async (request) => {
 
     // ── resend a signing link that hasn't been used (its maker, or exec / IT) ──
     if (body.action === 'resendLink') {
-      const r = (await db`SELECT * FROM violation_notices WHERE id = ${Number(body.id)} AND status = 'awaiting_signatures'`)[0];
+      const r = (await db`SELECT * FROM violation_notices WHERE id = ${Number(body.id)} AND status IN ('awaiting_signatures', 'awaiting_employee')`)[0];
       if (!r) return json(404, { error: 'That one is no longer waiting on a signature — reload.' });
       if (!(String(r.submitted_by) === String(authed.sub) || listView)) return json(403, { error: 'Only the person who sent it can resend the link.' });
       await ensureSignTable(db);
@@ -302,6 +341,49 @@ export default async (request) => {
       }
       if (!out.length) return json(409, { error: 'Everyone has already signed — reload.' });
       return json(200, { ok: true, resent: out });
+    }
+
+    // ── v22.98 new flow: after approval, get the employee's (and optionally a witness's) signature ──
+    if (body.action === 'signHere' || body.action === 'refused' || body.action === 'sendLink') {
+      const r = (await db`SELECT * FROM violation_notices WHERE id = ${Number(body.id)} AND status = 'awaiting_employee'`)[0];
+      if (!r) return json(404, { error: 'That notice is no longer waiting on the employee — reload.' });
+      if (!(String(r.submitted_by) === String(authed.sub) || listView)) return json(403, { error: 'Only the supervisor who wrote it, HR, exec or IT can do this.' });
+      const role = body.role === 'witness' ? 'witness' : 'employee';
+      const witnessName = String(body.witnessName || r.witness_name || '').trim().slice(0, 80);
+      if (role === 'witness' && !witnessName) return json(400, { error: "Type the witness's name first." });
+      if (role === 'employee' && (r.employee_signed || r.employee_refused)) return json(409, { error: 'The employee part is already done — reload.' });
+      await ensureSignTable(db);
+      const cancelOpen = () => db`UPDATE violation_sign_requests SET cancelled_at = now() WHERE notice_id = ${r.id} AND COALESCE(layout, 'notice') <> 'resignation' AND COALESCE(role, 'employee') = ${role} AND signed_at IS NULL AND cancelled_at IS NULL`;
+      if (body.action === 'sendLink') {
+        const email = String(body.email || '').trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(400, { error: `Enter the ${role}'s email — the link goes by email.` });
+        const d = String(body.phone || '').replace(/\D/g, '');
+        if (d && !(d.length === 10 || (d.length === 11 && d[0] === '1'))) return json(400, { error: 'That cell number should be 10 digits (or leave it blank).' });
+        let pdf = Buffer.from(r.pdf);
+        if (role === 'witness' && witnessName !== (r.witness_name || '')) {
+          pdf = await stampWitnessName(pdf, witnessName);
+          await db`UPDATE violation_notices SET pdf = ${pdf}, witness_name = ${witnessName} WHERE id = ${r.id}`;
+        }
+        const store = storeOf(r.pc);
+        const sign = await createSignRequest(db, { request, role, layout: 'notice', signerName: role === 'witness' ? witnessName : r.employee_name, noticeId: r.id, pc: r.pc, storeName: store?.name || '',
+          employeeName: r.employee_name, phone: d, email, fileName: violationFileName(r.form_values || {}, store?.name || r.pc), pdf, createdBy: Number(authed.sub) || null, createdByName: myName });
+        return json(200, { ok: true, sign });
+      }
+      let pdf;
+      if (body.action === 'refused') {
+        if (role !== 'employee') return json(400, { error: 'Only the employee can refuse.' });
+        pdf = await stampRefused(Buffer.from(r.pdf), myName);
+        await cancelOpen();
+        await db`UPDATE violation_notices SET pdf = ${pdf}, employee_refused = true WHERE id = ${r.id}`;
+      } else {
+        if (!isSig(body.signature)) return json(400, { error: 'Sign again — the signature did not come through.' });
+        pdf = await stampInPerson(Buffer.from(r.pdf), body.signature, role, myName, witnessName);
+        await cancelOpen();
+        if (role === 'employee') await db`UPDATE violation_notices SET pdf = ${pdf}, employee_signed = true WHERE id = ${r.id}`;
+        else await db`UPDATE violation_notices SET pdf = ${pdf}, witness_name = ${witnessName} WHERE id = ${r.id}`;
+      }
+      const filed = await maybeFileApproved(db, r.id);
+      return json(200, { ok: true, filed: !!filed, drive: filed?.drive || null });
     }
 
     // ── sent back: resend unchanged, or delete (its maker, or exec / IT) ──
@@ -336,6 +418,52 @@ export default async (request) => {
         await tellMaker(db, upd, `Violation notice sent back: ${upd.employee_name}`, `${myName} sent back the Violation Notice for ${upd.employee_name}: "${note}". It's under Sent back in Tools > Violation Notice, where you can fix and resend it.`);
         return json(200, { ok: true });
       }
+      // v22.98 new flow: approve (optionally with Sam's edits) → waiting on the employee. The
+      // supervisor's signature stays; the PDF says who revised and approved it.
+      if (r.flow === 'v2') {
+        if (r.status !== 'pending') return json(409, { error: 'This one was already decided — reload.' });
+        if (!isSig(body.hrSignature)) return json(400, { error: 'Sign the HR approval line first.' });
+        let pdf = Buffer.from(r.pdf);
+        let fv = r.form_values || {};
+        let edited = false;
+        if (body.values && body.pdf) {
+          const v = body.values;
+          const missing = missingViolationFields(v);
+          if (missing.length) return json(400, { error: `Still needed: ${missing.join(', ')}` });
+          if (v.supervisorSignature !== fv.supervisorSignature) return json(400, { error: "The supervisor's signature can't be changed — reload and try again." });
+          if (String(v.pc) !== String(r.pc) || v.employeeName !== r.employee_name) return json(400, { error: "The employee can't be changed here. Send it back instead." });
+          for (const k of ['date', 'violationDate']) if (!isDate(v[k])) return json(400, { error: 'Check the dates.' });
+          const np = Buffer.from(String(body.pdf).replace(/^data:[^,]*,/, ''), 'base64');
+          if (np.length < 1000 || np.length > 8e6 || np.subarray(0, 5).toString() !== '%PDF-') return json(400, { error: 'The PDF did not come through — try again.' });
+          pdf = np;
+          fv = Object.fromEntries(Object.entries(v).filter(([k]) => !['employeeSignature', 'witnessSignature'].includes(k)));
+          edited = violationFingerprint(fv) !== violationFingerprint(r.form_values || {});
+        }
+        pdf = await stampHrApproval(pdf, { name: myName, signature: body.hrSignature }); // HR signs the approval line
+        pdf = await stampFooter(pdf, edited
+          ? `Revised and approved by ${myName}, People Capital Group, ${etStampNow()} ET. The supervisor's signature is from the notice as they first submitted it.`
+          : `Approved by ${myName}, People Capital Group, ${etStampNow()} ET.`);
+        const upd = (await db`UPDATE violation_notices SET status = 'awaiting_employee', pdf = ${pdf}, form_values = ${JSON.stringify(fv)},
+            notice = ${fv.notice || r.notice}, types = ${(fv.types || []).join(',') || r.types}, action = ${fv.action || r.action}, violation_date = ${fv.violationDate || r.violation_date},
+            edited_by_name = ${edited ? myName : null}, decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
+          WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
+        if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        // Optional: send it to the employee right away (otherwise the supervisor does it, in person or by link).
+        let sign = null;
+        const to = body.sendTo || null;
+        if (to && String(to.email || '').trim()) {
+          const email = String(to.email).trim();
+          const d = String(to.phone || '').replace(/\D/g, '');
+          if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && (!d || d.length === 10 || (d.length === 11 && d[0] === '1'))) {
+            const store = storeOf(upd.pc);
+            try {
+              sign = await createSignRequest(db, { request, role: 'employee', layout: 'notice', signerName: upd.employee_name, noticeId: upd.id, pc: upd.pc, storeName: store?.name || '',
+                employeeName: upd.employee_name, phone: d, email, fileName: violationFileName(fv, store?.name || upd.pc), pdf, createdBy: Number(authed.sub) || null, createdByName: myName });
+            } catch (e) { sign = { error: e.message }; }
+          } else sign = { error: 'The employee email or cell did not look right, so no link was sent. Send it from Waiting on employee.' };
+        }
+        return json(200, { ok: true, status: 'awaiting_employee', edited, sign });
+      }
       // approve: claim it first so two quick clicks can't both file.
       const upd = (await db`UPDATE violation_notices SET status = 'approved', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
         WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
@@ -364,7 +492,39 @@ export default async (request) => {
       return json(200, { ok: drive.saved && !alert?.error, drive, alert });
     }
 
-    // ── submit ──
+    // ── v22.98 submit, new flow: the supervisor signs; it goes straight to the approver. The
+    // employee / witness sign only after approval. A fix-and-resend keeps the supervisor's signature.
+    if (body.flow === 'v2') {
+      const v = { ...(body.values || {}), employeeSignature: '', witnessSignature: '', employeeRefused: false, witnessName: '' };
+      const missing = missingViolationFields(v);
+      if (missing.length) return json(400, { error: `Still needed: ${missing.join(', ')}` });
+      if (!inScope(v.pc)) return json(403, { error: 'You can only write up employees at your own stores.' });
+      for (const k of ['date', 'violationDate']) if (!isDate(v[k])) return json(400, { error: 'Check the dates.' });
+      if (v.action === 'suspension' && !(isDate(v.suspensionStart) && isDate(v.suspensionReturn) && v.suspensionReturn >= v.suspensionStart)) return json(400, { error: 'The return-to-work date has to be on or after the suspension start.' });
+      if (!isSig(v.supervisorSignature)) return json(400, { error: 'Sign again — your signature did not come through.' });
+      const store = storeOf(v.pc);
+      const roster = await loadRoster();
+      const emp = (roster.stores[String(store.pc)] || []).find(e => e.id === String(body.employeeId || ''));
+      if (!emp) return json(404, { error: 'This employee is not on that store\'s active roster in Paycor.' });
+      if (emp.name !== v.employeeName || (emp.jobTitle && emp.jobTitle !== v.jobTitle)) return json(409, { error: "Paycor's details for this employee changed — pick the employee again." });
+      const pdf = Buffer.from(String(body.pdf || '').replace(/^data:[^,]*,/, ''), 'base64');
+      if (pdf.length < 1000 || pdf.length > 8e6 || pdf.subarray(0, 5).toString() !== '%PDF-') return json(400, { error: 'The PDF did not come through — try again.' });
+      const key = createHash('sha256').update('v2|' + violationFingerprint(v) + '|' + v.supervisorSignature).digest('hex').slice(0, 32);
+      const formValues = Object.fromEntries(Object.entries(v).filter(([k]) => !['employeeSignature', 'witnessSignature'].includes(k)));
+      const inserted = await db`INSERT INTO violation_notices (form_key, flow, status, pdf, form_values, pending_at, pc, employee_id, employee_name, job_title, notice, types, action, violation_date, form_date, supervisor_name, employee_signed, employee_refused, submitted_by, submitted_by_name)
+        VALUES (${key}, 'v2', 'pending', ${pdf}, ${JSON.stringify(formValues)}, now(), ${String(store.pc)}, ${emp.id}, ${emp.name}, ${v.jobTitle || ''}, ${v.notice}, ${(v.types || []).join(',')}, ${v.action}, ${v.violationDate}, ${v.date},
+          ${v.supervisorName}, false, false, ${Number(authed.sub) || null}, ${myName})
+        ON CONFLICT (form_key) DO NOTHING RETURNING id`;
+      const row = (await db`SELECT * FROM violation_notices WHERE form_key = ${key}`)[0];
+      if (body.replaces && row.id !== Number(body.replaces)) {
+        await db`UPDATE violation_notices SET status = 'resent', resent_as = ${row.id} WHERE id = ${Number(body.replaces)} AND status = 'rejected'
+          AND (submitted_by = ${Number(authed.sub) || -1} OR ${realType === 'executive' || realType === 'it'})`;
+      }
+      const notified = inserted.length ? await notifyViolationApprovers(db, row) : 0;
+      return json(200, { ok: true, id: row.id, status: row.status, notified, already: !inserted.length });
+    }
+
+    // ── submit (old flow) ──
     const v = body.values || {};
     const missing = missingViolationFields(v);
     if (missing.length) return json(400, { error: `Still needed: ${missing.join(', ')}` });

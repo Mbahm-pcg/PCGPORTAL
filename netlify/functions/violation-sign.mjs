@@ -151,19 +151,99 @@ export async function createSignRequest(db, { request, role = 'employee', layout
   const sentMail = await sendHtmlEmailTracked([email], isRes ? 'Please review and sign your resignation letter' : layout === 'letter' ? 'Please review and acknowledge your warning letter' : role === 'witness' ? 'Please sign as witness on a Violation Notice' : 'Please review and sign your Violation Notice',
     `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Hi ${esc(signerName)},</p><p>People Capital Group asks you to ${esc(what)}.</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Review and sign</a></p>
-<p style="color:#666">This private link expires ${esc(until)}. You'll be asked for the last 4 digits of your phone number, and to agree to sign electronically. If you'd rather sign on paper, tell your supervisor or HR.${role === 'employee' && !isRes ? ' Signing confirms you received the notice, not that you agree with it.' : ''}</p></div>`);
+<p style="color:#666">This private link expires ${esc(until)}. ${tenDigits(phone) ? "You'll be asked for the last 4 digits of your phone number, and to agree to sign electronically." : "You'll be asked to agree to sign electronically."} If you'd rather sign on paper, tell your supervisor or HR.${role === 'employee' && !isRes ? ' Signing confirms you received the notice, not that you agree with it.' : ''}</p></div>`);
   const emailed = sentMail.ok;
   if (sentMail.id) await db`UPDATE violation_sign_requests SET email_id = ${sentMail.id} WHERE id = ${inserted[0].id}`;
-  const sms = await sendSms([tenDigits(phone)], `People Capital Group: we emailed you a request to ${what}. Please check your email inbox (and spam folder) and sign by ${until}.`);
+  const sms = !tenDigits(phone) ? { sent: 0, results: [{ error: 'no cell number' }] } : await sendSms([tenDigits(phone)], `People Capital Group: we emailed you a request to ${what}. Please check your email inbox (and spam folder) and sign by ${until}.`);
   // No email address in the text: Textbelt reads "peoplecapitalgroup.com" in it as a link and refuses the whole text (2026-11-11).
-  const smsError = sms.sent ? null : String(sms.results?.[0]?.error || 'not sent');
+  const smsError = sms.sent || !tenDigits(phone) ? null : String(sms.results?.[0]?.error || 'not sent'); // no cell → no text, not an error
   if (smsError) console.error('[violation-sign] text failed', role, smsError.replace(/https?:\S+/g, '<url>'));
-  return { role, sent: !!emailed, texted: sms.sent || 0, emailed: !!emailed, textNote: smsError ? 'The reminder text did not go through' : null, expiresAt: expires.toISOString(), phone: maskPhone(phone), email: maskEmail(email) };
+  return { role, sent: !!emailed, texted: sms.sent || 0, emailed: !!emailed, textNote: smsError ? 'The reminder text did not go through' : null, expiresAt: expires.toISOString(), phone: tenDigits(phone) ? maskPhone(phone) : '', email: maskEmail(email) };
+}
+
+
+// v22.98: a link can be sent without a cell number (then there is no last-4 check or reminder text).
+const verifiedBy = (phone) => (tenDigits(phone) ? `verified with the cell number ending ${tenDigits(phone).slice(-4)}` : 'verified by email only; no cell number on file');
+const winAnsiText = (t) => String(t ?? '').normalize('NFKD').replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+// Witness name on its blank (VIO_LAYOUT row 713.19: "Witness - Name: ____" from x 106.44).
+function drawWitnessName(page, font, H, name) {
+  page.drawText(winAnsiText(name).slice(0, 40), { x: 112, y: H - 713.19 + 1.5, size: 9, font, color: rgb(0, 0, 0) });
+}
+
+// v22.98 new flow: the employee refused to sign — written on their signature line, with the date.
+export async function stampRefused(pdfBuf, byName) {
+  const sp = SPOTS.employee;
+  const doc = await PDFDocument.load(pdfBuf);
+  const page = doc.getPage(0);
+  const H = page.getHeight();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const t = 'Refused to sign';
+  page.drawText(t, { x: (sp.x0 + sp.x1) / 2 - font.widthOfTextAtSize(t, 9) / 2, y: H - sp.baseline + 2, size: 9, font, color: rgb(0, 0, 0) });
+  const date = etDate();
+  page.drawText(date, { x: sp.dateX - font.widthOfTextAtSize(date, 9) / 2, y: H - sp.dateY, size: 9, font, color: rgb(0, 0, 0) });
+  page.drawText(winAnsiText(`Employee refused to sign; recorded by ${byName || 'the supervisor'} ${etStamp()} ET.`), { x: 36, y: sp.auditY, size: 7, font, color: rgb(0.35, 0.35, 0.35) });
+  doc.setModificationDate(new Date());
+  return Buffer.from(await doc.save());
+}
+
+// v22.98: the witness's name on its blank, before their emailed link goes out.
+export async function stampWitnessName(pdfBuf, name) {
+  const doc = await PDFDocument.load(pdfBuf);
+  const page = doc.getPage(0);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  drawWitnessName(page, font, page.getHeight(), name);
+  return Buffer.from(await doc.save());
+}
+
+// v22.98: HR's approval line under the Witness line (user, 2026-11-13: "this needs a HR signature —
+// Sam is the HR that will approve"), drawn in the template's style: name, signature, date.
+export async function stampHrApproval(pdfBuf, { name, signature }) {
+  const doc = await PDFDocument.load(pdfBuf);
+  const page = doc.getPage(0);
+  const H = page.getHeight();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const yTop = 742; // baseline, top-left points (Witness row is 713.19)
+  const y = H - yTop;
+  const ink = rgb(0, 0, 0);
+  const lbl1 = 'HR Approval';
+  page.drawText(lbl1, { x: 36, y, size: 9, font: bold, color: ink });
+  page.drawLine({ start: { x: 36, y: y - 1.5 }, end: { x: 36 + bold.widthOfTextAtSize(lbl1, 9), y: y - 1.5 }, thickness: 0.6, color: ink });
+  page.drawText(' - Name:', { x: 36 + bold.widthOfTextAtSize(lbl1, 9), y, size: 9, font: bold, color: ink });
+  const line = (x0, x1) => page.drawLine({ start: { x: x0, y: y - 1.5 }, end: { x: x1, y: y - 1.5 }, thickness: 0.5, color: ink });
+  line(118, 262); line(310, 470); line(500, 576);
+  page.drawText(winAnsiText(name).slice(0, 40), { x: 190 - font.widthOfTextAtSize(winAnsiText(name).slice(0, 40), 9) / 2, y: y + 1, size: 9, font, color: ink });
+  page.drawText('Signature:', { x: 266, y, size: 9, font: bold, color: ink });
+  page.drawText('Date:', { x: 474, y, size: 9, font: bold, color: ink });
+  const img = await doc.embedPng(Buffer.from(String(signature).replace(/^data:[^,]*,/, ''), 'base64'));
+  const s = Math.min(152 / img.width, 22 / img.height);
+  page.drawImage(img, { x: 314, y: y - 1, width: img.width * s, height: img.height * s });
+  const date = etDate();
+  page.drawText(date, { x: 538 - font.widthOfTextAtSize(date, 9) / 2, y: y + 1, size: 9, font, color: ink });
+  doc.setModificationDate(new Date());
+  return Buffer.from(await doc.save());
+}
+
+// v22.98: one grey line at the foot of page 1 (the approval record).
+export async function stampFooter(pdfBuf, text, y = 38) {
+  const doc = await PDFDocument.load(pdfBuf);
+  const page = doc.getPage(0);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  page.drawText(winAnsiText(text), { x: 36, y, size: 7, font, color: rgb(0.35, 0.35, 0.35) });
+  doc.setModificationDate(new Date());
+  return Buffer.from(await doc.save());
+}
+
+// v22.98: an in-person signature (employee or witness) on the supervisor's / HR's screen.
+export async function stampInPerson(pdfBuf, signature, role, byName, witnessName) {
+  const label = role === 'witness' ? 'Witness' : 'Employee';
+  return stampPdf(Buffer.from(pdfBuf).toString('base64'), signature, '', role, 'notice', {
+    audit: winAnsiText(`${label} signed in person ${etStamp()} ET on ${byName || 'the supervisor'}'s screen.`), witnessName: role === 'witness' ? witnessName : null });
 }
 
 // Stamp the employee's signature + date on the employee line, and an audit line at the foot.
 // Positions match VIO_LAYOUT in src/violation-notice-pdf.mjs (jsPDF top-left points; pdf-lib is bottom-left).
-export async function stampPdf(pdfB64, signature, phone, role = 'employee', layout = 'notice') {
+export async function stampPdf(pdfB64, signature, phone, role = 'employee', layout = 'notice', opts = {}) {
   if (layout === 'letter') return stampLetter(pdfB64, signature, phone);
   const sp = layout === 'resignation' ? RES_SPOTS.employee : SPOTS[role] || SPOTS.employee;
   const doc = await PDFDocument.load(Buffer.from(pdfB64, 'base64'));
@@ -176,7 +256,10 @@ export async function stampPdf(pdfB64, signature, phone, role = 'employee', layo
   const date = etDate();
   const dsz = layout === 'resignation' ? 12 : 9;
   page.drawText(date, { x: sp.dateX - font.widthOfTextAtSize(date, dsz) / 2, y: H - sp.dateY, size: dsz, font, color: rgb(0, 0, 0) });
-  const audit = `${sp.label} signed electronically ${etStamp()} ET via a private emailed link after agreeing to sign electronically (verified with the cell number ending ${tenDigits(phone).slice(-4)}).`;
+  // v22.98: opts.audit — an in-person signature on the supervisor's screen says so; a link sent
+  // without a cell number says it was verified by email only.
+  const audit = opts.audit || `${sp.label} signed electronically ${etStamp()} ET via a private emailed link after agreeing to sign electronically (${verifiedBy(phone)}).`;
+  if (opts.witnessName) drawWitnessName(page, font, H, opts.witnessName);
   page.drawText(audit, { x: 36, y: sp.auditY, size: 7, font, color: rgb(0.35, 0.35, 0.35) });
   doc.setModificationDate(new Date());
   return Buffer.from(await doc.save());
@@ -192,7 +275,7 @@ async function stampLetter(pdfB64, signature, phone) {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const date = etDate();
   page.drawText(date, { x: ACK.dateX - font.widthOfTextAtSize(date, 11) / 2, y: ACK.dateY, size: 11, font, color: rgb(0, 0, 0) });
-  page.drawText(`Signed electronically ${etStamp()} ET via a private emailed link after agreeing to sign electronically (verified with the cell number ending ${tenDigits(phone).slice(-4)}).`, { x: 56, y: 340, size: 8, font, color: rgb(0.35, 0.35, 0.35) });
+  page.drawText(`Signed electronically ${etStamp()} ET via a private emailed link after agreeing to sign electronically (${verifiedBy(phone)}).`, { x: 56, y: 340, size: 8, font, color: rgb(0.35, 0.35, 0.35) });
   doc.setModificationDate(new Date());
   return Buffer.from(await doc.save());
 }
@@ -304,9 +387,9 @@ export default async (request) => {
     const signer = r.signer_name || r.employee_name;
     const kind = r.layout === 'letter' || r.layout === 'resignation' ? r.layout : 'notice';
     if (body.action === 'hello' && !r.first_seen_at) await db`UPDATE violation_sign_requests SET first_seen_at = now() WHERE id = ${r.id}`;
-    if (body.action === 'hello') return json(200, { role, kind, firstName: String(signer || '').split(' ')[0], employeeName: role === 'witness' ? r.employee_name : undefined, storeName: r.store_name });
+    if (body.action === 'hello') return json(200, { needsLast4: !!r.phone, role, kind, firstName: String(signer || '').split(' ')[0], employeeName: role === 'witness' ? r.employee_name : undefined, storeName: r.store_name });
 
-    if (digits(body.last4) !== r.phone.slice(-4)) {
+    if (r.phone && digits(body.last4) !== r.phone.slice(-4)) {
       const left = MAX_TRIES - r.attempts - 1;
       await db`UPDATE violation_sign_requests SET attempts = attempts + 1 WHERE id = ${r.id}`;
       return json(403, { error: left > 0 ? `Those digits don't match. ${left} ${left === 1 ? 'try' : 'tries'} left.` : 'Too many wrong tries — this link is locked. Ask your supervisor to send a new one.' });
