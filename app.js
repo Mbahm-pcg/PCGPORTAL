@@ -6364,6 +6364,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const photoMap = {};
     let hasReal = false;
     const { _photosLoaded, ...rest } = report || {};
+    const gone = new Set(Array.isArray(rest.removedPhotoIds) ? rest.removedPhotoIds : []);
     const slimReport = {
       ...rest,
       _pv: PHOTO_FORMAT_VERSION,
@@ -6374,7 +6375,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           photoMap[i] = real;
           hasReal = true;
         }
-        return { ...w, photos: photos.filter((p) => isRefPhoto(p) && !isPendingPhoto(p)).map(cleanRef) };
+        return { ...w, photos: photos.filter((p) => isRefPhoto(p) && !isPendingPhoto(p) && !gone.has(p.photoId)).map(cleanRef) };
       })
     };
     return { slimReport, photoMap, hasReal };
@@ -6510,13 +6511,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }
     return j;
   }
-  async function uploadReportPhoto({ projectId, projectNickname, reportId, fileName, full, med }) {
+  async function uploadReportPhoto({ projectId, projectNickname, reportId, fileName, full, med, clientRef }) {
     const j = await withRetry(() => postJson(PHOTOS_URL, {
       action: "createForReport",
       projectId,
       projectNickname,
       reportId,
       fileName,
+      clientRef,
       imageBase64: full,
       mediumBase64: med
     }));
@@ -6539,10 +6541,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   async function uploadReportPdf(blob, fileName) {
     const parts = splitBase64(await blobToBase64(blob));
     if (parts.length > MAX_CHUNKS) throw new Error("This report is too large to email (over 18 MB).");
-    let token;
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");
     for (let index = 0; index < parts.length; index++) {
-      const j = await withRetry(() => postJson(PDF_URL, { action: "put", token, index, total: parts.length, chunk: parts[index], fileName }));
-      token = j.token;
+      await withRetry(() => postJson(PDF_URL, { action: "put", token, index, total: parts.length, chunk: parts[index], fileName }));
     }
     return `${window.location.origin}${PDF_URL}?t=${token}`;
   }
@@ -13963,8 +13964,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ctxRef.current = getCtx;
     const files = useRef5(/* @__PURE__ */ new Map());
     const dropped = useRef5(/* @__PURE__ */ new Set());
+    const idByLocal = useRef5(/* @__PURE__ */ new Map());
     const uploaded = useRef5([]);
     const removed = useRef5([]);
+    const queue = useRef5([]);
+    const active = useRef5(0);
     const patch = (localId, fn) => setRForm((f) => ({ ...f, workLogs: (f.workLogs || []).map((w) => ({ ...w, photos: (w.photos || []).map((p) => p && p._localId === localId ? fn(p) : p) })) }));
     const uploadOne = async (localId) => {
       const file = files.current.get(localId);
@@ -13972,8 +13976,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       try {
         const { full, med } = await makeRenditions(file);
         patch(localId, (p) => ({ ...p, data: med }));
-        const ref = await uploadReportPhoto({ ...ctxRef.current(), fileName: file.name, full, med });
+        const ref = await uploadReportPhoto({ ...ctxRef.current(), fileName: file.name, full, med, clientRef: localId });
         files.current.delete(localId);
+        idByLocal.current.set(localId, ref.photoId);
         if (dropped.current.has(localId)) {
           removeReportPhotos([ref.photoId]);
           return;
@@ -13987,11 +13992,25 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         patch(localId, (p) => ({ ...p, _status: "failed", _error: e?.message || "Upload failed" }));
       }
     };
+    const pump = () => {
+      while (active.current < UPLOAD_CONCURRENCY && queue.current.length) {
+        const localId = queue.current.shift();
+        active.current++;
+        uploadOne(localId).finally(() => {
+          active.current--;
+          pump();
+        });
+      }
+    };
+    const enqueue = (ids) => {
+      queue.current.push(...ids);
+      pump();
+    };
     const addPhotos = (logIdx, fileList) => {
       const list = Array.from(fileList || []).filter((f) => f && (!f.type || f.type.startsWith("image/")));
       if (!list.length) return;
       const ids = list.map((file, n) => {
-        const id = `lp_${Date.now()}_${n}_${Math.random().toString(36).slice(2, 7)}`;
+        const id = `lp_${Date.now()}_${n}_${Math.random().toString(36).slice(2, 10)}`;
         files.current.set(id, file);
         return id;
       });
@@ -14000,18 +14019,25 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const fresh = list.map((file, n) => ({ _localId: ids[n], _status: "uploading", name: file.name, timestamp: ts }));
         return { ...f, workLogs: (f.workLogs || []).map((w, i) => i === logIdx ? { ...w, photos: [...w.photos || [], ...fresh] } : w) };
       });
-      runLimited(ids, UPLOAD_CONCURRENCY, uploadOne);
+      enqueue(ids);
     };
     const retryPhoto = (localId) => {
       patch(localId, (p) => ({ ...p, _status: "uploading", _error: void 0 }));
-      uploadOne(localId);
+      enqueue([localId]);
     };
     const notePhotoRemoved = (p) => {
       if (!p) return;
-      if (isPendingPhoto(p)) {
+      if (isRefPhoto(p)) {
+        removed.current.push(p.photoId);
+        return;
+      }
+      if (!isPendingPhoto(p)) return;
+      const done = idByLocal.current.get(p._localId);
+      if (done) removed.current.push(done);
+      else {
         dropped.current.add(p._localId);
         files.current.delete(p._localId);
-      } else if (isRefPhoto(p)) removed.current.push(p.photoId);
+      }
     };
     const blockReason = (form) => {
       let up = 0, bad = 0;
@@ -14023,8 +14049,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       const parts = [up ? `${up} photo${up > 1 ? "s are" : " is"} still uploading` : null, bad ? `${bad} photo${bad > 1 ? "s" : ""} failed to upload` : null].filter(Boolean);
       return `${parts.join(" and ")}. ${bad ? "Tap Retry on the red photos (or remove them), then save again." : "Give it a moment, then save again."}`;
     };
+    const removedIdsFor = (form) => [.../* @__PURE__ */ new Set([...Array.isArray(form?.removedPhotoIds) ? form.removedPhotoIds : [], ...removed.current])];
     const reset = () => {
       files.current = /* @__PURE__ */ new Map();
+      idByLocal.current = /* @__PURE__ */ new Map();
+      queue.current = [];
       uploaded.current = [];
       removed.current = [];
     };
@@ -14037,7 +14066,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       removeReportPhotos(uploaded.current);
       reset();
     };
-    return { addPhotos, retryPhoto, notePhotoRemoved, blockReason, reset, commit, discard };
+    return { addPhotos, retryPhoto, notePhotoRemoved, blockReason, removedIdsFor, reset, commit, discard };
   }
   function dailyReportEmailHtml(r, proj, link) {
     const esc2 = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -18741,7 +18770,7 @@ ${t2.slice(0, 300)}`);
       doc.text(`Page ${p} of ${total}`, margin + contentW - fw, pageH - 0.3);
     }
     try {
-      const stripped = { ...report, workLogs: (report.workLogs || []).map((w) => ({ ...w, photos: (w.photos || []).map((p) => isRefPhoto(p) ? cleanRef(p) : { name: p.name, timestamp: p.timestamp }) })) };
+      const stripped = { ...report, workLogs: (report.workLogs || []).map((w) => ({ ...w, photos: (w.photos || []).map((p) => ({ name: p.name, timestamp: p.timestamp })) })) };
       doc.setProperties({ title: `Daily Report - ${_proj.nickname || _proj.pc} - ${report.date}`, subject: "Daily Construction Report", author: report.preparedBy || BRAND_CONFIG.portalName, creator: BRAND_CONFIG.portalName, keywords: "PCG_REPORT:" + encodeURIComponent(JSON.stringify(stripped)) });
     } catch {
     }
@@ -18854,12 +18883,13 @@ ${t2.slice(0, 300)}`);
         showAlert2("error", blocked);
         return;
       }
+      const removedPhotoIds = photoUp.removedIdsFor(rForm);
       const now = (/* @__PURE__ */ new Date()).toISOString();
       if (editReport) {
-        setDailyReports((prev) => prev.map((r) => r.id === editReport ? { ...rForm, status, updatedAt: now, signature: status === "submitted" ? user?.name || rForm.preparedBy : rForm.signature, signedAt: status === "submitted" ? now : rForm.signedAt } : r));
+        setDailyReports((prev) => prev.map((r) => r.id === editReport ? { ...rForm, removedPhotoIds, status, updatedAt: now, signature: status === "submitted" ? user?.name || rForm.preparedBy : rForm.signature, signedAt: status === "submitted" ? now : rForm.signedAt } : r));
         showAlert2("success", status === "submitted" ? "Report submitted" : "Draft saved");
       } else {
-        const nr = { ...rForm, id: pendingIdRef.current ?? nextId(), status, createdAt: now, updatedAt: now, signature: status === "submitted" ? user?.name || rForm.preparedBy : "", signedAt: status === "submitted" ? now : "" };
+        const nr = { ...rForm, removedPhotoIds, id: pendingIdRef.current ?? nextId(), status, createdAt: now, updatedAt: now, signature: status === "submitted" ? user?.name || rForm.preparedBy : "", signedAt: status === "submitted" ? now : "" };
         setDailyReports((prev) => [...prev, nr]);
         showAlert2("success", status === "submitted" ? "Report submitted" : "Draft saved");
       }
@@ -44266,6 +44296,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         const now = (/* @__PURE__ */ new Date()).toISOString();
         const report = {
           ...rForm,
+          removedPhotoIds: photoUp.removedIdsFor(rForm),
           id: mobileReportIdRef.current || "dr_" + Date.now(),
           projectId: selectedProject.id,
           status,

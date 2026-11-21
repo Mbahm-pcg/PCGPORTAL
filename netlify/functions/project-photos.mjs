@@ -80,6 +80,8 @@ async function ensureTables() {
   await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS file_name text`;
   await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS deleted_at timestamptz`;
   await sql`CREATE INDEX IF NOT EXISTS idx_pphoto_report ON project_photos(report_id) WHERE report_id IS NOT NULL`;
+  await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS client_ref text`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pphoto_client_ref ON project_photos(client_ref) WHERE client_ref IS NOT NULL`;
   _ready = true;
 }
 
@@ -147,6 +149,13 @@ export default async (request) => {
       if (!Number.isFinite(projectId)) return json(400, { error: 'projectId required' });
       if (!isImageDataUrl(payload.imageBase64)) return json(400, { error: 'imageBase64 must be an image data URL under 4 MB' });
       if (!isImageDataUrl(payload.mediumBase64)) return json(400, { error: 'mediumBase64 must be an image data URL under 4 MB' });
+      // Idempotent on clientRef: a retry after a lost reply returns the photo already saved
+      // (scoped to the same uploader) instead of creating a second copy.
+      const clientRef = typeof payload.clientRef === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(payload.clientRef) ? payload.clientRef : null;
+      if (clientRef) {
+        const dup = await sql`SELECT * FROM project_photos WHERE client_ref = ${clientRef} AND taken_by_user_id = ${claims.sub}`;
+        if (dup.length) return json(200, { ok: true, photo: rowToPhoto(dup[0]) });
+      }
       const id = genId();
       const by = claims.name || claims.username;
       const [imageKey, medKey] = await Promise.all([
@@ -159,10 +168,10 @@ export default async (request) => {
         const rows = await sql`
           INSERT INTO project_photos (
             id, project_id, project_nickname, taken_by_user_id, taken_by_name, user_type,
-            image_key, med_key, report_id, file_name, source
+            image_key, med_key, report_id, file_name, source, client_ref
           ) VALUES (
             ${id}, ${projectId}, ${payload.projectNickname || null}, ${claims.sub}, ${by}, ${claims.userType},
-            ${imageKey}, ${medKey}, ${reportId}, ${fileName}, 'daily_report'
+            ${imageKey}, ${medKey}, ${reportId}, ${fileName}, 'daily_report', ${clientRef}
           ) RETURNING *`;
         return json(200, { ok: true, photo: rowToPhoto(rows[0]) });
       } catch (e) {

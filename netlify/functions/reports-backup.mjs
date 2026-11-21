@@ -3,36 +3,43 @@
 
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
-import { mergeLoadedReport, isRefPhoto } from '../../src/report-photos.mjs';
+import { mergeLoadedReport, isRefPhoto, referencedPhotoIds } from '../../src/report-photos.mjs';
 
 const PURGE_AFTER_DAYS = 30;
 
 // v23.00 — Daily Report photos removed from a report are only soft-deleted
-// (project_photos.deleted_at). Really delete them (row + both image blobs) 30 days later.
-// Never throws: a database problem must not fail the backup.
-async function purgeDeletedPhotos(store) {
+// (project_photos.deleted_at). Really delete them (row + both image blobs) 30 days later —
+// but never one a report still points at: that happens when a removal was recorded but the
+// report save behind it never reached the cloud, and such a photo is restored instead.
+// `referenced` = every photo id in tonight's hydrated reports; `complete` = every report in
+// the index was read. With an incomplete read nothing is purged (an unread report might
+// reference the photo). Never throws: a database problem must not fail the backup.
+async function purgeDeletedPhotos(store, referenced, complete) {
   try {
     const db = sql();
-    const rows = await db`
-      SELECT id, image_key, med_key FROM project_photos
-      WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => ${PURGE_AFTER_DAYS})
-      LIMIT 500`;
+    const rows = await db`SELECT id, image_key, med_key, deleted_at FROM project_photos WHERE deleted_at IS NOT NULL LIMIT 2000`;
+    const cutoff = Date.now() - PURGE_AFTER_DAYS * 86400000;
+    let purged = 0, restored = 0;
     for (const r of rows) {
+      if (referenced.has(r.id)) {
+        await db`UPDATE project_photos SET deleted_at = NULL WHERE id = ${r.id}`;
+        restored++;
+        continue;
+      }
+      if (!complete || new Date(r.deleted_at).getTime() > cutoff) continue;
       await store.delete(r.image_key).catch(() => {});
       if (r.med_key) await store.delete(r.med_key).catch(() => {});
       await db`DELETE FROM project_photos WHERE id = ${r.id} AND deleted_at IS NOT NULL`;
+      purged++;
     }
-    if (rows.length) console.log(`[reports-backup] Purged ${rows.length} photo(s) removed from reports over ${PURGE_AFTER_DAYS} days ago`);
-    return rows.length;
+    if (purged || restored) console.log(`[reports-backup] photos: purged ${purged} (removed over ${PURGE_AFTER_DAYS} days ago), restored ${restored} still used by a report`);
+    return { purged, restored };
   } catch (e) {
     // e.g. the deleted_at column doesn't exist until project-photos.mjs has run once
     console.warn('[reports-backup] photo purge skipped:', e.message);
-    return 0;
+    return { purged: 0, restored: 0 };
   }
 }
-
-export const config = { schedule: '59 4 * * *' };
-
 const DR_KEY_PREFIX    = 'pcg_dr_';
 const DR_PHOTOS_SUFFIX = '_photos';
 const DR_INDEX_KEY     = 'pcg_daily_reports_index_v1';
@@ -129,10 +136,10 @@ export default async (request) => {
       } catch {}
     }
 
-    const purged = await purgeDeletedPhotos(store);
+    const photos = await purgeDeletedPhotos(store, referencedPhotoIds(valid), valid.length === index.length);
 
     return new Response(
-      JSON.stringify({ ok: true, backed: valid.length, key: backupKey, purged, savedAt: new Date().toISOString() }),
+      JSON.stringify({ ok: true, backed: valid.length, key: backupKey, photos, savedAt: new Date().toISOString() }),
       { status: 200, headers },
     );
   } catch (e) {

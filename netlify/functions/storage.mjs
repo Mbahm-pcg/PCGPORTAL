@@ -2,7 +2,7 @@
 // Handles save/load of scorecard data so it persists across devices & browsers
 
 import { getStore } from '@netlify/blobs';
-import { preserveRefsFromOldClient } from '../../src/report-photos.mjs';
+import { reconcileReportRefs } from '../../src/report-photos.mjs';
 
 // A Daily Report blob (pcg_dr_<id>) — not its legacy photo map (pcg_dr_<id>_photos).
 const isDailyReportKey = (k) => k.startsWith('pcg_dr_') && !k.endsWith('_photos');
@@ -39,13 +39,14 @@ export default async (request) => {
     if (action === 'save') {
       if (!data) return new Response(JSON.stringify({ error: 'Missing data' }), { status: 400, headers });
       let toStore = data;
-      // v23.00: a browser still running older app code saves reports without their photo
-      // references — carry the stored ones over so those photos can't be dropped by accident.
-      if (isDailyReportKey(safeKey) && data && typeof data === 'object' && data._pv !== 2) {
+      // v23.00: the copy being saved can be out of date (a second person with the report open,
+      // Force Sync, a browser on older app code) — photo references someone else added are
+      // carried over, and only an explicit removal takes one out (src/report-photos.mjs).
+      if (isDailyReportKey(safeKey) && data && typeof data === 'object') {
         try {
           const existing = await store.get(safeKey, { type: 'json' });
-          toStore = preserveRefsFromOldClient(data, existing?.data);
-        } catch (e) { console.warn('[storage] photo-ref guard skipped:', e.message); }
+          toStore = reconcileReportRefs(data, existing?.data);
+        } catch (e) { console.warn('[storage] photo-ref reconcile skipped:', e.message); }
       }
       await store.setJSON(safeKey, { savedAt: new Date().toISOString(), data: toStore });
       return new Response(JSON.stringify({ ok: true, key: safeKey }), { status: 200, headers });

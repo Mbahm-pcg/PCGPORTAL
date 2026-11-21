@@ -492,10 +492,14 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
     Reports from before v23.00 still carry their photos inline in `pcg_dr_{id}_photos` and are read
     unchanged; one work log can hold both kinds (legacy first). All split/merge rules are in
     `src/report-photos.mjs` (used by `app.jsx`, `storage.mjs`, `reports-backup.mjs`) — don't
-    re-implement them. Report blobs saved by current code are stamped `_pv: 2`; `storage.mjs`
-    carries stored refs over when an out-of-date browser saves a report without them. Photos
-    removed from a report are soft-deleted (`deleted_at`) and purged 30 days later by the nightly
-    `reports-backup` run. Both report screens (`DailyReportSection`, `ConstructionMobileView`)
+    re-implement them. **Refs are reconciled server-side on every report save** (`storage.mjs` →
+    `reconcileReportRefs`): the saving copy may be stale (second person with the report open,
+    Force Sync, a browser on pre-v23 code), so refs it lacks are carried over from the stored
+    copy, and a ref only leaves a report by being listed in the report's `removedPhotoIds`
+    (tombstones written by the form it was removed in). Removed photos are soft-deleted
+    (`deleted_at`) and purged 30 days later by the nightly `reports-backup` run — which first
+    restores any soft-deleted photo a report still points at, and purges nothing on a night it
+    couldn't read every report. Uploads are idempotent on `client_ref`. Both report screens (`DailyReportSection`, `ConstructionMobileView`)
     share `useReportPhotoUploads` / `ReportPhotoImg` in `app.jsx` and `src/report-photo-upload.mjs`.
     The PDF uses the 800px size; emailed reports are always a no-login link served by
     `report-pdf.mjs` (`?t=<64-hex token>`), never an attachment. Spec:

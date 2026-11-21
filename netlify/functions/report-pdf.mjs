@@ -71,13 +71,17 @@ async function put(request) {
   const problem = chunkProblem({ index, total, chunk: payload.chunk });
   if (problem) return json(400, { error: problem });
 
+  // The browser supplies the token (so its retries are idempotent); mint one if it didn't.
   let token = payload.token;
   if (index === 0 && !token) token = crypto.randomBytes(32).toString('hex');
   if (!isValidToken(token)) return json(400, { error: 'token required' });
 
   const s = store();
-  // A finished link is immutable — nobody holding the URL can replace what it serves.
-  if (await s.get(metaKey(token), { type: 'json' }).catch(() => null)) return json(409, { error: 'Already uploaded' });
+  // A finished link is immutable — nobody holding the URL can replace what it serves. A
+  // repeat of the final chunk (its reply was lost, the browser retried) just gets "done".
+  if (await s.get(metaKey(token), { type: 'json' }).catch(() => null)) {
+    return index === total - 1 ? json(200, { ok: true, token, done: true }) : json(409, { error: 'Already uploaded' });
+  }
   await s.set(chunkKey(token, index), payload.chunk);
   const done = index === total - 1;
   if (done) {

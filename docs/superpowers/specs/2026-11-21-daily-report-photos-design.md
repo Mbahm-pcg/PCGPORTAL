@@ -159,3 +159,31 @@ Both email senders (desktop + phone) always: build PDF → upload → send `noti
 Feature branch → preview deploy → Mike/crew test → merge to `main` → prod deploy under the
 existing deploy rule (clean tree, not behind `origin/main`). `APP_VERSION` bump + `app.js` rebuilt
 in the same commit as each `app.jsx` change.
+
+## Addendum — changes after code review (2026-11-21)
+
+An independent review found that photo refs, unlike legacy photos, had no protection against a
+stale copy saving over them (two people in the same report, Force Sync, the legacy-fallback
+paths, a browser on old code). Changes made in response:
+
+- **Server-side reconcile on every report save** (`storage.mjs` → `reconcileReportRefs` in
+  `src/report-photos.mjs`). Refs the incoming copy lacks are carried over from the stored copy.
+  A ref leaves a report only via the report's `removedPhotoIds` list (tombstones, capped at 1000),
+  which each form appends to when the user removes a photo. A tombstone wins over a stale copy
+  that still carries the ref. This replaces the narrower "old client" guard (`_pv` is still
+  stamped but nothing depends on it).
+- **Purge is reference-aware.** The nightly run restores (`deleted_at = NULL`) any soft-deleted
+  photo that a report still references, and purges nothing if it could not read every report.
+  This also covers the desktop screen soft-deleting before its cloud save has completed.
+- **Idempotent uploads.** `createForReport` takes a `clientRef` (unique per uploader) and returns
+  the existing photo on a retry; the PDF link token is generated in the browser and a repeated
+  final chunk returns `done` instead of 409.
+- **One upload queue per form** (3 at a time overall, not per pick); removing a tile in the same
+  instant its upload finishes is recorded as a removal.
+- **PDF metadata** keeps photo name + date only — no photo ids or storage keys in a file that is
+  sent outside the company.
+
+Known and accepted: `removeFromReport` is not scoped to a report (any project-edit role can
+soft-delete a report photo; it is restored nightly if a report still uses it). Two people editing
+the same report still overwrite each other's *text* — pre-existing, not addressed here.
+`storage.mjs` remains unauthenticated — pre-existing, separate work.

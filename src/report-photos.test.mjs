@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   isRefPhoto, isRealReportPhoto, isPendingPhoto, cleanRef,
   splitReportForSave, mergeLoadedReport, stripReportPhotosForLocal,
-  countReportPhotos, canUploadReportPhotos, preserveRefsFromOldClient,
+  countReportPhotos, canUploadReportPhotos, reconcileReportRefs, referencedPhotoIds,
 } from './report-photos.mjs';
 
 const DATA = 'data:image/jpeg;base64,' + 'A'.repeat(64);
@@ -93,34 +93,61 @@ test('split then merge round-trips a mixed report', () => {
   assert.deepEqual(mergeLoadedReport(slimReport, photoMap), { ...input, _pv: 2 });
 });
 
-test('old-client guard: refs survive a save from code that does not know about them', () => {
+test('reconcile: a save from a stale or old copy keeps refs someone else added', () => {
   const stored = { id: 7, _pv: 2, workLogs: [{ name: 'A', photos: [ref('p1')] }, { name: 'B', photos: [ref('p2'), ref('p3')] }] };
   // pre-v23 code always saves photos: [] in the report blob
   const fromOld = { id: 7, updatedAt: 'later', workLogs: [{ name: 'A edited', photos: [] }, { name: 'B', photos: [] }] };
-  const out = preserveRefsFromOldClient(fromOld, stored);
+  const out = reconcileReportRefs(fromOld, stored);
   assert.equal(out.workLogs[0].name, 'A edited');
   assert.deepEqual(out.workLogs.map(w => w.photos.map(p => p.photoId)), [['p1'], ['p2', 'p3']]);
-  assert.equal(out._pv, 2);
   assert.deepEqual(fromOld.workLogs[0].photos, []); // input untouched
+  // a second person on current code, whose form was opened before p2/p3 were added
+  const stale = { id: 7, _pv: 2, workLogs: [{ name: 'A', photos: [ref('p1'), ref('p9')] }, { name: 'B', photos: [] }] };
+  assert.deepEqual(reconcileReportRefs(stale, stored).workLogs.map(w => w.photos.map(p => p.photoId)), [['p1', 'p9'], ['p2', 'p3']]);
 });
 
-test('old-client guard: refs of a removed work log move to the last one; placeholders dropped', () => {
+test('reconcile: only a tombstone removes a ref — and it beats a stale copy that still has it', () => {
+  const stored = { id: 7, workLogs: [{ photos: [ref('p1'), ref('p2')] }] };
+  const removing = { id: 7, workLogs: [{ photos: [ref('p2')] }], removedPhotoIds: ['p1'] };
+  const afterRemove = reconcileReportRefs(removing, stored);
+  assert.deepEqual(afterRemove.workLogs[0].photos.map(p => p.photoId), ['p2']);
+  assert.deepEqual(afterRemove.removedPhotoIds, ['p1']);
+  // someone else's stale form still holds p1 and has no tombstones
+  const stale = { id: 7, workLogs: [{ photos: [ref('p1'), ref('p2')] }] };
+  const out = reconcileReportRefs(stale, afterRemove);
+  assert.deepEqual(out.workLogs[0].photos.map(p => p.photoId), ['p2']);
+  assert.deepEqual(out.removedPhotoIds, ['p1']);
+});
+
+test('reconcile: refs of a removed work log move to the last one; no duplicates when logs shift', () => {
   const stored = { id: 7, workLogs: [{ photos: [ref('p1')] }, { photos: [ref('p2')] }] };
   const fromOld = { id: 7, workLogs: [{ name: 'only', photos: [{ name: 'x', _photoStripped: true }] }] };
-  assert.deepEqual(preserveRefsFromOldClient(fromOld, stored).workLogs[0].photos.map(p => p.photoId), ['p1', 'p2']);
-  const noLogs = preserveRefsFromOldClient({ id: 7, workLogs: [] }, stored);
-  assert.deepEqual(noLogs.workLogs[0].photos.map(p => p.photoId), ['p1', 'p2']);
+  assert.deepEqual(reconcileReportRefs(fromOld, stored).workLogs[0].photos.filter(p => p.photoId).map(p => p.photoId), ['p1', 'p2']);
+  // a shell with no work logs at all (legacy fallback) still keeps the photos
+  assert.deepEqual(reconcileReportRefs({ id: 7 }, stored).workLogs[0].photos.map(p => p.photoId), ['p1', 'p2']);
+  // work log 0 deleted on purpose (its ref tombstoned): log 1 is now at index 0 — not duplicated
+  const shifted = { id: 7, workLogs: [{ photos: [ref('p2')] }], removedPhotoIds: ['p1'] };
+  assert.deepEqual(reconcileReportRefs(shifted, stored).workLogs.map(w => w.photos.map(p => p.photoId)), [['p2']]);
 });
 
-test('old-client guard: leaves current-format saves and ref-less reports alone', () => {
-  const stored = { id: 7, workLogs: [{ photos: [ref('p1')] }] };
-  const current = { id: 7, _pv: 2, workLogs: [{ photos: [] }] }; // user really removed the photo
-  assert.equal(preserveRefsFromOldClient(current, stored), current);
-  const old = { id: 7, workLogs: [{ photos: [] }] };
-  assert.equal(preserveRefsFromOldClient(old, { id: 7, workLogs: [{ photos: [] }] }), old);
-  assert.equal(preserveRefsFromOldClient(old, null), old);
-  assert.deepEqual(preserveRefsFromOldClient([1, 2], stored), [1, 2]);
-  assert.equal(preserveRefsFromOldClient('text', stored), 'text');
+test('reconcile: nothing to do → the same object back; non-reports untouched', () => {
+  const plain = { id: 7, workLogs: [{ photos: [] }] };
+  assert.equal(reconcileReportRefs(plain, { id: 7, workLogs: [{ photos: [] }] }), plain);
+  assert.equal(reconcileReportRefs(plain, null), plain);
+  const arr = [1, 2];
+  assert.equal(reconcileReportRefs(arr, { workLogs: [{ photos: [ref('p1')] }] }), arr);
+  assert.equal(reconcileReportRefs('text', null), 'text');
+  // legacy inline photos sitting in an old report blob are left exactly as they are
+  const inline = { id: 7, workLogs: [{ photos: [legacy('1')] }] };
+  assert.equal(reconcileReportRefs(inline, { id: 7, workLogs: [{ photos: [ref('p1')] }] }).workLogs[0].photos.length, 2);
+});
+
+test('split drops refs the report itself lists as removed; referencedPhotoIds', () => {
+  const r = { ...report([ref('p1'), ref('p2')]), removedPhotoIds: ['p1'] };
+  const { slimReport } = splitReportForSave(r);
+  assert.deepEqual(slimReport.workLogs[0].photos.map(p => p.photoId), ['p2']);
+  assert.deepEqual(slimReport.removedPhotoIds, ['p1']);
+  assert.deepEqual([...referencedPhotoIds([report([ref('a'), legacy()]), report([ref('b')]), null])].sort(), ['a', 'b']);
 });
 
 test('strip for local storage', () => {

@@ -34,6 +34,7 @@ import { parseDateOnly, toDateStr, defaultClosedPeriodEnd, payPeriodEndFor } fro
 import { dayWorkedMinutes as ocDayWorkedMinutes, dayShiftCount as ocDayShiftCount } from './src/office-clock-day-math.mjs';
 import { isRefPhoto, isPendingPhoto, isRealReportPhoto, cleanRef, splitReportForSave, mergeLoadedReport, stripReportPhotosForLocal, countReportPhotos } from './src/report-photos.mjs';
 import { makeRenditions, uploadReportPhoto, removeReportPhotos, uploadReportPdf, scaleImageDataUrl, runLimited, UPLOAD_CONCURRENCY, MED_WIDTH, MED_QUALITY } from './src/report-photo-upload.mjs';
+// (runLimited: PDF photo loading; form uploads use the hook's own queue)
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -8842,10 +8843,13 @@ function ReportPhotoStatus({ photo, onRetry }) {
 //   getCtx() → { projectId, projectNickname, reportId } — read at upload time.
 function useReportPhotoUploads(setRForm, getCtx) {
   const ctxRef = useRef(getCtx); ctxRef.current = getCtx;
-  const files = useRef(new Map());    // _localId → File, kept until uploaded (for Retry)
-  const dropped = useRef(new Set());  // _localIds removed / abandoned while still uploading
-  const uploaded = useRef([]);        // photoIds uploaded since the form opened
-  const removed = useRef([]);         // already-saved photos the user removed (applied on save)
+  const files = useRef(new Map());     // _localId → File, kept until uploaded (for Retry)
+  const dropped = useRef(new Set());   // _localIds removed / abandoned while still uploading
+  const idByLocal = useRef(new Map()); // _localId → photoId once its upload has finished
+  const uploaded = useRef([]);         // photoIds uploaded since the form opened
+  const removed = useRef([]);          // photos the user removed in this form (applied on save)
+  const queue = useRef([]);            // _localIds waiting for an upload slot
+  const active = useRef(0);
   const patch = (localId, fn) => setRForm(f => ({ ...f, workLogs: (f.workLogs || []).map(w => ({ ...w, photos: (w.photos || []).map(p => (p && p._localId === localId ? fn(p) : p)) })) }));
   const uploadOne = async (localId) => {
     const file = files.current.get(localId);
@@ -8853,8 +8857,9 @@ function useReportPhotoUploads(setRForm, getCtx) {
     try {
       const { full, med } = await makeRenditions(file);
       patch(localId, p => ({ ...p, data: med }));
-      const ref = await uploadReportPhoto({ ...ctxRef.current(), fileName: file.name, full, med });
+      const ref = await uploadReportPhoto({ ...ctxRef.current(), fileName: file.name, full, med, clientRef: localId });
       files.current.delete(localId);
+      idByLocal.current.set(localId, ref.photoId);
       if (dropped.current.has(localId)) { removeReportPhotos([ref.photoId]); return; }
       uploaded.current.push(ref.photoId);
       patch(localId, p => { const { _status, _error, ...rest } = p; return { ...rest, ...ref }; });
@@ -8862,11 +8867,20 @@ function useReportPhotoUploads(setRForm, getCtx) {
       patch(localId, p => ({ ...p, _status: 'failed', _error: e?.message || 'Upload failed' }));
     }
   };
+  // At most UPLOAD_CONCURRENCY uploads at once across the whole form, however many picks.
+  const pump = () => {
+    while (active.current < UPLOAD_CONCURRENCY && queue.current.length) {
+      const localId = queue.current.shift();
+      active.current++;
+      uploadOne(localId).finally(() => { active.current--; pump(); });
+    }
+  };
+  const enqueue = (ids) => { queue.current.push(...ids); pump(); };
   const addPhotos = (logIdx, fileList) => {
     const list = Array.from(fileList || []).filter(f => f && (!f.type || f.type.startsWith('image/')));
     if (!list.length) return;
     const ids = list.map((file, n) => {
-      const id = `lp_${Date.now()}_${n}_${Math.random().toString(36).slice(2, 7)}`;
+      const id = `lp_${Date.now()}_${n}_${Math.random().toString(36).slice(2, 10)}`;
       files.current.set(id, file);
       return id;
     });
@@ -8877,17 +8891,21 @@ function useReportPhotoUploads(setRForm, getCtx) {
       const fresh = list.map((file, n) => ({ _localId: ids[n], _status: 'uploading', name: file.name, timestamp: ts }));
       return { ...f, workLogs: (f.workLogs || []).map((w, i) => (i === logIdx ? { ...w, photos: [...(w.photos || []), ...fresh] } : w)) };
     });
-    runLimited(ids, UPLOAD_CONCURRENCY, uploadOne);
+    enqueue(ids);
   };
   const retryPhoto = (localId) => {
     patch(localId, p => ({ ...p, _status: 'uploading', _error: undefined }));
-    uploadOne(localId);
+    enqueue([localId]);
   };
   // Call with the photo being removed from the form, before dropping it from state.
   const notePhotoRemoved = (p) => {
     if (!p) return;
-    if (isPendingPhoto(p)) { dropped.current.add(p._localId); files.current.delete(p._localId); }
-    else if (isRefPhoto(p)) removed.current.push(p.photoId);
+    if (isRefPhoto(p)) { removed.current.push(p.photoId); return; }
+    if (!isPendingPhoto(p)) return; // legacy inline photo — nothing stored separately
+    // Its upload may have finished a moment ago without this (older) render knowing yet.
+    const done = idByLocal.current.get(p._localId);
+    if (done) removed.current.push(done);
+    else { dropped.current.add(p._localId); files.current.delete(p._localId); }
   };
   // → null when the form can be saved, else a sentence saying why not.
   const blockReason = (form) => {
@@ -8899,8 +8917,13 @@ function useReportPhotoUploads(setRForm, getCtx) {
     const parts = [up ? `${up} photo${up > 1 ? 's are' : ' is'} still uploading` : null, bad ? `${bad} photo${bad > 1 ? 's' : ''} failed to upload` : null].filter(Boolean);
     return `${parts.join(' and ')}. ${bad ? 'Tap Retry on the red photos (or remove them), then save again.' : 'Give it a moment, then save again.'}`;
   };
-  const reset = () => { files.current = new Map(); uploaded.current = []; removed.current = []; };
-  // Report saved: the photos the user removed are now really gone from it.
+  // The report's removal list (tombstones) including this form's removals — goes on the
+  // saved report so the server takes those photos out even if another copy still has them.
+  const removedIdsFor = (form) => [...new Set([...(Array.isArray(form?.removedPhotoIds) ? form.removedPhotoIds : []), ...removed.current])];
+  const reset = () => { files.current = new Map(); idByLocal.current = new Map(); queue.current = []; uploaded.current = []; removed.current = []; };
+  // Report saved: the photos the user removed are now really gone from it. (If the save
+  // never reaches the cloud, the nightly purge still sees the report pointing at them and
+  // restores them instead of deleting.)
   const commit = () => { removeReportPhotos(removed.current); reset(); };
   // Form abandoned: nothing saved, so this form's uploads belong to no report.
   const discard = () => {
@@ -8908,7 +8931,7 @@ function useReportPhotoUploads(setRForm, getCtx) {
     removeReportPhotos(uploaded.current);
     reset();
   };
-  return { addPhotos, retryPhoto, notePhotoRemoved, blockReason, reset, commit, discard };
+  return { addPhotos, retryPhoto, notePhotoRemoved, blockReason, removedIdsFor, reset, commit, discard };
 }
 // The "View report" email both report screens send (the PDF is a link, never an attachment).
 function dailyReportEmailHtml(r, proj, link) {
@@ -15090,7 +15113,8 @@ async function buildReportPdf(reportIn, project) {
     doc.text(`Page ${p} of ${total}`, margin+contentW-fw, pageH-0.3);
   }
   try {
-    const stripped={...report,workLogs:(report.workLogs||[]).map(w=>({...w,photos:(w.photos||[]).map(p=>(isRefPhoto(p)?cleanRef(p):{name:p.name,timestamp:p.timestamp}))}))};
+    // Name + date only: this PDF is sent outside the company, so photo ids / storage keys stay out of it.
+    const stripped={...report,workLogs:(report.workLogs||[]).map(w=>({...w,photos:(w.photos||[]).map(p=>({name:p.name,timestamp:p.timestamp}))}))};
     doc.setProperties({title:`Daily Report - ${_proj.nickname||_proj.pc} - ${report.date}`,subject:'Daily Construction Report',author:report.preparedBy||BRAND_CONFIG.portalName,creator:BRAND_CONFIG.portalName,keywords:'PCG_REPORT:'+encodeURIComponent(JSON.stringify(stripped))});
   } catch {}
   return doc;
@@ -15244,12 +15268,13 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     // Every photo must be safely uploaded before the report is saved — nothing goes missing quietly.
     const blocked = photoUp.blockReason(rForm);
     if (blocked) { showAlert("error", blocked); return; }
+    const removedPhotoIds = photoUp.removedIdsFor(rForm);
     const now = new Date().toISOString();
     if (editReport) {
-      setDailyReports(prev => prev.map(r => r.id === editReport ? { ...rForm, status, updatedAt: now, signature: status === "submitted" ? (user?.name || rForm.preparedBy) : rForm.signature, signedAt: status === "submitted" ? now : rForm.signedAt } : r));
+      setDailyReports(prev => prev.map(r => r.id === editReport ? { ...rForm, removedPhotoIds, status, updatedAt: now, signature: status === "submitted" ? (user?.name || rForm.preparedBy) : rForm.signature, signedAt: status === "submitted" ? now : rForm.signedAt } : r));
       showAlert("success", status === "submitted" ? "Report submitted" : "Draft saved");
     } else {
-      const nr = { ...rForm, id: pendingIdRef.current ?? nextId(), status, createdAt: now, updatedAt: now, signature: status === "submitted" ? (user?.name || rForm.preparedBy) : "", signedAt: status === "submitted" ? now : "" };
+      const nr = { ...rForm, removedPhotoIds, id: pendingIdRef.current ?? nextId(), status, createdAt: now, updatedAt: now, signature: status === "submitted" ? (user?.name || rForm.preparedBy) : "", signedAt: status === "submitted" ? now : "" };
       setDailyReports(prev => [...prev, nr]);
       showAlert("success", status === "submitted" ? "Report submitted" : "Draft saved");
     }
@@ -53133,7 +53158,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
     setRSaving(true);
     try {
       const now = new Date().toISOString();
-      const report = { ...rForm, id: mobileReportIdRef.current || ('dr_'+Date.now()), projectId: selectedProject.id,
+      const report = { ...rForm, removedPhotoIds: photoUp.removedIdsFor(rForm), id: mobileReportIdRef.current || ('dr_'+Date.now()), projectId: selectedProject.id,
         status, createdAt:now, updatedAt:now,
         signature: status==='submitted'?(user?.name||rForm.preparedBy):'',
         signedAt: status==='submitted'?now:'',

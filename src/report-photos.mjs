@@ -34,6 +34,7 @@ export function splitReportForSave(report) {
   const photoMap = {};
   let hasReal = false;
   const { _photosLoaded, ...rest } = report || {};
+  const gone = new Set(Array.isArray(rest.removedPhotoIds) ? rest.removedPhotoIds : []);
   const slimReport = {
     ...rest,
     _pv: PHOTO_FORMAT_VERSION,
@@ -41,7 +42,7 @@ export function splitReportForSave(report) {
       const photos = w.photos || [];
       const real = photos.filter(isRealReportPhoto);
       if (real.length > 0) { photoMap[i] = real; hasReal = true; }
-      return { ...w, photos: photos.filter(p => isRefPhoto(p) && !isPendingPhoto(p)).map(cleanRef) };
+      return { ...w, photos: photos.filter(p => isRefPhoto(p) && !isPendingPhoto(p) && !gone.has(p.photoId)).map(cleanRef) };
     }),
   };
   return { slimReport, photoMap, hasReal };
@@ -62,28 +63,53 @@ export function mergeLoadedReport(report, photoMap) {
   };
 }
 
-// Guard against a browser still running a pre-v23.00 copy of the app. That code knows
-// nothing about photo refs: it saves every report with `photos: []` (or data-less
-// placeholders), which would silently drop the refs from the report blob. A save from
-// current code is stamped `_pv: 2`; anything else that arrives for a report whose stored
-// copy has refs gets those refs carried over (same work-log position; refs of a work log
-// that no longer exists move to the last one).
-//   → the report to store (the `incoming` object itself when nothing needs carrying)
-export function preserveRefsFromOldClient(incoming, existing) {
+// Photo refs are reconciled on the SERVER every time a report blob is saved (storage.mjs),
+// because the copy doing the saving can be out of date: a second person with the same report
+// open, a phone that missed an update, Force Sync, or a browser still running pre-v23.00 code
+// (which saves every report with `photos: []`). Any of those used to be able to drop refs
+// that someone else had just added.
+//
+// Rule: a ref leaves a report ONLY by being listed in `removedPhotoIds` (a tombstone, written
+// by the form the user removed it in). So:
+//   - refs in the stored copy that the incoming copy lacks are carried over (same work-log
+//     position; refs of a work log that no longer exists move to the last one), and
+//   - a tombstoned ref is dropped even if a stale copy still carries it.
+//   → the report to store (the `incoming` object itself when there is nothing to reconcile)
+export const MAX_TOMBSTONES = 1000;
+const BLANK_LOG = () => ({ name: '', description: '', quantity: '', totalHours: '', hoursToDate: '', photos: [] });
+const idList = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string' && x) : []);
+
+export function reconcileReportRefs(incoming, existing) {
   if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return incoming;
-  if (incoming._pv === PHOTO_FORMAT_VERSION) return incoming;
+  const removed = new Set([...idList(existing?.removedPhotoIds), ...idList(incoming.removedPhotoIds)]);
   const oldLogs = Array.isArray(existing?.workLogs) ? existing.workLogs : [];
-  const refsByLog = oldLogs.map(w => (w?.photos || []).filter(isRefPhoto).map(cleanRef));
-  if (!refsByLog.some(r => r.length)) return incoming;
-  const logs = Array.isArray(incoming.workLogs) ? incoming.workLogs.map(w => ({ ...w })) : [];
-  if (!logs.length) logs.push({ name: '', description: '', quantity: '', totalHours: '', hoursToDate: '', photos: [] });
-  refsByLog.forEach((refs, i) => {
-    if (!refs.length) return;
+  const storedHasRefs = oldLogs.some(w => (w?.photos || []).some(isRefPhoto));
+  if (!storedHasRefs && removed.size === 0) return incoming;
+
+  const logs = (Array.isArray(incoming.workLogs) ? incoming.workLogs : []).map(w => ({
+    ...w,
+    photos: (w?.photos || []).filter(p => !(isRefPhoto(p) && removed.has(p.photoId))),
+  }));
+  const have = new Set();
+  logs.forEach(w => w.photos.forEach(p => { if (isRefPhoto(p)) have.add(p.photoId); }));
+  oldLogs.forEach((w, i) => {
+    const carry = (w?.photos || []).filter(p => isRefPhoto(p) && !removed.has(p.photoId) && !have.has(p.photoId)).map(cleanRef);
+    if (!carry.length) return;
+    if (!logs.length) logs.push(BLANK_LOG());
     const target = logs[Math.min(i, logs.length - 1)];
-    const have = new Set((target.photos || []).filter(isRefPhoto).map(p => p.photoId));
-    target.photos = [...(target.photos || []).filter(isRefPhoto), ...refs.filter(r => !have.has(r.photoId))];
+    target.photos = [...target.photos, ...carry];
+    carry.forEach(p => have.add(p.photoId));
   });
-  return { ...incoming, workLogs: logs, _pv: PHOTO_FORMAT_VERSION };
+  return { ...incoming, workLogs: logs, removedPhotoIds: [...removed].slice(-MAX_TOMBSTONES) };
+}
+
+// Every photo id a report still points at (used by the nightly purge to never delete one).
+export function referencedPhotoIds(reports) {
+  const ids = new Set();
+  for (const r of (reports || [])) for (const w of (r?.workLogs || [])) for (const p of (w?.photos || [])) {
+    if (isRefPhoto(p)) ids.add(p.photoId);
+  }
+  return ids;
 }
 
 // For localStorage: no image data at all. Refs keep their keys (they are tiny).

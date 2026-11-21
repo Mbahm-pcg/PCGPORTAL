@@ -96,9 +96,11 @@ async function postJson(url, body) {
 }
 
 // Upload one photo (both sizes). → the fields a report stores for it.
-export async function uploadReportPhoto({ projectId, projectNickname, reportId, fileName, full, med }) {
+// `clientRef` is a one-off id for this photo: if the request succeeded but the reply was lost,
+// the retry gets the same photo back instead of creating a second copy.
+export async function uploadReportPhoto({ projectId, projectNickname, reportId, fileName, full, med, clientRef }) {
   const j = await withRetry(() => postJson(PHOTOS_URL, {
-    action: 'createForReport', projectId, projectNickname, reportId, fileName, imageBase64: full, mediumBase64: med,
+    action: 'createForReport', projectId, projectNickname, reportId, fileName, clientRef, imageBase64: full, mediumBase64: med,
   }));
   return { photoId: j.photo.id, fullKey: j.photo.imageKey, medKey: j.photo.medKey };
 }
@@ -121,10 +123,11 @@ const blobToBase64 = (blob) => new Promise((resolve, reject) => {
 export async function uploadReportPdf(blob, fileName) {
   const parts = splitBase64(await blobToBase64(blob));
   if (parts.length > MAX_CHUNKS) throw new Error('This report is too large to email (over 18 MB).');
-  let token;
+  // The link's secret is made here (not by the server) so a retried request lands on the
+  // same upload instead of starting a second one.
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
   for (let index = 0; index < parts.length; index++) {
-    const j = await withRetry(() => postJson(PDF_URL, { action: 'put', token, index, total: parts.length, chunk: parts[index], fileName }));
-    token = j.token;
+    await withRetry(() => postJson(PDF_URL, { action: 'put', token, index, total: parts.length, chunk: parts[index], fileName }));
   }
   return `${window.location.origin}${PDF_URL}?t=${token}`;
 }
