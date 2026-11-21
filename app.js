@@ -6352,6 +6352,201 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return (dayPunches || []).filter((p) => p.punchType === "clock_out").length;
   }
 
+  // src/report-photos.mjs
+  var PHOTO_FORMAT_VERSION = 2;
+  var isRefPhoto = (p) => !!(p && typeof p.photoId === "string" && p.photoId.length > 0);
+  var isPendingPhoto = (p) => !!(p && (p._status === "uploading" || p._status === "failed"));
+  var isRealReportPhoto = (p) => !!(p && !isRefPhoto(p) && !isPendingPhoto(p) && typeof p.data === "string" && p.data.length > 32);
+  function cleanRef(p) {
+    return { photoId: p.photoId, fullKey: p.fullKey, medKey: p.medKey, name: p.name, timestamp: p.timestamp };
+  }
+  function splitReportForSave(report) {
+    const photoMap = {};
+    let hasReal = false;
+    const { _photosLoaded, ...rest } = report || {};
+    const slimReport = {
+      ...rest,
+      _pv: PHOTO_FORMAT_VERSION,
+      workLogs: (rest.workLogs || []).map((w, i) => {
+        const photos = w.photos || [];
+        const real = photos.filter(isRealReportPhoto);
+        if (real.length > 0) {
+          photoMap[i] = real;
+          hasReal = true;
+        }
+        return { ...w, photos: photos.filter((p) => isRefPhoto(p) && !isPendingPhoto(p)).map(cleanRef) };
+      })
+    };
+    return { slimReport, photoMap, hasReal };
+  }
+  function mergeLoadedReport(report, photoMap) {
+    if (!report) return report;
+    if (!photoMap || typeof photoMap !== "object") return report;
+    return {
+      ...report,
+      workLogs: (report.workLogs || []).map((w, i) => {
+        const fromMap = photoMap[i];
+        if (!Array.isArray(fromMap)) return { ...w, photos: w.photos || [] };
+        return { ...w, photos: [...fromMap, ...(w.photos || []).filter(isRefPhoto)] };
+      })
+    };
+  }
+  function stripReportPhotosForLocal(report) {
+    if (!report) return report;
+    return {
+      ...report,
+      workLogs: (report.workLogs || []).map((w) => ({
+        ...w,
+        photos: (w.photos || []).filter((p) => !isPendingPhoto(p)).map((p) => isRefPhoto(p) ? cleanRef(p) : { name: p.name, timestamp: p.timestamp, _photoStripped: true })
+      }))
+    };
+  }
+  function countReportPhotos(report) {
+    const out = { total: 0, refs: 0, legacy: 0, pending: 0 };
+    for (const w of report?.workLogs || []) {
+      for (const p of w.photos || []) {
+        if (!p) continue;
+        if (isPendingPhoto(p)) out.pending++;
+        else if (isRefPhoto(p)) {
+          out.refs++;
+          out.total++;
+        } else {
+          out.legacy++;
+          out.total++;
+        }
+      }
+    }
+    return out;
+  }
+
+  // src/report-pdf-chunks.mjs
+  var CHUNK_CHARS = 3 * 1024 * 1024;
+  var MAX_CHUNKS = 8;
+  function splitBase64(b64) {
+    const out = [];
+    for (let i = 0; i < b64.length; i += CHUNK_CHARS) out.push(b64.slice(i, i + CHUNK_CHARS));
+    return out.length ? out : [""];
+  }
+
+  // src/report-photo-upload.mjs
+  var FULL_WIDTH = 1600;
+  var FULL_QUALITY = 0.75;
+  var MED_WIDTH = 800;
+  var MED_QUALITY = 0.7;
+  var UPLOAD_CONCURRENCY = 3;
+  var PHOTOS_URL = "/.netlify/functions/project-photos";
+  var PDF_URL = "/.netlify/functions/report-pdf";
+  async function runLimited(items, limit, worker) {
+    const results = new Array(items.length);
+    let next = 0;
+    const lane = async () => {
+      while (next < items.length) {
+        const i = next++;
+        try {
+          results[i] = { ok: true, value: await worker(items[i], i) };
+        } catch (error) {
+          results[i] = { ok: false, error };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, lane));
+    return results;
+  }
+  async function withRetry(fn, { retries = 2, delayMs = 800, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn(attempt);
+      } catch (e) {
+        if (attempt >= retries || e?.retryable === false) throw e;
+        await sleep(delayMs * (attempt + 1));
+      }
+    }
+  }
+  var loadImage = (src) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("This file could not be read as a photo"));
+    img.src = src;
+  });
+  var readAsDataUrl = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error("This file could not be read"));
+    r.readAsDataURL(file);
+  });
+  function drawScaled(img, maxWidth, quality) {
+    const scale = Math.min(1, maxWidth / img.width);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", quality);
+  }
+  async function scaleImageDataUrl(src, maxWidth = MED_WIDTH, quality = MED_QUALITY) {
+    const img = await loadImage(src);
+    if (img.width <= maxWidth) return src;
+    return drawScaled(img, maxWidth, quality);
+  }
+  async function makeRenditions(file) {
+    const img = await loadImage(await readAsDataUrl(file));
+    return { full: drawScaled(img, FULL_WIDTH, FULL_QUALITY), med: drawScaled(img, MED_WIDTH, MED_QUALITY) };
+  }
+  async function postJson(url, body) {
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify(body)
+      });
+    } catch {
+      throw Object.assign(new Error("No connection"), { retryable: true });
+    }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j?.ok) {
+      const msg = j?.error || (res.status === 401 ? "Please sign in again" : `Upload failed (${res.status})`);
+      throw Object.assign(new Error(msg), { retryable: res.status >= 500, status: res.status });
+    }
+    return j;
+  }
+  async function uploadReportPhoto({ projectId, projectNickname, reportId, fileName, full, med }) {
+    const j = await withRetry(() => postJson(PHOTOS_URL, {
+      action: "createForReport",
+      projectId,
+      projectNickname,
+      reportId,
+      fileName,
+      imageBase64: full,
+      mediumBase64: med
+    }));
+    return { photoId: j.photo.id, fullKey: j.photo.imageKey, medKey: j.photo.medKey };
+  }
+  async function removeReportPhotos(ids) {
+    const list = [...new Set((ids || []).filter(Boolean))];
+    if (!list.length) return;
+    try {
+      await postJson(PHOTOS_URL, { action: "removeFromReport", ids: list });
+    } catch {
+    }
+  }
+  var blobToBase64 = (blob) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = () => reject(new Error("Could not read the PDF"));
+    r.readAsDataURL(blob);
+  });
+  async function uploadReportPdf(blob, fileName) {
+    const parts = splitBase64(await blobToBase64(blob));
+    if (parts.length > MAX_CHUNKS) throw new Error("This report is too large to email (over 18 MB).");
+    let token;
+    for (let index = 0; index < parts.length; index++) {
+      const j = await withRetry(() => postJson(PDF_URL, { action: "put", token, index, total: parts.length, chunk: parts[index], fileName }));
+      token = j.token;
+    }
+    return `${window.location.origin}${PDF_URL}?t=${token}`;
+  }
+
   // app.jsx
   var { useState: useState13, useRef: useRef5, useCallback, useEffect: useEffect10 } = React;
   var Guard = class extends React.Component {
@@ -13680,24 +13875,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var DR_INDEX_KEY = "pcg_daily_reports_index_v1";
   var drKey = (id) => `${DR_KEY_PREFIX}${id}`;
   var drPhotosKey = (id) => `${DR_KEY_PREFIX}${id}${DR_PHOTOS_SUFFIX}`;
-  var isRealReportPhoto = (p) => !!(p && typeof p.data === "string" && p.data.length > 32);
   async function cloudSaveReport(report) {
     if (!report || report.id == null) return false;
-    const photoMap = {};
-    let hasReal = false;
-    const { _photosLoaded, ...rest } = report;
-    const slimReport = {
-      ...rest,
-      workLogs: (report.workLogs || []).map((w, i) => {
-        const real = (w.photos || []).filter(isRealReportPhoto);
-        if (real.length > 0) {
-          photoMap[i] = real;
-          hasReal = true;
-        }
-        return { ...w, photos: [] };
-      })
-    };
-    const writePhotos = _photosLoaded === true || hasReal;
+    const { slimReport, photoMap, hasReal } = splitReportForSave(report);
+    const writePhotos = report._photosLoaded === true || hasReal;
     await Promise.all([
       cloudSaveOrThrow(drKey(report.id), slimReport),
       writePhotos ? cloudSaveOrThrow(drPhotosKey(report.id), photoMap) : Promise.resolve(true)
@@ -13713,15 +13894,193 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }).then(async (r) => r.ok ? { ok: true, data: (await r.json()).data || null } : { ok: false }).catch(() => ({ ok: false }));
     const [report, photos] = await Promise.all([cloudLoad(drKey(id)), photosReq]);
     if (!report) return null;
-    const photoMap = photos.ok ? photos.data : null;
-    if (photoMap && typeof photoMap === "object") {
-      report.workLogs = (report.workLogs || []).map((w, i) => ({
-        ...w,
-        photos: photoMap[i] || w.photos || []
-      }));
+    const merged = mergeLoadedReport(report, photos.ok ? photos.data : null);
+    if (photos.ok) merged._photosLoaded = true;
+    return merged;
+  }
+  var _reportPhotoCache = /* @__PURE__ */ new Map();
+  function loadReportPhotoData(photo, size = "med") {
+    if (!photo) return Promise.resolve(null);
+    const inline = typeof photo.data === "string" && photo.data.length > 32 ? photo.data : null;
+    if (!isRefPhoto(photo)) return Promise.resolve(inline);
+    if (size === "med" && inline) return Promise.resolve(inline);
+    const key = size === "full" ? photo.fullKey || photo.medKey : photo.medKey || photo.fullKey;
+    if (!key) return Promise.resolve(inline);
+    if (!_reportPhotoCache.has(key)) {
+      if (_reportPhotoCache.size >= 80) _reportPhotoCache.delete(_reportPhotoCache.keys().next().value);
+      const p = cloudLoad(key).then((d) => d && typeof d.base64 === "string" ? d.base64 : null);
+      _reportPhotoCache.set(key, p);
+      p.then((v) => {
+        if (!v) _reportPhotoCache.delete(key);
+      });
     }
-    if (photos.ok) report._photosLoaded = true;
-    return report;
+    return _reportPhotoCache.get(key).then((v) => v || inline);
+  }
+  function ReportPhotoImg({ photo, size = "med", style, alt, onClick }) {
+    const inline = photo && typeof photo.data === "string" && photo.data.length > 32 && (size === "med" || !isRefPhoto(photo)) ? photo.data : null;
+    const [src, setSrc] = useState13(inline);
+    const [failed, setFailed] = useState13(false);
+    const idKey = photo ? (photo.photoId || photo._localId || "") + "|" + size : "";
+    useEffect10(() => {
+      if (inline) {
+        setSrc(inline);
+        setFailed(false);
+        return;
+      }
+      let live = true;
+      setSrc(null);
+      setFailed(false);
+      loadReportPhotoData(photo, size).then((d) => {
+        if (!live) return;
+        if (d) setSrc(d);
+        else setFailed(photo?._status !== "uploading");
+      });
+      return () => {
+        live = false;
+      };
+    }, [idKey, inline]);
+    if (src) return /* @__PURE__ */ React.createElement("img", { src, alt: alt || photo?.name || "Photo", onClick, style });
+    return /* @__PURE__ */ React.createElement("div", { onClick, title: failed ? "Photo could not be loaded" : "Loading photo\u2026", style: { ...style, background: "#8881", display: "flex", alignItems: "center", justifyContent: "center", color: "#888", fontSize: "0.7rem", minHeight: 40 } }, failed ? "\u26A0" : "\u2026");
+  }
+  function ReportPhotoStatus({ photo, onRetry }) {
+    if (!isPendingPhoto(photo)) return null;
+    const failed = photo._status === "failed";
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        title: failed ? photo._error || "Upload failed" : "Uploading\u2026",
+        onClick: (e) => {
+          e.stopPropagation();
+          if (failed && onRetry) onRetry();
+        },
+        style: { position: "absolute", inset: 0, borderRadius: "0.375rem", background: failed ? "rgba(220,38,38,0.8)" : "rgba(0,0,0,0.45)", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, fontSize: "0.625rem", fontWeight: 700, textAlign: "center", lineHeight: 1.2, cursor: failed ? "pointer" : "default" }
+      },
+      failed ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", null, "Failed"), /* @__PURE__ */ React.createElement("span", { style: { textDecoration: "underline" } }, "Retry")) : /* @__PURE__ */ React.createElement("span", null, "Uploading\u2026")
+    );
+  }
+  function useReportPhotoUploads(setRForm, getCtx) {
+    const ctxRef = useRef5(getCtx);
+    ctxRef.current = getCtx;
+    const files = useRef5(/* @__PURE__ */ new Map());
+    const dropped = useRef5(/* @__PURE__ */ new Set());
+    const uploaded = useRef5([]);
+    const removed = useRef5([]);
+    const patch = (localId, fn) => setRForm((f) => ({ ...f, workLogs: (f.workLogs || []).map((w) => ({ ...w, photos: (w.photos || []).map((p) => p && p._localId === localId ? fn(p) : p) })) }));
+    const uploadOne = async (localId) => {
+      const file = files.current.get(localId);
+      if (!file) return;
+      try {
+        const { full, med } = await makeRenditions(file);
+        patch(localId, (p) => ({ ...p, data: med }));
+        const ref = await uploadReportPhoto({ ...ctxRef.current(), fileName: file.name, full, med });
+        files.current.delete(localId);
+        if (dropped.current.has(localId)) {
+          removeReportPhotos([ref.photoId]);
+          return;
+        }
+        uploaded.current.push(ref.photoId);
+        patch(localId, (p) => {
+          const { _status, _error, ...rest } = p;
+          return { ...rest, ...ref };
+        });
+      } catch (e) {
+        patch(localId, (p) => ({ ...p, _status: "failed", _error: e?.message || "Upload failed" }));
+      }
+    };
+    const addPhotos = (logIdx, fileList) => {
+      const list = Array.from(fileList || []).filter((f) => f && (!f.type || f.type.startsWith("image/")));
+      if (!list.length) return;
+      const ids = list.map((file, n) => {
+        const id = `lp_${Date.now()}_${n}_${Math.random().toString(36).slice(2, 7)}`;
+        files.current.set(id, file);
+        return id;
+      });
+      setRForm((f) => {
+        const ts = `${f.date || localYMD()}T12:00:00`;
+        const fresh = list.map((file, n) => ({ _localId: ids[n], _status: "uploading", name: file.name, timestamp: ts }));
+        return { ...f, workLogs: (f.workLogs || []).map((w, i) => i === logIdx ? { ...w, photos: [...w.photos || [], ...fresh] } : w) };
+      });
+      runLimited(ids, UPLOAD_CONCURRENCY, uploadOne);
+    };
+    const retryPhoto = (localId) => {
+      patch(localId, (p) => ({ ...p, _status: "uploading", _error: void 0 }));
+      uploadOne(localId);
+    };
+    const notePhotoRemoved = (p) => {
+      if (!p) return;
+      if (isPendingPhoto(p)) {
+        dropped.current.add(p._localId);
+        files.current.delete(p._localId);
+      } else if (isRefPhoto(p)) removed.current.push(p.photoId);
+    };
+    const blockReason = (form) => {
+      let up = 0, bad = 0;
+      for (const w of form?.workLogs || []) for (const p of w.photos || []) {
+        if (p?._status === "uploading") up++;
+        else if (p?._status === "failed") bad++;
+      }
+      if (!up && !bad) return null;
+      const parts = [up ? `${up} photo${up > 1 ? "s are" : " is"} still uploading` : null, bad ? `${bad} photo${bad > 1 ? "s" : ""} failed to upload` : null].filter(Boolean);
+      return `${parts.join(" and ")}. ${bad ? "Tap Retry on the red photos (or remove them), then save again." : "Give it a moment, then save again."}`;
+    };
+    const reset = () => {
+      files.current = /* @__PURE__ */ new Map();
+      uploaded.current = [];
+      removed.current = [];
+    };
+    const commit = () => {
+      removeReportPhotos(removed.current);
+      reset();
+    };
+    const discard = () => {
+      for (const id of files.current.keys()) dropped.current.add(id);
+      removeReportPhotos(uploaded.current);
+      reset();
+    };
+    return { addPhotos, retryPhoto, notePhotoRemoved, blockReason, reset, commit, discard };
+  }
+  function dailyReportEmailHtml(r, proj, link) {
+    const esc2 = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const name = esc2(proj?.nickname || proj?.pc || "Project");
+    const dateStr = r.date ? (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString() : "N/A";
+    const logs = (r.workLogs || []).filter((w) => w.name);
+    const workers = (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
+    const hours = (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
+    const photos = countReportPhotos(r).total;
+    return `<p>Daily Construction Report for <strong>${name}</strong> dated <strong>${esc2(dateStr)}</strong>.</p>
+    <p>Prepared by: ${esc2(r.preparedBy || "N/A")}</p>
+    <div style="margin:18px 0"><a href="${link}" style="display:inline-block;padding:11px 26px;background:${BRAND_CONFIG.primary};color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View report (PDF)</a></div>
+    <p style="font-size:12px;color:#666">${photos} photo${photos === 1 ? "" : "s"} in the report. If the button doesn't work, copy this link: <a href="${link}">${link}</a></p>
+    <hr>
+    <h3>Report Summary</h3>
+    <p><strong>Weather:</strong> ${(r.weather || []).map((w) => esc2(`${w.time}: ${w.temp || "\u2014"} ${w.conditions || ""}`)).join(" | ")}</p>
+    ${logs.length ? `<p><strong>Work Logs:</strong></p><ul>${logs.map((w) => `<li><strong>${esc2(w.name)}</strong> (Qty: ${esc2(w.quantity || 0)}) \u2014 ${esc2(w.description || "No description")}</li>`).join("")}</ul>` : ""}
+    <p><strong>Total:</strong> ${workers} workers | ${hours} hours</p>
+    ${r.generalNotes ? `<p><strong>General Notes:</strong> ${esc2(r.generalNotes)}</p>` : ""}`;
+  }
+  async function resolveReportPhotosForPdf(report) {
+    const jobs = [];
+    (report.workLogs || []).forEach((w, wi) => (w.photos || []).forEach((p, pi) => {
+      if (!isPendingPhoto(p)) jobs.push({ wi, pi, p });
+    }));
+    const out = /* @__PURE__ */ new Map();
+    await runLimited(jobs, 4, async ({ wi, pi, p }) => {
+      let data = await loadReportPhotoData(p, "med");
+      if (data && !isRefPhoto(p)) {
+        try {
+          data = await scaleImageDataUrl(data, MED_WIDTH, MED_QUALITY);
+        } catch {
+        }
+      }
+      out.set(`${wi}:${pi}`, data || "");
+    });
+    return {
+      ...report,
+      workLogs: (report.workLogs || []).map((w, wi) => ({
+        ...w,
+        photos: (w.photos || []).map((p, pi) => isPendingPhoto(p) ? null : { ...p, data: out.get(`${wi}:${pi}`) || "" }).filter(Boolean)
+      }))
+    };
   }
   async function cloudDeleteReport(id) {
     if (id == null) return;
@@ -13741,18 +14100,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     };
   }
   function stripDailyReportPhotos(r) {
-    if (!r) return r;
-    return {
-      ...r,
-      workLogs: (r.workLogs || []).map((w) => ({
-        ...w,
-        photos: (w.photos || []).map((p) => ({
-          name: p.name,
-          timestamp: p.timestamp,
-          _photoStripped: true
-        }))
-      }))
-    };
+    return stripReportPhotosForLocal(r);
   }
   var SITE_URL = typeof window !== "undefined" ? window.location.origin : "https://pcgops.com";
   var projectEmailLink = (id, label) => `<div style="margin-top:16px"><a href="${SITE_URL}/?project=${id}" style="display:inline-block;padding:10px 24px;background:${BRAND_CONFIG.primary};color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View Project: ${label}</a></div>`;
@@ -17994,8 +18342,9 @@ ${t2.slice(0, 300)}`);
       humidity: h.relative_humidity_2m[hr] ? Math.round(h.relative_humidity_2m[hr]) + "%" : ""
     }));
   }
-  async function buildReportPdf(report, project) {
+  async function buildReportPdf(reportIn, project) {
     const _proj = project;
+    const report = await resolveReportPhotosForPdf(reportIn);
     const JsPDFCtor = window.jspdf && window.jspdf.jsPDF || window.jsPDF || null;
     if (!JsPDFCtor) throw new Error("jsPDF not available on the page");
     const doc = new JsPDFCtor({ unit: "in", format: "letter", orientation: "portrait" });
@@ -18206,7 +18555,7 @@ ${t2.slice(0, 300)}`);
       doc.text(w.conditions || "\u2014", x + wCardW / 2, y + 1.15, { align: "center" });
       setText(textFaint);
       doc.setFontSize(7);
-      doc.text(`Wind: ${w.wind || "0"} MPH  \u2022  Precip: ${w.precipitation || "0"}"  \u2022  Hum: ${w.humidity || "0"}%`, x + wCardW / 2, y + 1.4, { align: "center" });
+      doc.text(`Wind: ${w.wind || "0"} MPH  \u2022  Precip: ${w.precipitation || "0"}"  \u2022  Hum: ${String(w.humidity || "0").replace(/%+$/, "")}%`, x + wCardW / 2, y + 1.4, { align: "center" });
     }
     y += wCardH + 0.5;
     sectionTitle2("Work Logs");
@@ -18359,8 +18708,8 @@ ${t2.slice(0, 300)}`);
       doc.line(margin, y + rowH, margin + contentW, y + rowH);
       y += rowH;
     }
-    y += 0.45;
-    addPageIfNeeded(1.1);
+    y += 0.3;
+    addPageIfNeeded(0.7);
     setDraw(textDark);
     doc.setLineWidth(0.015);
     doc.line(margin, y + 0.35, margin + 3, y + 0.35);
@@ -18392,7 +18741,7 @@ ${t2.slice(0, 300)}`);
       doc.text(`Page ${p} of ${total}`, margin + contentW - fw, pageH - 0.3);
     }
     try {
-      const stripped = { ...report, workLogs: (report.workLogs || []).map((w) => ({ ...w, photos: (w.photos || []).map((p) => ({ name: p.name, timestamp: p.timestamp })) })) };
+      const stripped = { ...report, workLogs: (report.workLogs || []).map((w) => ({ ...w, photos: (w.photos || []).map((p) => isRefPhoto(p) ? cleanRef(p) : { name: p.name, timestamp: p.timestamp }) })) };
       doc.setProperties({ title: `Daily Report - ${_proj.nickname || _proj.pc} - ${report.date}`, subject: "Daily Construction Report", author: report.preparedBy || BRAND_CONFIG.portalName, creator: BRAND_CONFIG.portalName, keywords: "PCG_REPORT:" + encodeURIComponent(JSON.stringify(stripped)) });
     } catch {
     }
@@ -18470,11 +18819,19 @@ ${t2.slice(0, 300)}`);
       while (existing.has(id)) id++;
       return id;
     };
+    const pendingIdRef = useRef5(null);
+    const photoUp = useReportPhotoUploads(setRForm, () => ({
+      projectId: project.id,
+      projectNickname: project.nickname || project.address || project.pc || "",
+      reportId: editReport ?? pendingIdRef.current
+    }));
     const startCreate = () => {
       const reportDate = localYMD();
       const newForm = { ...EMPTY_DAILY_REPORT, projectId: project.id, date: reportDate, preparedBy: user?.name || "", jobNumber: project.pc ? `${project.pc}-001` : "" };
       setRForm(newForm);
       setEditReport(null);
+      pendingIdRef.current = nextId();
+      photoUp.reset();
       setDrView("create");
       if (project.zip) {
         setWxLoading(true);
@@ -18487,18 +18844,27 @@ ${t2.slice(0, 300)}`);
     const startEditReport = (r) => {
       setRForm({ ...r, workLogs: r.workLogs.map((w) => ({ ...w, photos: [...w.photos || []] })), weather: r.weather.map((w) => ({ ...w })), survey: { ...r.survey }, surveyNotes: { ...r.surveyNotes } });
       setEditReport(r.id);
+      pendingIdRef.current = null;
+      photoUp.reset();
       setDrView("create");
     };
     const saveReport = (status) => {
+      const blocked = photoUp.blockReason(rForm);
+      if (blocked) {
+        showAlert2("error", blocked);
+        return;
+      }
       const now = (/* @__PURE__ */ new Date()).toISOString();
       if (editReport) {
         setDailyReports((prev) => prev.map((r) => r.id === editReport ? { ...rForm, status, updatedAt: now, signature: status === "submitted" ? user?.name || rForm.preparedBy : rForm.signature, signedAt: status === "submitted" ? now : rForm.signedAt } : r));
         showAlert2("success", status === "submitted" ? "Report submitted" : "Draft saved");
       } else {
-        const nr = { ...rForm, id: nextId(), status, createdAt: now, updatedAt: now, signature: status === "submitted" ? user?.name || rForm.preparedBy : "", signedAt: status === "submitted" ? now : "" };
+        const nr = { ...rForm, id: pendingIdRef.current ?? nextId(), status, createdAt: now, updatedAt: now, signature: status === "submitted" ? user?.name || rForm.preparedBy : "", signedAt: status === "submitted" ? now : "" };
         setDailyReports((prev) => [...prev, nr]);
         showAlert2("success", status === "submitted" ? "Report submitted" : "Draft saved");
       }
+      pendingIdRef.current = null;
+      photoUp.commit();
       setDrView("list");
       setEditReport(null);
     };
@@ -18530,49 +18896,14 @@ ${t2.slice(0, 300)}`);
       setRForm((f) => ({ ...f, workLogs: [...f.workLogs, { name: "", description: "", quantity: "", totalHours: "", hoursToDate: "", photos: [] }] }));
     };
     const removeWorkLog = (idx) => {
+      (rForm.workLogs?.[idx]?.photos || []).forEach(photoUp.notePhotoRemoved);
       setRForm((f) => ({ ...f, workLogs: f.workLogs.filter((_, i) => i !== idx) }));
     };
     const updateWorkLog = (idx, field, val) => {
       setRForm((f) => ({ ...f, workLogs: f.workLogs.map((w, i) => i === idx ? { ...w, [field]: val } : w) }));
     };
-    const compressImage = (file, maxWidth = 1280, quality = 0.65) => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const img = new Image();
-          img.onload = () => {
-            if (img.width <= 480 && file.size < 12e4) {
-              resolve(ev.target.result);
-              return;
-            }
-            const canvas = document.createElement("canvas");
-            const scale = Math.min(1, maxWidth / img.width);
-            canvas.width = img.width * scale;
-            canvas.height = img.height * scale;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL("image/jpeg", quality));
-          };
-          img.src = ev.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
-    };
-    const handlePhotoUpload = (logIdx, e) => {
-      const files = Array.from(e.target.files || []);
-      files.forEach(async (file) => {
-        const compressed = await compressImage(file);
-        setRForm((f) => {
-          const reportDate = f.date || localYMD();
-          const photoTimestamp = `${reportDate}T12:00:00`;
-          return {
-            ...f,
-            workLogs: f.workLogs.map((w, i) => i === logIdx ? { ...w, photos: [...w.photos || [], { data: compressed, name: file.name, timestamp: photoTimestamp }] } : w)
-          };
-        });
-      });
-    };
     const removePhoto = (logIdx, photoIdx) => {
+      photoUp.notePhotoRemoved(rForm.workLogs?.[logIdx]?.photos?.[photoIdx]);
       setRForm((f) => ({
         ...f,
         workLogs: f.workLogs.map((w, i) => i === logIdx ? { ...w, photos: w.photos.filter((_, j) => j !== photoIdx) } : w)
@@ -19302,63 +19633,30 @@ ${t2.slice(0, 300)}`);
           setEmailSending(false);
           return;
         }
-        const sizeMB = pdfBlob.size / (1024 * 1024);
-        if (sizeMB > 4.5) {
-          const res = await fetch("/.netlify/functions/notify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: emailTo.split(",").map((e) => e.trim()).filter(Boolean),
-              subject: emailSubject,
-              body: `<p>Please find the Daily Construction Report summary for <strong>${project.nickname || project.pc}</strong> dated <strong>${r.date ? (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString() : "N/A"}</strong>.</p>
-              <p>Prepared by: ${r.preparedBy || "N/A"}</p>
-              <p><strong>Note:</strong> This report contains ${(r.workLogs || []).reduce((s, w) => s + (w.photos?.length || 0), 0)} photos and is too large to attach via email (${sizeMB.toFixed(1)}MB). Please view the full report with photos in the <a href="${BRAND_CONFIG.portalUrl}">${BRAND_CONFIG.portalName}</a> under Projects \u2192 ${project.nickname || project.pc} \u2192 Daily Reports.</p>
-              <hr>
-              <h3>Report Summary</h3>
-              <p><strong>Weather:</strong> ${(r.weather || []).map((w) => w.time + ": " + (w.temp || "\u2014") + " " + (w.conditions || "")).join(" | ")}</p>
-              <p><strong>Work Logs:</strong></p>
-              <ul>${(r.workLogs || []).filter((w) => w.name).map((w) => "<li><strong>" + w.name + "</strong> (Qty: " + (w.quantity || 0) + ") \u2014 " + (w.description || "No description") + "</li>").join("")}</ul>
-              <p><strong>Total:</strong> ${totalWorkers(r)} workers | ${totalHrs(r)} hours</p>
-              ${r.generalNotes ? "<p><strong>General Notes:</strong> " + r.generalNotes + "</p>" : ""}`
-            })
-          });
-          if (res.ok) {
-            showAlert2 && showAlert2("success", "Email sent (report summary \u2014 photos too large to attach)");
-            setEmailModal(false);
-          } else {
-            const errText = await res.text().catch(() => "");
-            showAlert2 && showAlert2("error", "Failed to send email" + (errText ? ": " + errText : ""));
-          }
+        const filename = `Daily_Report_${r.date || reportId}_${(project.nickname || project.pc || "PCG").replace(/[^a-z0-9]+/gi, "_")}.pdf`;
+        const link = await uploadReportPdf(pdfBlob, filename);
+        const res = await fetch("/.netlify/functions/notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: emailTo.split(",").map((e) => e.trim()).filter(Boolean),
+            subject: emailSubject,
+            body: dailyReportEmailHtml(r, project, link)
+          })
+        });
+        if (res.ok) {
+          showAlert2 && showAlert2("success", "Email sent with a link to the report");
+          setEmailModal(false);
         } else {
-          const reader = new FileReader();
-          const base64 = await new Promise((resolve) => {
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.readAsDataURL(pdfBlob);
-          });
-          const res = await fetch("/.netlify/functions/notify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: emailTo.split(",").map((e) => e.trim()).filter(Boolean),
-              subject: emailSubject,
-              body: `<p>Please find attached the Daily Construction Report for <strong>${project.nickname || project.pc}</strong> dated <strong>${r.date ? (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString() : "N/A"}</strong>.</p><p>Prepared by: ${r.preparedBy || "N/A"}</p>`,
-              attachments: [{ filename: `Daily_Report_${r.date || reportId}.pdf`, content: base64 }]
-            })
-          });
-          if (res.ok) {
-            showAlert2 && showAlert2("success", "Email sent with PDF attached");
-            setEmailModal(false);
-          } else {
-            const errText = await res.text().catch(() => "");
-            showAlert2 && showAlert2("error", "Failed to send email" + (errText ? ": " + errText : ""));
-          }
+          const errText = await res.text().catch(() => "");
+          showAlert2 && showAlert2("error", "Failed to send email" + (errText ? ": " + errText : ""));
         }
       } catch (e) {
         showAlert2 && showAlert2("error", "Email failed: " + e.message);
       }
       setEmailSending(false);
     };
-    const lightboxModal = lightbox ? /* @__PURE__ */ React.createElement("div", { onClick: () => setLightbox(null), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.93)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { position: "relative", display: "flex", flexDirection: "column", alignItems: "center", maxWidth: "92vw" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setLightbox(null), style: { position: "absolute", top: -44, right: 0, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: "1.25rem", cursor: "pointer", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: lightbox.photos[lightbox.idx].data, alt: lightbox.photos[lightbox.idx].name || "Photo", style: { maxWidth: "90vw", maxHeight: "82vh", objectFit: "contain", borderRadius: "0.5rem", display: "block", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("div", { style: { color: "rgba(255,255,255,0.65)", fontSize: "0.75rem", marginTop: "0.625rem", textAlign: "center" } }, lightbox.photos[lightbox.idx].name || "Photo", " ", " \xB7 ", " ", lightbox.idx + 1, " / ", lightbox.photos.length), lightbox.idx > 0 && /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+    const lightboxModal = lightbox ? /* @__PURE__ */ React.createElement("div", { onClick: () => setLightbox(null), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.93)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { position: "relative", display: "flex", flexDirection: "column", alignItems: "center", maxWidth: "92vw" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setLightbox(null), style: { position: "absolute", top: -44, right: 0, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: "1.25rem", cursor: "pointer", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement(ReportPhotoImg, { photo: lightbox.photos[lightbox.idx], size: "full", style: { maxWidth: "90vw", maxHeight: "82vh", minWidth: 120, objectFit: "contain", borderRadius: "0.5rem", display: "block", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("div", { style: { color: "rgba(255,255,255,0.65)", fontSize: "0.75rem", marginTop: "0.625rem", textAlign: "center" } }, lightbox.photos[lightbox.idx].name || "Photo", " ", " \xB7 ", " ", lightbox.idx + 1, " / ", lightbox.photos.length), lightbox.idx > 0 && /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
       e.stopPropagation();
       setLightbox((lb) => ({ ...lb, idx: lb.idx - 1 }));
     }, style: { position: "absolute", left: -56, top: "45%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: "1.75rem", cursor: "pointer", borderRadius: "50%", width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2039"), lightbox.idx < lightbox.photos.length - 1 && /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
@@ -19376,7 +19674,7 @@ ${t2.slice(0, 300)}`);
         setEditReport(null);
       }, style: btn(th, { background: th.card3, color: th.muted, padding: "0.4rem 1rem", fontSize: "0.8125rem" }) }, "\u2190 Back"), editable && /* @__PURE__ */ React.createElement("button", { onClick: () => startEditReport(r), style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem" }) }, "Edit"), editable && /* @__PURE__ */ React.createElement("button", { onClick: () => {
         saveReport("submitted");
-      }, style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#22c55e", color: "#fff" }), disabled: r.status === "submitted" }, r.status === "submitted" ? "Submitted" : "Submit & Sign"), /* @__PURE__ */ React.createElement("button", { onClick: () => generatePdf(r.id), disabled: pdfLoading, style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#2563eb", color: "#fff" }) }, pdfLoading ? "Generating..." : "Export PDF"), /* @__PURE__ */ React.createElement("button", { onClick: () => shareReport(r.id), disabled: pdfLoading, style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#22c55e", color: "#fff" }) }, "Share"), /* @__PURE__ */ React.createElement("button", { onClick: () => openEmailModal(r), style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#8b5cf6", color: "#fff" }) }, "Email Report")), emailModal && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 480, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1rem", color: th.text, marginBottom: "1rem" } }, "Email Daily Report"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, display: "block", marginBottom: "0.25rem" } }, "To (comma-separated)"), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.875rem" }), placeholder: "email@example.com", value: emailTo, onChange: (e) => setEmailTo(e.target.value) })), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, display: "block", marginBottom: "0.25rem" } }, "Subject"), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.875rem" }), value: emailSubject, onChange: (e) => setEmailSubject(e.target.value) })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "1rem", padding: "0.5rem", background: th.card2, borderRadius: "0.375rem" } }, "The daily report PDF will be generated and attached automatically."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEmailModal(false), style: btn(th, { background: th.card3, color: th.muted, padding: "0.4rem 1rem", fontSize: "0.8125rem" }) }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: () => sendEmailWithPdf(r.id, r), disabled: emailSending, style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#8b5cf6", color: "#fff" }) }, emailSending ? "Sending..." : "Send Email")))), /* @__PURE__ */ React.createElement("div", { id: `report-preview-${r.id}`, style: { background: "#fff", color: "#111", borderRadius: "0.75rem", overflow: "hidden", border: "1px solid #ddd" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { color: "#fff", fontWeight: 800, fontSize: "1.25rem", fontFamily: "'Raleway'" } }, "Premier Project Developers"), /* @__PURE__ */ React.createElement("div", { style: { color: "#ffffffcc", fontSize: "0.75rem" } }, "Daily Construction Report")), /* @__PURE__ */ React.createElement("div", { style: { color: "#fff", textAlign: "right", fontSize: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, r.date ? (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "2-digit", day: "2-digit", year: "numeric" }) : ""), /* @__PURE__ */ React.createElement("div", null, "Job # ", r.jobNumber || "N/A"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "20px 24px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.8125rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, project.nickname || project.pc)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", color: "#666" } }, "Prepared by: ", r.preparedBy)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: "#666", marginBottom: "1.25rem" } }, project.address, project.city ? `, ${project.city}` : "", " ", project.state, " ", project.zip), /* @__PURE__ */ React.createElement("div", { className: "weather-grid-pdf", style: { marginBottom: "1.25rem", pageBreakInside: "avoid", breakInside: "avoid" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", borderBottom: "2px solid #FF671F", paddingBottom: "0.25rem", marginBottom: "0.75rem" } }, "Weather"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem" } }, (r.weather || []).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: "1 1 0%", background: "#f9f9f9", borderRadius: "0.5rem", padding: "0.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: "0.75rem", color: "#666" } }, w.time), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800 } }, w.temp || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.125rem" } }, WEATHER_ICONS[w.conditions] || ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: "#888" } }, w.conditions || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", color: "#aaa", marginTop: "0.25rem" } }, "Wind: ", w.wind || "0", " MPH | Precip: ", w.precipitation || ".0", '" | Hum: ', w.humidity || "0", "%"))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", borderBottom: "2px solid #FF671F", paddingBottom: "0.25rem", marginBottom: "0.75rem" } }, "Work Logs"), (r.workLogs || []).filter((w) => w.name).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "work-log-entry", style: { marginBottom: "1rem", borderBottom: "1px solid #eee", paddingBottom: "0.75rem", pageBreakInside: "avoid", breakInside: "avoid" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", fontSize: "0.8125rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "2 1 0%" } }, /* @__PURE__ */ React.createElement("strong", null, w.name)), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 0%", textAlign: "center" } }, "Qty: ", w.quantity || 0), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 0%", textAlign: "center" } }, "Hours: ", w.totalHours || 0), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 0%", textAlign: "center" } }, "HTD: ", w.hoursToDate || 0)), w.description && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: "#444", marginBottom: "0.5rem" } }, w.description), w.photos && w.photos.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5rem" } }, w.photos.map((p, pi) => /* @__PURE__ */ React.createElement("div", { key: pi, className: "photo-item", onClick: () => setLightbox({ photos: w.photos, idx: pi }), style: { position: "relative", width: "calc(33.33% - 0.34rem)", pageBreakInside: "avoid", breakInside: "avoid", cursor: "zoom-in" } }, /* @__PURE__ */ React.createElement("img", { src: p.data, alt: p.name, style: { width: "100%", borderRadius: "0.375rem", aspectRatio: "4/3", objectFit: "cover", maxHeight: "200px" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", bottom: 4, left: 4, background: "#000000aa", color: "#fff", fontSize: "0.5rem", padding: "1px 4px", borderRadius: 3 } }, p.timestamp ? (() => {
+      }, style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#22c55e", color: "#fff" }), disabled: r.status === "submitted" }, r.status === "submitted" ? "Submitted" : "Submit & Sign"), /* @__PURE__ */ React.createElement("button", { onClick: () => generatePdf(r.id), disabled: pdfLoading, style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#2563eb", color: "#fff" }) }, pdfLoading ? "Generating..." : "Export PDF"), /* @__PURE__ */ React.createElement("button", { onClick: () => shareReport(r.id), disabled: pdfLoading, style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#22c55e", color: "#fff" }) }, "Share"), /* @__PURE__ */ React.createElement("button", { onClick: () => openEmailModal(r), style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#8b5cf6", color: "#fff" }) }, "Email Report")), emailModal && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 480, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1rem", color: th.text, marginBottom: "1rem" } }, "Email Daily Report"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, display: "block", marginBottom: "0.25rem" } }, "To (comma-separated)"), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.875rem" }), placeholder: "email@example.com", value: emailTo, onChange: (e) => setEmailTo(e.target.value) })), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600, display: "block", marginBottom: "0.25rem" } }, "Subject"), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.875rem" }), value: emailSubject, onChange: (e) => setEmailSubject(e.target.value) })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, marginBottom: "1rem", padding: "0.5rem", background: th.card2, borderRadius: "0.375rem" } }, "The daily report PDF will be generated and attached automatically."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEmailModal(false), style: btn(th, { background: th.card3, color: th.muted, padding: "0.4rem 1rem", fontSize: "0.8125rem" }) }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: () => sendEmailWithPdf(r.id, r), disabled: emailSending, style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#8b5cf6", color: "#fff" }) }, emailSending ? "Sending..." : "Send Email")))), /* @__PURE__ */ React.createElement("div", { id: `report-preview-${r.id}`, style: { background: "#fff", color: "#111", borderRadius: "0.75rem", overflow: "hidden", border: "1px solid #ddd" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#FF671F", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { color: "#fff", fontWeight: 800, fontSize: "1.25rem", fontFamily: "'Raleway'" } }, "Premier Project Developers"), /* @__PURE__ */ React.createElement("div", { style: { color: "#ffffffcc", fontSize: "0.75rem" } }, "Daily Construction Report")), /* @__PURE__ */ React.createElement("div", { style: { color: "#fff", textAlign: "right", fontSize: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, r.date ? (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "2-digit", day: "2-digit", year: "numeric" }) : ""), /* @__PURE__ */ React.createElement("div", null, "Job # ", r.jobNumber || "N/A"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "20px 24px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.8125rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, project.nickname || project.pc)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", color: "#666" } }, "Prepared by: ", r.preparedBy)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: "#666", marginBottom: "1.25rem" } }, project.address, project.city ? `, ${project.city}` : "", " ", project.state, " ", project.zip), /* @__PURE__ */ React.createElement("div", { className: "weather-grid-pdf", style: { marginBottom: "1.25rem", pageBreakInside: "avoid", breakInside: "avoid" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", borderBottom: "2px solid #FF671F", paddingBottom: "0.25rem", marginBottom: "0.75rem" } }, "Weather"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem" } }, (r.weather || []).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { flex: "1 1 0%", background: "#f9f9f9", borderRadius: "0.5rem", padding: "0.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: "0.75rem", color: "#666" } }, w.time), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", fontWeight: 800 } }, w.temp || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.5rem", marginBottom: "0.125rem" } }, WEATHER_ICONS[w.conditions] || ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6875rem", color: "#888" } }, w.conditions || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.625rem", color: "#aaa", marginTop: "0.25rem" } }, "Wind: ", w.wind || "0", " MPH | Precip: ", w.precipitation || ".0", '" | Hum: ', String(w.humidity || "0").replace(/%+$/, ""), "%"))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", borderBottom: "2px solid #FF671F", paddingBottom: "0.25rem", marginBottom: "0.75rem" } }, "Work Logs"), (r.workLogs || []).filter((w) => w.name).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "work-log-entry", style: { marginBottom: "1rem", borderBottom: "1px solid #eee", paddingBottom: "0.75rem", pageBreakInside: "avoid", breakInside: "avoid" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", fontSize: "0.8125rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "2 1 0%" } }, /* @__PURE__ */ React.createElement("strong", null, w.name)), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 0%", textAlign: "center" } }, "Qty: ", w.quantity || 0), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 0%", textAlign: "center" } }, "Hours: ", w.totalHours || 0), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 0%", textAlign: "center" } }, "HTD: ", w.hoursToDate || 0)), w.description && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: "#444", marginBottom: "0.5rem" } }, w.description), w.photos && w.photos.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5rem" } }, w.photos.map((p, pi) => /* @__PURE__ */ React.createElement("div", { key: pi, className: "photo-item", onClick: () => setLightbox({ photos: w.photos, idx: pi }), style: { position: "relative", width: "calc(33.33% - 0.34rem)", pageBreakInside: "avoid", breakInside: "avoid", cursor: "zoom-in" } }, /* @__PURE__ */ React.createElement(ReportPhotoImg, { photo: p, style: { width: "100%", borderRadius: "0.375rem", aspectRatio: "4/3", objectFit: "cover", maxHeight: "200px" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", bottom: 4, left: 4, background: "#000000aa", color: "#fff", fontSize: "0.5rem", padding: "1px 4px", borderRadius: 3 } }, p.timestamp ? (() => {
         const ymd = String(p.timestamp).slice(0, 10);
         return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? (/* @__PURE__ */ new Date(ymd + "T12:00:00")).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : p.timestamp;
       })() : "")))))), (r.workLogs || []).filter((w) => w.name).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8125rem", color: "#999" } }, "No work logs recorded."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", fontSize: "0.8125rem", fontWeight: 600, paddingTop: "0.5rem", borderTop: "1px solid #ddd" } }, "Total: ", totalWorkers(r), " workers | ", totalHrs(r), " hours")), [
@@ -19389,6 +19687,8 @@ ${t2.slice(0, 300)}`);
     }
     if (drView === "create") {
       return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+        photoUp.discard();
+        pendingIdRef.current = null;
         setDrView("list");
         setEditReport(null);
       }, style: btn(th, { background: th.card3, color: th.muted, padding: "0.4rem 1rem", fontSize: "0.8125rem" }) }, "\u2190 Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: () => saveReport("draft"), style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem" }) }, "Save Draft"), /* @__PURE__ */ React.createElement("button", { onClick: () => saveReport("submitted"), style: btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#22c55e", color: "#fff" }) }, "Submit & Sign")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 600, color: "#FF671F", textTransform: "uppercase", letterSpacing: 1, marginBottom: "1rem" } }, editReport ? "Edit Daily Report" : "New Daily Report"), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" } }, "Report Details"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.6875rem", color: th.muted, fontWeight: 600 } }, "Date"), /* @__PURE__ */ React.createElement("input", { type: "date", style: inp(th), value: rForm.date, onChange: (e) => setRForm((f) => {
@@ -19406,7 +19706,10 @@ ${t2.slice(0, 300)}`);
         const icon = WEATHER_ICONS[w.conditions] || "\u{1F321}\uFE0F";
         const hasData = !!w.temp;
         return /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, borderRadius: "0.75rem", padding: "1rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: "0.7rem", color: th.muted, marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: 1 } }, w.time), hasData ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem", marginBottom: "0.25rem", lineHeight: 1 } }, icon), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.25rem", fontWeight: 700, color: th.text, marginBottom: "0.125rem" } }, w.temp), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginBottom: "0.5rem" } }, w.conditions), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", gap: "0.75rem", fontSize: "0.65rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { title: "Wind" }, "\u{1F4A8} ", w.wind, " mph"), /* @__PURE__ */ React.createElement("span", { title: "Humidity" }, "\u{1F4A7} ", w.humidity), parseFloat(w.precipitation) > 0 && /* @__PURE__ */ React.createElement("span", { title: "Precipitation" }, "\u{1F327}\uFE0F ", w.precipitation, '"'))) : wxLoading ? /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 0", color: th.muted, fontSize: "0.8rem" } }, "Loading...") : /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0", color: th.muted, fontSize: "0.75rem" } }, "No data"), /* @__PURE__ */ React.createElement("details", { style: { marginTop: "0.5rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("summary", { style: { fontSize: "0.6rem", color: th.muted, cursor: "pointer", textAlign: "center" } }, "\u270F\uFE0F Edit"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.3rem", marginTop: "0.375rem" } }, /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.7rem" }), placeholder: "Temp (\xB0F)", value: w.temp, onChange: (e) => updateWeather(i, "temp", e.target.value) }), /* @__PURE__ */ React.createElement("select", { style: inp(th, { fontSize: "0.7rem" }), value: w.conditions, onChange: (e) => updateWeather(i, "conditions", e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Conditions..."), WEATHER_CONDITIONS.map((c) => /* @__PURE__ */ React.createElement("option", { key: c }, WEATHER_ICONS[c] || "", " ", c))), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.7rem" }), placeholder: "Wind MPH", value: w.wind, onChange: (e) => updateWeather(i, "wind", e.target.value) }), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.7rem" }), placeholder: "Precip (in)", value: w.precipitation, onChange: (e) => updateWeather(i, "precipitation", e.target.value) }), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.7rem" }), placeholder: "Humidity %", value: w.humidity, onChange: (e) => updateWeather(i, "humidity", e.target.value) }))));
-      }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text } }, "Work Logs"), /* @__PURE__ */ React.createElement("button", { onClick: addWorkLog, style: btn(th, { padding: "0.3rem 0.75rem", fontSize: "0.75rem" }) }, "+ Add Entry")), rForm.workLogs.map((wl, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { background: th.card2, borderRadius: "0.5rem", padding: "1rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6875rem", fontWeight: 600, color: th.muted } }, "Entry #", idx + 1), rForm.workLogs.length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => removeWorkLog(idx), style: { background: "none", border: "none", color: "#ff4444", cursor: "pointer", fontSize: "0.75rem" } }, "Remove")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.625rem", color: th.muted, fontWeight: 600 } }, "Trade/Name"), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.8125rem" }), placeholder: "e.g. Framing, Plumbing", value: wl.name, onChange: (e) => updateWorkLog(idx, "name", e.target.value) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.625rem", color: th.muted, fontWeight: 600 } }, "Workers"), /* @__PURE__ */ React.createElement("input", { type: "number", style: inp(th, { fontSize: "0.8125rem" }), placeholder: "0", value: wl.quantity, onChange: (e) => updateWorkLog(idx, "quantity", e.target.value) }))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.625rem", color: th.muted, fontWeight: 600 } }, "Description"), /* @__PURE__ */ React.createElement("textarea", { style: inp(th, { fontSize: "0.8125rem", minHeight: 50, resize: "vertical" }), placeholder: "Work performed...", value: wl.description, onChange: (e) => updateWorkLog(idx, "description", e.target.value) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.375rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.625rem", color: th.muted, fontWeight: 600 } }, "Photos"), /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { padding: "0.2rem 0.5rem", fontSize: "0.625rem", cursor: "pointer" }) } }, "+ Upload", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", multiple: true, style: { display: "none" }, onChange: (e) => handlePhotoUpload(idx, e) }))), wl.photos && wl.photos.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: "0.375rem" } }, wl.photos.map((p, pi) => /* @__PURE__ */ React.createElement("div", { key: pi, style: { position: "relative" } }, /* @__PURE__ */ React.createElement("img", { src: p.data, alt: p.name, onClick: () => setLightbox({ photos: wl.photos, idx: pi }), style: { width: "100%", borderRadius: "0.375rem", aspectRatio: "1", objectFit: "cover", cursor: "zoom-in" } }), /* @__PURE__ */ React.createElement("button", { onClick: () => removePhoto(idx, pi), style: { position: "absolute", top: 2, right: 2, background: "#ff4444", color: "#fff", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: "0.625rem", cursor: "pointer", lineHeight: "18px", padding: 0 } }, "\xD7")))))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" } }, "Additional Details"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.75rem" } }, [
+      }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text } }, "Work Logs"), /* @__PURE__ */ React.createElement("button", { onClick: addWorkLog, style: btn(th, { padding: "0.3rem 0.75rem", fontSize: "0.75rem" }) }, "+ Add Entry")), rForm.workLogs.map((wl, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, style: { background: th.card2, borderRadius: "0.5rem", padding: "1rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6875rem", fontWeight: 600, color: th.muted } }, "Entry #", idx + 1), rForm.workLogs.length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => removeWorkLog(idx), style: { background: "none", border: "none", color: "#ff4444", cursor: "pointer", fontSize: "0.75rem" } }, "Remove")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.625rem", color: th.muted, fontWeight: 600 } }, "Trade/Name"), /* @__PURE__ */ React.createElement("input", { style: inp(th, { fontSize: "0.8125rem" }), placeholder: "e.g. Framing, Plumbing", value: wl.name, onChange: (e) => updateWorkLog(idx, "name", e.target.value) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.625rem", color: th.muted, fontWeight: 600 } }, "Workers"), /* @__PURE__ */ React.createElement("input", { type: "number", style: inp(th, { fontSize: "0.8125rem" }), placeholder: "0", value: wl.quantity, onChange: (e) => updateWorkLog(idx, "quantity", e.target.value) }))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.625rem", color: th.muted, fontWeight: 600 } }, "Description"), /* @__PURE__ */ React.createElement("textarea", { style: inp(th, { fontSize: "0.8125rem", minHeight: 50, resize: "vertical" }), placeholder: "Work performed...", value: wl.description, onChange: (e) => updateWorkLog(idx, "description", e.target.value) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.375rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.625rem", color: th.muted, fontWeight: 600 } }, "Photos"), /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { padding: "0.2rem 0.5rem", fontSize: "0.625rem", cursor: "pointer" }) } }, "+ Upload", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", multiple: true, style: { display: "none" }, onChange: (e) => {
+        photoUp.addPhotos(idx, e.target.files);
+        e.target.value = "";
+      } }))), wl.photos && wl.photos.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: "0.375rem" } }, wl.photos.map((p, pi) => /* @__PURE__ */ React.createElement("div", { key: p.photoId || p._localId || pi, style: { position: "relative" } }, /* @__PURE__ */ React.createElement(ReportPhotoImg, { photo: p, onClick: () => setLightbox({ photos: wl.photos, idx: pi }), style: { width: "100%", borderRadius: "0.375rem", aspectRatio: "1", objectFit: "cover", cursor: "zoom-in" } }), /* @__PURE__ */ React.createElement(ReportPhotoStatus, { photo: p, onRetry: () => photoUp.retryPhoto(p._localId) }), /* @__PURE__ */ React.createElement("button", { onClick: () => removePhoto(idx, pi), style: { position: "absolute", top: 2, right: 2, background: "#ff4444", color: "#fff", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: "0.625rem", cursor: "pointer", lineHeight: "18px", padding: 0 } }, "\xD7")))))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.875rem", color: th.text, marginBottom: "0.75rem" } }, "Additional Details"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.75rem" } }, [
         { key: "materials", label: "Materials" },
         { key: "equipment", label: "Equipment" },
         { key: "generalNotes", label: "General Notes" },
@@ -19839,12 +20142,17 @@ ${t2.slice(0, 300)}`);
     };
     const pgalDeletePhoto = async (id) => {
       try {
-        await fetch("/.netlify/functions/project-photos", {
+        const res = await fetch("/.netlify/functions/project-photos", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json", ...authHeader() },
           body: JSON.stringify({ action: "delete", id })
         });
+        if (res.status === 409) {
+          const j = await res.json().catch(() => ({}));
+          window.alert(j.error || "This photo belongs to a Daily Report.");
+          return;
+        }
         pgalLoadPhotos();
       } catch {
       }
@@ -19857,6 +20165,7 @@ ${t2.slice(0, 300)}`);
         reportsForProject.forEach((r) => {
           (r.workLogs || []).forEach((w, wi) => {
             (w.photos || []).forEach((ph, pi) => {
+              if (isRefPhoto(ph) || isPendingPhoto(ph)) return;
               photos.push({ sourceRef: `dr_${r.id}_${wi}_${pi}`, dataUrl: ph.data, name: ph.name, timestamp: ph.timestamp, addedBy: r.preparedBy || "Daily Report" });
             });
           });
@@ -19935,12 +20244,12 @@ ${t2.slice(0, 300)}`);
     )), pgalStep === "setup" && pgalRecentProjects.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 40, height: 40, borderRadius: 10, background: "#3b82f61e", color: "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "10" }), /* @__PURE__ */ React.createElement("polyline", { points: "12 6 12 12 16 14" }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, "Recent projects"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.15rem" } }, "Quickly jump back into a project you've visited recently."))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" } }, pgalRecentProjects.map(({ project: p, lastVisit }) => {
       const phase = getCurrentPhase(p);
       return /* @__PURE__ */ React.createElement("div", { key: p.id, style: { border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: "0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: th.text, marginBottom: "0.2rem" } }, p.nickname || p.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.5rem" } }, [p.city, p.state].filter(Boolean).join(", ") || p.address), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: phase.color + "1e", color: phase.color } }, phase.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", marginBottom: "0.6rem" } }, "Last visit: ", new Date(lastVisit).toLocaleDateString()), /* @__PURE__ */ React.createElement("button", { onClick: () => pgalOpenRecentProject(p.id), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.75rem", width: "100%" } }, "View gallery \u2192"));
-    }))), pgalStep === "capture" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, pgalSessionCount, " / ", PGAL_SESSION_LIMIT, " this visit"), /* @__PURE__ */ React.createElement("button", { onClick: pgalChangeProject, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "Change project"))), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.card2 : "#FF671F", color: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.muted : "#fff" }), cursor: pgalSessionCount >= PGAL_SESSION_LIMIT ? "default" : "pointer" } }, pgalCapturing ? "Saving\u2026" : pgalSessionCount >= PGAL_SESSION_LIMIT ? `Limit reached (${PGAL_SESSION_LIMIT}/${PGAL_SESSION_LIMIT})` : "\u{1F4F7} Take Photo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, disabled: pgalCapturing || pgalSessionCount >= PGAL_SESSION_LIMIT, onChange: pgalHandleCapture })), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("gallery"), style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Done \u2014 view gallery")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: "0.5rem" } }, pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.map((p) => /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { key: p.id, imageKey: p.imageKey, size: 90 })))), pgalStep === "gallery" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address, " \u2014 Gallery"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, isMobile && /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("capture"), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "+ Take more photos"), /* @__PURE__ */ React.createElement("button", { onClick: pgalChangeProject, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "Change project"))), pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No photos yet for this project.") : (() => {
+    }))), pgalStep === "capture" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, pgalSessionCount, " / ", PGAL_SESSION_LIMIT, " this visit"), /* @__PURE__ */ React.createElement("button", { onClick: pgalChangeProject, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "Change project"))), pgalError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#dc2626", marginBottom: "0.6rem" } }, pgalError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.card2 : "#FF671F", color: pgalSessionCount >= PGAL_SESSION_LIMIT ? th.muted : "#fff" }), cursor: pgalSessionCount >= PGAL_SESSION_LIMIT ? "default" : "pointer" } }, pgalCapturing ? "Saving\u2026" : pgalSessionCount >= PGAL_SESSION_LIMIT ? `Limit reached (${PGAL_SESSION_LIMIT}/${PGAL_SESSION_LIMIT})` : "\u{1F4F7} Take Photo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, disabled: pgalCapturing || pgalSessionCount >= PGAL_SESSION_LIMIT, onChange: pgalHandleCapture })), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("gallery"), style: { ...btn(th, { background: th.card2, color: th.text }) } }, "Done \u2014 view gallery")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: "0.5rem" } }, pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.map((p) => /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { key: p.id, imageKey: p.medKey || p.imageKey, size: 90 })))), pgalStep === "gallery" && selectedProject && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.8rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.95rem", color: th.text } }, selectedProject.nickname || selectedProject.address, " \u2014 Gallery"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, isMobile && /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalStep("capture"), style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "+ Take more photos"), /* @__PURE__ */ React.createElement("button", { onClick: pgalChangeProject, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem" } }, "Change project"))), pgalPhotosLoading ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading\u2026") : pgalPhotos.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No photos yet for this project.") : (() => {
       const totalPages = Math.max(1, Math.ceil(pgalPhotos.length / PGAL_PAGE_SIZE));
       const page = Math.min(pgalGalleryPage, totalPages);
       const pageStart = (page - 1) * PGAL_PAGE_SIZE;
       const pagePhotos = pgalPhotos.slice(pageStart, pageStart + PGAL_PAGE_SIZE);
-      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "0.75rem", marginBottom: totalPages > 1 ? "0.75rem" : 0 } }, pagePhotos.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { imageKey: p.imageKey, size: 120, onClick: () => setPgalOpenPhotoId(p.id) }), p.source === "migrated" && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, left: 4, fontSize: "0.6rem", fontWeight: 700, background: "#7c3aed", color: "#fff", borderRadius: 4, padding: "1px 5px" } }, "Migrated"), /* @__PURE__ */ React.createElement("button", { onClick: () => pgalDeletePhoto(p.id), style: { position: "absolute", top: 4, right: 4, background: "#ef4444dd", border: "none", borderRadius: 4, color: "#fff", fontSize: "0.65rem", padding: "1px 5px", cursor: "pointer" } }, "\u2715")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.text, marginTop: "0.3rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.takenByName || "Unknown"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", null, p.createdAt ? new Date(p.createdAt).toLocaleString(void 0, { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : "\u2014"), p.lat != null && p.lng != null && /* @__PURE__ */ React.createElement("a", { href: `https://www.google.com/maps?q=${p.lat},${p.lng}`, target: "_blank", rel: "noopener noreferrer", onClick: (e) => e.stopPropagation(), title: "View location on map", style: { color: "#3b82f6", textDecoration: "none" } }, "\u{1F4CD}"))))), totalPages > 1 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalGalleryPage((p) => Math.max(1, p - 1)), disabled: page <= 1, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem", opacity: page <= 1 ? 0.5 : 1 } }, "\u2190 Prev"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Page ", page, " of ", totalPages), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalGalleryPage((p) => Math.min(totalPages, p + 1)), disabled: page >= totalPages, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem", opacity: page >= totalPages ? 0.5 : 1 } }, "Next \u2192")));
+      return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "0.75rem", marginBottom: totalPages > 1 ? "0.75rem" : 0 } }, pagePhotos.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(ProjectPhotoThumb, { imageKey: p.medKey || p.imageKey, size: 120, onClick: () => setPgalOpenPhotoId(p.id) }), p.source === "migrated" && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: 4, left: 4, fontSize: "0.6rem", fontWeight: 700, background: "#7c3aed", color: "#fff", borderRadius: 4, padding: "1px 5px" } }, "Migrated"), /* @__PURE__ */ React.createElement("button", { onClick: () => pgalDeletePhoto(p.id), style: { position: "absolute", top: 4, right: 4, background: "#ef4444dd", border: "none", borderRadius: 4, color: "#fff", fontSize: "0.65rem", padding: "1px 5px", cursor: "pointer" } }, "\u2715")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.text, marginTop: "0.3rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.takenByName || "Unknown"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", null, p.createdAt ? new Date(p.createdAt).toLocaleString(void 0, { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : "\u2014"), p.lat != null && p.lng != null && /* @__PURE__ */ React.createElement("a", { href: `https://www.google.com/maps?q=${p.lat},${p.lng}`, target: "_blank", rel: "noopener noreferrer", onClick: (e) => e.stopPropagation(), title: "View location on map", style: { color: "#3b82f6", textDecoration: "none" } }, "\u{1F4CD}"))))), totalPages > 1 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", alignItems: "center", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalGalleryPage((p) => Math.max(1, p - 1)), disabled: page <= 1, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem", opacity: page <= 1 ? 0.5 : 1 } }, "\u2190 Prev"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "Page ", page, " of ", totalPages), /* @__PURE__ */ React.createElement("button", { onClick: () => setPgalGalleryPage((p) => Math.min(totalPages, p + 1)), disabled: page >= totalPages, style: { ...btn(th, { background: th.card2, color: th.text }), fontSize: "0.78rem", opacity: page >= totalPages ? 0.5 : 1 } }, "Next \u2192")));
     })()), pgalOpenPhotoId && (() => {
       const photo = pgalPhotos.find((p) => p.id === pgalOpenPhotoId);
       if (!photo) return null;
@@ -30793,7 +31102,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v22.99";
+  var APP_VERSION = "v23.00";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -30836,17 +31145,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function saveToStorage(data) {
     const slimmed = { ...data };
     if (slimmed.dailyReports && Array.isArray(slimmed.dailyReports)) {
-      slimmed.dailyReports = slimmed.dailyReports.map((r) => ({
-        ...r,
-        workLogs: (r.workLogs || []).map((w) => ({
-          ...w,
-          photos: (w.photos || []).map((p) => ({
-            name: p.name,
-            timestamp: p.timestamp,
-            _photoStripped: true
-          }))
-        }))
-      }));
+      slimmed.dailyReports = slimmed.dailyReports.map(stripReportPhotosForLocal);
     }
     const payload = { version: DATA_VERSION, savedAt: (/* @__PURE__ */ new Date()).toISOString(), ...slimmed };
     try {
@@ -43778,6 +44077,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const [selectedReport, setSelectedReport] = useState13(null);
     const [loadingReport, setLoadingReport] = useState13(false);
     const [lightboxSrc, setLightboxSrc] = useState13(null);
+    const mobileReportIdRef = useRef5(null);
+    const photoUp = useReportPhotoUploads(setRForm, () => ({
+      projectId: selectedProject?.id,
+      projectNickname: selectedProject?.nickname || selectedProject?.address || selectedProject?.pc || "",
+      reportId: mobileReportIdRef.current
+    }));
     const [expandedLogs, setExpandedLogs] = useState13({});
     const [pdfLoading, setPdfLoading] = useState13(false);
     const [emailModal, setEmailModal] = useState13(false);
@@ -43836,27 +44141,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           setEmailSending(false);
           return;
         }
-        const sizeMB = pdfBlob.size / (1024 * 1024);
-        const reader = new FileReader();
-        const toList = emailTo.split(",").map((e) => e.trim()).filter(Boolean);
-        if (sizeMB > 4.5) {
-          await fetch("/.netlify/functions/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-            to: toList,
-            subject: emailSubject,
-            body: `<p>Daily Construction Report for <strong>${proj.nickname || proj.pc}</strong> on <strong>${r.date || "N/A"}</strong>. Prepared by: ${r.preparedBy || "N/A"}.</p><p>Report is too large to attach (${sizeMB.toFixed(1)}MB). View in the portal under Projects \u2192 ${proj.nickname || proj.pc} \u2192 Daily Reports.</p>`
-          }) });
-        } else {
-          const base64 = await new Promise((res) => {
-            reader.onload = () => res(reader.result.split(",")[1]);
-            reader.readAsDataURL(pdfBlob);
-          });
-          await fetch("/.netlify/functions/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-            to: toList,
-            subject: emailSubject,
-            body: `<p>Please find attached the Daily Construction Report for <strong>${proj.nickname || proj.pc}</strong> dated <strong>${r.date ? (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString() : "N/A"}</strong>.</p><p>Prepared by: ${r.preparedBy || "N/A"}</p>`,
-            attachments: [{ filename: `Daily_Report_${r.date || r.id}.pdf`, content: base64 }]
-          }) });
-        }
+        const filename = `Daily_Report_${r.date || r.id}_${(proj.nickname || proj.pc || "PCG").replace(/[^a-z0-9]+/gi, "_")}.pdf`;
+        const link = await uploadReportPdf(pdfBlob, filename);
+        const res = await fetch("/.netlify/functions/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+          to: emailTo.split(",").map((e) => e.trim()).filter(Boolean),
+          subject: emailSubject,
+          body: dailyReportEmailHtml(r, proj, link)
+        }) });
+        if (!res.ok) throw new Error(await res.text().catch(() => "") || `status ${res.status}`);
         setEmailModal(false);
         alert("Email sent!");
       } catch (e) {
@@ -43933,41 +44225,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         survey: Object.fromEntries(SURVEY_KEYS.map((k) => [k, null])),
         surveyNotes: Object.fromEntries(SURVEY_KEYS.map((k) => [k, ""]))
       });
+      mobileReportIdRef.current = "dr_" + Date.now();
+      photoUp.reset();
       goTo("report");
     };
     const addWorkLog = () => setRForm((f) => ({ ...f, workLogs: [...f.workLogs, { ...EMPTY_LOG }] }));
-    const removeLog = (i) => setRForm((f) => ({ ...f, workLogs: f.workLogs.filter((_, j) => j !== i) }));
+    const removeLog = (i) => {
+      (rForm.workLogs?.[i]?.photos || []).forEach(photoUp.notePhotoRemoved);
+      setRForm((f) => ({ ...f, workLogs: f.workLogs.filter((_, j) => j !== i) }));
+    };
     const updateLog = (i, k, v) => setRForm((f) => ({ ...f, workLogs: f.workLogs.map((w, j) => j === i ? { ...w, [k]: v } : w) }));
     const setSurvey = (k, v) => setRForm((f) => ({ ...f, survey: { ...f.survey, [k]: v } }));
     const setSurveyNote = (k, v) => setRForm((f) => ({ ...f, surveyNotes: { ...f.surveyNotes, [k]: v } }));
-    const compressMobileImage = (file, maxWidth = 1280, quality = 0.65) => new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const img = new Image();
-        img.onload = () => {
-          if (img.width <= 480 && file.size < 12e4) {
-            resolve(ev.target.result);
-            return;
-          }
-          const canvas = document.createElement("canvas");
-          const scale = Math.min(1, maxWidth / img.width);
-          canvas.width = img.width * scale;
-          canvas.height = img.height * scale;
-          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL("image/jpeg", quality));
-        };
-        img.src = ev.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-    const addLogPhoto = (logIdx, files) => {
-      Array.from(files || []).forEach(async (file) => {
-        const compressed = await compressMobileImage(file);
-        const ts = `${rForm.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}T12:00:00`;
-        setRForm((f) => ({ ...f, workLogs: f.workLogs.map((w, i) => i === logIdx ? { ...w, photos: [...w.photos || [], { data: compressed, name: file.name, timestamp: ts }] } : w) }));
-      });
-    };
+    const addLogPhoto = (logIdx, files) => photoUp.addPhotos(logIdx, files);
     const removeLogPhoto = (logIdx, photoIdx) => {
+      photoUp.notePhotoRemoved(rForm.workLogs?.[logIdx]?.photos?.[photoIdx]);
       setRForm((f) => ({ ...f, workLogs: f.workLogs.map((w, i) => i === logIdx ? { ...w, photos: (w.photos || []).filter((_, pi) => pi !== photoIdx) } : w) }));
     };
     const toggleChecklistItem = (projectId, key, currentVal) => {
@@ -43984,12 +44256,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const saveReport = async (status) => {
       if (!selectedProject) return;
+      const blocked = photoUp.blockReason(rForm);
+      if (blocked) {
+        alert(blocked);
+        return;
+      }
       setRSaving(true);
       try {
         const now = (/* @__PURE__ */ new Date()).toISOString();
         const report = {
           ...rForm,
-          id: "dr_" + Date.now(),
+          id: mobileReportIdRef.current || "dr_" + Date.now(),
           projectId: selectedProject.id,
           status,
           createdAt: now,
@@ -43997,8 +44274,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           signature: status === "submitted" ? user?.name || rForm.preparedBy : "",
           signedAt: status === "submitted" ? now : ""
         };
-        await cloudSaveReport(report).catch(() => {
-        });
+        try {
+          await cloudSaveReport(report);
+        } catch (e) {
+          alert("This report could not be saved" + (e?.message ? ` (${e.message})` : "") + ". Check your connection and tap Save again \u2014 your entries and photos are still here.");
+          return;
+        }
         try {
           const currentIdx = await cloudLoad(DR_INDEX_KEY).catch(() => []) || [];
           const indexEntry = makeDailyReportIndexEntry(report);
@@ -44007,6 +44288,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           await cloudSave("pcg_daily_reports_v1", newIdx.map((r) => ({ ...r, workLogs: (r.workLogs || []).map((w) => ({ ...w, photos: [] })) })));
         } catch {
         }
+        photoUp.commit();
+        mobileReportIdRef.current = null;
         setDailyReports((prev) => [report, ...prev]);
         goTo("detail");
       } finally {
@@ -44206,27 +44489,30 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         ["Status", r.status || "\u2014"]
       ].map(([label, val]) => /* @__PURE__ */ React.createElement("div", { key: label, style: { display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${th.cardBorder}22`, fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 600 } }, label), /* @__PURE__ */ React.createElement("span", { style: { color: label === "Status" ? r.status === "submitted" ? "#10b981" : "#f59e0b" : th.text, fontWeight: 700 } }, val))), r.status === "submitted" && r.signedAt && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, padding: "6px 10px", background: "#10b98111", borderRadius: 8, fontSize: 12, color: "#10b981", fontWeight: 600 } }, "Signed by ", r.signature || r.preparedBy, " \xB7 ", new Date(r.signedAt).toLocaleString())), r.workLogs?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text, marginBottom: 10 } }, "Work Logs (", r.workLogs.length, ")"), r.workLogs.map((w, i) => {
         const isOpen = !!expandedLogs[i];
-        const photoCount = (w.photos || []).filter((ph) => {
+        const photoCount = (w.photos || []).filter((ph) => isRefPhoto(ph) || (() => {
           const s = ph?.data || ph;
           return s && typeof s === "string";
-        }).length;
+        })()).length;
         return /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.bg, borderRadius: 10, marginBottom: 8, border: `1px solid ${th.cardBorder}33`, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setExpandedLogs((prev) => ({ ...prev, [i]: !prev[i] })), style: { display: "flex", alignItems: "center", gap: 10, padding: 12, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: th.text } }, w.name || `Work Log ${i + 1}`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 } }, w.quantity && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, background: `${O2}15`, color: O2, borderRadius: 6, padding: "2px 7px" } }, "Qty: ", w.quantity), w.totalHours && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, background: "#3b82f615", color: "#3b82f6", borderRadius: 6, padding: "2px 7px" } }, "Hours: ", w.totalHours), w.hoursToDate && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, background: "#8b5cf615", color: "#8b5cf6", borderRadius: 6, padding: "2px 7px" } }, "HTD: ", w.hoursToDate), photoCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, background: "#10b98115", color: "#10b981", borderRadius: 6, padding: "2px 7px" } }, "\u{1F4F7} ", photoCount))), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: 18, transition: "transform .2s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", flexShrink: 0 } }, "\u203A")), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 12px 12px", borderTop: `1px solid ${th.cardBorder}22` } }, w.description && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: th.muted, marginTop: 10, marginBottom: 10, lineHeight: 1.5 } }, w.description), /* @__PURE__ */ React.createElement("div", { style: { marginTop: w.description ? 4 : 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 } }, "Photos ", photoCount > 0 ? `(${photoCount})` : ""), photoCount > 0 ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, w.photos.map((ph, pi) => {
-          const src = ph?.data || ph;
-          if (!src || typeof src !== "string") return null;
-          return /* @__PURE__ */ React.createElement("div", { key: pi, onClick: () => setLightboxSrc(src), style: { cursor: "pointer", borderRadius: 8, overflow: "hidden", border: `1px solid ${th.cardBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("img", { src, alt: ph?.name || "", style: { width: 90, height: 90, objectFit: "cover", display: "block" } }));
+          const photo = typeof ph === "string" ? { data: ph } : ph;
+          if (!isRefPhoto(photo) && !(typeof photo?.data === "string" && photo.data)) return null;
+          return /* @__PURE__ */ React.createElement("div", { key: photo.photoId || pi, onClick: () => setLightboxSrc(photo), style: { cursor: "pointer", borderRadius: 8, overflow: "hidden", border: `1px solid ${th.cardBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement(ReportPhotoImg, { photo, style: { width: 90, height: 90, objectFit: "cover", display: "block" } }));
         })) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: th.muted, fontStyle: "italic" } }, "No photos uploaded for this entry."))));
       })), (r.materials || r.equipment) && /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text, marginBottom: 10 } }, "Materials & Equipment"), r.materials && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "MATERIALS"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: th.text, marginBottom: 10, whiteSpace: "pre-wrap" } }, r.materials)), r.equipment && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "EQUIPMENT"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: th.text, whiteSpace: "pre-wrap" } }, r.equipment))), r.survey && Object.keys(r.survey).length > 0 && /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text, marginBottom: 10 } }, "End of Day Survey"), Object.entries(SURVEY_LABELS_V).map(([k, label]) => {
         const ans = r.survey?.[k];
         if (ans === null || ans === void 0) return null;
         const note = r.surveyNotes?.[k];
         return /* @__PURE__ */ React.createElement("div", { key: k, style: { padding: "8px 0", borderBottom: `1px solid ${th.cardBorder}22` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: th.text, flex: 1, paddingRight: 8 } }, label), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: 13, color: ans ? "#ef4444" : "#10b981" } }, ans ? "Yes" : "No")), ans && note && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: th.muted, marginTop: 4, paddingLeft: 0, fontStyle: "italic" } }, note));
-      })), r.notes && /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text, marginBottom: 8 } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: th.text, whiteSpace: "pre-wrap" } }, r.notes))), lightboxSrc && /* @__PURE__ */ React.createElement("div", { onClick: () => setLightboxSrc(null), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } }, /* @__PURE__ */ React.createElement("img", { src: lightboxSrc, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8 } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 16, right: 16, color: "#fff", fontSize: 28, cursor: "pointer", fontWeight: 700, lineHeight: 1 } }, "\u2715")));
+      })), r.notes && /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text, marginBottom: 8 } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: th.text, whiteSpace: "pre-wrap" } }, r.notes))), lightboxSrc && /* @__PURE__ */ React.createElement("div", { onClick: () => setLightboxSrc(null), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } }, /* @__PURE__ */ React.createElement(ReportPhotoImg, { photo: lightboxSrc, size: "full", style: { maxWidth: "100%", maxHeight: "100%", minWidth: 120, objectFit: "contain", borderRadius: 8 } }), /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 16, right: 16, color: "#fff", fontSize: 28, cursor: "pointer", fontWeight: 700, lineHeight: 1 } }, "\u2715")));
     }
     if (screen === "report" && selectedProject) {
       const p = selectedProject;
-      return /* @__PURE__ */ React.createElement("div", { style: { background: th.bg, color: th.text, minHeight: "100vh", fontFamily: "'Source Sans 3',sans-serif" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => goTo("detail"), style: { display: "flex", alignItems: "center", gap: 6, color: O2, fontSize: 14, fontWeight: 700, cursor: "pointer", padding: "54px 20px 10px", background: th.sidebar, borderBottom: `1px solid ${th.sidebarBorder}` } }, "< Back to ", p.nickname || p.address), /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 20px 12px", background: th.sidebar, borderBottom: `1px solid ${th.sidebarBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { color: O2, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 } }, "New Daily Report"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: th.muted, marginTop: 2 } }, p.nickname || p.address, " - PC# ", p.pc)), /* @__PURE__ */ React.createElement("div", { style: { padding: 16, paddingBottom: 100 } }, /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text, marginBottom: 12 } }, "Report Details"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 } }, "Date"), /* @__PURE__ */ React.createElement("input", { type: "date", value: rForm.date, onChange: (e) => setRForm((f) => ({ ...f, date: e.target.value })), style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 } }, "Job #"), /* @__PURE__ */ React.createElement("input", { type: "text", value: rForm.jobNumber, onChange: (e) => setRForm((f) => ({ ...f, jobNumber: e.target.value })), placeholder: p.pc + "-001", style: inpStyle }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 } }, "Prepared By"), /* @__PURE__ */ React.createElement("input", { type: "text", value: rForm.preparedBy, onChange: (e) => setRForm((f) => ({ ...f, preparedBy: e.target.value })), style: inpStyle }))), /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text } }, "Weather"), /* @__PURE__ */ React.createElement("button", { onClick: () => autoFillWeather(p, rForm.date), disabled: wxLoading, style: { background: `${O2}18`, color: O2, border: `1px solid ${O2}33`, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: wxLoading ? 0.6 : 1 } }, wxLoading ? "\u23F3 Loading..." : "\u{1F324} Auto-Fill")), (rForm.weather || []).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: 10, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: O2, fontWeight: 800, marginBottom: 8 } }, w.time), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, "TEMP"), /* @__PURE__ */ React.createElement("input", { value: w.temp, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, temp: e.target.value } : wx) })), placeholder: "72\xB0F", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, "CONDITIONS"), /* @__PURE__ */ React.createElement("input", { value: w.conditions, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, conditions: e.target.value } : wx) })), placeholder: "Clear", style: inpStyle }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, "WIND MPH"), /* @__PURE__ */ React.createElement("input", { value: w.wind, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, wind: e.target.value } : wx) })), placeholder: "0", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, 'PRECIP"'), /* @__PURE__ */ React.createElement("input", { value: w.precipitation, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, precipitation: e.target.value } : wx) })), placeholder: "0", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, "HUMIDITY"), /* @__PURE__ */ React.createElement("input", { value: w.humidity, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, humidity: e.target.value } : wx) })), placeholder: "0%", style: inpStyle })))))), /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text } }, "Work Logs"), /* @__PURE__ */ React.createElement("button", { onClick: addWorkLog, style: { background: `${O2}18`, color: O2, border: `1px solid ${O2}33`, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "+ Add Entry")), rForm.workLogs.map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: 12, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: th.muted } }, "Entry #", i + 1), rForm.workLogs.length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => removeLog(i), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, padding: 0 } }, "x")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Trade / Name"), /* @__PURE__ */ React.createElement("input", { type: "text", value: w.name, onChange: (e) => updateLog(i, "name", e.target.value), placeholder: "e.g. Framing, Plumbing", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Workers"), /* @__PURE__ */ React.createElement("input", { type: "number", value: w.quantity, onChange: (e) => updateLog(i, "quantity", e.target.value), placeholder: "0", style: inpStyle }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Hours Today"), /* @__PURE__ */ React.createElement("input", { type: "number", value: w.totalHours, onChange: (e) => updateLog(i, "totalHours", e.target.value), placeholder: "0", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Hours To Date"), /* @__PURE__ */ React.createElement("input", { type: "number", value: w.hoursToDate, onChange: (e) => updateLog(i, "hoursToDate", e.target.value), placeholder: "0", style: inpStyle }))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Description"), /* @__PURE__ */ React.createElement("textarea", { value: w.description, onChange: (e) => updateLog(i, "description", e.target.value), placeholder: "Work performed...", style: taStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 6 } }, "PHOTOS"), (w.photos || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 } }, w.photos.map((ph, pi) => {
-        const src = ph?.data || ph;
-        return /* @__PURE__ */ React.createElement("div", { key: pi, style: { position: "relative", width: 72, height: 72 } }, /* @__PURE__ */ React.createElement("img", { src, alt: ph?.name || "", style: { width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${th.cardBorder}` } }), /* @__PURE__ */ React.createElement("div", { onClick: () => removeLogPhoto(i, pi), style: { position: "absolute", top: -6, right: -6, width: 20, height: 20, background: "#ef4444", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 12, color: "#fff", fontWeight: 800, boxShadow: "0 1px 4px #0004" } }, "\xD7"));
+      return /* @__PURE__ */ React.createElement("div", { style: { background: th.bg, color: th.text, minHeight: "100vh", fontFamily: "'Source Sans 3',sans-serif" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => {
+        photoUp.discard();
+        mobileReportIdRef.current = null;
+        goTo("detail");
+      }, style: { display: "flex", alignItems: "center", gap: 6, color: O2, fontSize: 14, fontWeight: 700, cursor: "pointer", padding: "54px 20px 10px", background: th.sidebar, borderBottom: `1px solid ${th.sidebarBorder}` } }, "< Back to ", p.nickname || p.address), /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 20px 12px", background: th.sidebar, borderBottom: `1px solid ${th.sidebarBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { color: O2, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 } }, "New Daily Report"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: th.muted, marginTop: 2 } }, p.nickname || p.address, " - PC# ", p.pc)), /* @__PURE__ */ React.createElement("div", { style: { padding: 16, paddingBottom: 100 } }, /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text, marginBottom: 12 } }, "Report Details"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 } }, "Date"), /* @__PURE__ */ React.createElement("input", { type: "date", value: rForm.date, onChange: (e) => setRForm((f) => ({ ...f, date: e.target.value })), style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 } }, "Job #"), /* @__PURE__ */ React.createElement("input", { type: "text", value: rForm.jobNumber, onChange: (e) => setRForm((f) => ({ ...f, jobNumber: e.target.value })), placeholder: p.pc + "-001", style: inpStyle }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 } }, "Prepared By"), /* @__PURE__ */ React.createElement("input", { type: "text", value: rForm.preparedBy, onChange: (e) => setRForm((f) => ({ ...f, preparedBy: e.target.value })), style: inpStyle }))), /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text } }, "Weather"), /* @__PURE__ */ React.createElement("button", { onClick: () => autoFillWeather(p, rForm.date), disabled: wxLoading, style: { background: `${O2}18`, color: O2, border: `1px solid ${O2}33`, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: wxLoading ? 0.6 : 1 } }, wxLoading ? "\u23F3 Loading..." : "\u{1F324} Auto-Fill")), (rForm.weather || []).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: 10, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: O2, fontWeight: 800, marginBottom: 8 } }, w.time), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, "TEMP"), /* @__PURE__ */ React.createElement("input", { value: w.temp, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, temp: e.target.value } : wx) })), placeholder: "72\xB0F", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, "CONDITIONS"), /* @__PURE__ */ React.createElement("input", { value: w.conditions, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, conditions: e.target.value } : wx) })), placeholder: "Clear", style: inpStyle }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, "WIND MPH"), /* @__PURE__ */ React.createElement("input", { value: w.wind, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, wind: e.target.value } : wx) })), placeholder: "0", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, 'PRECIP"'), /* @__PURE__ */ React.createElement("input", { value: w.precipitation, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, precipitation: e.target.value } : wx) })), placeholder: "0", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 3 } }, "HUMIDITY"), /* @__PURE__ */ React.createElement("input", { value: w.humidity, onChange: (e) => setRForm((f) => ({ ...f, weather: f.weather.map((wx, j) => j === i ? { ...wx, humidity: e.target.value } : wx) })), placeholder: "0%", style: inpStyle })))))), /* @__PURE__ */ React.createElement("div", { style: sectionStyle }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: 15, color: th.text } }, "Work Logs"), /* @__PURE__ */ React.createElement("button", { onClick: addWorkLog, style: { background: `${O2}18`, color: O2, border: `1px solid ${O2}33`, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "+ Add Entry")), rForm.workLogs.map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 10, padding: 12, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: th.muted } }, "Entry #", i + 1), rForm.workLogs.length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => removeLog(i), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, padding: 0 } }, "x")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Trade / Name"), /* @__PURE__ */ React.createElement("input", { type: "text", value: w.name, onChange: (e) => updateLog(i, "name", e.target.value), placeholder: "e.g. Framing, Plumbing", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Workers"), /* @__PURE__ */ React.createElement("input", { type: "number", value: w.quantity, onChange: (e) => updateLog(i, "quantity", e.target.value), placeholder: "0", style: inpStyle }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Hours Today"), /* @__PURE__ */ React.createElement("input", { type: "number", value: w.totalHours, onChange: (e) => updateLog(i, "totalHours", e.target.value), placeholder: "0", style: inpStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Hours To Date"), /* @__PURE__ */ React.createElement("input", { type: "number", value: w.hoursToDate, onChange: (e) => updateLog(i, "hoursToDate", e.target.value), placeholder: "0", style: inpStyle }))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 4 } }, "Description"), /* @__PURE__ */ React.createElement("textarea", { value: w.description, onChange: (e) => updateLog(i, "description", e.target.value), placeholder: "Work performed...", style: taStyle })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: th.muted, fontWeight: 700, marginBottom: 6 } }, "PHOTOS"), (w.photos || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 } }, w.photos.map((ph, pi) => {
+        return /* @__PURE__ */ React.createElement("div", { key: ph?.photoId || ph?._localId || pi, style: { position: "relative", width: 72, height: 72 } }, /* @__PURE__ */ React.createElement(ReportPhotoImg, { photo: ph, style: { width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${th.cardBorder}` } }), /* @__PURE__ */ React.createElement(ReportPhotoStatus, { photo: ph, onRetry: () => photoUp.retryPhoto(ph._localId) }), /* @__PURE__ */ React.createElement("div", { onClick: () => removeLogPhoto(i, pi), style: { position: "absolute", top: -6, right: -6, width: 20, height: 20, background: "#ef4444", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 12, color: "#fff", fontWeight: 800, boxShadow: "0 1px 4px #0004" } }, "\xD7"));
       })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: 5, background: `${O2}15`, color: O2, border: `1px solid ${O2}33`, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "\u{1F4F7} Camera", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: (e) => {
         addLogPhoto(i, e.target.files);
         e.target.value = "";

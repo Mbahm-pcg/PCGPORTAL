@@ -2,6 +2,34 @@
 // Scheduled: 11:59 PM ET daily (4:59 AM UTC). Keeps 7 days of rolling backups.
 
 import { getStore } from '@netlify/blobs';
+import { sql } from './_shared/db.mjs';
+import { mergeLoadedReport, isRefPhoto } from '../../src/report-photos.mjs';
+
+const PURGE_AFTER_DAYS = 30;
+
+// v23.00 — Daily Report photos removed from a report are only soft-deleted
+// (project_photos.deleted_at). Really delete them (row + both image blobs) 30 days later.
+// Never throws: a database problem must not fail the backup.
+async function purgeDeletedPhotos(store) {
+  try {
+    const db = sql();
+    const rows = await db`
+      SELECT id, image_key, med_key FROM project_photos
+      WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => ${PURGE_AFTER_DAYS})
+      LIMIT 500`;
+    for (const r of rows) {
+      await store.delete(r.image_key).catch(() => {});
+      if (r.med_key) await store.delete(r.med_key).catch(() => {});
+      await db`DELETE FROM project_photos WHERE id = ${r.id} AND deleted_at IS NOT NULL`;
+    }
+    if (rows.length) console.log(`[reports-backup] Purged ${rows.length} photo(s) removed from reports over ${PURGE_AFTER_DAYS} days ago`);
+    return rows.length;
+  } catch (e) {
+    // e.g. the deleted_at column doesn't exist until project-photos.mjs has run once
+    console.warn('[reports-backup] photo purge skipped:', e.message);
+    return 0;
+  }
+}
 
 export const config = { schedule: '59 4 * * *' };
 
@@ -58,14 +86,9 @@ export default async (request) => {
         const report = reportRaw?.data || reportRaw;
         const photoMap = photosRaw?.data || photosRaw;
         if (!report) return null;
-        // Merge photos back into workLogs
-        if (photoMap && typeof photoMap === 'object') {
-          report.workLogs = (report.workLogs || []).map((w, i) => ({
-            ...w,
-            photos: photoMap[i] || w.photos || [],
-          }));
-        }
-        return report;
+        // Merge legacy photos back into workLogs. v23.00: photo refs already live in the
+        // report blob and are kept alongside them (same rules as the app — src/report-photos.mjs).
+        return mergeLoadedReport(report, photoMap);
       } catch (e) {
         console.warn(`[reports-backup] Failed to load report ${meta.id}:`, e.message);
         return null;
@@ -82,7 +105,7 @@ export default async (request) => {
     // photos were wiped would otherwise overwrite the copy needed to restore them) —
     // save alongside it instead.
     const realPhotos = (list) => (Array.isArray(list) ? list : []).reduce((s, r) =>
-      s + (r?.workLogs || []).reduce((t, w) => t + (w?.photos || []).filter(p => typeof p?.data === 'string' && p.data.length > 32).length, 0), 0);
+      s + (r?.workLogs || []).reduce((t, w) => t + (w?.photos || []).filter(p => isRefPhoto(p) || (typeof p?.data === 'string' && p.data.length > 32)).length, 0), 0);
     try {
       const existing = await store.get(backupKey, { type: 'json' });
       const had = realPhotos(existing?.data || existing);
@@ -106,8 +129,10 @@ export default async (request) => {
       } catch {}
     }
 
+    const purged = await purgeDeletedPhotos(store);
+
     return new Response(
-      JSON.stringify({ ok: true, backed: valid.length, key: backupKey, savedAt: new Date().toISOString() }),
+      JSON.stringify({ ok: true, backed: valid.length, key: backupKey, purged, savedAt: new Date().toISOString() }),
       { status: 200, headers },
     );
   } catch (e) {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   isRefPhoto, isRealReportPhoto, isPendingPhoto, cleanRef,
   splitReportForSave, mergeLoadedReport, stripReportPhotosForLocal,
-  countReportPhotos, canUploadReportPhotos,
+  countReportPhotos, canUploadReportPhotos, preserveRefsFromOldClient,
 } from './report-photos.mjs';
 
 const DATA = 'data:image/jpeg;base64,' + 'A'.repeat(64);
@@ -90,7 +90,37 @@ test('merge: a map entry replaces inline legacy photos but never refs', () => {
 test('split then merge round-trips a mixed report', () => {
   const input = report([legacy('1'), legacy('2'), ref('p1'), ref('p2')]);
   const { slimReport, photoMap } = splitReportForSave(input);
-  assert.deepEqual(mergeLoadedReport(slimReport, photoMap), input);
+  assert.deepEqual(mergeLoadedReport(slimReport, photoMap), { ...input, _pv: 2 });
+});
+
+test('old-client guard: refs survive a save from code that does not know about them', () => {
+  const stored = { id: 7, _pv: 2, workLogs: [{ name: 'A', photos: [ref('p1')] }, { name: 'B', photos: [ref('p2'), ref('p3')] }] };
+  // pre-v23 code always saves photos: [] in the report blob
+  const fromOld = { id: 7, updatedAt: 'later', workLogs: [{ name: 'A edited', photos: [] }, { name: 'B', photos: [] }] };
+  const out = preserveRefsFromOldClient(fromOld, stored);
+  assert.equal(out.workLogs[0].name, 'A edited');
+  assert.deepEqual(out.workLogs.map(w => w.photos.map(p => p.photoId)), [['p1'], ['p2', 'p3']]);
+  assert.equal(out._pv, 2);
+  assert.deepEqual(fromOld.workLogs[0].photos, []); // input untouched
+});
+
+test('old-client guard: refs of a removed work log move to the last one; placeholders dropped', () => {
+  const stored = { id: 7, workLogs: [{ photos: [ref('p1')] }, { photos: [ref('p2')] }] };
+  const fromOld = { id: 7, workLogs: [{ name: 'only', photos: [{ name: 'x', _photoStripped: true }] }] };
+  assert.deepEqual(preserveRefsFromOldClient(fromOld, stored).workLogs[0].photos.map(p => p.photoId), ['p1', 'p2']);
+  const noLogs = preserveRefsFromOldClient({ id: 7, workLogs: [] }, stored);
+  assert.deepEqual(noLogs.workLogs[0].photos.map(p => p.photoId), ['p1', 'p2']);
+});
+
+test('old-client guard: leaves current-format saves and ref-less reports alone', () => {
+  const stored = { id: 7, workLogs: [{ photos: [ref('p1')] }] };
+  const current = { id: 7, _pv: 2, workLogs: [{ photos: [] }] }; // user really removed the photo
+  assert.equal(preserveRefsFromOldClient(current, stored), current);
+  const old = { id: 7, workLogs: [{ photos: [] }] };
+  assert.equal(preserveRefsFromOldClient(old, { id: 7, workLogs: [{ photos: [] }] }), old);
+  assert.equal(preserveRefsFromOldClient(old, null), old);
+  assert.deepEqual(preserveRefsFromOldClient([1, 2], stored), [1, 2]);
+  assert.equal(preserveRefsFromOldClient('text', stored), 'text');
 });
 
 test('strip for local storage', () => {

@@ -10,6 +10,7 @@
 // While a form is open a photo may also carry transient fields (_status, _localId, _error,
 // and for refs a local `data` preview). Those never reach storage.
 
+export const PHOTO_FORMAT_VERSION = 2; // stamped on every report blob saved by v23.00+ code
 export const REPORT_PHOTO_ROLES = ['executive', 'it', 'office_staff', 'construction'];
 export const canUploadReportPhotos = (userType) => REPORT_PHOTO_ROLES.includes(userType);
 
@@ -35,6 +36,7 @@ export function splitReportForSave(report) {
   const { _photosLoaded, ...rest } = report || {};
   const slimReport = {
     ...rest,
+    _pv: PHOTO_FORMAT_VERSION,
     workLogs: (rest.workLogs || []).map((w, i) => {
       const photos = w.photos || [];
       const real = photos.filter(isRealReportPhoto);
@@ -58,6 +60,30 @@ export function mergeLoadedReport(report, photoMap) {
       return { ...w, photos: [...fromMap, ...(w.photos || []).filter(isRefPhoto)] };
     }),
   };
+}
+
+// Guard against a browser still running a pre-v23.00 copy of the app. That code knows
+// nothing about photo refs: it saves every report with `photos: []` (or data-less
+// placeholders), which would silently drop the refs from the report blob. A save from
+// current code is stamped `_pv: 2`; anything else that arrives for a report whose stored
+// copy has refs gets those refs carried over (same work-log position; refs of a work log
+// that no longer exists move to the last one).
+//   → the report to store (the `incoming` object itself when nothing needs carrying)
+export function preserveRefsFromOldClient(incoming, existing) {
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return incoming;
+  if (incoming._pv === PHOTO_FORMAT_VERSION) return incoming;
+  const oldLogs = Array.isArray(existing?.workLogs) ? existing.workLogs : [];
+  const refsByLog = oldLogs.map(w => (w?.photos || []).filter(isRefPhoto).map(cleanRef));
+  if (!refsByLog.some(r => r.length)) return incoming;
+  const logs = Array.isArray(incoming.workLogs) ? incoming.workLogs.map(w => ({ ...w })) : [];
+  if (!logs.length) logs.push({ name: '', description: '', quantity: '', totalHours: '', hoursToDate: '', photos: [] });
+  refsByLog.forEach((refs, i) => {
+    if (!refs.length) return;
+    const target = logs[Math.min(i, logs.length - 1)];
+    const have = new Set((target.photos || []).filter(isRefPhoto).map(p => p.photoId));
+    target.photos = [...(target.photos || []).filter(isRefPhoto), ...refs.filter(r => !have.has(r.photoId))];
+  });
+  return { ...incoming, workLogs: logs, _pv: PHOTO_FORMAT_VERSION };
 }
 
 // For localStorage: no image data at all. Refs keep their keys (they are tiny).

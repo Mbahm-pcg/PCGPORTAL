@@ -32,6 +32,8 @@ import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid
 import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
 import { parseDateOnly, toDateStr, defaultClosedPeriodEnd, payPeriodEndFor } from './src/office-clock-period-math.mjs';
 import { dayWorkedMinutes as ocDayWorkedMinutes, dayShiftCount as ocDayShiftCount } from './src/office-clock-day-math.mjs';
+import { isRefPhoto, isPendingPhoto, isRealReportPhoto, cleanRef, splitReportForSave, mergeLoadedReport, stripReportPhotosForLocal, countReportPhotos } from './src/report-photos.mjs';
+import { makeRenditions, uploadReportPhoto, removeReportPhotos, uploadReportPdf, scaleImageDataUrl, runLimited, UPLOAD_CONCURRENCY, MED_WIDTH, MED_QUALITY } from './src/report-photo-upload.mjs';
 
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -8733,6 +8735,11 @@ async function offloadTicketAttachments(tickets, uploaderName) {
 // Netlify Lambda request-body limit:
 //   pcg_dr_{id}        — report metadata + workLog text (no photo data)
 //   pcg_dr_{id}_photos — photo arrays keyed by workLog index
+// v23.00: that second blob only holds LEGACY photos (image inline as base64). Photos added
+// since then are uploaded one at a time (project-photos.mjs createForReport — its own blobs,
+// a project_photos row) and the report blob just keeps a small reference
+// { photoId, fullKey, medKey, name, timestamp }, so a report no longer has a photo ceiling.
+// The split/merge rules live in src/report-photos.mjs (shared with reports-backup.mjs).
 // An index blob (pcg_daily_reports_index_v1) holds lightweight metadata
 // so we can list reports without downloading any of them.
 // On load the two blobs are recombined transparently — the UI sees a normal
@@ -8743,8 +8750,6 @@ const DR_INDEX_KEY    = 'pcg_daily_reports_index_v1';
 const drKey       = (id) => `${DR_KEY_PREFIX}${id}`;
 const drPhotosKey = (id) => `${DR_KEY_PREFIX}${id}${DR_PHOTOS_SUFFIX}`;
 
-// A photo with real image data (not a `_photoStripped` placeholder / empty entry).
-const isRealReportPhoto = (p) => !!(p && typeof p.data === 'string' && p.data.length > 32);
 
 // v22.26 — the photo map is ONLY written when this copy really has the report's photos:
 // either it was loaded with its photos (cloudLoadReport sets _photosLoaded) or it carries
@@ -8754,18 +8759,8 @@ const isRealReportPhoto = (p) => !!(p && typeof p.data === 'string' && p.data.le
 // EMPTY map or data-less placeholders over the real photos — confirmed 2026-10-26.
 async function cloudSaveReport(report) {
   if (!report || report.id == null) return false;
-  const photoMap = {};
-  let hasReal = false;
-  const { _photosLoaded, ...rest } = report;
-  const slimReport = {
-    ...rest,
-    workLogs: (report.workLogs || []).map((w, i) => {
-      const real = (w.photos || []).filter(isRealReportPhoto);
-      if (real.length > 0) { photoMap[i] = real; hasReal = true; }
-      return { ...w, photos: [] };
-    }),
-  };
-  const writePhotos = _photosLoaded === true || hasReal;
+  const { slimReport, photoMap, hasReal } = splitReportForSave(report);
+  const writePhotos = report._photosLoaded === true || hasReal;
   await Promise.all([
     cloudSaveOrThrow(drKey(report.id), slimReport),
     writePhotos ? cloudSaveOrThrow(drPhotosKey(report.id), photoMap) : Promise.resolve(true),
@@ -8782,17 +8777,178 @@ async function cloudLoadReport(id) {
   }).then(async r => (r.ok ? { ok: true, data: (await r.json()).data || null } : { ok: false })).catch(() => ({ ok: false }));
   const [report, photos] = await Promise.all([cloudLoad(drKey(id)), photosReq]);
   if (!report) return null;
-  const photoMap = photos.ok ? photos.data : null;
-  // Recombine photos back into workLogs
-  if (photoMap && typeof photoMap === 'object') {
-    report.workLogs = (report.workLogs || []).map((w, i) => ({
-      ...w,
-      photos: photoMap[i] || w.photos || [],
-    }));
-  }
+  // Recombine legacy photos back into workLogs (photo refs are already in the report blob)
+  const merged = mergeLoadedReport(report, photos.ok ? photos.data : null);
   // Only a successful photo load makes this copy authoritative for its photos.
-  if (photos.ok) report._photosLoaded = true;
-  return report;
+  if (photos.ok) merged._photosLoaded = true;
+  return merged;
+}
+
+// ── Report photo images (v23.00) ──────────────────────────────────
+// A report photo is either legacy (image inline in p.data) or a reference to its own blobs
+// (medKey 800px for the report screen + PDF, fullKey 1600px for zoom). These load a
+// reference's image on demand and remember it for the session.
+const _reportPhotoCache = new Map(); // blob key → Promise<dataUrl|null>
+function loadReportPhotoData(photo, size = 'med') {
+  if (!photo) return Promise.resolve(null);
+  const inline = typeof photo.data === 'string' && photo.data.length > 32 ? photo.data : null;
+  if (!isRefPhoto(photo)) return Promise.resolve(inline);
+  if (size === 'med' && inline) return Promise.resolve(inline); // local preview of a fresh upload
+  const key = size === 'full' ? (photo.fullKey || photo.medKey) : (photo.medKey || photo.fullKey);
+  if (!key) return Promise.resolve(inline);
+  if (!_reportPhotoCache.has(key)) {
+    if (_reportPhotoCache.size >= 80) _reportPhotoCache.delete(_reportPhotoCache.keys().next().value);
+    const p = cloudLoad(key).then(d => (d && typeof d.base64 === 'string' ? d.base64 : null));
+    _reportPhotoCache.set(key, p);
+    p.then(v => { if (!v) _reportPhotoCache.delete(key); }); // a failed load can be retried
+  }
+  return _reportPhotoCache.get(key).then(v => v || inline);
+}
+function ReportPhotoImg({ photo, size = 'med', style, alt, onClick }) {
+  const inline = photo && typeof photo.data === 'string' && photo.data.length > 32 && (size === 'med' || !isRefPhoto(photo)) ? photo.data : null;
+  const [src, setSrc] = useState(inline);
+  const [failed, setFailed] = useState(false);
+  const idKey = photo ? (photo.photoId || photo._localId || '') + '|' + size : '';
+  useEffect(() => {
+    if (inline) { setSrc(inline); setFailed(false); return; }
+    let live = true;
+    setSrc(null); setFailed(false);
+    loadReportPhotoData(photo, size).then(d => { if (!live) return; if (d) setSrc(d); else setFailed(photo?._status !== 'uploading'); });
+    return () => { live = false; };
+  }, [idKey, inline]);
+  if (src) return <img src={src} alt={alt || photo?.name || 'Photo'} onClick={onClick} style={style} />;
+  return (
+    <div onClick={onClick} title={failed ? 'Photo could not be loaded' : 'Loading photo…'} style={{ ...style, background: '#8881', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: '0.7rem', minHeight: 40 }}>
+      {failed ? '⚠' : '…'}
+    </div>
+  );
+}
+// Small overlay for a photo tile that is still uploading or failed (tap a failed one to retry).
+function ReportPhotoStatus({ photo, onRetry }) {
+  if (!isPendingPhoto(photo)) return null;
+  const failed = photo._status === 'failed';
+  return (
+    <div title={failed ? (photo._error || 'Upload failed') : 'Uploading…'}
+      onClick={e => { e.stopPropagation(); if (failed && onRetry) onRetry(); }}
+      style={{ position: 'absolute', inset: 0, borderRadius: '0.375rem', background: failed ? 'rgba(220,38,38,0.8)' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: '0.625rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.2, cursor: failed ? 'pointer' : 'default' }}>
+      {failed ? <><span>Failed</span><span style={{ textDecoration: 'underline' }}>Retry</span></> : <span>Uploading…</span>}
+    </div>
+  );
+}
+// Photo uploads for a Daily Report form — one implementation for both the desktop screen
+// (DailyReportSection) and the phone field app (ConstructionMobileView). Each picked file
+// becomes a tile straight away and uploads on its own (3 at a time); the form's
+// workLogs[].photos entry turns into a saved reference when its upload finishes.
+//   getCtx() → { projectId, projectNickname, reportId } — read at upload time.
+function useReportPhotoUploads(setRForm, getCtx) {
+  const ctxRef = useRef(getCtx); ctxRef.current = getCtx;
+  const files = useRef(new Map());    // _localId → File, kept until uploaded (for Retry)
+  const dropped = useRef(new Set());  // _localIds removed / abandoned while still uploading
+  const uploaded = useRef([]);        // photoIds uploaded since the form opened
+  const removed = useRef([]);         // already-saved photos the user removed (applied on save)
+  const patch = (localId, fn) => setRForm(f => ({ ...f, workLogs: (f.workLogs || []).map(w => ({ ...w, photos: (w.photos || []).map(p => (p && p._localId === localId ? fn(p) : p)) })) }));
+  const uploadOne = async (localId) => {
+    const file = files.current.get(localId);
+    if (!file) return;
+    try {
+      const { full, med } = await makeRenditions(file);
+      patch(localId, p => ({ ...p, data: med }));
+      const ref = await uploadReportPhoto({ ...ctxRef.current(), fileName: file.name, full, med });
+      files.current.delete(localId);
+      if (dropped.current.has(localId)) { removeReportPhotos([ref.photoId]); return; }
+      uploaded.current.push(ref.photoId);
+      patch(localId, p => { const { _status, _error, ...rest } = p; return { ...rest, ...ref }; });
+    } catch (e) {
+      patch(localId, p => ({ ...p, _status: 'failed', _error: e?.message || 'Upload failed' }));
+    }
+  };
+  const addPhotos = (logIdx, fileList) => {
+    const list = Array.from(fileList || []).filter(f => f && (!f.type || f.type.startsWith('image/')));
+    if (!list.length) return;
+    const ids = list.map((file, n) => {
+      const id = `lp_${Date.now()}_${n}_${Math.random().toString(36).slice(2, 7)}`;
+      files.current.set(id, file);
+      return id;
+    });
+    setRForm(f => {
+      // Stamped with the REPORT'S date (noon, so timezone math never flips the day) — a
+      // backdated report gets photos that match it.
+      const ts = `${f.date || localYMD()}T12:00:00`;
+      const fresh = list.map((file, n) => ({ _localId: ids[n], _status: 'uploading', name: file.name, timestamp: ts }));
+      return { ...f, workLogs: (f.workLogs || []).map((w, i) => (i === logIdx ? { ...w, photos: [...(w.photos || []), ...fresh] } : w)) };
+    });
+    runLimited(ids, UPLOAD_CONCURRENCY, uploadOne);
+  };
+  const retryPhoto = (localId) => {
+    patch(localId, p => ({ ...p, _status: 'uploading', _error: undefined }));
+    uploadOne(localId);
+  };
+  // Call with the photo being removed from the form, before dropping it from state.
+  const notePhotoRemoved = (p) => {
+    if (!p) return;
+    if (isPendingPhoto(p)) { dropped.current.add(p._localId); files.current.delete(p._localId); }
+    else if (isRefPhoto(p)) removed.current.push(p.photoId);
+  };
+  // → null when the form can be saved, else a sentence saying why not.
+  const blockReason = (form) => {
+    let up = 0, bad = 0;
+    for (const w of (form?.workLogs || [])) for (const p of (w.photos || [])) {
+      if (p?._status === 'uploading') up++; else if (p?._status === 'failed') bad++;
+    }
+    if (!up && !bad) return null;
+    const parts = [up ? `${up} photo${up > 1 ? 's are' : ' is'} still uploading` : null, bad ? `${bad} photo${bad > 1 ? 's' : ''} failed to upload` : null].filter(Boolean);
+    return `${parts.join(' and ')}. ${bad ? 'Tap Retry on the red photos (or remove them), then save again.' : 'Give it a moment, then save again.'}`;
+  };
+  const reset = () => { files.current = new Map(); uploaded.current = []; removed.current = []; };
+  // Report saved: the photos the user removed are now really gone from it.
+  const commit = () => { removeReportPhotos(removed.current); reset(); };
+  // Form abandoned: nothing saved, so this form's uploads belong to no report.
+  const discard = () => {
+    for (const id of files.current.keys()) dropped.current.add(id);
+    removeReportPhotos(uploaded.current);
+    reset();
+  };
+  return { addPhotos, retryPhoto, notePhotoRemoved, blockReason, reset, commit, discard };
+}
+// The "View report" email both report screens send (the PDF is a link, never an attachment).
+function dailyReportEmailHtml(r, proj, link) {
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const name = esc(proj?.nickname || proj?.pc || 'Project');
+  const dateStr = r.date ? new Date(r.date + 'T12:00:00').toLocaleDateString() : 'N/A';
+  const logs = (r.workLogs || []).filter(w => w.name);
+  const workers = (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
+  const hours = (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
+  const photos = countReportPhotos(r).total;
+  return `<p>Daily Construction Report for <strong>${name}</strong> dated <strong>${esc(dateStr)}</strong>.</p>
+    <p>Prepared by: ${esc(r.preparedBy || 'N/A')}</p>
+    <div style="margin:18px 0"><a href="${link}" style="display:inline-block;padding:11px 26px;background:${BRAND_CONFIG.primary};color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View report (PDF)</a></div>
+    <p style="font-size:12px;color:#666">${photos} photo${photos === 1 ? '' : 's'} in the report. If the button doesn't work, copy this link: <a href="${link}">${link}</a></p>
+    <hr>
+    <h3>Report Summary</h3>
+    <p><strong>Weather:</strong> ${(r.weather || []).map(w => esc(`${w.time}: ${w.temp || '—'} ${w.conditions || ''}`)).join(' | ')}</p>
+    ${logs.length ? `<p><strong>Work Logs:</strong></p><ul>${logs.map(w => `<li><strong>${esc(w.name)}</strong> (Qty: ${esc(w.quantity || 0)}) — ${esc(w.description || 'No description')}</li>`).join('')}</ul>` : ''}
+    <p><strong>Total:</strong> ${workers} workers | ${hours} hours</p>
+    ${r.generalNotes ? `<p><strong>General Notes:</strong> ${esc(r.generalNotes)}</p>` : ''}`;
+}
+// Copy of a report where every photo carries image data sized for the PDF (≤ 800px): refs
+// load their medium blob, legacy photos are scaled down. A photo that can't be loaded keeps
+// no data and prints as the builder's "[photo]" placeholder.
+async function resolveReportPhotosForPdf(report) {
+  const jobs = [];
+  (report.workLogs || []).forEach((w, wi) => (w.photos || []).forEach((p, pi) => { if (!isPendingPhoto(p)) jobs.push({ wi, pi, p }); }));
+  const out = new Map();
+  await runLimited(jobs, 4, async ({ wi, pi, p }) => {
+    let data = await loadReportPhotoData(p, 'med');
+    if (data && !isRefPhoto(p)) { try { data = await scaleImageDataUrl(data, MED_WIDTH, MED_QUALITY); } catch {} }
+    out.set(`${wi}:${pi}`, data || '');
+  });
+  return {
+    ...report,
+    workLogs: (report.workLogs || []).map((w, wi) => ({
+      ...w,
+      photos: (w.photos || []).map((p, pi) => (isPendingPhoto(p) ? null : { ...p, data: out.get(`${wi}:${pi}`) || '' })).filter(Boolean),
+    })),
+  };
 }
 async function cloudDeleteReport(id) {
   if (id == null) return;
@@ -8814,18 +8970,7 @@ function makeDailyReportIndexEntry(r) {
 // Strip photo data so localStorage can hold the metadata without blowing quota.
 // Full photo data lives only in the cloud (per-report blobs).
 function stripDailyReportPhotos(r) {
-  if (!r) return r;
-  return {
-    ...r,
-    workLogs: (r.workLogs || []).map(w => ({
-      ...w,
-      photos: (w.photos || []).map(p => ({
-        name: p.name,
-        timestamp: p.timestamp,
-        _photoStripped: true,
-      })),
-    })),
-  };
+  return stripReportPhotosForLocal(r);
 }
 
 const SITE_URL = typeof window !== 'undefined' ? window.location.origin : 'https://pcgops.com';
@@ -14690,8 +14835,10 @@ async function fetchWeatherByZip(zip, date) {
   }));
 }
 
-async function buildReportPdf(report, project) {
+async function buildReportPdf(reportIn, project) {
   const _proj = project;
+  // v23.00: every photo at PDF size (≤ 800px) — photo refs are loaded, old inline photos scaled down.
+  const report = await resolveReportPhotosForPdf(reportIn);
   const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null;
   if (!JsPDFCtor) throw new Error('jsPDF not available on the page');
   const doc = new JsPDFCtor({ unit: 'in', format: 'letter', orientation: 'portrait' });
@@ -14834,7 +14981,7 @@ async function buildReportPdf(report, project) {
     setText(textMuted); doc.setFont('helvetica','normal'); doc.setFontSize(8);
     doc.text(w.conditions||'—', x+wCardW/2, y+1.15, {align:'center'});
     setText(textFaint); doc.setFontSize(7);
-    doc.text(`Wind: ${w.wind||'0'} MPH  •  Precip: ${w.precipitation||'0'}"  •  Hum: ${w.humidity||'0'}%`, x+wCardW/2, y+1.4, {align:'center'});
+    doc.text(`Wind: ${w.wind||'0'} MPH  •  Precip: ${w.precipitation||'0'}"  •  Hum: ${String(w.humidity||'0').replace(/%+$/,'')}%`, x+wCardW/2, y+1.4, {align:'center'});
   }
   y += wCardH+0.5;
   sectionTitle('Work Logs');
@@ -14927,8 +15074,9 @@ async function buildReportPdf(report, project) {
     if (noteLines.length>0) doc.text(noteLines[0], margin+5.0, y+0.21);
     doc.line(margin,y+rowH,margin+contentW,y+rowH); y+=rowH;
   }
-  y += 0.45;
-  addPageIfNeeded(1.1);
+  // The signature block is ~0.6" tall; asking for 1.1" pushed it alone onto a new page.
+  y += 0.3;
+  addPageIfNeeded(0.7);
   setDraw(textDark); doc.setLineWidth(0.015); doc.line(margin,y+0.35,margin+3,y+0.35);
   setText(textMuted); doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.text('Signature',margin,y+0.5);
   if (report.signature) { setText(textDark); doc.setFont('helvetica','italic'); doc.setFontSize(12); doc.text(report.signature,margin+0.1,y+0.28); }
@@ -14942,7 +15090,7 @@ async function buildReportPdf(report, project) {
     doc.text(`Page ${p} of ${total}`, margin+contentW-fw, pageH-0.3);
   }
   try {
-    const stripped={...report,workLogs:(report.workLogs||[]).map(w=>({...w,photos:(w.photos||[]).map(p=>({name:p.name,timestamp:p.timestamp}))}))};
+    const stripped={...report,workLogs:(report.workLogs||[]).map(w=>({...w,photos:(w.photos||[]).map(p=>(isRefPhoto(p)?cleanRef(p):{name:p.name,timestamp:p.timestamp}))}))};
     doc.setProperties({title:`Daily Report - ${_proj.nickname||_proj.pc} - ${report.date}`,subject:'Daily Construction Report',author:report.preparedBy||BRAND_CONFIG.portalName,creator:BRAND_CONFIG.portalName,keywords:'PCG_REPORT:'+encodeURIComponent(JSON.stringify(stripped))});
   } catch {}
   return doc;
@@ -15057,12 +15205,22 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
 
   const projReports = dailyReports.filter(r => r.projectId === project.id).sort((a,b) => b.date.localeCompare(a.date));
   const nextId = () => { const ts = Date.now(); const existing = new Set(dailyReports.map(r => r.id)); let id = ts; while (existing.has(id)) id++; return id; };
+  // v23.00: a new report's id is fixed when the form opens, so its photos (uploaded one at a
+  // time while the form is being filled in) can be tagged with the report they belong to.
+  const pendingIdRef = useRef(null);
+  const photoUp = useReportPhotoUploads(setRForm, () => ({
+    projectId: project.id,
+    projectNickname: project.nickname || project.address || project.pc || '',
+    reportId: editReport ?? pendingIdRef.current,
+  }));
 
   const startCreate = () => {
     const reportDate = localYMD();
     const newForm = { ...EMPTY_DAILY_REPORT, projectId: project.id, date: reportDate, preparedBy: user?.name || "", jobNumber: project.pc ? `${project.pc}-001` : "" };
     setRForm(newForm);
     setEditReport(null);
+    pendingIdRef.current = nextId();
+    photoUp.reset();
     setDrView("create");
     // Auto-fetch weather in background
     if (project.zip) {
@@ -15077,19 +15235,26 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
   const startEditReport = (r) => {
     setRForm({ ...r, workLogs: r.workLogs.map(w => ({ ...w, photos: [...(w.photos || [])] })), weather: r.weather.map(w => ({ ...w })), survey: { ...r.survey }, surveyNotes: { ...r.surveyNotes } });
     setEditReport(r.id);
+    pendingIdRef.current = null;
+    photoUp.reset();
     setDrView("create");
   };
 
   const saveReport = (status) => {
+    // Every photo must be safely uploaded before the report is saved — nothing goes missing quietly.
+    const blocked = photoUp.blockReason(rForm);
+    if (blocked) { showAlert("error", blocked); return; }
     const now = new Date().toISOString();
     if (editReport) {
       setDailyReports(prev => prev.map(r => r.id === editReport ? { ...rForm, status, updatedAt: now, signature: status === "submitted" ? (user?.name || rForm.preparedBy) : rForm.signature, signedAt: status === "submitted" ? now : rForm.signedAt } : r));
       showAlert("success", status === "submitted" ? "Report submitted" : "Draft saved");
     } else {
-      const nr = { ...rForm, id: nextId(), status, createdAt: now, updatedAt: now, signature: status === "submitted" ? (user?.name || rForm.preparedBy) : "", signedAt: status === "submitted" ? now : "" };
+      const nr = { ...rForm, id: pendingIdRef.current ?? nextId(), status, createdAt: now, updatedAt: now, signature: status === "submitted" ? (user?.name || rForm.preparedBy) : "", signedAt: status === "submitted" ? now : "" };
       setDailyReports(prev => [...prev, nr]);
       showAlert("success", status === "submitted" ? "Report submitted" : "Draft saved");
     }
+    pendingIdRef.current = null;
+    photoUp.commit();
     setDrView("list");
     setEditReport(null);
   };
@@ -15118,6 +15283,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
   };
 
   const removeWorkLog = (idx) => {
+    (rForm.workLogs?.[idx]?.photos || []).forEach(photoUp.notePhotoRemoved);
     setRForm(f => ({ ...f, workLogs: f.workLogs.filter((_,i) => i !== idx) }));
   };
 
@@ -15125,55 +15291,11 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     setRForm(f => ({ ...f, workLogs: f.workLogs.map((w,i) => i === idx ? { ...w, [field]: val } : w) }));
   };
 
-  // v22.26: smaller photos (1280px, q0.65, always re-encoded) — all of a report's photos
-  // are stored together and must stay under the ~6 MB transfer limit; 13 photos at the old
-  // 1600px/0.7 (or raw files under 500 KB) went over it. ~150–250 KB each now.
-  const compressImage = (file, maxWidth = 1280, quality = 0.65) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const img = new Image();
-        img.onload = () => {
-          if (img.width <= 480 && file.size < 120000) {
-            resolve(ev.target.result);
-            return;
-          }
-          const canvas = document.createElement("canvas");
-          const scale = Math.min(1, maxWidth / img.width);
-          canvas.width = img.width * scale;
-          canvas.height = img.height * scale;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL("image/jpeg", quality));
-        };
-        img.src = ev.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handlePhotoUpload = (logIdx, e) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach(async (file) => {
-      const compressed = await compressImage(file);
-      setRForm(f => {
-        // Timestamp the photo with the REPORT'S date (not "now"). This way
-        // backdated reports get photos that match, and there's no confusion
-        // when the user sets a past date because they forgot yesterday.
-        // Noon local time so day/night boundary math never flips the date.
-        const reportDate = f.date || localYMD();
-        const photoTimestamp = `${reportDate}T12:00:00`;
-        return {
-          ...f,
-          workLogs: f.workLogs.map((w,i) => i === logIdx
-            ? { ...w, photos: [...(w.photos||[]), { data: compressed, name: file.name, timestamp: photoTimestamp }] }
-            : w),
-        };
-      });
-    });
-  };
+  // v23.00: photos are uploaded one at a time by useReportPhotoUploads (two sizes each, see
+  // src/report-photo-upload.mjs) — the old "all photos in one ≤6 MB blob" compressor is gone.
 
   const removePhoto = (logIdx, photoIdx) => {
+    photoUp.notePhotoRemoved(rForm.workLogs?.[logIdx]?.photos?.[photoIdx]);
     setRForm(f => ({
       ...f,
       workLogs: f.workLogs.map((w,i) => i === logIdx ? { ...w, photos: w.photos.filter((_,j) => j !== photoIdx) } : w)
@@ -15918,62 +16040,27 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     if (!emailTo.trim()) { showAlert && showAlert("error", "Please enter an email address"); return; }
     setEmailSending(true);
     try {
-      // Use lower quality PDF for email to stay under payload limits
       const pdfBlob = await generateEmailPdf(reportId);
       if (!pdfBlob) { showAlert && showAlert("error", "PDF generation failed"); setEmailSending(false); return; }
-
-      // Check size — Netlify function payload limit is ~5.5MB
-      const sizeMB = pdfBlob.size / (1024 * 1024);
-      if (sizeMB > 4.5) {
-        // Too large even with compression — send email without attachment but with link
-        const res = await fetch("/.netlify/functions/notify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            to: emailTo.split(",").map(e => e.trim()).filter(Boolean),
-            subject: emailSubject,
-            body: `<p>Please find the Daily Construction Report summary for <strong>${project.nickname || project.pc}</strong> dated <strong>${r.date ? new Date(r.date + "T12:00:00").toLocaleDateString() : "N/A"}</strong>.</p>
-              <p>Prepared by: ${r.preparedBy || "N/A"}</p>
-              <p><strong>Note:</strong> This report contains ${(r.workLogs||[]).reduce((s,w)=>s+(w.photos?.length||0),0)} photos and is too large to attach via email (${sizeMB.toFixed(1)}MB). Please view the full report with photos in the <a href="${BRAND_CONFIG.portalUrl}">${BRAND_CONFIG.portalName}</a> under Projects → ${project.nickname || project.pc} → Daily Reports.</p>
-              <hr>
-              <h3>Report Summary</h3>
-              <p><strong>Weather:</strong> ${(r.weather||[]).map(w => w.time + ': ' + (w.temp||'—') + ' ' + (w.conditions||'')).join(' | ')}</p>
-              <p><strong>Work Logs:</strong></p>
-              <ul>${(r.workLogs||[]).filter(w=>w.name).map(w => '<li><strong>'+w.name+'</strong> (Qty: '+(w.quantity||0)+') — '+(w.description||'No description')+'</li>').join('')}</ul>
-              <p><strong>Total:</strong> ${totalWorkers(r)} workers | ${totalHrs(r)} hours</p>
-              ${r.generalNotes ? '<p><strong>General Notes:</strong> '+r.generalNotes+'</p>' : ''}`,
-          }),
-        });
-        if (res.ok) {
-          showAlert && showAlert("success", "Email sent (report summary — photos too large to attach)");
-          setEmailModal(false);
-        } else {
-          const errText = await res.text().catch(() => '');
-          showAlert && showAlert("error", "Failed to send email" + (errText ? ': ' + errText : ''));
-        }
+      // v23.00: the PDF is always sent as a link (uploaded in chunks), never as an attachment —
+      // no size limit to trip over, and the same email whatever the photo count.
+      const filename = `Daily_Report_${r.date || reportId}_${(project.nickname || project.pc || 'PCG').replace(/[^a-z0-9]+/gi, '_')}.pdf`;
+      const link = await uploadReportPdf(pdfBlob, filename);
+      const res = await fetch("/.netlify/functions/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: emailTo.split(",").map(e => e.trim()).filter(Boolean),
+          subject: emailSubject,
+          body: dailyReportEmailHtml(r, project, link),
+        }),
+      });
+      if (res.ok) {
+        showAlert && showAlert("success", "Email sent with a link to the report");
+        setEmailModal(false);
       } else {
-        const reader = new FileReader();
-        const base64 = await new Promise((resolve) => {
-          reader.onload = () => resolve(reader.result.split(",")[1]);
-          reader.readAsDataURL(pdfBlob);
-        });
-        const res = await fetch("/.netlify/functions/notify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            to: emailTo.split(",").map(e => e.trim()).filter(Boolean),
-            subject: emailSubject,
-            body: `<p>Please find attached the Daily Construction Report for <strong>${project.nickname || project.pc}</strong> dated <strong>${r.date ? new Date(r.date + "T12:00:00").toLocaleDateString() : "N/A"}</strong>.</p><p>Prepared by: ${r.preparedBy || "N/A"}</p>`,
-            attachments: [{ filename: `Daily_Report_${r.date || reportId}.pdf`, content: base64 }],
-          }),
-        });
-        if (res.ok) {
-          showAlert && showAlert("success", "Email sent with PDF attached");
-          setEmailModal(false);
-        } else {
-          const errText = await res.text().catch(() => '');
-          showAlert && showAlert("error", "Failed to send email" + (errText ? ': ' + errText : ''));
-        }
+        const errText = await res.text().catch(() => '');
+        showAlert && showAlert("error", "Failed to send email" + (errText ? ': ' + errText : ''));
       }
     } catch(e) {
       showAlert && showAlert("error", "Email failed: " + e.message);
@@ -15985,7 +16072,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.93)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999, padding: "1rem" }}>
       <div onClick={e => e.stopPropagation()} style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", maxWidth: "92vw" }}>
         <button onClick={() => setLightbox(null)} style={{ position: "absolute", top: -44, right: 0, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: "1.25rem", cursor: "pointer", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-        <img src={lightbox.photos[lightbox.idx].data} alt={lightbox.photos[lightbox.idx].name || "Photo"} style={{ maxWidth: "90vw", maxHeight: "82vh", objectFit: "contain", borderRadius: "0.5rem", display: "block", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }} />
+        <ReportPhotoImg photo={lightbox.photos[lightbox.idx]} size="full" style={{ maxWidth: "90vw", maxHeight: "82vh", minWidth: 120, objectFit: "contain", borderRadius: "0.5rem", display: "block", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }} />
         <div style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.75rem", marginTop: "0.625rem", textAlign: "center" }}>
           {lightbox.photos[lightbox.idx].name || "Photo"} {" · "} {lightbox.idx + 1} / {lightbox.photos.length}
         </div>
@@ -16081,7 +16168,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
                     <div style={{ fontSize: "1.5rem", marginBottom: "0.125rem" }}>{WEATHER_ICONS[w.conditions] || ""}</div>
                     <div style={{ fontSize: "0.6875rem", color: "#888" }}>{w.conditions || "—"}</div>
                     <div style={{ fontSize: "0.625rem", color: "#aaa", marginTop: "0.25rem" }}>
-                      Wind: {w.wind || "0"} MPH | Precip: {w.precipitation || ".0"}" | Hum: {w.humidity || "0"}%
+                      Wind: {w.wind || "0"} MPH | Precip: {w.precipitation || ".0"}" | Hum: {String(w.humidity || "0").replace(/%+$/, "")}%
                     </div>
                   </div>
                 ))}
@@ -16104,7 +16191,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
                       {w.photos.map((p, pi) => (
                         <div key={pi} className="photo-item" onClick={() => setLightbox({ photos: w.photos, idx: pi })} style={{ position: "relative", width: "calc(33.33% - 0.34rem)", pageBreakInside: "avoid", breakInside: "avoid", cursor: "zoom-in" }}>
-                          <img src={p.data} alt={p.name} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "4/3", objectFit: "cover", maxHeight: "200px" }} />
+                          <ReportPhotoImg photo={p} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "4/3", objectFit: "cover", maxHeight: "200px" }} />
                           <div style={{ position: "absolute", bottom: 4, left: 4, background: "#000000aa", color: "#fff", fontSize: "0.5rem", padding: "1px 4px", borderRadius: 3 }}>
                             {p.timestamp ? (() => { const ymd = String(p.timestamp).slice(0,10); return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? new Date(ymd + "T12:00:00").toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : p.timestamp; })() : ""}
                           </div>
@@ -16176,7 +16263,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     return (
       <div className="fade-in">
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}>
-          <button onClick={() => { setDrView("list"); setEditReport(null); }} style={btn(th, { background: th.card3, color: th.muted, padding: "0.4rem 1rem", fontSize: "0.8125rem" })}>← Cancel</button>
+          <button onClick={() => { photoUp.discard(); pendingIdRef.current = null; setDrView("list"); setEditReport(null); }} style={btn(th, { background: th.card3, color: th.muted, padding: "0.4rem 1rem", fontSize: "0.8125rem" })}>← Cancel</button>
           <button onClick={() => saveReport("draft")} style={btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem" })}>Save Draft</button>
           <button onClick={() => saveReport("submitted")} style={btn(th, { padding: "0.4rem 1rem", fontSize: "0.8125rem", background: "#22c55e", color: "#fff" })}>Submit & Sign</button>
         </div>
@@ -16289,14 +16376,15 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
                   <label style={{ fontSize: "0.625rem", color: th.muted, fontWeight: 600 }}>Photos</label>
                   <label style={{ ...btn(th, { padding: "0.2rem 0.5rem", fontSize: "0.625rem", cursor: "pointer" }) }}>
                     + Upload
-                    <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => handlePhotoUpload(idx, e)} />
+                    <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { photoUp.addPhotos(idx, e.target.files); e.target.value = ""; }} />
                   </label>
                 </div>
                 {wl.photos && wl.photos.length > 0 && (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: "0.375rem" }}>
                     {wl.photos.map((p, pi) => (
-                      <div key={pi} style={{ position: "relative" }}>
-                        <img src={p.data} alt={p.name} onClick={() => setLightbox({ photos: wl.photos, idx: pi })} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "1", objectFit: "cover", cursor: "zoom-in" }} />
+                      <div key={p.photoId || p._localId || pi} style={{ position: "relative" }}>
+                        <ReportPhotoImg photo={p} onClick={() => setLightbox({ photos: wl.photos, idx: pi })} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "1", objectFit: "cover", cursor: "zoom-in" }} />
+                        <ReportPhotoStatus photo={p} onRetry={() => photoUp.retryPhoto(p._localId)} />
                         <button onClick={() => removePhoto(idx, pi)} style={{ position: "absolute", top: 2, right: 2, background: "#ff4444", color: "#fff", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: "0.625rem", cursor: "pointer", lineHeight: "18px", padding: 0 }}>×</button>
                       </div>
                     ))}
@@ -16849,11 +16937,13 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports, isMo
 
   const pgalDeletePhoto = async (id) => {
     try {
-      await fetch('/.netlify/functions/project-photos', {
+      const res = await fetch('/.netlify/functions/project-photos', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ action: 'delete', id }),
       });
+      // v23.00: a photo that belongs to a Daily Report can only be removed from that report.
+      if (res.status === 409) { const j = await res.json().catch(() => ({})); window.alert(j.error || 'This photo belongs to a Daily Report.'); return; }
       pgalLoadPhotos();
     } catch {}
   };
@@ -16874,6 +16964,9 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports, isMo
       reportsForProject.forEach(r => {
         (r.workLogs || []).forEach((w, wi) => {
           (w.photos || []).forEach((ph, pi) => {
+            // v23.00: photo refs are already gallery rows (uploaded one at a time) — only
+            // legacy inline photos need importing. They sort first, so `pi` is unchanged.
+            if (isRefPhoto(ph) || isPendingPhoto(ph)) return;
             photos.push({ sourceRef: `dr_${r.id}_${wi}_${pi}`, dataUrl: ph.data, name: ph.name, timestamp: ph.timestamp, addedBy: r.preparedBy || 'Daily Report' });
           });
         });
@@ -17048,7 +17141,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports, isMo
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '0.5rem' }}>
             {pgalPhotosLoading ? <div style={{ fontSize: '0.8rem', color: th.muted }}>Loading…</div> : pgalPhotos.map(p => (
-              <ProjectPhotoThumb key={p.id} imageKey={p.imageKey} size={90} />
+              <ProjectPhotoThumb key={p.id} imageKey={p.medKey || p.imageKey} size={90} />
             ))}
           </div>
         </div>
@@ -17077,7 +17170,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports, isMo
                   {pagePhotos.map(p => (
                     <div key={p.id}>
                       <div style={{ position: 'relative' }}>
-                        <ProjectPhotoThumb imageKey={p.imageKey} size={120} onClick={() => setPgalOpenPhotoId(p.id)} />
+                        <ProjectPhotoThumb imageKey={p.medKey || p.imageKey} size={120} onClick={() => setPgalOpenPhotoId(p.id)} />
                         {p.source === 'migrated' && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: '0.6rem', fontWeight: 700, background: '#7c3aed', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Migrated</span>}
                         <button onClick={() => pgalDeletePhoto(p.id)} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444dd', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}>✕</button>
                       </div>
@@ -32553,7 +32646,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.99";
+const APP_VERSION = "v23.00";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32598,17 +32691,9 @@ function saveToStorage(data) {
   // local copy is only a metadata cache so we can render the list fast.
   const slimmed = { ...data };
   if (slimmed.dailyReports && Array.isArray(slimmed.dailyReports)) {
-    slimmed.dailyReports = slimmed.dailyReports.map(r => ({
-      ...r,
-      workLogs: (r.workLogs || []).map(w => ({
-        ...w,
-        photos: (w.photos || []).map(p => ({
-          name: p.name,
-          timestamp: p.timestamp,
-          _photoStripped: true,
-        })),
-      })),
-    }));
+    // v23.00: photo refs (tiny, no image data) are kept — a local copy that lost them would
+    // drop the photos from the report the next time it was saved to the cloud.
+    slimmed.dailyReports = slimmed.dailyReports.map(stripReportPhotosForLocal);
   }
   const payload = { version: DATA_VERSION, savedAt: new Date().toISOString(), ...slimmed };
   try {
@@ -52880,7 +52965,13 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   const [syncMsg, setSyncMsg] = useState('');
   const [selectedReport, setSelectedReport] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState(null);
+  const [lightboxSrc, setLightboxSrc] = useState(null); // a report photo object (legacy inline or v23.00 ref)
+  const mobileReportIdRef = useRef(null);
+  const photoUp = useReportPhotoUploads(setRForm, () => ({
+    projectId: selectedProject?.id,
+    projectNickname: selectedProject?.nickname || selectedProject?.address || selectedProject?.pc || '',
+    reportId: mobileReportIdRef.current,
+  }));
   const [expandedLogs, setExpandedLogs] = useState({});
   const [pdfLoading, setPdfLoading] = useState(false);
   const [emailModal, setEmailModal] = useState(false);
@@ -52925,22 +53016,14 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
     try {
       const pdfBlob = await mobileGeneratePdf(r, proj, false);
       if (!pdfBlob) { setEmailSending(false); return; }
-      const sizeMB = pdfBlob.size / (1024*1024);
-      const reader = new FileReader();
-      const toList = emailTo.split(',').map(e=>e.trim()).filter(Boolean);
-      if (sizeMB > 4.5) {
-        await fetch('/.netlify/functions/notify', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          to: toList, subject: emailSubject,
-          body: `<p>Daily Construction Report for <strong>${proj.nickname||proj.pc}</strong> on <strong>${r.date||'N/A'}</strong>. Prepared by: ${r.preparedBy||'N/A'}.</p><p>Report is too large to attach (${sizeMB.toFixed(1)}MB). View in the portal under Projects → ${proj.nickname||proj.pc} → Daily Reports.</p>`,
-        })});
-      } else {
-        const base64 = await new Promise(res => { reader.onload=()=>res(reader.result.split(',')[1]); reader.readAsDataURL(pdfBlob); });
-        await fetch('/.netlify/functions/notify', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          to: toList, subject: emailSubject,
-          body: `<p>Please find attached the Daily Construction Report for <strong>${proj.nickname||proj.pc}</strong> dated <strong>${r.date?new Date(r.date+'T12:00:00').toLocaleDateString():'N/A'}</strong>.</p><p>Prepared by: ${r.preparedBy||'N/A'}</p>`,
-          attachments: [{filename:`Daily_Report_${r.date||r.id}.pdf`, content:base64}],
-        })});
-      }
+      // v23.00: always a link to the PDF, never an attachment (no size limit to trip over).
+      const filename = `Daily_Report_${r.date||r.id}_${(proj.nickname||proj.pc||'PCG').replace(/[^a-z0-9]+/gi,'_')}.pdf`;
+      const link = await uploadReportPdf(pdfBlob, filename);
+      const res = await fetch('/.netlify/functions/notify', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        to: emailTo.split(',').map(e=>e.trim()).filter(Boolean), subject: emailSubject,
+        body: dailyReportEmailHtml(r, proj, link),
+      })});
+      if (!res.ok) throw new Error((await res.text().catch(()=>'')) || `status ${res.status}`);
       setEmailModal(false);
       alert('Email sent!');
     } catch(e) { alert('Email failed: '+e.message); }
@@ -53006,42 +53089,24 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
       survey: Object.fromEntries(SURVEY_KEYS.map(k=>[k,null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map(k=>[k,''])),
     });
+    // v23.00: id fixed when the form opens so each uploaded photo is tagged with its report.
+    mobileReportIdRef.current = 'dr_'+Date.now();
+    photoUp.reset();
     goTo('report');
   };
 
   const addWorkLog = () => setRForm(f => ({...f, workLogs:[...f.workLogs, {...EMPTY_LOG}]}));
-  const removeLog  = (i) => setRForm(f => ({...f, workLogs: f.workLogs.filter((_,j)=>j!==i)}));
+  const removeLog  = (i) => { (rForm.workLogs?.[i]?.photos||[]).forEach(photoUp.notePhotoRemoved); setRForm(f => ({...f, workLogs: f.workLogs.filter((_,j)=>j!==i)})); };
   const updateLog  = (i,k,v) => setRForm(f => ({...f, workLogs: f.workLogs.map((w,j)=>j===i?{...w,[k]:v}:w)}));
   const setSurvey  = (k,v) => setRForm(f => ({...f, survey:{...f.survey,[k]:v}}));
   const setSurveyNote = (k,v) => setRForm(f => ({...f, surveyNotes:{...f.surveyNotes,[k]:v}}));
 
-  // v22.26: same smaller size as the full-portal compressor (report photos must stay under ~6 MB together).
-  const compressMobileImage = (file, maxWidth=1280, quality=0.65) => new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const img = new Image();
-      img.onload = () => {
-        if (img.width <= 480 && file.size < 120000) { resolve(ev.target.result); return; }
-        const canvas = document.createElement('canvas');
-        const scale = Math.min(1, maxWidth / img.width);
-        canvas.width = img.width * scale; canvas.height = img.height * scale;
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-
-  const addLogPhoto = (logIdx, files) => {
-    Array.from(files||[]).forEach(async file => {
-      const compressed = await compressMobileImage(file);
-      const ts = `${rForm.date||new Date().toISOString().slice(0,10)}T12:00:00`;
-      setRForm(f => ({...f, workLogs: f.workLogs.map((w,i) => i===logIdx ? {...w, photos:[...(w.photos||[]),{data:compressed,name:file.name,timestamp:ts}]} : w)}));
-    });
-  };
+  // v23.00: photos upload one at a time through the shared useReportPhotoUploads hook (same
+  // as the full portal) — no shared 6 MB budget, so no photo ceiling.
+  const addLogPhoto = (logIdx, files) => photoUp.addPhotos(logIdx, files);
 
   const removeLogPhoto = (logIdx, photoIdx) => {
+    photoUp.notePhotoRemoved(rForm.workLogs?.[logIdx]?.photos?.[photoIdx]);
     setRForm(f => ({...f, workLogs: f.workLogs.map((w,i) => i===logIdx ? {...w, photos:(w.photos||[]).filter((_,pi)=>pi!==photoIdx)} : w)}));
   };
 
@@ -53062,16 +53127,24 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
 
   const saveReport = async (status) => {
     if (!selectedProject) return;
+    // Every photo must be safely uploaded before the report is saved.
+    const blocked = photoUp.blockReason(rForm);
+    if (blocked) { alert(blocked); return; }
     setRSaving(true);
     try {
       const now = new Date().toISOString();
-      const report = { ...rForm, id:'dr_'+Date.now(), projectId: selectedProject.id,
+      const report = { ...rForm, id: mobileReportIdRef.current || ('dr_'+Date.now()), projectId: selectedProject.id,
         status, createdAt:now, updatedAt:now,
         signature: status==='submitted'?(user?.name||rForm.preparedBy):'',
         signedAt: status==='submitted'?now:'',
       };
-      // Save report blob (individual + photos)
-      await cloudSaveReport(report).catch(()=>{});
+      // Save the report (text + photo references). v23.00: a failed save is no longer
+      // swallowed — the form stays open with everything in it so nothing is lost quietly.
+      try { await cloudSaveReport(report); }
+      catch (e) {
+        alert('This report could not be saved' + (e?.message ? ` (${e.message})` : '') + '. Check your connection and tap Save again — your entries and photos are still here.');
+        return;
+      }
       // Update DR index so full portal sees it immediately
       try {
         const currentIdx = await cloudLoad(DR_INDEX_KEY).catch(()=>[]) || [];
@@ -53081,6 +53154,8 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
         // Also update legacy backup (stripped, no photos)
         await cloudSave('pcg_daily_reports_v1', newIdx.map(r=>({...r,workLogs:(r.workLogs||[]).map(w=>({...w,photos:[]}))})));
       } catch {}
+      photoUp.commit();
+      mobileReportIdRef.current = null;
       setDailyReports(prev => [report, ...prev]);
       goTo('detail');
     } finally { setRSaving(false); }
@@ -53481,7 +53556,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                 <div style={{fontFamily:"'Raleway'",fontWeight:800,fontSize:15,color:th.text,marginBottom:10}}>Work Logs ({r.workLogs.length})</div>
                 {r.workLogs.map((w,i)=>{
                   const isOpen = !!expandedLogs[i];
-                  const photoCount = (w.photos||[]).filter(ph=>{const s=ph?.data||ph;return s&&typeof s==='string';}).length;
+                  const photoCount = (w.photos||[]).filter(ph=>isRefPhoto(ph) || (()=>{const s=ph?.data||ph;return s&&typeof s==='string';})()).length;
                   return (
                     <div key={i} style={{background:th.bg,borderRadius:10,marginBottom:8,border:`1px solid ${th.cardBorder}33`,overflow:'hidden'}}>
                       {/* Header row — always visible, tap to expand */}
@@ -53508,11 +53583,12 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                             {photoCount > 0 ? (
                               <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                                 {w.photos.map((ph,pi)=>{
-                                  const src = ph?.data||ph;
-                                  if (!src||typeof src!=='string') return null;
+                                  // legacy: inline image (or a bare data-URL string); v23.00 ref: loaded on demand
+                                  const photo = typeof ph === 'string' ? { data: ph } : ph;
+                                  if (!isRefPhoto(photo) && !(typeof photo?.data === 'string' && photo.data)) return null;
                                   return (
-                                    <div key={pi} onClick={()=>setLightboxSrc(src)} style={{cursor:'pointer',borderRadius:8,overflow:'hidden',border:`1px solid ${th.cardBorder}`,flexShrink:0}}>
-                                      <img src={src} alt={ph?.name||''} style={{width:90,height:90,objectFit:'cover',display:'block'}}/>
+                                    <div key={photo.photoId||pi} onClick={()=>setLightboxSrc(photo)} style={{cursor:'pointer',borderRadius:8,overflow:'hidden',border:`1px solid ${th.cardBorder}`,flexShrink:0}}>
+                                      <ReportPhotoImg photo={photo} style={{width:90,height:90,objectFit:'cover',display:'block'}}/>
                                     </div>
                                   );
                                 })}
@@ -53568,7 +53644,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
         {/* Lightbox overlay */}
         {lightboxSrc && (
           <div onClick={()=>setLightboxSrc(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-            <img src={lightboxSrc} alt="" style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:8}}/>
+            <ReportPhotoImg photo={lightboxSrc} size="full" style={{maxWidth:'100%',maxHeight:'100%',minWidth:120,objectFit:'contain',borderRadius:8}}/>
             <div style={{position:'absolute',top:16,right:16,color:'#fff',fontSize:28,cursor:'pointer',fontWeight:700,lineHeight:1}}>✕</div>
           </div>
         )}
@@ -53581,7 +53657,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
     const p = selectedProject;
     return (
       <div style={{background:th.bg,color:th.text,minHeight:'100vh',fontFamily:"'Source Sans 3',sans-serif"}}>
-        <div onClick={()=>goTo('detail')} style={{display:'flex',alignItems:'center',gap:6,color:O,fontSize:14,fontWeight:700,cursor:'pointer',padding:'54px 20px 10px',background:th.sidebar,borderBottom:`1px solid ${th.sidebarBorder}`}}>
+        <div onClick={()=>{ photoUp.discard(); mobileReportIdRef.current = null; goTo('detail'); }} style={{display:'flex',alignItems:'center',gap:6,color:O,fontSize:14,fontWeight:700,cursor:'pointer',padding:'54px 20px 10px',background:th.sidebar,borderBottom:`1px solid ${th.sidebarBorder}`}}>
           &lt; Back to {p.nickname||p.address}
         </div>
         <div style={{padding:'10px 20px 12px',background:th.sidebar,borderBottom:`1px solid ${th.sidebarBorder}`}}>
@@ -53690,10 +53766,10 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                   {(w.photos||[]).length > 0 && (
                     <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:8}}>
                       {w.photos.map((ph,pi)=>{
-                        const src = ph?.data||ph;
                         return (
-                          <div key={pi} style={{position:'relative',width:72,height:72}}>
-                            <img src={src} alt={ph?.name||''} style={{width:72,height:72,objectFit:'cover',borderRadius:8,border:`1px solid ${th.cardBorder}`}}/>
+                          <div key={ph?.photoId||ph?._localId||pi} style={{position:'relative',width:72,height:72}}>
+                            <ReportPhotoImg photo={ph} style={{width:72,height:72,objectFit:'cover',borderRadius:8,border:`1px solid ${th.cardBorder}`}}/>
+                            <ReportPhotoStatus photo={ph} onRetry={()=>photoUp.retryPhoto(ph._localId)} />
                             <div onClick={()=>removeLogPhoto(i,pi)} style={{position:'absolute',top:-6,right:-6,width:20,height:20,background:'#ef4444',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:12,color:'#fff',fontWeight:800,boxShadow:'0 1px 4px #0004'}}>×</div>
                           </div>
                         );
