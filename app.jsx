@@ -20365,6 +20365,7 @@ const NOTIFY_ICONS = {
   resignationLetter: <><path d="M6 3h9l4 4v14H6Z"/><path d="M9 8h4M9 11h7"/><path d="M8.5 17.5c1.2-2.2 2.2.6 3.4-.9 1-1.3 1.7.9 3.6-.1"/></>,
   payIncrease: <><path d="M12 20V6M7 11l5-5 5 5"/><path d="M5 20h14"/></>,
   payIncreaseApprovers: <><path d="M20 6 9 17l-5-5"/></>,
+  payIncreaseOffice: <><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/><path d="m9 15 2 2 4-4"/></>,
   violationApprovers: <><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></>,
   timeOffRequest: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9.5 13.5 5 5M14.5 13.5l-5 5"/></>,
   interviewReminders: <><path d="M4 5h16v11H8l-4 4Z"/><circle cx="12" cy="10.5" r="2.2"/><path d="M8.5 14.2a4 4 0 0 1 7 0"/></>,
@@ -20379,7 +20380,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
-  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters', missingHoursApprovers: 'Missing hours approvals',
+  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', payIncreaseOffice: 'Pay increase office step', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters', missingHoursApprovers: 'Missing hours approvals',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -20713,7 +20714,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [notifSubTab, setNotifSubTab] = useState('project');
   // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
   // here, then kept live by each ManualNotifyListPanel's onCountChange.
-  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1', resignationLetter: 'pcg_resignation_notify_v1', missingHoursApprovers: 'pcg_missing_hours_approvers_v1' };
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1', resignationLetter: 'pcg_resignation_notify_v1', missingHoursApprovers: 'pcg_missing_hours_approvers_v1', payIncreaseOffice: 'pcg_pay_increase_office_step_v1' };
   const [notifCounts, setNotifCounts] = useState({});
   useEffect(() => {
     Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -20959,6 +20960,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
               { id: 'missingHoursApprovers', label: 'Missing Hours approval', count: notifCounts.missingHoursApprovers },
               { id: 'timeOffRequest', label: 'Time Off Request', count: notifCounts.timeOffRequest },
               { id: 'payIncreaseApprovers', label: 'Pay Increase approval', count: notifCounts.payIncreaseApprovers },
+              { id: 'payIncreaseOffice', label: 'Pay Increase office step', count: notifCounts.payIncreaseOffice },
               { id: 'payIncrease', label: 'Pay Increase (office)', count: notifCounts.payIncrease },
               { id: 'interviewReminders', label: 'Interview Reminders' },
               { id: 'newHires', label: 'New Hires' },
@@ -21176,6 +21178,14 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           here are the only ones who can approve (in Tools · Pay Increase); the emails / numbers get
           the "waiting for approval" email / text with a link. While no one is named, every
           executive approves and gets it. v22.60 */}
+      {/* v23.1 Pay Increase office step — full admins only. People added BY NAME here (Roxy) set the
+          effective date, paycheck date and payroll signature on approved pay increases; they get an
+          email + text + push and a reminder every 3 hours until it's done. */}
+      {notifSubTab === 'payIncreaseOffice' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_office_step_v1" tagKey="payIncreaseOffice" onCountChange={setNotifCount('payIncreaseOffice')}
+          description="These people do the office step of Tools · Pay Increase. Once Mike approves a pay increase, they get an email with an Open button, a text and a phone push, and a reminder every 3 hours until they set the effective date, the paycheck date and sign. Only people added by name (and exec / IT) can complete it; while no one is named here, the people named on Pay Increase (office) can. Completing it files it in Google Drive and emails the person who sent it."
+          smsLabel="Pay Increase office step SMS Numbers" />
+      )}
       {notifSubTab === 'payIncreaseApprovers' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_approvers_v1" tagKey="payIncreaseApprovers" onCountChange={setNotifCount('payIncreaseApprovers')}
           description="Who approves pay increases (e.g. Mike). When a manager or DM sends one, these people get an email and a text with a link to review it, then approve it or send it back in Tools · Pay Increase. Add the approver by name (that's what lets them approve) and add their mobile number below for the text. While no one is added by name, every executive can approve and gets the email."
@@ -25237,7 +25247,8 @@ const RESIGNATION_LETTER_ROLES = new Set(['executive', 'it', 'office_staff', 'dm
 const MISSING_HOURS_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
 // v22.60 Pay Increase: a Store Manager or DM makes it and signs their own line; it goes to the
 // approver (Mike) and, once approved, to the office.
-const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
+// v23.0: office_staff too — the office step (effective date) is done by people on the Pay Increase (office) list.
+const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager', 'office_staff']);
 const accessSubOn = (overrides, rt, hubId, subId) => (overrides?.[rt]?.[`${hubId}:${subId}`]) !== false;
 
 
@@ -32553,7 +32564,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v22.99";
+const APP_VERSION = "v23.1";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

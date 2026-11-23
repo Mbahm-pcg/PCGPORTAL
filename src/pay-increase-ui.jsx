@@ -147,8 +147,8 @@ function Review({ th, isMobile, form, onClose, canApprove = true }) {
     try {
       const b = await call('', { action, id: form.id, note: note.trim() });
       if (action === 'reject') return onClose(`Sent back to ${form.submittedBy}.`);
-      const d = b.drive || {}, a = b.alert || {};
-      onClose(`Approved: ${d.saved ? 'saved to Google Drive' : `not saved to Drive (${d.error || 'error'})`}, ${a.error ? `office alert failed (${a.error})` : a.recipients ? `the office was alerted (${a.recipients})` : 'no one is on the office list yet'}. ${form.submittedBy} was told.`);
+      const a = b.alert || {};
+      onClose(`Approved. It's with the office now to set the effective date (${a.error ? `office alert failed: ${a.error}` : a.recipients ? `${a.recipients} alerted` : 'no one is on the office list yet'}). ${form.submittedBy} was emailed.`);
     } catch (e) { setErr(e.message); setBusy(false); }
   };
   return (
@@ -177,6 +177,52 @@ function Review({ th, isMobile, form, onClose, canApprove = true }) {
           : <button type="button" className="fin-btn" style={S.ghost} onClick={() => setBacking(true)} disabled={busy}>Send back…</button>)}
         {canApprove && !backing && <button type="button" className="fin-btn" style={S.primary} disabled={busy} onClick={() => decide('approve')}>{busy ? 'Approving…' : 'Approve & send to the office'}</button>}
       </div>
+    </div>
+  );
+}
+
+// v23.0 the office step: everything above is locked; the office enters the effective date, the
+// paycheck date and signs. That files it in Drive and emails the person who made it.
+function OfficeComplete({ th, isMobile, form, onClose }) {
+  const S = finStyles(th);
+  const [eff, setEff] = useState('');
+  const [pay, setPay] = useState('');
+  const [sig, setSig] = useState(null);
+  const [signing, setSigning] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && !!sig;
+  const done = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const b = await call('', { action: 'complete', id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: sig });
+      onClose(`Completed: ${b.drive?.saved ? 'filed in Google Drive' : `NOT saved to Drive (${b.drive?.error || 'error'}), tell IT`}. ${form.submittedBy} was emailed the effective date.`);
+    } catch (e) { setErr(e.message); setBusy(false); }
+  };
+  return (
+    <div style={{ ...S.panel, padding: '1rem 1.1rem', marginBottom: '1.4rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <div style={{ ...S.panelTitle, fontSize: '1.05rem' }}>{form.employeeName}, {form.storeName}</div>
+        <span style={{ color: th.muted, fontSize: '0.88rem' }}>{fmtPay(form.currentRate, form.payBasis)} to {fmtPay(form.newRate, form.payBasis)}, approved by {form.approvedBy}</span>
+      </div>
+      <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.8rem' }}>
+        <FormPreview th={th} id={form.id} title={`Pay increase for ${form.employeeName}`} thumbWidth={isMobile ? 200 : 260} />
+        <p style={{ fontSize: '0.82rem', color: th.muted, margin: 0, maxWidth: '24em' }}>Everything on the form is locked. Fill in the For Office Use Only box below and sign; that files it in Google Drive and emails {form.submittedBy} when it was completed and when it takes effect.</p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0,1fr)' : 'repeat(3, minmax(0,1fr))', gap: '0.8rem', marginTop: '1rem', alignItems: 'end' }}>
+        <label style={S.fieldLabel}>Effective date<input type="date" value={eff} onChange={e => setEff(e.target.value)} style={S.input} /></label>
+        <label style={S.fieldLabel}>Effective pay rate paycheck date<input type="date" value={pay} onChange={e => setPay(e.target.value)} style={S.input} /></label>
+        <div style={S.fieldLabel}>Payroll Manager signature
+          {sig ? <button type="button" className="fin-btn" onClick={() => setSigning(true)} title="Sign again" style={{ background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: 'pointer' }}><img src={sig} alt="Your signature" style={{ maxHeight: 38, maxWidth: '100%' }} /></button>
+            : <button type="button" className="fin-btn" onClick={() => setSigning(true)} style={{ ...S.ghost, borderStyle: 'dashed', color: O }}>Tap to sign</button>}
+        </div>
+      </div>
+      {err && <FinBanner th={th} tone="error" style={{ marginTop: '0.8rem' }}>{err}</FinBanner>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.9rem' }}>
+        <button type="button" className="fin-btn" style={S.ghost} onClick={() => onClose(null)} disabled={busy}>Back</button>
+        <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ok && !busy ? 1 : 0.5 }} disabled={!ok || busy} onClick={done}>{busy ? 'Completing…' : 'Complete & file'}</button>
+      </div>
+      {signing && <SignatureModal th={th} title="Your signature — Payroll Manager" onCancel={() => setSigning(false)} onDone={(img) => { setSig(img); setSigning(false); }} />}
     </div>
   );
 }
@@ -215,6 +261,9 @@ export function PayIncrease({ th, isMobile, onBack }) {
   // (approved, to look up) — with "Start a pay increase" for the form. Everyone else gets the form.
   const [listView, setListView] = useState(false);
   const [canApprove, setCanApprove] = useState(false);
+  const [canOffice, setCanOffice] = useState(false); // v23.0 the office step
+  const [office, setOffice] = useState([]);
+  const [completing, setCompleting] = useState(null);
   const [complete, setComplete] = useState([]);
   const [view, setView] = useState('list');
   const [listTab, setListTab] = useState('pending');
@@ -230,13 +279,28 @@ export function PayIncrease({ th, isMobile, onBack }) {
     if (b.role === 'manager') { setSmName(n => n || b.myName || ''); setDmName(n => n || b.dmNameGuess || ''); }
     else setDmName(n => n || b.myName || '');
     setListView(!!b.listView); setCanApprove(!!b.canApprove); if (b.rosterError) setError(b.rosterError);
-    setPending(b.listView ? (b.pending || []) : null); setComplete(b.complete || []);
+    setPending(b.listView ? (b.pending || []) : null); setComplete(b.complete || []); setCanOffice(!!b.canOffice); setOffice(b.office || []);
     // ?payIncrease=<id> from the approval email / text opens that form straight away.
     let open = null; try { open = sessionStorage.getItem('pi_open'); sessionStorage.removeItem('pi_open'); } catch {}
     const hit = open && (b.pending || []).find(x => String(x.id) === String(open));
     if (hit) { setView('list'); setListTab('pending'); setReviewing(hit); }
+    const hitOffice = open && !hit && (b.office || []).find(x => String(x.id) === String(open));
+    if (hitOffice) { setView('list'); setListTab('office'); if (b.canOffice) setCompleting(hitOffice); }
   }).catch(e => { setError(e.message); setEmployees([]); }).finally(() => setLoaded(true));
   useEffect(() => { loadMain(); }, []);
+  // v23.0: keep the lists current (refresh on coming back to the tab and every minute on the list).
+  const viewRef = React.useRef(view);
+  viewRef.current = view;
+  const busyRef = React.useRef(false);
+  busyRef.current = !!(reviewing || completing);
+  useEffect(() => {
+    const tick = () => { if (!document.hidden && viewRef.current === 'list' && !busyRef.current) loadMain(); };
+    const onVis = () => { if (!document.hidden) tick(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', tick);
+    const t = setInterval(tick, 60000);
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', tick); clearInterval(t); };
+  }, []);
   useEffect(() => {
     setEmployee(null);
     if (!picked) return;
@@ -349,13 +413,14 @@ export function PayIncrease({ th, isMobile, onBack }) {
       <h2 style={S.title}>Pay Increase</h2>
 
       {!loaded ? <p style={{ color: th.muted }}>Loading…</p> : listView && view === 'list' ? (<>
-        <p style={S.lede}>Pay increases sent by Store Managers and DMs. Pending ones wait for approval; once approved they go to the office and show under Complete.</p>
+        <p style={S.lede}>Pay increases from Store Managers, DMs and Directors. Pending ones wait for Mike's approval; approved ones go to the office (Office tab) for the effective date and payroll signature, then they're filed in Google Drive and show under Complete.</p>
         {saved && saved.state === 'decided' && <FinBanner th={th} tone="success">{saved.msg}</FinBanner>}
         {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
-        {reviewing ? <Review th={th} isMobile={isMobile} form={reviewing} canApprove={canApprove} onClose={(msg) => { setReviewing(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} /> : (<>
+        {reviewing ? <Review th={th} isMobile={isMobile} form={reviewing} canApprove={canApprove} onClose={(msg) => { setReviewing(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} />
+          : completing ? <OfficeComplete th={th} isMobile={isMobile} form={completing} onClose={(msg) => { setCompleting(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} /> : (<>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             <div role="tablist" aria-label="Pay increases" style={{ display: 'flex', gap: '0.4rem' }}>
-              {[['pending', `Pending${pending && pending.length ? ` (${pending.length})` : ''}`], ['complete', 'Complete']].map(([k, label]) => (
+              {[['pending', `Pending${pending && pending.length ? ` (${pending.length})` : ''}`], ['office', `Office${office.length ? ` (${office.length})` : ''}`], ['complete', 'Complete']].map(([k, label]) => (
                 <button key={k} type="button" role="tab" aria-selected={listTab === k} className="fin-btn" onClick={() => setListTab(k)}
                   style={{ ...S.ghost, minHeight: 36, padding: '0.4rem 0.95rem', background: listTab === k ? O : th.card3, color: listTab === k ? '#fff' : th.text }}>{label}</button>
               ))}
@@ -374,12 +439,24 @@ export function PayIncrease({ th, isMobile, onBack }) {
               ))}
             </div>
           ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>Nothing waiting for approval.</p>)}
+          {listTab === 'office' && (office.length ? (
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              {office.map(f => (
+                <button key={f.id} type="button" className="fin-btn" onClick={() => (canOffice ? setCompleting(f) : setViewing(f))}
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', textAlign: 'left', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${canOffice ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: 'pointer', fontFamily: FONTS.body }}>
+                  <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {fmtPay(f.currentRate, f.payBasis)} to {fmtPay(f.newRate, f.payBasis)}</span>
+                    <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}, approved by {f.approvedBy}{f.approvedAt ? ` on ${new Date(f.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}: waiting on the effective date</span></span>
+                  <span style={{ color: canOffice ? O : th.muted, fontWeight: 700, fontSize: '0.85rem', alignSelf: 'center' }}>{canOffice ? 'Complete' : 'View'}</span>
+                </button>
+              ))}
+            </div>
+          ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>Nothing waiting on the office.</p>)}
           {listTab === 'complete' && (complete.length ? (
             <div style={{ display: 'grid', gap: '0.5rem' }}>
               {complete.map(f => (
                 <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body }}>
                   <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {fmtPay(f.currentRate, f.payBasis)} to {fmtPay(f.newRate, f.payBasis)}</span>
-                    <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}{f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : `, ${new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}</span></span>
+                    <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}{f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : `, ${new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}{f.effectiveDate ? `. Effective ${new Date(f.effectiveDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}${f.officeBy ? ` (set by ${f.officeBy})` : ''}` : ''}</span></span>
                   <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
                     {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View form</button>}
                     {f.driveLink && <a href={f.driveLink} target="_blank" rel="noreferrer" style={{ color: O }}>Open in Google Drive</a>}
@@ -391,7 +468,8 @@ export function PayIncrease({ th, isMobile, onBack }) {
           {viewing && <FormModal th={th} id={viewing.id} title={`Pay increase for ${viewing.employeeName}`} onClose={() => setViewing(null)} />}
         </>)}
       </>) : (<>
-      <p style={S.lede}>Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, and once he approves it, to the office to be entered in Paycor.</p>
+      <p style={S.lede}>Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, then to the office to set the effective date; you're emailed when it's approved and again when it's complete.</p>
+      {role === 'office_staff' && <FinBanner th={th} tone="warn">Pay increases show here once IT adds you by name to Admin · Notifications · Pay Increase (office).</FinBanner>}
       {role === 'manager' && employees && !employees.length && !error && <FinBanner th={th} tone="warn">Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store.</FinBanner>}
       {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
       {employee && !hourly && <FinBanner th={th} tone="warn">Paycor has no current {basis === 'year' ? 'salary' : 'hourly rate'} for {employee.name}{employee.payType ? ` (pay type: ${employee.payType})` : ''}, so this form can't be made. Fix it in Paycor first.</FinBanner>}

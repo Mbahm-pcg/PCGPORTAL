@@ -5,7 +5,7 @@
 // overnight goes out at 8am instead of waking anyone up.
 // Runs every 15 minutes, so a reminder is never more than 15 minutes late.
 import { sql } from './_shared/db.mjs';
-import { notifyApprovers } from './pay-increase.mjs';
+import { notifyApprovers, notifyOfficeStep } from './pay-increase.mjs';
 import { notifyViolationApprovers, ensureNoticeTable } from './violation-notice.mjs';
 import { notifyMissingHoursApprovers, ensureMissingHoursTable } from './missing-hours.mjs';
 import { runSignFollowups } from './violation-sign.mjs';
@@ -35,6 +35,17 @@ export default async () => {
     catch (e) { console.error('[pay-increase-reminder]', row.id, e.message); }
   }
   if (due.length) console.log(`[pay-increase-reminder] ${sent}/${due.length} reminder(s) sent`);
+  // v23.1: approved pay increases still waiting on the office step (Roxy) — same 3-hour reminders.
+  try {
+    await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS office_reminded_at timestamptz`;
+    const oDue = await db`SELECT * FROM pay_increase_forms WHERE status = 'office'
+      AND COALESCE(office_reminded_at, decided_at, created_at) <= now() - make_interval(hours => ${EVERY_HOURS}) ORDER BY decided_at`;
+    for (const row of oDue) {
+      try { await notifyOfficeStep(db, row, { reminder: true }); sent++; }
+      catch (e) { console.error('[pay-increase-office-reminder]', row.id, e.message); }
+    }
+    if (oDue.length) console.log(`[pay-increase-office-reminder] ${oDue.length} reminder(s)`);
+  } catch (e) { console.error('[pay-increase-office-reminder]', e.message); }
   // v22.81: Violation Notices waiting for approval (Sam) get the same 3-hour reminders.
   try {
     await ensureNoticeTable(db);

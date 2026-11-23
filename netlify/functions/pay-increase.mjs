@@ -21,6 +21,7 @@
 // Anyone else → Store Manager line N/A, and they sign the second line, titled District Manager /
 // Director of Operations / Vice President (Mike) / Executive by who they are (secondLineLabel).
 import { getStore } from '@netlify/blobs';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { createHash } from 'node:crypto';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
@@ -34,6 +35,8 @@ const json = (status, body) => new Response(JSON.stringify(body), { status, head
 const blobs = () => getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 const OFFICE_KEY = 'pcg_pay_increase_notify_v1';
 const APPROVERS_KEY = 'pcg_pay_increase_approvers_v1';
+// v23.1: who does the office step (effective date) — Roxy. Its own list, like the approver list.
+const OFFICE_STEP_KEY = 'pcg_pay_increase_office_step_v1';
 const PORTAL = 'https://uop.peoplecapitalgroup.com';
 const storeOf = (pc) => STORES.find(s => String(s.pc) === String(pc));
 const isSig = (s) => typeof s === 'string' && /^data:image\/png;base64,/.test(s) && s.length > 200 && s.length < 600000;
@@ -64,6 +67,41 @@ async function bell(b, ids, message, tag) {
     const entry = { id: `payinc_${tag}_${Date.now()}`, type: 'pay_increase', message, onlyFor: ids.map(String), read: false, createdAt: new Date().toISOString() };
     await b.setJSON('pcg_notifications_v1', { savedAt: new Date().toISOString(), data: [entry, ...arr].slice(0, 500) });
   } catch (e) { console.warn('[pay-increase] bell write failed', e.message); }
+}
+
+// v23.1: the people who do the office step: named on the "Pay Increase office step" list; nobody
+// named there yet → the people named on the Pay Increase (office) list (who did it in v23.0), but
+// with no extra emails / texts (that list already gets its own email on approval).
+async function officeDoers() {
+  const l = await readList(OFFICE_STEP_KEY);
+  if (l.ids.length) return l;
+  const o = await readList(OFFICE_KEY);
+  return { ids: o.ids, emails: [], phones: [], fallback: true };
+}
+
+// Email + text (no link) + push + bell to the office-step people about one approved form; every 3
+// hours while it still waits, by pay-increase-reminder-cron.mjs.
+export async function notifyOfficeStep(db, row, { reminder = false } = {}) {
+  const d = await officeDoers();
+  const store = storeOf(row.pc);
+  const link = `${PORTAL}/?payIncrease=${row.id}`;
+  const who = `${row.employee_name} (${store?.name || 'PC ' + row.pc})`;
+  const waited = reminder ? Math.max(1, Math.round((Date.now() - Date.parse(row.decided_at || row.created_at)) / 3600e3)) : 0;
+  const title = reminder ? `Reminder: pay increase waiting on the office (${waited} h)` : `Pay increase needs the effective date: ${row.employee_name}`;
+  const line = reminder ? `The pay increase for ${who} approved by ${row.decided_by_name || 'Mike'} is still waiting for the effective date (${waited} h).`
+    : `${row.decided_by_name || 'Mike'} approved the pay increase for ${who}. It needs the effective date, paycheck date and your signature.`;
+  const b = blobs();
+  await Promise.all([
+    d.emails.length ? sendHtmlEmail(d.emails, title, `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>${esc(line)}</p>
+<p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Open it</a></p>
+<p style="color:#666">Or open the portal: Tools, then Pay Increase, Office tab.</p></div>`) : null,
+    // No link in the text — Textbelt refuses links on this account; the email has it.
+    d.phones.length ? sendSms(d.phones, `PCG: ${line} Check your email or open the portal (Tools > Pay Increase > Office).`) : null,
+    !reminder && d.ids.length ? sendPush(b, d.ids, title, line, `pay-increase-office-${row.id}`) : null,
+  ]);
+  if (!reminder) await bell(b, d.ids, line, 'office-step');
+  await db`UPDATE pay_increase_forms SET office_reminded_at = now() WHERE id = ${row.id}`;
+  return new Set([...d.ids, ...d.emails, ...d.phones]).size;
 }
 
 // The office list (after approval): email with the PDF, text, push, bell — unchanged from v22.55.
@@ -114,6 +152,28 @@ export async function notifyApprovers(db, row, { reminder = false } = {}) {
   return new Set([...appr.ids, ...appr.emails, ...appr.phones]).size;
 }
 
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const usDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || ''); };
+const usDateTime = (d) => d.toLocaleString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(',', '') + ' ET';
+
+// v23.0: the office's entries in the "For Office Use Only" box — the template's right-hand cells
+// (src/pay-increase-pdf.mjs: centred at x 423.5; baselines 564.7 / 584.2; signature resting on 608).
+export async function stampOffice(pdfBuf, effectiveDate, paycheckDate, signature, byName) {
+  const doc = await PDFDocument.load(pdfBuf);
+  const page = doc.getPage(0);
+  const H = page.getHeight();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const cx = 423.5;
+  for (const [t, y] of [[usDate(effectiveDate), 564.7], [usDate(paycheckDate), 584.2]]) page.drawText(t, { x: cx - font.widthOfTextAtSize(t, 9) / 2, y: H - y, size: 9, font, color: rgb(0, 0, 0) });
+  const img = await doc.embedPng(Buffer.from(String(signature).replace(/^data:[^,]*,/, ''), 'base64'));
+  const s = Math.min(160 / img.width, 16 / img.height);
+  page.drawImage(img, { x: cx - (img.width * s) / 2, y: H - 608, width: img.width * s, height: img.height * s });
+  const who = `Payroll: ${String(byName || '').normalize('NFKD').replace(/[^\x20-\x7E]/g, '')}, ${usDateTime(new Date())}`;
+  page.drawText(who, { x: 545.5 - font.widthOfTextAtSize(who, 6.5), y: H - 618, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) });
+  doc.setModificationDate(new Date());
+  return Buffer.from(await doc.save());
+}
+
 const rowValues = (r) => ({ payBasis: r.pay_basis || 'hour', employeeName: r.employee_name, position: r.position, pc: r.pc, currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, date: r.form_date, signer: r.signer,
   smName: r.sm_name || '', dmName: r.dm_name || '', secondLabel: r.second_label || '' });
 
@@ -157,11 +217,23 @@ export default async (request) => {
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS second_label text`;
   // v22.74: 'hour' or 'year' (salaried) — what current_rate / new_rate are per.
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS pay_basis text`;
+  // v23.0 three steps (user, 2026-11-23): maker → approver (Mike) → OFFICE (Roxy: effective date,
+  // paycheck date, payroll signature; everything above is locked) → Drive + the maker is emailed.
+  // status 'office' = approved, waiting on the office; 'approved' = complete and filed.
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS effective_date text`;
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS paycheck_date text`;
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS office_by integer`;
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS office_by_name text`;
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS office_at timestamptz`;
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS office_reminded_at timestamptz`;
 
   const appr = await approvers(db);
   const canApprove = appr.ids.includes(String(authed.sub));
-  // v22.63: executives / IT (and approvers) get the list screen — Pending + Complete.
-  const listView = canApprove || realType === 'executive' || realType === 'it';
+  // v23.0: the office step is done by the people added BY NAME to the office list (Roxy, Ella…), or exec / IT.
+  const doers = await officeDoers();
+  const canOffice = doers.ids.includes(String(authed.sub)) || realType === 'executive' || realType === 'it';
+  // v22.63: executives / IT (and approvers, and the office) get the list screen.
+  const listView = canApprove || canOffice;
 
   try {
     if (request.method === 'GET') {
@@ -180,7 +252,7 @@ export default async (request) => {
         if (!employee) return json(404, { error: 'This employee is no longer active at that store in Paycor.' });
         return json(200, { employee });
       }
-      const out = { canApprove, listView, role: realType, secondLabel: secondLineLabel(realType, me.username), smNa: storeManagerNa(realType), myName, stores: [], employees: [] };
+      const out = { canApprove, canOffice, listView, role: realType, secondLabel: secondLineLabel(realType, me.username), smNa: storeManagerNa(realType), myName, stores: [], employees: [] };
       if (realType === 'manager' && me.store_pc) {
         const st = storeOf(me.store_pc);
         const dm = st && (await db`SELECT name FROM users WHERE active IS NOT FALSE AND user_type = 'dm' AND district::text = ${String(st.district)} LIMIT 1`)[0];
@@ -189,12 +261,15 @@ export default async (request) => {
       if (listView) {
         const item = (r) => ({ id: r.id, pc: r.pc, storeName: storeOf(r.pc)?.name || '', employeeName: r.employee_name, position: r.position,
           payBasis: r.pay_basis || 'hour', currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, formDate: r.form_date, submittedBy: r.submitted_by_name, createdAt: r.created_at,
-          approvedBy: r.decided_by_name || null, approvedAt: r.decided_at || null, driveLink: r.drive_link || null, hasPdf: !!r.has_pdf });
+          approvedBy: r.decided_by_name || null, approvedAt: r.decided_at || null, driveLink: r.drive_link || null, hasPdf: !!r.has_pdf,
+          effectiveDate: r.effective_date || null, paycheckDate: r.paycheck_date || null, officeBy: r.office_by_name || null, officeAt: r.office_at || null });
         out.pending = (await db`SELECT id, pc, employee_name, position, current_rate, new_rate, pay_basis, reason, form_date, submitted_by_name, created_at, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf
           FROM pay_increase_forms WHERE status = 'pending' ORDER BY created_at`).map(item);
+        out.office = (await db`SELECT id, pc, employee_name, position, current_rate, new_rate, pay_basis, reason, form_date, submitted_by_name, created_at, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf
+          FROM pay_increase_forms WHERE status = 'office' ORDER BY decided_at`).map(item);
         // Complete = approved, plus forms sent before the approval step existed (status NULL).
-        out.complete = (await db`SELECT id, pc, employee_name, position, current_rate, new_rate, pay_basis, reason, form_date, submitted_by_name, created_at, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf
-          FROM pay_increase_forms WHERE status = 'approved' OR status IS NULL ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 300`).map(item);
+        out.complete = (await db`SELECT id, pc, employee_name, position, current_rate, new_rate, pay_basis, reason, form_date, submitted_by_name, created_at, decided_by_name, decided_at, drive_link, effective_date, paycheck_date, office_by_name, office_at, (pdf IS NOT NULL) AS has_pdf
+          FROM pay_increase_forms WHERE status = 'approved' OR status IS NULL ORDER BY COALESCE(office_at, decided_at, created_at) DESC LIMIT 300`).map(item);
       }
       if (allowed === null || allowed.size) {
         out.stores = STORES.filter(s => inScope(s.pc)).map(s => ({ pc: String(s.pc), name: s.name }));
@@ -222,31 +297,64 @@ export default async (request) => {
         await tellMaker(db, upd, 'rejected', { by: myName, note });
         return json(200, { ok: true });
       }
-      // approve: claim it first so two quick clicks can't both send.
-      const upd = (await db`UPDATE pay_increase_forms SET status = 'approved', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
+      // approve (v23.0): claim it first so two quick clicks can't both send. It goes to the OFFICE
+      // (effective date etc.); it's filed in Drive only once the office completes it.
+      const upd = (await db`UPDATE pay_increase_forms SET status = 'office', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
         WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'This one was already decided — reload.' });
       const store = storeOf(upd.pc);
       const v = rowValues(upd);
-      const pdf = Buffer.from(upd.pdf);
+      let alert;
+      try {
+        alert = await alertOffice(v, store?.name, upd.submitted_by_name, `${PORTAL}/?payIncrease=${upd.id}`, payFileName(v, store?.name), Buffer.from(upd.pdf), store?.paycor, myName);
+        await db`UPDATE pay_increase_forms SET alerted_at = now(), alert_summary = ${JSON.stringify(alert)} WHERE id = ${upd.id}`;
+      } catch (e) { console.error('[pay-increase] office alert', e.message); alert = { error: e.message }; }
+      let officeNotified = 0;
+      try { officeNotified = await notifyOfficeStep(db, upd); } catch (e) { console.error('[pay-increase] office step notify', e.message); }
+      await tellMaker(db, upd, 'approved', { by: myName });
+      return json(200, { ok: !alert?.error, status: 'office', alert, officeNotified });
+    }
+
+    // ── v23.0 office step: effective date, paycheck date, payroll signature → stamped, filed, maker told ──
+    if (body.action === 'complete') {
+      if (!canOffice) return json(403, { error: 'Only the people on Admin · Notifications · Pay Increase office step (added by name), exec or IT can complete this.' });
+      const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+      if (!isDate(body.effectiveDate)) return json(400, { error: 'Enter the effective date.' });
+      if (!isDate(body.paycheckDate)) return json(400, { error: 'Enter the effective pay rate paycheck date.' });
+      if (!isSig(body.payrollSignature)) return json(400, { error: 'Sign the payroll line.' });
+      const r = (await db`SELECT * FROM pay_increase_forms WHERE id = ${Number(body.id)} AND status = 'office'`)[0];
+      if (!r) return json(409, { error: 'This one is not waiting on the office any more — reload.' });
+      const pdf = await stampOffice(Buffer.from(r.pdf), body.effectiveDate, body.paycheckDate, body.payrollSignature, myName);
+      const upd = (await db`UPDATE pay_increase_forms SET status = 'approved', pdf = ${pdf}, effective_date = ${body.effectiveDate}, paycheck_date = ${body.paycheckDate},
+          office_by = ${Number(authed.sub)}, office_by_name = ${myName}, office_at = now() WHERE id = ${r.id} AND status = 'office' RETURNING *`)[0];
+      if (!upd) return json(409, { error: 'Someone else just completed it — reload.' });
+      const store = storeOf(upd.pc);
+      const v = rowValues(upd);
       const fileName = payFileName(v, store?.name);
-      let drive = { saved: false, link: '', error: null };
+      const drive = { saved: false, link: '', error: null };
       try {
         const f = await saveToDrive(pdf, [store?.name || upd.pc, upd.employee_name], fileName, `payinc:${upd.form_key}`, process.env.PAY_DRIVE_FOLDER_ID || '');
-        drive = { saved: true, link: f.webViewLink || '' };
+        drive.saved = true; drive.link = f.webViewLink || '';
         await db`UPDATE pay_increase_forms SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${upd.id}`;
       } catch (e) {
         drive.error = e.message;
         console.error('[pay-increase] drive', e.message);
         await db`UPDATE pay_increase_forms SET drive_error = ${String(e.message).slice(0, 500)} WHERE id = ${upd.id}`;
       }
-      let alert;
+      // The person who made it: when it was completed and when it takes effect, with the final form.
       try {
-        alert = await alertOffice(v, store?.name, upd.submitted_by_name, drive.link, fileName, pdf, store?.paycor, myName);
-        await db`UPDATE pay_increase_forms SET alerted_at = now(), alert_summary = ${JSON.stringify(alert)} WHERE id = ${upd.id}`;
-      } catch (e) { console.error('[pay-increase] office alert', e.message); alert = { error: e.message }; }
-      await tellMaker(db, upd, 'approved', { by: myName });
-      return json(200, { ok: drive.saved && !alert?.error, drive, alert });
+        const u = (await db`SELECT id, email FROM users WHERE id = ${upd.submitted_by}`)[0];
+        if (u) {
+          const t = approvalAlertText('completed', upd, store?.name, { at: usDateTime(new Date()), effective: usDate(upd.effective_date), paycheck: usDate(upd.paycheck_date), by: myName });
+          const b = blobs();
+          await Promise.all([
+            u.email ? emailWithPdf([u.email], t.title, `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>${esc(t.line)}</p><p>The completed form is attached.</p></div>`, fileName, pdf) : null,
+            sendPush(b, [String(u.id)], t.title, t.line, `pay-increase-${upd.id}`),
+          ]);
+          await bell(b, [u.id], t.line, 'completed');
+        }
+      } catch (e) { console.error('[pay-increase] tell maker (completed)', e.message); }
+      return json(200, { ok: true, drive });
     }
 
     // ── submit for approval ──
