@@ -8,7 +8,7 @@
 // Each run re-pulls today and yesterday (late closes), plus any day in the window not pulled yet.
 import { getStore } from '@netlify/blobs';
 import { STORES, ALL_STORES, APIS, callUpstream } from '../tips-report-cron-background.mjs';
-import { syncDistricts } from '../_shared/store-status.mjs';
+import { refreshStoreList } from '../_shared/store-status.mjs';
 
 export const JOY_SVC_NUM = 1010;
 export const DAILY_KEY = 'pcg_joy_daily_v1';
@@ -47,7 +47,7 @@ export async function storeDayJoy(s, busDt) {
 }
 
 export async function runJoy({ log = console.log } = {}) {
-  await syncDistricts(STORES, ALL_STORES);
+  await refreshStoreList(STORES, ALL_STORES); // v23.6: closed stores are not collected (their past donations stay in the blob)
   const today = etToday();
   const first = windowStart(today);
   const data = (await loadJSON(DAILY_KEY)) || { days: {} };

@@ -169,6 +169,99 @@
     .orion-fab-btn { bottom: 80px !important; }
     .orion-panel { bottom: 148px !important; max-height: calc(100vh - 178px) !important; }
   }
+
+  /* v23.7 Admin · Notifications: grouped list picker. */
+  .nf-card{padding:1.5rem}
+  .nf-groups{display:grid;gap:.9rem;margin-bottom:1.25rem}
+  .nf-group-title{font-size:.72rem;font-weight:700;letter-spacing:.04em;margin-bottom:.4rem;font-family:'Source Sans 3',sans-serif}
+  .nf-chips{display:flex;flex-wrap:wrap;gap:.45rem}
+  .nf-chip{display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;font-weight:600;font-size:.85rem;cursor:pointer;font-family:'Source Sans 3',sans-serif;white-space:nowrap;flex-shrink:0}
+  .nf-chip:focus-visible{outline:2px solid #FF671F;outline-offset:2px}
+  @media (max-width:640px){
+    .nf-card{padding:1rem .9rem}
+    .nf-groups{gap:.7rem}
+    /* one swipeable row per group, bleeding to the card edges */
+    .nf-chips{flex-wrap:nowrap;overflow-x:auto;margin:0 -.9rem;padding:0 .9rem 2px;scroll-snap-type:x proximity;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+    .nf-chips::-webkit-scrollbar{display:none}
+    .nf-chip{scroll-snap-align:start;padding:.45rem .85rem;font-size:.82rem}
+    .nf-row{gap:.6rem !important}
+    .nf-tag{display:none !important}
+  }
+  /* v23.8 Admin · Notifications on phones: categories → lists (user's mock). */
+  .nf-card-bare{padding:0 !important;background:none !important;border:none !important;box-shadow:none !important}
+  .nfm{display:grid;gap:.8rem}
+  .nfm-search{display:flex;align-items:center;gap:.6rem;border:1px solid;border-radius:14px;padding:.75rem .95rem}
+  .nfm-search input{flex:1;min-width:0;border:none;outline:none;background:transparent;font:inherit;font-size:.95rem}
+  .nfm-list{display:grid;gap:.7rem}
+  .nfm-cat{border:1px solid;border-radius:16px;overflow:hidden}
+  .nfm-cat-head{display:flex;align-items:center;gap:.8rem;width:100%;padding:1rem;background:none;border:none;cursor:pointer;font:inherit;text-align:left}
+  .nfm-cat-ico{display:flex;width:26px;justify-content:center}
+  .nfm-cat-title{flex:1;min-width:0;font-family:'Raleway',sans-serif;font-weight:700;font-size:1rem}
+  .nfm-badge{min-width:28px;height:28px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem;font-variant-numeric:tabular-nums}
+  .nfm-chev{display:flex;transition:transform .25s cubic-bezier(.2,.8,.2,1)}
+  .nfm-rows{display:grid;gap:2px;padding:0 .5rem .6rem}
+  .nfm-row{display:flex;align-items:center;gap:.8rem;width:100%;padding:.8rem .7rem;border:none;border-radius:12px;cursor:pointer;font:inherit;font-size:.98rem;text-align:left}
+  .nfm-row-ico{display:flex;width:26px;justify-content:center}
+  .nfm-row-label{font-weight:600}
+  .nfm-hint{display:flex;gap:.7rem;align-items:flex-start;border-radius:14px;padding:.9rem 1rem;font-size:.86rem;line-height:1.45}
+  .nfm-back{display:flex;align-items:center;gap:.7rem;width:100%;border:1px solid;border-radius:14px;padding:.75rem .95rem;margin-bottom:1rem;font:inherit;font-size:.95rem;cursor:pointer;text-align:left}
+  .nfm-cat-head:focus-visible,.nfm-row:focus-visible,.nfm-back:focus-visible{outline:2px solid #FF671F;outline-offset:-2px}
+  @media (prefers-reduced-motion: no-preference){ .nfm-rows{animation:pcgFade .2s ease both} .nfm-rows > *{animation:pcgRise .32s cubic-bezier(.16,1,.3,1) both} .nfm-rows > :nth-child(2){animation-delay:35ms} .nfm-rows > :nth-child(3){animation-delay:70ms} .nfm-rows > :nth-child(4){animation-delay:105ms} .nfm-rows > :nth-child(5){animation-delay:140ms} .nfm-rows > :nth-child(n+6){animation-delay:175ms} }
+  /* v23.4 app-style motion. Screen changes: only the content area (pcg-page) moves; the rest of
+     the page (sidebar, top bar) gets a quick cross-fade. Forward = in from the right, back = in
+     from the left. Skipped entirely for "reduce motion" and in browsers without View Transitions. */
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .16s; }
+    ::view-transition-group(pcg-page) { animation-duration: 0s; }
+    ::view-transition-old(pcg-page) { animation: pcgOutFwd .22s cubic-bezier(.4,0,1,1) both; }
+    ::view-transition-new(pcg-page) { animation: pcgInFwd .34s cubic-bezier(.2,.8,.2,1) both; }
+    html[data-nav-dir="back"]::view-transition-old(pcg-page) { animation-name: pcgOutBack; }
+    html[data-nav-dir="back"]::view-transition-new(pcg-page) { animation-name: pcgInBack; }
+    @keyframes pcgInFwd  { from { opacity: 0; transform: translateX(32px) scale(.992); } to { opacity: 1; transform: none; } }
+    @keyframes pcgOutFwd { to   { opacity: 0; transform: translateX(-18px) scale(.992); } }
+    @keyframes pcgInBack { from { opacity: 0; transform: translateX(-32px) scale(.992); } to { opacity: 1; transform: none; } }
+    @keyframes pcgOutBack{ to   { opacity: 0; transform: translateX(18px) scale(.992); } }
+    @media (max-width: 768px) {
+      @keyframes pcgInFwd  { from { opacity: 0; transform: translateX(56px); } to { opacity: 1; transform: none; } }
+      @keyframes pcgInBack { from { opacity: 0; transform: translateX(-56px); } to { opacity: 1; transform: none; } }
+    }
+    /* v23.5 phones. Leaving / returning to a phone home slides the whole screen (iOS push / pop). */
+    html[data-nav-shell]::view-transition-old(root) { animation: pcgOutFwd .26s cubic-bezier(.4,0,1,1) both; }
+    html[data-nav-shell]::view-transition-new(root) { animation: pcgInFwd .38s cubic-bezier(.2,.8,.2,1) both; }
+    html[data-nav-shell][data-nav-dir="back"]::view-transition-old(root) { animation-name: pcgOutBack; }
+    html[data-nav-shell][data-nav-dir="back"]::view-transition-new(root) { animation-name: pcgInBack; }
+    /* Bottom tabs in the phone homes: the old tab fades out fast; the new tab's cards then cascade in. */
+    html[data-nav-dir="tab"]::view-transition-old(root) { animation: pcgTabOut .12s ease-in both; }
+    html[data-nav-dir="tab"]::view-transition-new(root) { animation: pcgFade .16s ease both; }
+    /* v23.6 cascade: a screen's cards rise in one after another (55 ms apart, ~0.45 s each; the
+       9th card on all start together so long lists never feel slow). */
+    .pcg-stagger > *, .pcg-stagger-2 > * > * { animation: pcgRise .46s cubic-bezier(.16,1,.3,1) both; animation-delay: 440ms; }
+    .pcg-stagger > :nth-child(1), .pcg-stagger-2 > * > :nth-child(1) { animation-delay: 0ms; }
+    .pcg-stagger > :nth-child(2), .pcg-stagger-2 > * > :nth-child(2) { animation-delay: 55ms; }
+    .pcg-stagger > :nth-child(3), .pcg-stagger-2 > * > :nth-child(3) { animation-delay: 110ms; }
+    .pcg-stagger > :nth-child(4), .pcg-stagger-2 > * > :nth-child(4) { animation-delay: 165ms; }
+    .pcg-stagger > :nth-child(5), .pcg-stagger-2 > * > :nth-child(5) { animation-delay: 220ms; }
+    .pcg-stagger > :nth-child(6), .pcg-stagger-2 > * > :nth-child(6) { animation-delay: 275ms; }
+    .pcg-stagger > :nth-child(7), .pcg-stagger-2 > * > :nth-child(7) { animation-delay: 330ms; }
+    .pcg-stagger > :nth-child(8), .pcg-stagger-2 > * > :nth-child(8) { animation-delay: 385ms; }
+    .pcg-stagger > :nth-child(9), .pcg-stagger-2 > * > :nth-child(9) { animation-delay: 440ms; }
+    @keyframes pcgRise { from { opacity: 0; transform: translateY(16px) scale(.985); } to { opacity: 1; transform: none; } }
+    @keyframes pcgTabOut { to { opacity: 0; } }
+    @keyframes pcgTabIn  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    /* Sheets slide up with a soft spring; menus pop from their button; backdrops fade. */
+    .pcg-sheet    { animation: pcgSheetUp .42s cubic-bezier(.16,1,.3,1) both; }
+    .pcg-backdrop { animation: pcgFade .25s ease both; }
+    .pcg-pop      { animation: pcgPop .2s cubic-bezier(.2,.8,.2,1) both; transform-origin: top right; }
+    @keyframes pcgSheetUp { from { transform: translateY(100%); } to { transform: none; } }
+    @keyframes pcgFade    { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes pcgPop     { from { opacity: 0; transform: scale(.92) translateY(-4px); } to { opacity: 1; transform: none; } }
+    /* Tap feedback on touch screens: buttons and tiles press in slightly. Buttons that set their
+       own transform inline keep it (inline styles win). */
+    @media (hover: none) and (pointer: coarse) {
+      button, [role="button"], .fin-btn { transition: transform .16s cubic-bezier(.2,.8,.2,1); -webkit-tap-highlight-color: transparent; }
+      button:active, [role="button"]:active, .fin-btn:active { transform: scale(.965); transition-duration: .06s; }
+    }
+  }
 </style>
 </head>
 <body>
