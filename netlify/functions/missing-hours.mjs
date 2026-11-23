@@ -21,7 +21,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
-import { syncDistricts } from './_shared/store-status.mjs';
+import { syncDistricts, refreshStoreList } from './_shared/store-status.mjs';
 import { loadRoster, saveToDrive } from './transfer-notice.mjs';
 import { callPaycor } from './paycor.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
@@ -179,7 +179,7 @@ export default async (request) => {
   if (!authed) return json(401, { error: 'unauthorized' });
   const realType = authed.realUserType || authed.userType;
   if (!['executive', 'it', 'dm', 'director', 'manager'].includes(realType)) return json(403, { error: 'forbidden' });
-  await syncDistricts(STORES, ALL_STORES);
+  await refreshStoreList(STORES, ALL_STORES); // v23.3: skips permanently closed stores (Locations) and syncs districts
   const me = (await db`SELECT name, store_pc FROM users WHERE id = ${authed.sub}`)[0] || {};
   const myName = me.name || authed.name || authed.username || '';
   // Manager → their store; DM / Director → their districts; exec / IT → all (user, 2026-11-11).

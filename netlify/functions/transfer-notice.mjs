@@ -19,7 +19,7 @@ import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
-import { syncDistricts } from './_shared/store-status.mjs';
+import { syncDistricts, refreshStoreList } from './_shared/store-status.mjs';
 import { callPaycor } from './paycor.mjs';
 import { pickCurrentPayRate, readEmploymentType, missingTransferFields, letterFingerprint, transferFileName, transferAlertText, transferEmailHtml } from '../../src/transfer-notice.mjs';
 import { buildFolderFindQuery, buildFolderCreateParams, buildTaggedUploadParams, buildTaggedFileQuery } from '../../src/incident-report-drive.mjs';
@@ -227,7 +227,7 @@ export default async (request) => {
   if (!authed) return json(401, { error: 'unauthorized' });
   const ut = authed.userType;
   if (ut === 'kiosk_pulse' || ut === 'kiosk_upload') return json(403, { error: 'forbidden' });
-  await syncDistricts(STORES, ALL_STORES);
+  await refreshStoreList(STORES, ALL_STORES); // v23.3: skips permanently closed stores (Locations) and syncs districts
 
   let allowed = null; // null = every store
   if (ut === 'dm' || ut === 'director') {

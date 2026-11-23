@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
-import { syncDistricts } from './_shared/store-status.mjs';
+import { syncDistricts, refreshStoreList } from './_shared/store-status.mjs';
 import { loadRoster, liveEmployee, saveToDrive, emailWithPdf } from './transfer-notice.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
 import { payBasisOf, currentPayOf, rateProblem, missingPayFields, signatureProblem, secondLineLabel, storeManagerNa, signerCode, payFingerprint, payFileName, payAlertText, payEmailHtml, approvalAlertText, approvalEmailHtml } from '../../src/pay-increase.mjs';
@@ -182,6 +182,9 @@ export default async (request) => {
   const authed = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db);
   if (!authed) return json(401, { error: 'unauthorized' });
   const realType = authed.realUserType || authed.userType;
+  // v23.3: permanently closed stores (Locations) are left out of every list here — Willits' Paycor
+  // company is shut, and asking it for a roster returned 403 (2026-11-23).
+  await refreshStoreList(STORES, ALL_STORES);
   const me = (await db`SELECT id, name, username, store_pc FROM users WHERE id = ${authed.sub}`)[0] || {};
   const myName = me.name || authed.name || authed.username || '';
 
