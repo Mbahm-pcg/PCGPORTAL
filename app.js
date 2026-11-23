@@ -2708,7 +2708,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     x.fillText(name, 15, 72);
     return c.toDataURL("image/png");
   }
-  function OfficeComplete({ th, isMobile, form, onClose }) {
+  function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount }) {
     const S = finStyles(th);
     const [eff, setEff] = useState3("");
     const [pay, setPay] = useState3("");
@@ -2718,6 +2718,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [typed, setTyped] = useState3("");
     const [busy, setBusy] = useState3(false);
     const [err, setErr] = useState3(null);
+    const [after, setAfter] = useState3(null);
+    const [confirming, setConfirming] = useState3(false);
     const typedOk = typed.trim().length >= 2;
     const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && (mode === "type" ? typedOk : !!sig);
     const done = async () => {
@@ -2725,16 +2727,74 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setErr(null);
       try {
         const b = await call("", { action: "complete", id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === "type" ? typedSignature(typed.trim()) : sig });
-        onClose(`Completed: ${b.drive?.saved ? "filed in Google Drive" : `NOT saved to Drive (${b.drive?.error || "error"}), tell IT`}. ${form.submittedBy} was emailed the effective date.`);
+        const msg = `Completed: ${b.drive?.saved ? "filed in Google Drive" : `NOT saved to Drive (${b.drive?.error || "error"}), tell IT`}. ${form.submittedBy} was emailed the effective date.`;
+        if (b.paycorReady) {
+          setAfter({ msg });
+          setBusy(false);
+        } else onClose(msg);
       } catch (e) {
         setErr(e.message);
         setBusy(false);
       }
     };
+    if (after) return /* @__PURE__ */ React.createElement("div", { className: "pcg-stagger", style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem", display: "grid", gap: "0.9rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, after.msg), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, "Last step: Paycor"), /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: th.muted, fontSize: "0.9rem" } }, form.employeeName, ", ", form.storeName, ": ", fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", effective ", usLong(eff), ".")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(after.msg) }, "Not now"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => setConfirming(true) }, "Update pay in Paycor")), /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: th.muted, fontSize: "0.8rem", textAlign: "right" } }, "Not now leaves it under Complete, where you can do it later."), confirming && /* @__PURE__ */ React.createElement(PaycorConfirm, { th, form, effectiveDate: eff, notifyCount, onCancel: () => setConfirming(false), onDone: (m) => onClose(`${after.msg} ${m}`) }));
     return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", approved by ", form.approvedBy)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: form.id, title: `Pay increase for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "24em" } }, "Everything on the form is locked. Fill in the For Office Use Only box below and sign; that files it in Google Drive and emails ", form.submittedBy, " when it was completed and when it takes effect.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(3, minmax(0,1fr))", gap: "0.8rem", marginTop: "1rem", alignItems: "end" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eff, onChange: (e) => setEff(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective pay rate paycheck date", /* @__PURE__ */ React.createElement("input", { type: "date", value: pay, onChange: (e) => setPay(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("div", { style: S.fieldLabel }, "Payroll Manager signature", mode === "type" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { value: typed, onChange: (e) => setTyped(e.target.value), placeholder: "Type your full name to sign", "aria-label": "Type your full name to sign", maxLength: 60, style: S.input }), typedOk && /* @__PURE__ */ React.createElement("span", { style: { display: "block", background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.15rem 0.6rem", fontFamily: '"Segoe Script", "Lucida Handwriting", "Brush Script MT", cursive', fontStyle: "italic", fontSize: "1.35rem", color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, typed)) : sig ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), title: "Sign again", style: { background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("img", { src: sig, alt: "Your signature", style: { maxHeight: 38, maxWidth: "100%" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), style: { ...S.ghost, borderStyle: "dashed", color: O } }, "Tap to sign"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setMode(mode === "type" ? "draw" : "type"), style: { ...S.link, color: O, fontSize: "0.8rem", fontWeight: 700, alignSelf: "flex-start" } }, mode === "type" ? "Draw it instead" : "Type it instead"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ok && !busy ? 1 : 0.5 }, disabled: !ok || busy, onClick: done }, busy ? "Completing\u2026" : "Complete & file")), signing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: "Your signature \u2014 Payroll Manager", onCancel: () => setSigning(false), onDone: (img) => {
       setSig(img);
       setSigning(false);
     } }));
+  }
+  var usLong = (iso) => iso ? (/* @__PURE__ */ new Date(iso + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+  function PaycorConfirm({ th, form, effectiveDate, notifyCount, onCancel, onDone }) {
+    const S = finStyles(th);
+    const [busy, setBusy] = useState3(false);
+    const [err, setErr] = useState3(null);
+    const now = !!effectiveDate && effectiveDate <= todayIso3();
+    const go = async () => {
+      setBusy(true);
+      setErr(null);
+      try {
+        const b = await call("", { action: "queuePayRate", id: form.id });
+        onDone(b.queued ? `Queued: ${form.employeeName}'s pay will be updated in Paycor automatically on ${usLong(b.effectiveDate || effectiveDate)}${b.notified ? `; ${b.notified} ${b.notified === 1 ? "person was" : "people were"} notified` : ""}.` : b.paycor?.status === "sent" ? `Pay updated in Paycor for ${form.employeeName}.` : `Paycor NOT updated for ${form.employeeName}: ${b.paycor?.error || "error"}.`);
+      } catch (e) {
+        setErr(e.message);
+        setBusy(false);
+      }
+    };
+    const n = notifyCount || 0;
+    const people = `${n} ${n === 1 ? "person" : "people"}`;
+    return /* @__PURE__ */ React.createElement("div", { className: "pcg-backdrop", onClick: busy ? void 0 : onCancel, style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9e3, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "pcg-pop", role: "dialog", "aria-modal": "true", "aria-labelledby": "pi-paycor-q", onClick: (e) => e.stopPropagation(), style: { background: th.card, color: th.text, borderRadius: 16, width: "min(460px, 100%)", padding: "1.2rem 1.25rem", display: "grid", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("div", { id: "pi-paycor-q", style: { ...S.panelTitle, fontSize: "1.1rem" } }, "Update pay in Paycor?"), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 0.9rem", borderRadius: 12, background: th.card3 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.05rem", marginTop: 2 } }, fmtPay(form.currentRate, form.payBasis), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "to"), " ", /* @__PURE__ */ React.createElement("b", { style: { color: O } }, fmtPay(form.newRate, form.payBasis)))), /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: "0.95rem" } }, now ? /* @__PURE__ */ React.createElement(React.Fragment, null, "The effective date (", usLong(effectiveDate), ") is today or already past, so this will be updated on Paycor ", /* @__PURE__ */ React.createElement("b", null, "right now"), ".") : /* @__PURE__ */ React.createElement(React.Fragment, null, "This will automatically be updated on Paycor on ", /* @__PURE__ */ React.createElement("b", null, usLong(effectiveDate)), ". Paycor keeps paying ", fmtPay(form.currentRate, form.payBasis), " until then.")), /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: "0.84rem", color: th.muted } }, n ? now ? `The ${people} on the Pay Increase Paycor update list will be told how it went.` : `The ${people} on the Pay Increase Paycor update list will be notified now, and again on that day.` : "No one is on the Pay Increase Paycor update list yet, so only you will be told how it went.", " If Paycor no longer shows ", fmtPay(form.currentRate, form.payBasis), " then, nothing is changed and you are told."), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, err), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600 } }, "Do you want to continue?"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: onCancel, disabled: busy }, "Cancel"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: busy ? 0.6 : 1 }, onClick: go, disabled: busy, autoFocus: true }, busy ? now ? "Updating..." : "Queuing..." : "Continue"))));
+  }
+  function PaycorRatesModal({ th, form, onClose }) {
+    const S = finStyles(th);
+    const [data, setData] = useState3(null);
+    const [err, setErr] = useState3(null);
+    useEffect3(() => {
+      call("", { action: "paycorRates", id: form.id }).then(setData).catch((e) => setErr(e.message));
+    }, []);
+    const d = (x) => x ? (/* @__PURE__ */ new Date(x + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+    const STATE = { ready: "Paycor still shows the form\u2019s current pay, so the raise can be written.", already: "Paycor already shows the new pay. Nothing to send.", mismatch: "Paycor shows a different pay than the form. Nothing will be written; check it in Paycor.", none: "Paycor has no pay rate for this employee." };
+    return /* @__PURE__ */ React.createElement("div", { className: "pcg-backdrop", onClick: onClose, style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9e3, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "pcg-pop", onClick: (e) => e.stopPropagation(), style: { background: th.card, color: th.text, borderRadius: 14, width: "min(760px, 100%)", maxHeight: "88vh", overflowY: "auto", padding: "1.1rem 1.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, "Paycor pay rates: ", form.employeeName), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onClose, style: S.ghost }, "Close")), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem", margin: "0.3rem 0 0.8rem" } }, "Read only. Nothing here changes Paycor."), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, err), !data && !err && /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Asking Paycor\u2026"), data && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: data.state === "ready" ? "success" : "warn" }, STATE[data.state] || data.state), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", minWidth: 520 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Slot", "Type", "Description", "Rate", "Yearly", "Starts", "Ends"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: "left", padding: "6px 8px", color: th.muted, borderBottom: `1px solid ${th.cardBorder}` } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, data.rates.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: r.id || i, style: { background: data.current && r.id === data.current.id ? "#FF671F12" : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "6px 8px" } }, r.sequenceNumber ?? ""), /* @__PURE__ */ React.createElement("td", { style: { padding: "6px 8px" } }, r.type || ""), /* @__PURE__ */ React.createElement("td", { style: { padding: "6px 8px" } }, r.description || ""), /* @__PURE__ */ React.createElement("td", { style: { padding: "6px 8px" } }, r.payRate != null ? `$${r.payRate.toFixed(2)}` : ""), /* @__PURE__ */ React.createElement("td", { style: { padding: "6px 8px" } }, r.annualPayRate != null ? `$${Math.round(r.annualPayRate).toLocaleString()}` : ""), /* @__PURE__ */ React.createElement("td", { style: { padding: "6px 8px" } }, d(r.effectiveStartDate)), /* @__PURE__ */ React.createElement("td", { style: { padding: "6px 8px" } }, d(r.effectiveEndDate))))))), data.wouldSend && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, margin: "1rem 0 0.3rem" } }, "What the portal would send (new rate)"), /* @__PURE__ */ React.createElement("pre", { style: { background: th.card3, borderRadius: 8, padding: "0.7rem", fontSize: "0.8rem", overflowX: "auto", margin: 0 } }, JSON.stringify(data.wouldSend, null, 2))))));
+  }
+  function ChangeEffective({ th, form, onDone, onCancel }) {
+    const S = finStyles(th);
+    const [eff, setEff] = useState3(form.effectiveDate || "");
+    const [pay, setPay] = useState3(form.paycheckDate || "");
+    const [reason, setReason] = useState3("");
+    const [busy, setBusy] = useState3(false);
+    const [err, setErr] = useState3(null);
+    const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && reason.trim().length >= 3 && eff !== form.effectiveDate;
+    const save = async () => {
+      setBusy(true);
+      setErr(null);
+      try {
+        const b = await call("", { action: "changeEffective", id: form.id, effectiveDate: eff, paycheckDate: pay, reason: reason.trim() });
+        onDone(`Effective date changed to ${(/* @__PURE__ */ new Date(eff + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${b.paycor?.status === "sent" ? " (Paycor updated too)" : b.queued ? "; the Paycor update moves with it" : ""}. ${form.submittedBy} was emailed.`);
+      } catch (e) {
+        setErr(e.message);
+        setBusy(false);
+      }
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { flexBasis: "100%", marginTop: "0.6rem", padding: "0.8rem 0.9rem", borderRadius: 10, background: th.card3, display: "grid", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "New effective date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eff, onChange: (e) => setEff(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "New paycheck date", /* @__PURE__ */ React.createElement("input", { type: "date", value: pay, onChange: (e) => setPay(e.target.value), style: S.input }))), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Why is it changing?", /* @__PURE__ */ React.createElement("input", { value: reason, onChange: (e) => setReason(e.target.value), maxLength: 200, style: S.input, placeholder: "e.g. raise pushed back one pay period" })), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: onCancel, disabled: busy }, "Cancel"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ok && !busy ? 1 : 0.5 }, disabled: !ok || busy, onClick: save }, busy ? "Saving\u2026" : "Change date")));
   }
   var Locked = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `pi-locked${value ? "" : " pi-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function PayIncrease({ th, isMobile, onBack }) {
@@ -2768,6 +2828,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [canOffice, setCanOffice] = useState3(false);
     const [office, setOffice] = useState3([]);
     const [completing, setCompleting] = useState3(null);
+    const [payrateWrite, setPayrateWrite] = useState3(false);
+    const [canAdmin, setCanAdmin] = useState3(false);
+    const [today, setToday] = useState3("");
+    const [ratesFor, setRatesFor] = useState3(null);
+    const [moving, setMoving] = useState3(null);
+    const [rowBusy, setRowBusy] = useState3(null);
+    const [queueFor, setQueueFor] = useState3(null);
+    const [notifyCount, setNotifyCount] = useState3(0);
     const [complete, setComplete] = useState3([]);
     const [view, setView] = useState3("list");
     const [listTab, setListTab] = useState3("pending");
@@ -2790,6 +2858,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setComplete(b.complete || []);
       setCanOffice(!!b.canOffice);
       setOffice(b.office || []);
+      setPayrateWrite(!!b.payrateWrite);
+      setCanAdmin(!!b.canAdmin);
+      setToday(b.today || "");
+      setNotifyCount(b.paycorNotifyCount || 0);
       let open = null;
       try {
         open = sessionStorage.getItem("pi_open");
@@ -2807,6 +2879,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setView("list");
         setListTab("office");
         if (b.canOffice) setCompleting(hitOffice);
+      }
+      if (open && !hit && !hitOffice && (b.complete || []).some((x) => String(x.id) === String(open))) {
+        setView("list");
+        setListTab("complete");
       }
     }).catch((e) => {
       setError(e.message);
@@ -2963,7 +3039,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setReviewing(null);
       loadMain();
       if (msg) setSaved({ state: "decided", msg });
-    } }) : completing ? /* @__PURE__ */ React.createElement(OfficeComplete, { th, isMobile, form: completing, onClose: (msg) => {
+    } }) : completing ? /* @__PURE__ */ React.createElement(OfficeComplete, { th, isMobile, form: completing, payrateWrite, notifyCount, onClose: (msg) => {
       setCompleting(null);
       loadMain();
       if (msg) setSaved({ state: "decided", msg });
@@ -2979,10 +3055,31 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         style: { ...S.ghost, minHeight: 36, padding: "0.4rem 0.95rem", background: listTab === k ? O : th.card3, color: listTab === k ? "#fff" : th.text }
       },
       label
-    ))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
+    ))), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" } }, canAdmin && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "fin-btn",
+        onClick: async () => {
+          const on = !payrateWrite;
+          if (on && !window.confirm('Switch ON updating pay in Paycor? The office then gets an "Update pay in Paycor" button after completing a pay increase, and queued ones are sent on their effective date.')) return;
+          try {
+            await call("", { action: "payrateSwitch", enabled: on });
+            setPayrateWrite(on);
+            setSaved({ state: "decided", msg: `Updating pay in Paycor is now ${on ? "ON" : "OFF"}.` });
+          } catch (e) {
+            setError(e.message);
+          }
+        },
+        style: { ...S.ghost, minHeight: 36, padding: "0.35rem 0.8rem", fontSize: "0.82rem", borderColor: payrateWrite ? "#16a34a" : th.cardBorder, color: payrateWrite ? "#16a34a" : th.muted },
+        title: "Exec / IT only"
+      },
+      "Update Paycor: ",
+      payrateWrite ? "ON" : "OFF"
+    ), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
       setSaved(null);
       setView("form");
-    } }, "Start a pay increase")), listTab === "pending" && (pending && pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, pending.map((f) => /* @__PURE__ */ React.createElement(
+    } }, "Start a pay increase"))), listTab === "pending" && (pending && pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, pending.map((f) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: f.id,
@@ -3004,7 +3101,36 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       },
       /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, ", ", fmtPay(f.currentRate, f.payBasis), " to ", fmtPay(f.newRate, f.payBasis)), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Sent by ", f.submittedBy, ", approved by ", f.approvedBy, f.approvedAt ? ` on ${new Date(f.approvedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "", ": waiting on the effective date")),
       /* @__PURE__ */ React.createElement("span", { style: { color: canOffice ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canOffice ? "Complete" : "View")
-    ))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting on the office.")), listTab === "complete" && (complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, ", ", fmtPay(f.currentRate, f.payBasis), " to ", fmtPay(f.newRate, f.payBasis)), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Sent by ", f.submittedBy, f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : `, ${new Date(f.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`, f.effectiveDate ? `. Effective ${(/* @__PURE__ */ new Date(f.effectiveDate + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${f.officeBy ? ` (set by ${f.officeBy})` : ""}` : "")), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved pay increases yet.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: viewing.id, title: `Pay increase for ${viewing.employeeName}`, onClose: () => setViewing(null) }))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, then to the office to set the effective date; you're emailed when it's approved and again when it's complete."), role === "office_staff" && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Pay increases show here once IT adds you by name to Admin \xB7 Notifications \xB7 Pay Increase (office)."), role === "manager" && employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no current ", basis === "year" ? "salary" : "hourly rate", " for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this form can't be made. Fix it in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The form changed after it was signed, so those signatures no longer count. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "pi-paper", style: {
+    ))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting on the office.")), listTab === "complete" && (complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.75rem 0.95rem", borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, f.employeeName), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, f.storeName, ", ", fmtPay(f.currentRate, f.payBasis), " to ", fmtPay(f.newRate, f.payBasis)), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Sent by ", f.submittedBy, f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : `, ${new Date(f.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`, f.effectiveDate ? `. Effective ${(/* @__PURE__ */ new Date(f.effectiveDate + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${f.officeBy ? ` (set by ${f.officeBy})` : ""}` : "")), f.effectiveDate && /* @__PURE__ */ React.createElement("span", { style: { flexBasis: "100%", fontSize: "0.8rem", fontWeight: 600, color: f.paycorRateStatus === "sent" ? "#16a34a" : f.paycorRateStatus === "queued" || f.paycorRateStatus === "sending" ? O : f.paycorRateStatus === "failed" || f.paycorRateStatus === "mismatch" ? "#dc2626" : th.muted } }, f.paycorRateStatus === "sent" ? "Pay updated in Paycor" : f.paycorRateStatus === "queued" ? `Queued: updates in Paycor automatically on ${usLong(f.effectiveDate)}${f.paycorQueuedBy ? ` (queued by ${f.paycorQueuedBy})` : ""}` : f.paycorRateStatus === "sending" ? "Sending to Paycor now" : f.paycorRateStatus === "cancelled" ? "Paycor update cancelled" : f.paycorRateStatus === "mismatch" ? `Not written to Paycor: ${f.paycorRateError}` : f.paycorRateStatus === "failed" ? `Paycor update failed: ${f.paycorRateError}` : "Not sent to Paycor", (f.effectiveChanges || []).length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 500 } }, " \xB7 effective date changed ", (f.effectiveChanges || []).length, "\xD7")), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", flexWrap: "wrap", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View form"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"), payrateWrite && canOffice && f.effectiveDate && [null, "failed", "mismatch", "cancelled"].includes(f.paycorRateStatus || null) && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setQueueFor(f), style: { ...S.link, color: O } }, f.paycorRateStatus === "failed" || f.paycorRateStatus === "mismatch" ? "Try Paycor again" : "Update pay in Paycor"), canOffice && f.paycorRateStatus === "queued" && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "fin-btn",
+        disabled: rowBusy === f.id,
+        style: { ...S.link, color: th.muted },
+        onClick: async () => {
+          if (!window.confirm(`Cancel the Paycor update for ${f.employeeName}? Paycor will not be changed on ${usLong(f.effectiveDate)}.`)) return;
+          setRowBusy(f.id);
+          try {
+            await call("", { action: "cancelPayRate", id: f.id });
+            setSaved({ state: "decided", msg: `Paycor update cancelled for ${f.employeeName}.` });
+            loadMain();
+          } catch (e) {
+            setError(e.message);
+          }
+          setRowBusy(null);
+        }
+      },
+      rowBusy === f.id ? "Cancelling..." : "Cancel Paycor update"
+    ), canOffice && f.effectiveDate && today && f.effectiveDate > today && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setMoving(moving === f.id ? null : f.id), style: { ...S.link, color: O } }, "Change effective date"), canAdmin && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setRatesFor(f), style: { ...S.link, color: th.muted } }, "See Paycor pay rates")), moving === f.id && /* @__PURE__ */ React.createElement(ChangeEffective, { th, form: f, onCancel: () => setMoving(null), onDone: (m) => {
+      setMoving(null);
+      setSaved({ state: "decided", msg: m });
+      loadMain();
+    } })))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "No approved pay increases yet.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: viewing.id, title: `Pay increase for ${viewing.employeeName}`, onClose: () => setViewing(null) }), ratesFor && /* @__PURE__ */ React.createElement(PaycorRatesModal, { th, form: ratesFor, onClose: () => setRatesFor(null) }), queueFor && /* @__PURE__ */ React.createElement(PaycorConfirm, { th, form: queueFor, effectiveDate: queueFor.effectiveDate, notifyCount, onCancel: () => setQueueFor(null), onDone: (m) => {
+      setQueueFor(null);
+      setSaved({ state: "decided", msg: m });
+      loadMain();
+    } }))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, then to the office to set the effective date; you're emailed when it's approved and again when it's complete."), role === "office_staff" && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Pay increases show here once IT adds you by name to Admin \xB7 Notifications \xB7 Pay Increase (office)."), role === "manager" && employees && !employees.length && !error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no current ", basis === "year" ? "salary" : "hourly rate", " for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this form can't be made. Fix it in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The form changed after it was signed, so those signatures no longer count. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "pi-paper", style: {
       borderRadius: 6,
       boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
       padding: isMobile ? "1.2rem 1rem 1.6rem" : "1.6rem 4.2rem 2.4rem",
@@ -22423,6 +22549,7 @@ ${t2.slice(0, 300)}`);
     payIncrease: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 20V6M7 11l5-5 5 5" }), /* @__PURE__ */ React.createElement("path", { d: "M5 20h14" })),
     payIncreaseApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M20 6 9 17l-5-5" })),
     payIncreaseOffice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "4.5", width: "17", height: "16", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 9.5h17M8 3v3M16 3v3" }), /* @__PURE__ */ React.createElement("path", { d: "m9 15 2 2 4-4" })),
+    payIncreasePaycor: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M19.5 9A8 8 0 0 0 5 7.5" }), /* @__PURE__ */ React.createElement("path", { d: "M4.5 3.5v4h4" }), /* @__PURE__ */ React.createElement("path", { d: "M4.5 15A8 8 0 0 0 19 16.5" }), /* @__PURE__ */ React.createElement("path", { d: "M19.5 20.5v-4h-4" }), /* @__PURE__ */ React.createElement("path", { d: "M12 8.5v7M14 10h-2.7a1.3 1.3 0 0 0 0 2.6h1.4a1.3 1.3 0 0 1 0 2.6H10" })),
     violationApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z" }), /* @__PURE__ */ React.createElement("path", { d: "m8.5 12 2.5 2.5 4.5-5" })),
     timeOffRequest: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "m9.5 13.5 5 5M14.5 13.5l-5 5" })),
     interviewReminders: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 5h16v11H8l-4 4Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10.5", r: "2.2" }), /* @__PURE__ */ React.createElement("path", { d: "M8.5 14.2a4 4 0 0 1 7 0" })),
@@ -22446,6 +22573,7 @@ ${t2.slice(0, 300)}`);
     payIncrease: "Pay increases",
     payIncreaseApprovers: "Pay increase approvals",
     payIncreaseOffice: "Pay increase office step",
+    payIncreasePaycor: "Pay increase Paycor updates",
     timeOffRequest: "Time off requests",
     violationApprovers: "Violation notice approvals",
     resignationLetter: "Resignation letters",
@@ -22744,7 +22872,7 @@ ${t2.slice(0, 300)}`);
     const [nfDetail, setNfDetail] = useState13(false);
     const [nfQuery, setNfQuery] = useState13("");
     const [nfOpen, setNfOpen] = useState13({ ops: true });
-    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1", resignationLetter: "pcg_resignation_notify_v1", missingHoursApprovers: "pcg_missing_hours_approvers_v1", payIncreaseOffice: "pcg_pay_increase_office_step_v1" };
+    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1", resignationLetter: "pcg_resignation_notify_v1", missingHoursApprovers: "pcg_missing_hours_approvers_v1", payIncreaseOffice: "pcg_pay_increase_office_step_v1", payIncreasePaycor: "pcg_pay_increase_paycor_notify_v1" };
     const [notifCounts, setNotifCounts] = useState13({});
     useEffect10(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -22974,6 +23102,7 @@ ${t2.slice(0, 300)}`);
           { key: "pay", title: "Approvals & Compensation", icon: "grpMoney", items: [
             { id: "payIncreaseApprovers", label: "Pay Increase approval", count: notifCounts.payIncreaseApprovers },
             { id: "payIncreaseOffice", label: "Pay Increase office step", count: notifCounts.payIncreaseOffice },
+            { id: "payIncreasePaycor", label: "Pay Increase Paycor update", count: notifCounts.payIncreasePaycor },
             { id: "payIncrease", label: "Pay Increase (office)", count: notifCounts.payIncrease },
             { id: "missingHoursApprovers", label: "Missing Hours approval", count: notifCounts.missingHoursApprovers }
           ] },
@@ -23229,6 +23358,19 @@ ${t2.slice(0, 300)}`);
         onCountChange: setNotifCount("payIncreaseOffice"),
         description: "These people do the office step of Tools \xB7 Pay Increase. Once Mike approves a pay increase, they get an email with an Open button, a text and a phone push, and a reminder every 3 hours until they set the effective date, the paycheck date and sign. Only people added by name (and exec / IT) can complete it; while no one is named here, the people named on Pay Increase (office) can. Completing it files it in Google Drive and emails the person who sent it.",
         smsLabel: "Pay Increase office step SMS Numbers"
+      }
+    ), notifSubTab === "payIncreasePaycor" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_pay_increase_paycor_notify_v1",
+        tagKey: "payIncreasePaycor",
+        onCountChange: setNotifCount("payIncreasePaycor"),
+        description: "Who hears about pay increases going into Paycor. After the office completes a pay increase and presses Update pay in Paycor, these people get an email (with an Open button), a text and a phone push saying it's queued and the day it will be updated. On that day it's sent to Paycor automatically and they're told again: updated, or not updated and why. Also told if it's cancelled or its date moves. While no one is here, only the person who queued it is told.",
+        smsLabel: "Pay Increase Paycor update SMS Numbers"
       }
     ), notifSubTab === "payIncreaseApprovers" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
       ManualNotifyListPanel,
@@ -30961,7 +31103,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.8";
+  var APP_VERSION = "v23.10";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

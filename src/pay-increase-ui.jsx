@@ -205,7 +205,7 @@ function typedSignature(name) {
   return c.toDataURL('image/png');
 }
 
-function OfficeComplete({ th, isMobile, form, onClose }) {
+function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount }) {
   const S = finStyles(th);
   const [eff, setEff] = useState('');
   const [pay, setPay] = useState('');
@@ -215,15 +215,34 @@ function OfficeComplete({ th, isMobile, form, onClose }) {
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [after, setAfter] = useState(null); // v23.10 step 2: { msg } once completed, to offer the Paycor update
+  const [confirming, setConfirming] = useState(false);
   const typedOk = typed.trim().length >= 2;
   const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && (mode === 'type' ? typedOk : !!sig);
   const done = async () => {
     setBusy(true); setErr(null);
     try {
       const b = await call('', { action: 'complete', id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === 'type' ? typedSignature(typed.trim()) : sig });
-      onClose(`Completed: ${b.drive?.saved ? 'filed in Google Drive' : `NOT saved to Drive (${b.drive?.error || 'error'}), tell IT`}. ${form.submittedBy} was emailed the effective date.`);
+      const msg = `Completed: ${b.drive?.saved ? 'filed in Google Drive' : `NOT saved to Drive (${b.drive?.error || 'error'}), tell IT`}. ${form.submittedBy} was emailed the effective date.`;
+      // v23.10: with Paycor updates switched on, step 2 offers "Update pay in Paycor".
+      if (b.paycorReady) { setAfter({ msg }); setBusy(false); } else onClose(msg);
     } catch (e) { setErr(e.message); setBusy(false); }
   };
+  if (after) return (
+    <div className="pcg-stagger" style={{ ...S.panel, padding: '1rem 1.1rem', marginBottom: '1.4rem', display: 'grid', gap: '0.9rem' }}>
+      <FinBanner th={th} tone="success">{after.msg}</FinBanner>
+      <div style={{ display: 'grid', gap: '0.35rem' }}>
+        <div style={{ ...S.panelTitle, fontSize: '1.05rem' }}>Last step: Paycor</div>
+        <p style={{ margin: 0, color: th.muted, fontSize: '0.9rem' }}>{form.employeeName}, {form.storeName}: {fmtPay(form.currentRate, form.payBasis)} to {fmtPay(form.newRate, form.payBasis)}, effective {usLong(eff)}.</p>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', flexWrap: 'wrap' }}>
+        <button type="button" className="fin-btn" style={S.ghost} onClick={() => onClose(after.msg)}>Not now</button>
+        <button type="button" className="fin-btn" style={S.primary} onClick={() => setConfirming(true)}>Update pay in Paycor</button>
+      </div>
+      <p style={{ margin: 0, color: th.muted, fontSize: '0.8rem', textAlign: 'right' }}>Not now leaves it under Complete, where you can do it later.</p>
+      {confirming && <PaycorConfirm th={th} form={form} effectiveDate={eff} notifyCount={notifyCount} onCancel={() => setConfirming(false)} onDone={(m) => onClose(`${after.msg} ${m}`)} />}
+    </div>
+  );
   return (
     <div style={{ ...S.panel, padding: '1rem 1.1rem', marginBottom: '1.4rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
@@ -252,6 +271,122 @@ function OfficeComplete({ th, isMobile, form, onClose }) {
         <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ok && !busy ? 1 : 0.5 }} disabled={!ok || busy} onClick={done}>{busy ? 'Completing…' : 'Complete & file'}</button>
       </div>
       {signing && <SignatureModal th={th} title="Your signature — Payroll Manager" onCancel={() => setSigning(false)} onDone={(img) => { setSig(img); setSigning(false); }} />}
+    </div>
+  );
+}
+
+const usLong = (iso) => (iso ? new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+
+// v23.10 "Update pay in Paycor" -> "This will automatically be updated on Paycor on <date>. Do you
+// want to continue?" Continue queues it (or sends it now when the date is today or past).
+function PaycorConfirm({ th, form, effectiveDate, notifyCount, onCancel, onDone }) {
+  const S = finStyles(th);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const now = !!effectiveDate && effectiveDate <= todayIso();
+  const go = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const b = await call('', { action: 'queuePayRate', id: form.id });
+      onDone(b.queued ? `Queued: ${form.employeeName}'s pay will be updated in Paycor automatically on ${usLong(b.effectiveDate || effectiveDate)}${b.notified ? `; ${b.notified} ${b.notified === 1 ? 'person was' : 'people were'} notified` : ''}.`
+        : b.paycor?.status === 'sent' ? `Pay updated in Paycor for ${form.employeeName}.`
+        : `Paycor NOT updated for ${form.employeeName}: ${b.paycor?.error || 'error'}.`);
+    } catch (e) { setErr(e.message); setBusy(false); }
+  };
+  const n = notifyCount || 0;
+  const people = `${n} ${n === 1 ? 'person' : 'people'}`;
+  return (
+    <div className="pcg-backdrop" onClick={busy ? undefined : onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div className="pcg-pop" role="dialog" aria-modal="true" aria-labelledby="pi-paycor-q" onClick={e => e.stopPropagation()} style={{ background: th.card, color: th.text, borderRadius: 16, width: 'min(460px, 100%)', padding: '1.2rem 1.25rem', display: 'grid', gap: '0.8rem' }}>
+        <div id="pi-paycor-q" style={{ ...S.panelTitle, fontSize: '1.1rem' }}>Update pay in Paycor?</div>
+        <div style={{ padding: '0.75rem 0.9rem', borderRadius: 12, background: th.card3 }}>
+          <div style={{ fontWeight: 700 }}>{form.employeeName}, {form.storeName}</div>
+          <div style={{ fontSize: '1.05rem', marginTop: 2 }}>{fmtPay(form.currentRate, form.payBasis)} <span style={{ color: th.muted }}>to</span> <b style={{ color: O }}>{fmtPay(form.newRate, form.payBasis)}</b></div>
+        </div>
+        <p style={{ margin: 0, fontSize: '0.95rem' }}>{now
+          ? <>The effective date ({usLong(effectiveDate)}) is today or already past, so this will be updated on Paycor <b>right now</b>.</>
+          : <>This will automatically be updated on Paycor on <b>{usLong(effectiveDate)}</b>. Paycor keeps paying {fmtPay(form.currentRate, form.payBasis)} until then.</>}</p>
+        <p style={{ margin: 0, fontSize: '0.84rem', color: th.muted }}>{n
+          ? (now ? `The ${people} on the Pay Increase Paycor update list will be told how it went.` : `The ${people} on the Pay Increase Paycor update list will be notified now, and again on that day.`)
+          : 'No one is on the Pay Increase Paycor update list yet, so only you will be told how it went.'} If Paycor no longer shows {fmtPay(form.currentRate, form.payBasis)} then, nothing is changed and you are told.</p>
+        {err && <FinBanner th={th} tone="error">{err}</FinBanner>}
+        <div style={{ fontWeight: 600 }}>Do you want to continue?</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+          <button type="button" className="fin-btn" style={S.ghost} onClick={onCancel} disabled={busy}>Cancel</button>
+          <button type="button" className="fin-btn" style={{ ...S.primary, opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy} autoFocus>{busy ? (now ? 'Updating...' : 'Queuing...') : 'Continue'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// v23.9 read-only: what Paycor stores for this employee, and exactly what would be sent.
+function PaycorRatesModal({ th, form, onClose }) {
+  const S = finStyles(th);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => { call('', { action: 'paycorRates', id: form.id }).then(setData).catch(e => setErr(e.message)); }, []);
+  const d = (x) => (x ? new Date(x + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+  const STATE = { ready: 'Paycor still shows the form\u2019s current pay, so the raise can be written.', already: 'Paycor already shows the new pay. Nothing to send.', mismatch: 'Paycor shows a different pay than the form. Nothing will be written; check it in Paycor.', none: 'Paycor has no pay rate for this employee.' };
+  return (
+    <div className="pcg-backdrop" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div className="pcg-pop" onClick={e => e.stopPropagation()} style={{ background: th.card, color: th.text, borderRadius: 14, width: 'min(760px, 100%)', maxHeight: '88vh', overflowY: 'auto', padding: '1.1rem 1.2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+          <div style={{ ...S.panelTitle, fontSize: '1.05rem' }}>Paycor pay rates: {form.employeeName}</div>
+          <button type="button" className="fin-btn" onClick={onClose} style={S.ghost}>Close</button>
+        </div>
+        <p style={{ color: th.muted, fontSize: '0.85rem', margin: '0.3rem 0 0.8rem' }}>Read only. Nothing here changes Paycor.</p>
+        {err && <FinBanner th={th} tone="error">{err}</FinBanner>}
+        {!data && !err && <p style={{ color: th.muted }}>Asking Paycor…</p>}
+        {data && (<>
+          <FinBanner th={th} tone={data.state === 'ready' ? 'success' : 'warn'}>{STATE[data.state] || data.state}</FinBanner>
+          <div style={{ overflowX: 'auto', marginTop: '0.8rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', minWidth: 520 }}>
+              <thead><tr>{['Slot', 'Type', 'Description', 'Rate', 'Yearly', 'Starts', 'Ends'].map(h => <th key={h} style={{ textAlign: 'left', padding: '6px 8px', color: th.muted, borderBottom: `1px solid ${th.cardBorder}` }}>{h}</th>)}</tr></thead>
+              <tbody>{data.rates.map((r, i) => (
+                <tr key={r.id || i} style={{ background: data.current && r.id === data.current.id ? '#FF671F12' : 'transparent' }}>
+                  <td style={{ padding: '6px 8px' }}>{r.sequenceNumber ?? ''}</td><td style={{ padding: '6px 8px' }}>{r.type || ''}</td><td style={{ padding: '6px 8px' }}>{r.description || ''}</td>
+                  <td style={{ padding: '6px 8px' }}>{r.payRate != null ? `$${r.payRate.toFixed(2)}` : ''}</td><td style={{ padding: '6px 8px' }}>{r.annualPayRate != null ? `$${Math.round(r.annualPayRate).toLocaleString()}` : ''}</td>
+                  <td style={{ padding: '6px 8px' }}>{d(r.effectiveStartDate)}</td><td style={{ padding: '6px 8px' }}>{d(r.effectiveEndDate)}</td>
+                </tr>))}</tbody>
+            </table>
+          </div>
+          {data.wouldSend && (<>
+            <div style={{ fontWeight: 700, margin: '1rem 0 0.3rem' }}>What the portal would send (new rate)</div>
+            <pre style={{ background: th.card3, borderRadius: 8, padding: '0.7rem', fontSize: '0.8rem', overflowX: 'auto', margin: 0 }}>{JSON.stringify(data.wouldSend, null, 2)}</pre>
+          </>)}
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+// v23.9 move a completed raise's effective date (only while it's still in the future).
+function ChangeEffective({ th, form, onDone, onCancel }) {
+  const S = finStyles(th);
+  const [eff, setEff] = useState(form.effectiveDate || '');
+  const [pay, setPay] = useState(form.paycheckDate || '');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && reason.trim().length >= 3 && eff !== form.effectiveDate;
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try { const b = await call('', { action: 'changeEffective', id: form.id, effectiveDate: eff, paycheckDate: pay, reason: reason.trim() }); onDone(`Effective date changed to ${new Date(eff + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}${b.paycor?.status === 'sent' ? ' (Paycor updated too)' : b.queued ? '; the Paycor update moves with it' : ''}. ${form.submittedBy} was emailed.`); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  };
+  return (
+    <div style={{ flexBasis: '100%', marginTop: '0.6rem', padding: '0.8rem 0.9rem', borderRadius: 10, background: th.card3, display: 'grid', gap: '0.6rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.6rem' }}>
+        <label style={S.fieldLabel}>New effective date<input type="date" value={eff} onChange={e => setEff(e.target.value)} style={S.input} /></label>
+        <label style={S.fieldLabel}>New paycheck date<input type="date" value={pay} onChange={e => setPay(e.target.value)} style={S.input} /></label>
+      </div>
+      <label style={S.fieldLabel}>Why is it changing?<input value={reason} onChange={e => setReason(e.target.value)} maxLength={200} style={S.input} placeholder="e.g. raise pushed back one pay period" /></label>
+      {err && <FinBanner th={th} tone="error">{err}</FinBanner>}
+      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+        <button type="button" className="fin-btn" style={S.ghost} onClick={onCancel} disabled={busy}>Cancel</button>
+        <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ok && !busy ? 1 : 0.5 }} disabled={!ok || busy} onClick={save}>{busy ? 'Saving…' : 'Change date'}</button>
+      </div>
     </div>
   );
 }
@@ -293,6 +428,14 @@ export function PayIncrease({ th, isMobile, onBack }) {
   const [canOffice, setCanOffice] = useState(false); // v23.0 the office step
   const [office, setOffice] = useState([]);
   const [completing, setCompleting] = useState(null);
+  const [payrateWrite, setPayrateWrite] = useState(false); // v23.9
+  const [canAdmin, setCanAdmin] = useState(false);
+  const [today, setToday] = useState('');
+  const [ratesFor, setRatesFor] = useState(null);
+  const [moving, setMoving] = useState(null);
+  const [rowBusy, setRowBusy] = useState(null);
+  const [queueFor, setQueueFor] = useState(null); // v23.10 the Complete row being confirmed
+  const [notifyCount, setNotifyCount] = useState(0);
   const [complete, setComplete] = useState([]);
   const [view, setView] = useState('list');
   const [listTab, setListTab] = useState('pending');
@@ -308,13 +451,15 @@ export function PayIncrease({ th, isMobile, onBack }) {
     if (b.role === 'manager') { setSmName(n => n || b.myName || ''); setDmName(n => n || b.dmNameGuess || ''); }
     else setDmName(n => n || b.myName || '');
     setListView(!!b.listView); setCanApprove(!!b.canApprove); if (b.rosterError) setError(b.rosterError);
-    setPending(b.listView ? (b.pending || []) : null); setComplete(b.complete || []); setCanOffice(!!b.canOffice); setOffice(b.office || []);
+    setPending(b.listView ? (b.pending || []) : null); setComplete(b.complete || []); setCanOffice(!!b.canOffice); setOffice(b.office || []); setPayrateWrite(!!b.payrateWrite); setCanAdmin(!!b.canAdmin); setToday(b.today || ''); setNotifyCount(b.paycorNotifyCount || 0);
     // ?payIncrease=<id> from the approval email / text opens that form straight away.
     let open = null; try { open = sessionStorage.getItem('pi_open'); sessionStorage.removeItem('pi_open'); } catch {}
     const hit = open && (b.pending || []).find(x => String(x.id) === String(open));
     if (hit) { setView('list'); setListTab('pending'); setReviewing(hit); }
     const hitOffice = open && !hit && (b.office || []).find(x => String(x.id) === String(open));
     if (hitOffice) { setView('list'); setListTab('office'); if (b.canOffice) setCompleting(hitOffice); }
+    // v23.10: the Paycor-queue emails link to a completed one.
+    if (open && !hit && !hitOffice && (b.complete || []).some(x => String(x.id) === String(open))) { setView('list'); setListTab('complete'); }
   }).catch(e => { setError(e.message); setEmployees([]); }).finally(() => setLoaded(true));
   useEffect(() => { loadMain(); }, []);
   // v23.0: keep the lists current (refresh on coming back to the tab and every minute on the list).
@@ -446,7 +591,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
         {saved && saved.state === 'decided' && <FinBanner th={th} tone="success">{saved.msg}</FinBanner>}
         {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
         {reviewing ? <Review th={th} isMobile={isMobile} form={reviewing} canApprove={canApprove} onClose={(msg) => { setReviewing(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} />
-          : completing ? <OfficeComplete th={th} isMobile={isMobile} form={completing} onClose={(msg) => { setCompleting(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} /> : (<>
+          : completing ? <OfficeComplete th={th} isMobile={isMobile} form={completing} payrateWrite={payrateWrite} notifyCount={notifyCount} onClose={(msg) => { setCompleting(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} /> : (<>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             <div role="tablist" aria-label="Pay increases" style={{ display: 'flex', gap: '0.4rem' }}>
               {[['pending', `Pending${pending && pending.length ? ` (${pending.length})` : ''}`], ['office', `Office${office.length ? ` (${office.length})` : ''}`], ['complete', 'Complete']].map(([k, label]) => (
@@ -454,7 +599,14 @@ export function PayIncrease({ th, isMobile, onBack }) {
                   style={{ ...S.ghost, minHeight: 36, padding: '0.4rem 0.95rem', background: listTab === k ? O : th.card3, color: listTab === k ? '#fff' : th.text }}>{label}</button>
               ))}
             </div>
-            <button type="button" className="fin-btn" style={S.primary} onClick={() => { setSaved(null); setView('form'); }}>Start a pay increase</button>
+            <span style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              {canAdmin && (
+                <button type="button" className="fin-btn" onClick={async () => { const on = !payrateWrite; if (on && !window.confirm('Switch ON updating pay in Paycor? The office then gets an "Update pay in Paycor" button after completing a pay increase, and queued ones are sent on their effective date.')) return; try { await call('', { action: 'payrateSwitch', enabled: on }); setPayrateWrite(on); setSaved({ state: 'decided', msg: `Updating pay in Paycor is now ${on ? 'ON' : 'OFF'}.` }); } catch (e) { setError(e.message); } }}
+                  style={{ ...S.ghost, minHeight: 36, padding: '0.35rem 0.8rem', fontSize: '0.82rem', borderColor: payrateWrite ? '#16a34a' : th.cardBorder, color: payrateWrite ? '#16a34a' : th.muted }}
+                  title="Exec / IT only">Update Paycor: {payrateWrite ? 'ON' : 'OFF'}</button>
+              )}
+              <button type="button" className="fin-btn" style={S.primary} onClick={() => { setSaved(null); setView('form'); }}>Start a pay increase</button>
+            </span>
           </div>
           {listTab === 'pending' && (pending && pending.length ? (
             <div style={{ display: 'grid', gap: '0.5rem' }}>
@@ -486,15 +638,33 @@ export function PayIncrease({ th, isMobile, onBack }) {
                 <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body }}>
                   <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {fmtPay(f.currentRate, f.payBasis)} to {fmtPay(f.newRate, f.payBasis)}</span>
                     <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}{f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : `, ${new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}{f.effectiveDate ? `. Effective ${new Date(f.effectiveDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}${f.officeBy ? ` (set by ${f.officeBy})` : ''}` : ''}</span></span>
-                  <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
+                  {f.effectiveDate && (
+                    <span style={{ flexBasis: '100%', fontSize: '0.8rem', fontWeight: 600, color: f.paycorRateStatus === 'sent' ? '#16a34a' : f.paycorRateStatus === 'queued' || f.paycorRateStatus === 'sending' ? O : f.paycorRateStatus === 'failed' || f.paycorRateStatus === 'mismatch' ? '#dc2626' : th.muted }}>
+                      {f.paycorRateStatus === 'sent' ? 'Pay updated in Paycor'
+                        : f.paycorRateStatus === 'queued' ? `Queued: updates in Paycor automatically on ${usLong(f.effectiveDate)}${f.paycorQueuedBy ? ` (queued by ${f.paycorQueuedBy})` : ''}`
+                        : f.paycorRateStatus === 'sending' ? 'Sending to Paycor now'
+                        : f.paycorRateStatus === 'cancelled' ? 'Paycor update cancelled'
+                        : f.paycorRateStatus === 'mismatch' ? `Not written to Paycor: ${f.paycorRateError}` : f.paycorRateStatus === 'failed' ? `Paycor update failed: ${f.paycorRateError}` : 'Not sent to Paycor'}
+                      {(f.effectiveChanges || []).length > 0 && <span style={{ color: th.muted, fontWeight: 500 }}> · effective date changed {(f.effectiveChanges || []).length}×</span>}
+                    </span>
+                  )}
+                  <span style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', flexWrap: 'wrap', fontSize: '0.85rem', fontWeight: 700 }}>
                     {f.hasPdf && <button type="button" className="fin-btn" onClick={() => setViewing(f)} style={{ ...S.link, color: O }}>View form</button>}
                     {f.driveLink && <a href={f.driveLink} target="_blank" rel="noreferrer" style={{ color: O }}>Open in Google Drive</a>}
+                    {payrateWrite && canOffice && f.effectiveDate && [null, 'failed', 'mismatch', 'cancelled'].includes(f.paycorRateStatus || null) && <button type="button" className="fin-btn" onClick={() => setQueueFor(f)} style={{ ...S.link, color: O }}>{f.paycorRateStatus === 'failed' || f.paycorRateStatus === 'mismatch' ? 'Try Paycor again' : 'Update pay in Paycor'}</button>}
+                    {canOffice && f.paycorRateStatus === 'queued' && <button type="button" className="fin-btn" disabled={rowBusy === f.id} style={{ ...S.link, color: th.muted }}
+                      onClick={async () => { if (!window.confirm(`Cancel the Paycor update for ${f.employeeName}? Paycor will not be changed on ${usLong(f.effectiveDate)}.`)) return; setRowBusy(f.id); try { await call('', { action: 'cancelPayRate', id: f.id }); setSaved({ state: 'decided', msg: `Paycor update cancelled for ${f.employeeName}.` }); loadMain(); } catch (e) { setError(e.message); } setRowBusy(null); }}>{rowBusy === f.id ? 'Cancelling...' : 'Cancel Paycor update'}</button>}
+                    {canOffice && f.effectiveDate && today && f.effectiveDate > today && <button type="button" className="fin-btn" onClick={() => setMoving(moving === f.id ? null : f.id)} style={{ ...S.link, color: O }}>Change effective date</button>}
+                    {canAdmin && <button type="button" className="fin-btn" onClick={() => setRatesFor(f)} style={{ ...S.link, color: th.muted }}>See Paycor pay rates</button>}
                   </span>
+                  {moving === f.id && <ChangeEffective th={th} form={f} onCancel={() => setMoving(null)} onDone={(m) => { setMoving(null); setSaved({ state: 'decided', msg: m }); loadMain(); }} />}
                 </div>
               ))}
             </div>
           ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No approved pay increases yet.</p>)}
           {viewing && <FormModal th={th} id={viewing.id} title={`Pay increase for ${viewing.employeeName}`} onClose={() => setViewing(null)} />}
+          {ratesFor && <PaycorRatesModal th={th} form={ratesFor} onClose={() => setRatesFor(null)} />}
+          {queueFor && <PaycorConfirm th={th} form={queueFor} effectiveDate={queueFor.effectiveDate} notifyCount={notifyCount} onCancel={() => setQueueFor(null)} onDone={(m) => { setQueueFor(null); setSaved({ state: 'decided', msg: m }); loadMain(); }} />}
         </>)}
       </>) : (<>
       <p style={S.lede}>Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, then to the office to set the effective date; you're emailed when it's approved and again when it's complete.</p>
