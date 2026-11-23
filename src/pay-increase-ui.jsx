@@ -70,17 +70,23 @@ const PAPER_CSS = `
 const pdfCache = new Map();
 // v22.81: id is a pay increase id, or a full URL ("/...") so the Violation Notice approval view reuses this.
 const pdfUrl = (id) => (String(id).startsWith("/") ? String(id) : `/.netlify/functions/pay-increase?pdf=${id}`);
+// v23.2: a cached copy is reused for 20 s only (the thumbnail and the full-size view share it). A
+// form changes after it's first shown — the office box, signatures added later — and "View form"
+// kept showing the copy from before (Roxy's completed pay increase, 2026-11-23).
+const PDF_CACHE_MS = 20000;
 function loadPayPdf(id) {
+  const hit = pdfCache.get(id);
+  if (hit && Date.now() - hit.at > PDF_CACHE_MS) pdfCache.delete(id);
   if (!pdfCache.has(id)) {
-    pdfCache.set(id, (async () => {
+    pdfCache.set(id, Object.assign((async () => {
       const lib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
       if (!lib) throw new Error('The PDF viewer did not load — refresh the page.');
       lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const res = await fetch(pdfUrl(id), { credentials: 'include', headers: { ...authHeader() } });
+      const res = await fetch(pdfUrl(id), { credentials: 'include', cache: 'no-store', headers: { ...authHeader() } });
       if (!res.ok) throw new Error(`Could not load the form (${res.status}).`);
       const doc = await lib.getDocument({ data: new Uint8Array(await res.arrayBuffer()) }).promise;
       return doc.getPage(1);
-    })().catch(e => { pdfCache.delete(id); throw e; }));
+    })().catch(e => { pdfCache.delete(id); throw e; }), { at: Date.now() }));
   }
   return pdfCache.get(id);
 }
@@ -183,19 +189,38 @@ function Review({ th, isMobile, form, onClose, canApprove = true }) {
 
 // v23.0 the office step: everything above is locked; the office enters the effective date, the
 // paycheck date and signs. That files it in Drive and emails the person who made it.
+// v23.2: a typed signature (user, 2026-11-23: "hard to do a signature with a mouse") — the name in a
+// handwriting font, drawn to a PNG so it's stamped exactly like a drawn one.
+function typedSignature(name) {
+  const c = document.createElement('canvas');
+  c.width = 600; c.height = 140;
+  const x = c.getContext('2d');
+  let size = 64;
+  const font = (n) => `italic ${n}px "Segoe Script", "Lucida Handwriting", "Brush Script MT", "Snell Roundhand", cursive`;
+  x.font = font(size);
+  while (size > 24 && x.measureText(name).width > 570) { size -= 2; x.font = font(size); }
+  x.fillStyle = '#111';
+  x.textBaseline = 'middle';
+  x.fillText(name, 15, 72);
+  return c.toDataURL('image/png');
+}
+
 function OfficeComplete({ th, isMobile, form, onClose }) {
   const S = finStyles(th);
   const [eff, setEff] = useState('');
   const [pay, setPay] = useState('');
-  const [sig, setSig] = useState(null);
+  const [sig, setSig] = useState(null); // drawn signature
   const [signing, setSigning] = useState(false);
+  const [mode, setMode] = useState('type'); // 'type' (default) | 'draw'
+  const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && !!sig;
+  const typedOk = typed.trim().length >= 2;
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && (mode === 'type' ? typedOk : !!sig);
   const done = async () => {
     setBusy(true); setErr(null);
     try {
-      const b = await call('', { action: 'complete', id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: sig });
+      const b = await call('', { action: 'complete', id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === 'type' ? typedSignature(typed.trim()) : sig });
       onClose(`Completed: ${b.drive?.saved ? 'filed in Google Drive' : `NOT saved to Drive (${b.drive?.error || 'error'}), tell IT`}. ${form.submittedBy} was emailed the effective date.`);
     } catch (e) { setErr(e.message); setBusy(false); }
   };
@@ -213,8 +238,12 @@ function OfficeComplete({ th, isMobile, form, onClose }) {
         <label style={S.fieldLabel}>Effective date<input type="date" value={eff} onChange={e => setEff(e.target.value)} style={S.input} /></label>
         <label style={S.fieldLabel}>Effective pay rate paycheck date<input type="date" value={pay} onChange={e => setPay(e.target.value)} style={S.input} /></label>
         <div style={S.fieldLabel}>Payroll Manager signature
-          {sig ? <button type="button" className="fin-btn" onClick={() => setSigning(true)} title="Sign again" style={{ background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: 'pointer' }}><img src={sig} alt="Your signature" style={{ maxHeight: 38, maxWidth: '100%' }} /></button>
+          {mode === 'type' ? (<>
+            <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type your full name to sign" aria-label="Type your full name to sign" maxLength={60} style={S.input} />
+            {typedOk && <span style={{ display: 'block', background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.15rem 0.6rem', fontFamily: '"Segoe Script", "Lucida Handwriting", "Brush Script MT", cursive', fontStyle: 'italic', fontSize: '1.35rem', color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{typed}</span>}
+          </>) : sig ? <button type="button" className="fin-btn" onClick={() => setSigning(true)} title="Sign again" style={{ background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: 'pointer' }}><img src={sig} alt="Your signature" style={{ maxHeight: 38, maxWidth: '100%' }} /></button>
             : <button type="button" className="fin-btn" onClick={() => setSigning(true)} style={{ ...S.ghost, borderStyle: 'dashed', color: O }}>Tap to sign</button>}
+          <button type="button" className="fin-btn" onClick={() => setMode(mode === 'type' ? 'draw' : 'type')} style={{ ...S.link, color: O, fontSize: '0.8rem', fontWeight: 700, alignSelf: 'flex-start' }}>{mode === 'type' ? 'Draw it instead' : 'Type it instead'}</button>
         </div>
       </div>
       {err && <FinBanner th={th} tone="error" style={{ marginTop: '0.8rem' }}>{err}</FinBanner>}

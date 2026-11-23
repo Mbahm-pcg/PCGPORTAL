@@ -2576,20 +2576,23 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 @media (prefers-reduced-motion: reduce) { .pi-blank, .pi-sigbtn { transition: none; } }`;
   var pdfCache = /* @__PURE__ */ new Map();
   var pdfUrl = (id) => String(id).startsWith("/") ? String(id) : `/.netlify/functions/pay-increase?pdf=${id}`;
+  var PDF_CACHE_MS = 2e4;
   function loadPayPdf(id) {
+    const hit = pdfCache.get(id);
+    if (hit && Date.now() - hit.at > PDF_CACHE_MS) pdfCache.delete(id);
     if (!pdfCache.has(id)) {
-      pdfCache.set(id, (async () => {
+      pdfCache.set(id, Object.assign((async () => {
         const lib = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
         if (!lib) throw new Error("The PDF viewer did not load \u2014 refresh the page.");
         lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-        const res = await fetch(pdfUrl(id), { credentials: "include", headers: { ...authHeader() } });
+        const res = await fetch(pdfUrl(id), { credentials: "include", cache: "no-store", headers: { ...authHeader() } });
         if (!res.ok) throw new Error(`Could not load the form (${res.status}).`);
         const doc = await lib.getDocument({ data: new Uint8Array(await res.arrayBuffer()) }).promise;
         return doc.getPage(1);
       })().catch((e) => {
         pdfCache.delete(id);
         throw e;
-      }));
+      }), { at: Date.now() }));
     }
     return pdfCache.get(id);
   }
@@ -2688,27 +2691,47 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     };
     return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", sent by ", form.submittedBy)), /* @__PURE__ */ React.createElement("p", { style: { color: th.text, fontSize: "0.9rem", margin: "0.4rem 0 0.8rem" } }, form.reason), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: form.id, title: `Pay increase for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${form.id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "pi-note", style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement("textarea", { id: "pi-note", value: note, maxLength: 400, rows: 3, onChange: (e) => setNote(e.target.value), style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the pay increase approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving\u2026" : "Approve & send to the office")));
   }
+  function typedSignature(name) {
+    const c = document.createElement("canvas");
+    c.width = 600;
+    c.height = 140;
+    const x = c.getContext("2d");
+    let size = 64;
+    const font = (n) => `italic ${n}px "Segoe Script", "Lucida Handwriting", "Brush Script MT", "Snell Roundhand", cursive`;
+    x.font = font(size);
+    while (size > 24 && x.measureText(name).width > 570) {
+      size -= 2;
+      x.font = font(size);
+    }
+    x.fillStyle = "#111";
+    x.textBaseline = "middle";
+    x.fillText(name, 15, 72);
+    return c.toDataURL("image/png");
+  }
   function OfficeComplete({ th, isMobile, form, onClose }) {
     const S = finStyles(th);
     const [eff, setEff] = useState3("");
     const [pay, setPay] = useState3("");
     const [sig, setSig] = useState3(null);
     const [signing, setSigning] = useState3(false);
+    const [mode, setMode] = useState3("type");
+    const [typed, setTyped] = useState3("");
     const [busy, setBusy] = useState3(false);
     const [err, setErr] = useState3(null);
-    const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && !!sig;
+    const typedOk = typed.trim().length >= 2;
+    const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && (mode === "type" ? typedOk : !!sig);
     const done = async () => {
       setBusy(true);
       setErr(null);
       try {
-        const b = await call("", { action: "complete", id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: sig });
+        const b = await call("", { action: "complete", id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === "type" ? typedSignature(typed.trim()) : sig });
         onClose(`Completed: ${b.drive?.saved ? "filed in Google Drive" : `NOT saved to Drive (${b.drive?.error || "error"}), tell IT`}. ${form.submittedBy} was emailed the effective date.`);
       } catch (e) {
         setErr(e.message);
         setBusy(false);
       }
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", approved by ", form.approvedBy)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: form.id, title: `Pay increase for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "24em" } }, "Everything on the form is locked. Fill in the For Office Use Only box below and sign; that files it in Google Drive and emails ", form.submittedBy, " when it was completed and when it takes effect.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(3, minmax(0,1fr))", gap: "0.8rem", marginTop: "1rem", alignItems: "end" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eff, onChange: (e) => setEff(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective pay rate paycheck date", /* @__PURE__ */ React.createElement("input", { type: "date", value: pay, onChange: (e) => setPay(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("div", { style: S.fieldLabel }, "Payroll Manager signature", sig ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), title: "Sign again", style: { background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("img", { src: sig, alt: "Your signature", style: { maxHeight: 38, maxWidth: "100%" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), style: { ...S.ghost, borderStyle: "dashed", color: O } }, "Tap to sign"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ok && !busy ? 1 : 0.5 }, disabled: !ok || busy, onClick: done }, busy ? "Completing\u2026" : "Complete & file")), signing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: "Your signature \u2014 Payroll Manager", onCancel: () => setSigning(false), onDone: (img) => {
+    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", approved by ", form.approvedBy)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: form.id, title: `Pay increase for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "24em" } }, "Everything on the form is locked. Fill in the For Office Use Only box below and sign; that files it in Google Drive and emails ", form.submittedBy, " when it was completed and when it takes effect.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(3, minmax(0,1fr))", gap: "0.8rem", marginTop: "1rem", alignItems: "end" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eff, onChange: (e) => setEff(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective pay rate paycheck date", /* @__PURE__ */ React.createElement("input", { type: "date", value: pay, onChange: (e) => setPay(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("div", { style: S.fieldLabel }, "Payroll Manager signature", mode === "type" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { value: typed, onChange: (e) => setTyped(e.target.value), placeholder: "Type your full name to sign", "aria-label": "Type your full name to sign", maxLength: 60, style: S.input }), typedOk && /* @__PURE__ */ React.createElement("span", { style: { display: "block", background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.15rem 0.6rem", fontFamily: '"Segoe Script", "Lucida Handwriting", "Brush Script MT", cursive', fontStyle: "italic", fontSize: "1.35rem", color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, typed)) : sig ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), title: "Sign again", style: { background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("img", { src: sig, alt: "Your signature", style: { maxHeight: 38, maxWidth: "100%" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), style: { ...S.ghost, borderStyle: "dashed", color: O } }, "Tap to sign"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setMode(mode === "type" ? "draw" : "type"), style: { ...S.link, color: O, fontSize: "0.8rem", fontWeight: 700, alignSelf: "flex-start" } }, mode === "type" ? "Draw it instead" : "Type it instead"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ok && !busy ? 1 : 0.5 }, disabled: !ok || busy, onClick: done }, busy ? "Completing\u2026" : "Complete & file")), signing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: "Your signature \u2014 Payroll Manager", onCancel: () => setSigning(false), onDone: (img) => {
       setSig(img);
       setSigning(false);
     } }));
@@ -30880,7 +30903,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.1";
+  var APP_VERSION = "v23.2";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
