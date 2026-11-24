@@ -4,6 +4,7 @@
 import { getStore } from '@netlify/blobs';
 import { reconcileReportRefs } from '../../src/report-photos.mjs';
 import { REPORT_PDF_PREFIX } from '../../src/report-pdf-chunks.mjs';
+import { REPORT_INDEX_KEY, REPORT_LEGACY_KEY, REPORT_DELETED_KEY, mergeReportList, missingFromIncoming, addDeleted, deletedIds } from '../../src/report-index.mjs';
 
 // A Daily Report blob (pcg_dr_<id>) — not its legacy photo map (pcg_dr_<id>_photos).
 const isDailyReportKey = (k) => k.startsWith('pcg_dr_') && !k.endsWith('_photos');
@@ -56,9 +57,29 @@ export default async (request) => {
       // carried over, and only an explicit removal takes one out (src/report-photos.mjs).
       if (isDailyReportKey(safeKey) && data && typeof data === 'object') {
         try {
-          const existing = await store.get(safeKey, { type: 'json' });
+          const [existing, delRec] = await Promise.all([store.get(safeKey, { type: 'json' }), store.get(REPORT_DELETED_KEY, { type: 'json' })]);
+          // v23.18: a report someone deleted is not brought back by a device that still has it
+          if (deletedIds(delRec?.data).has(safeKey.slice('pcg_dr_'.length))) {
+            return new Response(JSON.stringify({ ok: true, key: safeKey, skipped: 'deleted' }), { status: 200, headers });
+          }
           toStore = reconcileReportRefs(data, existing?.data);
         } catch (e) { console.warn('[storage] photo-ref reconcile skipped:', e.message); }
+      }
+      // v23.18: the shared report list (and the legacy all-reports backup) is MERGED with
+      // what is stored, not replaced — the saving device's copy may be missing a report
+      // someone else just created (src/report-index.mjs).
+      if ((safeKey === REPORT_INDEX_KEY || safeKey === REPORT_LEGACY_KEY) && Array.isArray(data)) {
+        try {
+          const [existing, delRec] = await Promise.all([store.get(safeKey, { type: 'json' }), store.get(REPORT_DELETED_KEY, { type: 'json' })]);
+          const deleted = deletedIds(delRec?.data);
+          if (safeKey === REPORT_INDEX_KEY) {
+            // a listed report this copy lacks is kept only while its report blob exists
+            const missing = missingFromIncoming(existing?.data, data).filter(id => !deleted.has(id)).slice(0, 40);
+            const found = await Promise.all(missing.map(id => store.getMetadata(`pcg_dr_${id}`).then(m => m !== null, () => true)));
+            missing.forEach((id, i) => { if (!found[i]) deleted.add(id); });
+          }
+          toStore = mergeReportList(existing?.data, data, { deleted, preferContent: safeKey === REPORT_LEGACY_KEY });
+        } catch (e) { console.warn('[storage] report-list merge skipped:', e.message); }
       }
       await store.setJSON(safeKey, { savedAt: new Date().toISOString(), data: toStore });
       return new Response(JSON.stringify({ ok: true, key: safeKey }), { status: 200, headers });
@@ -71,6 +92,11 @@ export default async (request) => {
     }
 
     if (action === 'delete') {
+      // v23.18: a user deleting a report records it, so no other device's copy revives it
+      if (payload.tombstone === true && isDailyReportKey(safeKey)) {
+        const rec = await store.get(REPORT_DELETED_KEY, { type: 'json' }).catch(() => null);
+        await store.setJSON(REPORT_DELETED_KEY, { savedAt: new Date().toISOString(), data: addDeleted(rec?.data, safeKey.slice('pcg_dr_'.length), new Date().toISOString()) });
+      }
       await store.delete(safeKey);
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
     }

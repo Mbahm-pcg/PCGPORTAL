@@ -6731,6 +6731,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     };
   }
 
+  // src/report-index.mjs
+  var REPORT_DELETED_KEY = "pcg_daily_reports_deleted_v1";
+  var deletedIds = (record) => new Set(record && typeof record === "object" && !Array.isArray(record) ? Object.keys(record) : []);
+
   // src/report-pdf-chunks.mjs
   var CHUNK_CHARS = 3 * 1024 * 1024;
   var MAX_CHUNKS = 8;
@@ -14131,12 +14135,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const j = await res.json();
     return j.data;
   }
-  async function cloudDelete(key) {
+  async function cloudDelete(key, { tombstone = false } = {}) {
     try {
       await fetch("/.netlify/functions/storage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", key })
+        body: JSON.stringify({ action: "delete", key, ...tombstone ? { tombstone: true } : {} })
       });
     } catch {
     }
@@ -19437,6 +19441,7 @@ ${t2.slice(0, 300)}`);
       setEditReport(null);
     };
     const deleteReport = (id) => {
+      cloudDelete(drKey(id), { tombstone: true });
       setDailyReports((prev) => prev.filter((r) => r.id !== id));
       showAlert2("success", "Report deleted");
     };
@@ -31757,7 +31762,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.17";
+  var APP_VERSION = "v23.18";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -45003,10 +45008,23 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     useEffect10(() => {
       if (screen !== "detail" || !selectedProject) return;
       setLoadingReports(true);
-      cloudLoad(DR_INDEX_KEY).then((idx) => {
-        const all = Array.isArray(idx) ? idx : [];
-        setDailyReports(all.filter((r) => String(r.projectId) === String(selectedProject.id)).sort((a, b) => b.date?.localeCompare(a.date || "") || 0));
-      }).catch(() => setDailyReports([])).finally(() => setLoadingReports(false));
+      const forProject = (idx) => (Array.isArray(idx) ? idx : []).filter((r) => String(r.projectId) === String(selectedProject.id)).sort((a, b) => b.date?.localeCompare(a.date || "") || 0);
+      cloudLoad(DR_INDEX_KEY).then((idx) => setDailyReports(forProject(idx))).catch(() => setDailyReports([])).finally(() => setLoadingReports(false));
+      let live = true;
+      const refresh = () => {
+        if (document.hidden) return;
+        cloudLoad(DR_INDEX_KEY).then((idx) => {
+          if (live && Array.isArray(idx)) setDailyReports(forProject(idx));
+        }).catch(() => {
+        });
+      };
+      const timer = setInterval(refresh, 45e3);
+      document.addEventListener("visibilitychange", refresh);
+      return () => {
+        live = false;
+        clearInterval(timer);
+        document.removeEventListener("visibilitychange", refresh);
+      };
     }, [screen, selectedProject?.id]);
     const activeProjects = (projects || []).filter((p) => !p.completed).sort((a, b) => {
       const pa = a.priority > 0 ? a.priority : 999;
@@ -47000,7 +47018,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       cloudSave("pcg_cash_notes_v1", cashNotes);
     }, [cashNotes]);
     useEffect10(() => {
-      cloudLoad("pcg_projects_v1").then((cloudData) => {
+      const refresh = () => {
+        if (!cloudProjectsLoaded.current || projectsUserEdited.current || document.hidden) return;
+        loadProjects();
+      };
+      const timer = setInterval(refresh, 6e4);
+      document.addEventListener("visibilitychange", refresh);
+      const loadProjects = () => cloudLoad("pcg_projects_v1").then((cloudData) => {
         cloudProjectsLoaded.current = true;
         if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
           setProjects((localProjects) => {
@@ -47017,12 +47041,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
                 merged.push(cloud || local);
               }
             });
-            return merged;
+            const same = merged.length === localProjects.length && merged.every((p) => localMap.get(p.id) === p);
+            return same ? localProjects : merged;
           });
         }
       }).catch(() => {
         cloudProjectsLoaded.current = true;
       });
+      loadProjects();
+      return () => {
+        clearInterval(timer);
+        document.removeEventListener("visibilitychange", refresh);
+      };
     }, []);
     useEffect10(() => {
       if (!cloudProjectsLoaded.current) return;
@@ -47118,10 +47148,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       })();
     }, []);
     useEffect10(() => {
-      const interval = setInterval(async () => {
+      const poll = async () => {
         if (dailyReportsUserEdited.current) return;
+        if (!cloudDailyReportsLoaded.current) return;
         try {
-          const index = await cloudLoad(DR_INDEX_KEY);
+          const [index, delRec] = await Promise.all([cloudLoad(DR_INDEX_KEY), cloudLoad(REPORT_DELETED_KEY).catch(() => null)]);
+          const gone = deletedIds(delRec);
+          if (gone.size) setDailyReports((cur) => {
+            if (!cur.some((r) => gone.has(String(r.id)))) return cur;
+            const kept = cur.filter((r) => !gone.has(String(r.id)));
+            prevDailyReportsRef.current = kept;
+            return kept;
+          });
           if (!index || !Array.isArray(index) || index.length === 0) return;
           setDailyReports((localNow) => {
             const localMap = new Map(localNow.map((r) => [r.id, r]));
@@ -47150,8 +47188,18 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           });
         } catch {
         }
-      }, 3e4);
-      return () => clearInterval(interval);
+      };
+      const interval = setInterval(poll, 3e4);
+      const onShow = () => {
+        if (!document.hidden) poll();
+      };
+      document.addEventListener("visibilitychange", onShow);
+      const first = setTimeout(poll, 4e3);
+      return () => {
+        clearInterval(interval);
+        clearTimeout(first);
+        document.removeEventListener("visibilitychange", onShow);
+      };
     }, []);
     useEffect10(() => {
       if (!dailyReportsUserEdited.current) return;

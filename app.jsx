@@ -33,6 +33,7 @@ import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
 import { parseDateOnly, toDateStr, defaultClosedPeriodEnd, payPeriodEndFor } from './src/office-clock-period-math.mjs';
 import { dayWorkedMinutes as ocDayWorkedMinutes, dayShiftCount as ocDayShiftCount } from './src/office-clock-day-math.mjs';
 import { isRefPhoto, isPendingPhoto, isRealReportPhoto, cleanRef, splitReportForSave, mergeLoadedReport, stripReportPhotosForLocal, countReportPhotos, cleanCaption, photoStampLabel, MAX_CAPTION, needsLegacyConversion, legacyPhotoSlots, applyConvertedRefs } from './src/report-photos.mjs';
+import { REPORT_DELETED_KEY, deletedIds } from './src/report-index.mjs';
 import { makeRenditions, readTakenAt, saveReportCaptions, sha256Hex, fetchPhotoLinks, FULL_WIDTH, FULL_QUALITY, uploadReportPhoto, removeReportPhotos, uploadReportPdf, scaleImageDataUrl, runLimited, UPLOAD_CONCURRENCY, MED_WIDTH, MED_QUALITY } from './src/report-photo-upload.mjs';
 // (runLimited: PDF photo loading; form uploads use the hook's own queue)
 
@@ -8579,12 +8580,12 @@ async function cloudLoadOrThrow(key) {
   const j = await res.json();
   return j.data;
 }
-async function cloudDelete(key) {
+async function cloudDelete(key, { tombstone = false } = {}) {
   try {
     await fetch('/.netlify/functions/storage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', key }),
+      body: JSON.stringify({ action: 'delete', key, ...(tombstone ? { tombstone: true } : {}) }),
     });
   } catch {}
 }
@@ -15426,7 +15427,9 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     setEditReport(null);
   };
 
-  const deleteReport = (id) => { setDailyReports(prev => prev.filter(r => r.id !== id)); showAlert("success", "Report deleted"); };
+  // v23.18: the deletion is recorded on the server (tombstone) so a device that still has
+  // this report can't bring it back onto the shared list.
+  const deleteReport = (id) => { cloudDelete(drKey(id), { tombstone: true }); setDailyReports(prev => prev.filter(r => r.id !== id)); showAlert("success", "Report deleted"); };
 
   const updateWeather = (idx, field, val) => {
     setRForm(f => ({ ...f, weather: f.weather.map((w,i) => i === idx ? { ...w, [field]: val } : w) }));
@@ -32938,7 +32941,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.17";
+const APP_VERSION = "v23.18";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -53496,10 +53499,15 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   useEffect(() => {
     if (screen !== 'detail' || !selectedProject) return;
     setLoadingReports(true);
-    cloudLoad(DR_INDEX_KEY).then(idx => {
-      const all = Array.isArray(idx) ? idx : [];
-      setDailyReports(all.filter(r => String(r.projectId) === String(selectedProject.id)).sort((a,b)=>b.date?.localeCompare(a.date||'')||0));
-    }).catch(()=>setDailyReports([])).finally(()=>setLoadingReports(false));
+    const forProject = (idx) => (Array.isArray(idx) ? idx : []).filter(r => String(r.projectId) === String(selectedProject.id)).sort((a,b)=>b.date?.localeCompare(a.date||'')||0);
+    cloudLoad(DR_INDEX_KEY).then(idx => setDailyReports(forProject(idx))).catch(()=>setDailyReports([])).finally(()=>setLoadingReports(false));
+    // v23.18: keep the list current while this screen is open (every 45 s and whenever the
+    // app comes back to the front) — no Force Sync needed to see a report made elsewhere.
+    let live = true;
+    const refresh = () => { if (document.hidden) return; cloudLoad(DR_INDEX_KEY).then(idx => { if (live && Array.isArray(idx)) setDailyReports(forProject(idx)); }).catch(()=>{}); };
+    const timer = setInterval(refresh, 45000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { live = false; clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
   }, [screen, selectedProject?.id]);
 
   // Sort active projects by priority (1 first, 0/unset last)
@@ -56426,7 +56434,16 @@ function PCGPortal() {
 
   // Cloud sync projects — merge by updatedAt timestamp to avoid overwriting newer local edits
   useEffect(() => {
-    cloudLoad('pcg_projects_v1').then(cloudData => {
+    // v23.18: also re-checked every minute and whenever the app comes back to the front, so
+    // a project added or changed on another device shows up without pressing Force Sync.
+    // (Read-only: uses the raw setter, so a refresh never writes anything back.)
+    const refresh = () => {
+      if (!cloudProjectsLoaded.current || projectsUserEdited.current || document.hidden) return;
+      loadProjects();
+    };
+    const timer = setInterval(refresh, 60000);
+    document.addEventListener('visibilitychange', refresh);
+    const loadProjects = () => cloudLoad('pcg_projects_v1').then(cloudData => {
       cloudProjectsLoaded.current = true;
       if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
         setProjects(localProjects => {
@@ -56444,10 +56461,14 @@ function PCGPortal() {
               merged.push(cloud || local);
             }
           });
-          return merged;
+          // nothing new → keep the same array so nothing re-renders
+          const same = merged.length === localProjects.length && merged.every(p => localMap.get(p.id) === p);
+          return same ? localProjects : merged;
         });
       }
     }).catch(() => { cloudProjectsLoaded.current = true; });
+    loadProjects();
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
   }, []);
   useEffect(() => {
     if (!cloudProjectsLoaded.current) return;
@@ -56576,10 +56597,20 @@ function PCGPortal() {
   // Periodic re-sync: poll index every 30s, hydrate any report whose
   // updatedAt has changed (or any new report we don't have locally)
   useEffect(() => {
-    const interval = setInterval(async () => {
+    const poll = async () => {
       if (dailyReportsUserEdited.current) return; // skip if a save is pending
+      if (!cloudDailyReportsLoaded.current) return;
       try {
-        const index = await cloudLoad(DR_INDEX_KEY);
+        const [index, delRec] = await Promise.all([cloudLoad(DR_INDEX_KEY), cloudLoad(REPORT_DELETED_KEY).catch(() => null)]);
+        // v23.18: a report deleted on another device leaves this one too (it used to stay
+        // here and get written back onto the shared list)
+        const gone = deletedIds(delRec);
+        if (gone.size) setDailyReports(cur => {
+          if (!cur.some(r => gone.has(String(r.id)))) return cur;
+          const kept = cur.filter(r => !gone.has(String(r.id)));
+          prevDailyReportsRef.current = kept;
+          return kept;
+        });
         if (!index || !Array.isArray(index) || index.length === 0) return;
         // Work off the latest state snapshot
         setDailyReports(localNow => {
@@ -56608,8 +56639,12 @@ function PCGPortal() {
           return localNow;
         });
       } catch {}
-    }, 30000);
-    return () => clearInterval(interval);
+    };
+    const interval = setInterval(poll, 30000);
+    const onShow = () => { if (!document.hidden) poll(); };
+    document.addEventListener('visibilitychange', onShow);
+    const first = setTimeout(poll, 4000); // once soon after opening (drops deleted reports kept on this device)
+    return () => { clearInterval(interval); clearTimeout(first); document.removeEventListener('visibilitychange', onShow); };
   }, []);
 
   // Save changed reports individually — one blob per report.

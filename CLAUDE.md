@@ -5,7 +5,7 @@
 
 **Live URL:** https://pcg-ops.netlify.app
 **Hosting:** Netlify (Pro plan) — bundled static SPA + serverless functions + Netlify Blobs + Neon Postgres
-**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.17**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
+**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.18**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
 
 ---
 
@@ -514,3 +514,8 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
     **v23.14:** each photo in a report PDF links to its full-size image, served WITHOUT sign-in
     by `report-photo.mjs?t=<share_token>` (token minted by `project-photos.mjs` `shareLinks`
     when the PDF is built; a photo removed from its report stops being served).
+    **v23.18:** the shared report list `pcg_daily_reports_index_v1` (and the legacy backup
+    `pcg_daily_reports_v1`) is MERGED server-side on every save (`storage.mjs` →
+    `src/report-index.mjs`), never replaced — a device with a stale list can't drop someone
+    else's new report. Deleting a report records a tombstone (`pcg_daily_reports_deleted_v1`);
+    tombstoned reports are refused on save and dropped from every device on its next poll.
