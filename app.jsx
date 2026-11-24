@@ -15429,7 +15429,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     setEditReport(null);
   };
 
-  // v23.18: the deletion is recorded on the server (tombstone) so a device that still has
+  // v23.19: the deletion is recorded on the server (tombstone) so a device that still has
   // this report can't bring it back onto the shared list.
   const deleteReport = (id) => { cloudDelete(drKey(id), { tombstone: true }); setDailyReports(prev => prev.filter(r => r.id !== id)); showAlert("success", "Report deleted"); };
 
@@ -32943,7 +32943,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.18";
+const APP_VERSION = "v23.19";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -53503,7 +53503,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
     setLoadingReports(true);
     const forProject = (idx) => (Array.isArray(idx) ? idx : []).filter(r => String(r.projectId) === String(selectedProject.id)).sort((a,b)=>b.date?.localeCompare(a.date||'')||0);
     cloudLoad(DR_INDEX_KEY).then(idx => setDailyReports(forProject(idx))).catch(()=>setDailyReports([])).finally(()=>setLoadingReports(false));
-    // v23.18: keep the list current while this screen is open (every 45 s and whenever the
+    // v23.19: keep the list current while this screen is open (every 45 s and whenever the
     // app comes back to the front) — no Force Sync needed to see a report made elsewhere.
     let live = true;
     const refresh = () => { if (document.hidden) return; cloudLoad(DR_INDEX_KEY).then(idx => { if (live && Array.isArray(idx)) setDailyReports(forProject(idx)); }).catch(()=>{}); };
@@ -56436,7 +56436,7 @@ function PCGPortal() {
 
   // Cloud sync projects — merge by updatedAt timestamp to avoid overwriting newer local edits
   useEffect(() => {
-    // v23.18: also re-checked every minute and whenever the app comes back to the front, so
+    // v23.19: also re-checked every minute and whenever the app comes back to the front, so
     // a project added or changed on another device shows up without pressing Force Sync.
     // (Read-only: uses the raw setter, so a refresh never writes anything back.)
     const refresh = () => {
@@ -56604,7 +56604,7 @@ function PCGPortal() {
       if (!cloudDailyReportsLoaded.current) return;
       try {
         const [index, delRec] = await Promise.all([cloudLoad(DR_INDEX_KEY), cloudLoad(REPORT_DELETED_KEY).catch(() => null)]);
-        // v23.18: a report deleted on another device leaves this one too (it used to stay
+        // v23.19: a report deleted on another device leaves this one too (it used to stay
         // here and get written back onto the shared list)
         const gone = deletedIds(delRec);
         if (gone.size) setDailyReports(cur => {

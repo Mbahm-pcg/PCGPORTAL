@@ -11,7 +11,7 @@
 import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles, finMoney } from './finance-ui.jsx';
-import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
+import { SignatureModal, toB64, deliverPdf, PdfOpenButton, typedSignaturePng, SIG_FONT } from './transfer-notice-ui.jsx';
 import { buildPayIncreasePdf, PAY_FONT, PAY_CHROME, formatFormDate } from './pay-increase-pdf.mjs';
 import { rateProblem, payFormValues, payFingerprint, missingPayFields, REASON_MIN, payBasisOf, currentPayOf, fmtPay } from './pay-increase.mjs';
 
@@ -191,19 +191,6 @@ function Review({ th, isMobile, form, onClose, canApprove = true }) {
 // paycheck date and signs. That files it in Drive and emails the person who made it.
 // v23.2: a typed signature (user, 2026-11-23: "hard to do a signature with a mouse") — the name in a
 // handwriting font, drawn to a PNG so it's stamped exactly like a drawn one.
-function typedSignature(name) {
-  const c = document.createElement('canvas');
-  c.width = 600; c.height = 140;
-  const x = c.getContext('2d');
-  let size = 64;
-  const font = (n) => `italic ${n}px "Segoe Script", "Lucida Handwriting", "Brush Script MT", "Snell Roundhand", cursive`;
-  x.font = font(size);
-  while (size > 24 && x.measureText(name).width > 570) { size -= 2; x.font = font(size); }
-  x.fillStyle = '#111';
-  x.textBaseline = 'middle';
-  x.fillText(name, 15, 72);
-  return c.toDataURL('image/png');
-}
 
 function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount }) {
   const S = finStyles(th);
@@ -222,7 +209,7 @@ function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount
   const done = async () => {
     setBusy(true); setErr(null);
     try {
-      const b = await call('', { action: 'complete', id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === 'type' ? typedSignature(typed.trim()) : sig });
+      const b = await call('', { action: 'complete', id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === 'type' ? await typedSignaturePng(typed) : sig });
       const msg = `Completed: ${b.drive?.saved ? 'filed in Google Drive' : `NOT saved to Drive (${b.drive?.error || 'error'}), tell IT`}. ${form.submittedBy} was emailed the effective date.`;
       // v23.10: with Paycor updates switched on, step 2 offers "Update pay in Paycor".
       if (b.paycorReady) { setAfter({ msg }); setBusy(false); } else onClose(msg);
@@ -259,7 +246,7 @@ function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount
         <div style={S.fieldLabel}>Payroll Manager signature
           {mode === 'type' ? (<>
             <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type your full name to sign" aria-label="Type your full name to sign" maxLength={60} style={S.input} />
-            {typedOk && <span style={{ display: 'block', background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.15rem 0.6rem', fontFamily: '"Segoe Script", "Lucida Handwriting", "Brush Script MT", cursive', fontStyle: 'italic', fontSize: '1.35rem', color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{typed}</span>}
+            {typedOk && <span style={{ display: 'block', background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: '0.15rem 0.6rem', fontFamily: SIG_FONT, fontWeight: 600, fontSize: '1.5rem', color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{typed}</span>}
           </>) : sig ? <button type="button" className="fin-btn" onClick={() => setSigning(true)} title="Sign again" style={{ background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: 'pointer' }}><img src={sig} alt="Your signature" style={{ maxHeight: 38, maxWidth: '100%' }} /></button>
             : <button type="button" className="fin-btn" onClick={() => setSigning(true)} style={{ ...S.ghost, borderStyle: 'dashed', color: O }}>Tap to sign</button>}
           <button type="button" className="fin-btn" onClick={() => setMode(mode === 'type' ? 'draw' : 'type')} style={{ ...S.link, color: O, fontSize: '0.8rem', fontWeight: 700, alignSelf: 'flex-start' }}>{mode === 'type' ? 'Draw it instead' : 'Type it instead'}</button>

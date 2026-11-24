@@ -1961,14 +1961,71 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .tn-sigbtn:focus-visible, .tn-sigimg:focus-visible { outline: 2px solid ${O}; outline-offset: 2px; }
 .tn-sigimg { background: none; border: none; padding: 0; cursor: pointer; height: 100%; display: flex; align-items: flex-end; }
 @media (prefers-reduced-motion: reduce) { .tn-blank, .tn-sigbtn { transition: none; } }`;
-  function SignatureModal({ th, title, onDone, onCancel }) {
+  var SIG_FONT = '"Dancing Script", "Segoe Script", "Snell Roundhand", "Lucida Handwriting", "Brush Script MT", cursive';
+  function cropInk(c) {
+    const g = c.getContext("2d");
+    const { data, width, height } = g.getImageData(0, 0, c.width, c.height);
+    let x0 = width, y0 = height, x1 = -1, y1 = -1;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (data[(y * width + x) * 4 + 3] > 10) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    if (x1 < 0) return null;
+    const pad = 6, out = document.createElement("canvas");
+    x0 = Math.max(0, x0 - pad);
+    y0 = Math.max(0, y0 - pad);
+    x1 = Math.min(width - 1, x1 + pad);
+    y1 = Math.min(height - 1, y1 + pad);
+    out.width = x1 - x0 + 1;
+    out.height = y1 - y0 + 1;
+    out.getContext("2d").drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+    return out.toDataURL("image/png");
+  }
+  async function typedSignaturePng(name) {
+    const text = String(name || "").trim();
+    try {
+      await document.fonts?.load(`600 72px "Dancing Script"`, text);
+    } catch {
+    }
+    const c = document.createElement("canvas");
+    c.width = 1e3;
+    c.height = 220;
+    const x = c.getContext("2d");
+    let size = 92;
+    const f = (n) => `600 ${n}px ${SIG_FONT}`;
+    x.font = f(size);
+    while (size > 30 && x.measureText(text).width > 950) {
+      size -= 2;
+      x.font = f(size);
+    }
+    x.fillStyle = INK2;
+    x.textBaseline = "middle";
+    x.fillText(text, 24, 112);
+    return cropInk(c);
+  }
+  function SignatureModal({ th, title, onDone, onCancel, name = "", defaultMode = "type" }) {
     const S = finStyles(th);
     const ref = useRef2(null);
     const drawing = useRef2(false);
     const last = useRef2(null);
+    const [mode, setMode] = useState2(defaultMode === "draw" ? "draw" : "type");
+    const [typed, setTyped] = useState2(name || "");
     const [inked, setInked] = useState2(false);
+    const [busy, setBusy] = useState2(false);
+    const typedOk = typed.trim().length >= 2;
     useEffect2(() => {
+      const onKey = (e) => {
+        if (e.key === "Escape") onCancel();
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, []);
+    useEffect2(() => {
+      if (mode !== "draw") return;
       const c = ref.current;
+      if (!c) return;
       const dpr = window.devicePixelRatio || 1;
       const r = c.getBoundingClientRect();
       c.width = Math.round(r.width * dpr);
@@ -1979,12 +2036,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       g.lineJoin = "round";
       g.strokeStyle = INK2;
       g.lineWidth = 2.4;
-      const onKey = (e) => {
-        if (e.key === "Escape") onCancel();
-      };
-      window.addEventListener("keydown", onKey);
-      return () => window.removeEventListener("keydown", onKey);
-    }, []);
+      setInked(false);
+    }, [mode]);
     const pt = (e) => {
       const r = ref.current.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -2018,28 +2071,31 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       c.getContext("2d").clearRect(0, 0, c.width, c.height);
       setInked(false);
     };
-    const done = () => {
-      const c = ref.current;
-      const g = c.getContext("2d");
-      const { data, width, height } = g.getImageData(0, 0, c.width, c.height);
-      let x0 = width, y0 = height, x1 = -1, y1 = -1;
-      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (data[(y * width + x) * 4 + 3] > 10) {
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        if (y > y1) y1 = y;
+    const ready = mode === "type" ? typedOk : inked;
+    const done = async () => {
+      if (!ready || busy) return;
+      if (mode === "draw") {
+        const png2 = cropInk(ref.current);
+        if (png2) onDone(png2);
+        return;
       }
-      if (x1 < 0) return;
-      const pad = 6, out = document.createElement("canvas");
-      x0 = Math.max(0, x0 - pad);
-      y0 = Math.max(0, y0 - pad);
-      x1 = Math.min(width - 1, x1 + pad);
-      y1 = Math.min(height - 1, y1 + pad);
-      out.width = x1 - x0 + 1;
-      out.height = y1 - y0 + 1;
-      out.getContext("2d").drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
-      onDone(out.toDataURL("image/png"));
+      setBusy(true);
+      const png = await typedSignaturePng(typed);
+      setBusy(false);
+      if (png) onDone(png);
     };
+    const tab = (k, label) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        role: "tab",
+        "aria-selected": mode === k,
+        className: "fin-btn",
+        onClick: () => setMode(k),
+        style: { ...S.ghost, minHeight: 36, padding: "0.35rem 1rem", background: mode === k ? O : th.card3, color: mode === k ? "#fff" : th.text, borderColor: mode === k ? O : th.cardBorder }
+      },
+      label
+    );
     return /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -2051,7 +2107,37 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         },
         style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(20,16,12,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }
       },
-      /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, width: "min(640px, 100%)", padding: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, marginBottom: "0.3rem" } }, title), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "0.8rem" } }, "Sign in the box with your finger, a stylus or the mouse."), /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement("div", { className: "pcg-pop", style: { ...S.panel, width: "min(640px, 100%)", padding: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: S.panelTitle }, title), /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "How to sign", style: { display: "flex", gap: "0.35rem" } }, tab("type", "Type"), tab("draw", "Draw"))), mode === "type" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "0.6rem" } }, "Type your full name. It's turned into your signature."), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          className: "fin-input",
+          autoFocus: true,
+          value: typed,
+          onChange: (e) => setTyped(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              done();
+            }
+          },
+          placeholder: "Your full name",
+          "aria-label": "Type your full name to sign",
+          maxLength: 60,
+          autoComplete: "name",
+          style: { ...S.input, fontSize: "1rem" }
+        }
+      ), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
+        height: 120,
+        marginTop: "0.7rem",
+        background: "#fff",
+        border: `1px solid ${th.cardBorder}`,
+        borderRadius: 10,
+        display: "flex",
+        alignItems: "center",
+        padding: "0 1rem",
+        overflow: "hidden",
+        backgroundImage: "linear-gradient(transparent 88px, #d9d2cb 88px, #d9d2cb 89px, transparent 89px)"
+      } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: SIG_FONT, fontWeight: 600, fontSize: "clamp(1.8rem, 7vw, 2.8rem)", color: INK2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, typed.trim() || " "))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "0.6rem" } }, "Sign in the box with your finger, a stylus or the mouse."), /* @__PURE__ */ React.createElement(
         "canvas",
         {
           ref,
@@ -2061,7 +2147,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           onPointerCancel: up,
           style: { width: "100%", height: 200, display: "block", background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 10, touchAction: "none", cursor: "crosshair", backgroundImage: `linear-gradient(transparent 150px, #d9d2cb 150px, #d9d2cb 151px, transparent 151px)` }
         }
-      ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.9rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: clear, disabled: !inked }, "Clear"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: onCancel }, "Cancel"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: inked ? 1 : 0.5 }, onClick: done, disabled: !inked }, "Use this signature"))))
+      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.9rem", flexWrap: "wrap" } }, mode === "draw" ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: clear, disabled: !inked }, "Clear") : /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: onCancel }, "Cancel"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready && !busy ? 1 : 0.5 }, onClick: done, disabled: !ready || busy }, "Use this signature"))))
     );
   }
   function TransferNotice({ th, isMobile, onBack }) {
@@ -2691,23 +2777,6 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     };
     return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", sent by ", form.submittedBy)), /* @__PURE__ */ React.createElement("p", { style: { color: th.text, fontSize: "0.9rem", margin: "0.4rem 0 0.8rem" } }, form.reason), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: form.id, title: `Pay rate change for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: `/.netlify/functions/pay-increase?pdf=${form.id}`, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: "pi-note", style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement("textarea", { id: "pi-note", value: note, maxLength: 400, rows: 3, onChange: (e) => setNote(e.target.value), style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the pay rate change approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving\u2026" : "Approve & send to the office")));
   }
-  function typedSignature(name) {
-    const c = document.createElement("canvas");
-    c.width = 600;
-    c.height = 140;
-    const x = c.getContext("2d");
-    let size = 64;
-    const font = (n) => `italic ${n}px "Segoe Script", "Lucida Handwriting", "Brush Script MT", "Snell Roundhand", cursive`;
-    x.font = font(size);
-    while (size > 24 && x.measureText(name).width > 570) {
-      size -= 2;
-      x.font = font(size);
-    }
-    x.fillStyle = "#111";
-    x.textBaseline = "middle";
-    x.fillText(name, 15, 72);
-    return c.toDataURL("image/png");
-  }
   function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount }) {
     const S = finStyles(th);
     const [eff, setEff] = useState3("");
@@ -2726,7 +2795,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBusy(true);
       setErr(null);
       try {
-        const b = await call("", { action: "complete", id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === "type" ? typedSignature(typed.trim()) : sig });
+        const b = await call("", { action: "complete", id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === "type" ? await typedSignaturePng(typed) : sig });
         const msg = `Completed: ${b.drive?.saved ? "filed in Google Drive" : `NOT saved to Drive (${b.drive?.error || "error"}), tell IT`}. ${form.submittedBy} was emailed the effective date.`;
         if (b.paycorReady) {
           setAfter({ msg });
@@ -2738,7 +2807,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     if (after) return /* @__PURE__ */ React.createElement("div", { className: "pcg-stagger", style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem", display: "grid", gap: "0.9rem" } }, /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, after.msg), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, "Last step: Paycor"), /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: th.muted, fontSize: "0.9rem" } }, form.employeeName, ", ", form.storeName, ": ", fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", effective ", usLong(eff), ".")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(after.msg) }, "Not now"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => setConfirming(true) }, "Update pay in Paycor")), /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: th.muted, fontSize: "0.8rem", textAlign: "right" } }, "Not now leaves it under Complete, where you can do it later."), confirming && /* @__PURE__ */ React.createElement(PaycorConfirm, { th, form, effectiveDate: eff, notifyCount, onCancel: () => setConfirming(false), onDone: (m) => onClose(`${after.msg} ${m}`) }));
-    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", approved by ", form.approvedBy)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: form.id, title: `Pay rate change for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "24em" } }, "Everything on the form is locked. Fill in the For Office Use Only box below and sign; that files it in Google Drive and emails ", form.submittedBy, " when it was completed and when it takes effect.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(3, minmax(0,1fr))", gap: "0.8rem", marginTop: "1rem", alignItems: "end" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eff, onChange: (e) => setEff(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective pay rate paycheck date", /* @__PURE__ */ React.createElement("input", { type: "date", value: pay, onChange: (e) => setPay(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("div", { style: S.fieldLabel }, "Payroll Manager signature", mode === "type" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { value: typed, onChange: (e) => setTyped(e.target.value), placeholder: "Type your full name to sign", "aria-label": "Type your full name to sign", maxLength: 60, style: S.input }), typedOk && /* @__PURE__ */ React.createElement("span", { style: { display: "block", background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.15rem 0.6rem", fontFamily: '"Segoe Script", "Lucida Handwriting", "Brush Script MT", cursive', fontStyle: "italic", fontSize: "1.35rem", color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, typed)) : sig ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), title: "Sign again", style: { background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("img", { src: sig, alt: "Your signature", style: { maxHeight: 38, maxWidth: "100%" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), style: { ...S.ghost, borderStyle: "dashed", color: O } }, "Tap to sign"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setMode(mode === "type" ? "draw" : "type"), style: { ...S.link, color: O, fontSize: "0.8rem", fontWeight: 700, alignSelf: "flex-start" } }, mode === "type" ? "Draw it instead" : "Type it instead"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ok && !busy ? 1 : 0.5 }, disabled: !ok || busy, onClick: done }, busy ? "Completing\u2026" : "Complete & file")), signing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: "Your signature \u2014 Payroll Manager", onCancel: () => setSigning(false), onDone: (img) => {
+    return /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1.4rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, form.employeeName, ", ", form.storeName), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, fmtPay(form.currentRate, form.payBasis), " to ", fmtPay(form.newRate, form.payBasis), ", approved by ", form.approvedBy)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: form.id, title: `Pay rate change for ${form.employeeName}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "24em" } }, "Everything on the form is locked. Fill in the For Office Use Only box below and sign; that files it in Google Drive and emails ", form.submittedBy, " when it was completed and when it takes effect.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(3, minmax(0,1fr))", gap: "0.8rem", marginTop: "1rem", alignItems: "end" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective date", /* @__PURE__ */ React.createElement("input", { type: "date", value: eff, onChange: (e) => setEff(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Effective pay rate paycheck date", /* @__PURE__ */ React.createElement("input", { type: "date", value: pay, onChange: (e) => setPay(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("div", { style: S.fieldLabel }, "Payroll Manager signature", mode === "type" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { value: typed, onChange: (e) => setTyped(e.target.value), placeholder: "Type your full name to sign", "aria-label": "Type your full name to sign", maxLength: 60, style: S.input }), typedOk && /* @__PURE__ */ React.createElement("span", { style: { display: "block", background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.15rem 0.6rem", fontFamily: SIG_FONT, fontWeight: 600, fontSize: "1.5rem", color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, typed)) : sig ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), title: "Sign again", style: { background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: 4, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("img", { src: sig, alt: "Your signature", style: { maxHeight: 38, maxWidth: "100%" } })) : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setSigning(true), style: { ...S.ghost, borderStyle: "dashed", color: O } }, "Tap to sign"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setMode(mode === "type" ? "draw" : "type"), style: { ...S.link, color: O, fontSize: "0.8rem", fontWeight: 700, alignSelf: "flex-start" } }, mode === "type" ? "Draw it instead" : "Type it instead"))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ok && !busy ? 1 : 0.5 }, disabled: !ok || busy, onClick: done }, busy ? "Completing\u2026" : "Complete & file")), signing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: "Your signature \u2014 Payroll Manager", onCancel: () => setSigning(false), onDone: (img) => {
       setSig(img);
       setSigning(false);
     } }));
@@ -31764,7 +31833,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.18";
+  var APP_VERSION = "v23.19";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

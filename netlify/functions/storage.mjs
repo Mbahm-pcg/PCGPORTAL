@@ -72,14 +72,14 @@ export default async (request) => {
       if (isDailyReportKey(safeKey) && data && typeof data === 'object') {
         try {
           const [existing, delRec] = await Promise.all([store.get(safeKey, { type: 'json' }), store.get(REPORT_DELETED_KEY, { type: 'json' })]);
-          // v23.18: a report someone deleted is not brought back by a device that still has it
+          // v23.19: a report someone deleted is not brought back by a device that still has it
           if (deletedIds(delRec?.data).has(safeKey.slice('pcg_dr_'.length))) {
             return new Response(JSON.stringify({ ok: true, key: safeKey, skipped: 'deleted' }), { status: 200, headers });
           }
           toStore = reconcileReportRefs(data, existing?.data);
         } catch (e) { console.warn('[storage] photo-ref reconcile skipped:', e.message); }
       }
-      // v23.18: the shared report list (and the legacy all-reports backup) is MERGED with
+      // v23.19: the shared report list (and the legacy all-reports backup) is MERGED with
       // what is stored, not replaced — the saving device's copy may be missing a report
       // someone else just created (src/report-index.mjs).
       if ((safeKey === REPORT_INDEX_KEY || safeKey === REPORT_LEGACY_KEY) && Array.isArray(data)) {
@@ -106,7 +106,7 @@ export default async (request) => {
     }
 
     if (action === 'delete') {
-      // v23.18: a user deleting a report records it, so no other device's copy revives it
+      // v23.19: a user deleting a report records it, so no other device's copy revives it
       // Only for a signed-in user who can edit reports, and only for a report that exists.
       if (payload.tombstone === true && isDailyReportKey(safeKey) && await canTombstone(request) && await store.getMetadata(safeKey).then(m => m !== null, () => false)) {
         const rec = await store.get(REPORT_DELETED_KEY, { type: 'json' }).catch(() => null);
