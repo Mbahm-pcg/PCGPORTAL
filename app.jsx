@@ -9036,18 +9036,21 @@ async function convertLegacyReportPhotos(reportId, project) {
   return { report: { ...done, _photosLoaded: true }, converted: slots.length };
 }
 // Admin-only strip above a project's report list: converts that project's old reports.
-function ReportPhotoConvert({ th, project, reports, setDailyReports }) {
+// v23.20: "all projects" converts every remaining old report in one go.
+function ReportPhotoConvert({ th, project, reports, allReports, setDailyReports }) {
   const todo = (reports || []).filter(needsLegacyConversion);
+  const todoAll = (allReports || []).filter(needsLegacyConversion);
   const [run, setRun] = useState(null); // { done, total, photos, failed[], finished }
-  if (!todo.length && !run) return null;
+  if (!todo.length && !todoAll.length && !run) return null;
   const busy = run && !run.finished;
-  const start = async () => {
-    const list = todo.slice(), failed = [];
+  const start = async (everything) => {
+    const list = (everything ? todoAll : todo).slice(), failed = [];
     let photos = 0;
     setRun({ done: 0, total: list.length, photos: 0, failed, finished: false });
     for (let i = 0; i < list.length; i++) {
       try {
-        const out = await convertLegacyReportPhotos(list[i].id, project);
+        const own = String(list[i].projectId) === String(project.id);
+        const out = await convertLegacyReportPhotos(list[i].id, own ? project : { id: list[i].projectId });
         photos += out.converted;
         setDailyReports(prev => prev.map(r => (r.id === list[i].id ? out.report : r)));
       } catch (e) { failed.push(`${list[i].date || list[i].id}: ${e?.message || 'failed'}`); }
@@ -9066,13 +9069,16 @@ function ReportPhotoConvert({ th, project, reports, setDailyReports }) {
           </>
         ) : (
           <>
-            <strong>{todo.length} older report{todo.length === 1 ? '' : 's'}</strong> in this project still store{todo.length === 1 ? 's' : ''} photos the old way.
+            <strong>{todo.length} older report{todo.length === 1 ? '' : 's'}</strong> in this project{todoAll.length > todo.length ? ` (${todoAll.length} across all projects)` : ''} still store{todo.length === 1 ? 's' : ''} photos the old way.
             <span style={{ color: th.muted }}> Converting moves each photo to the new storage — same photos, same order. The old copies are kept for 30 days.</span>
           </>
         )}
       </div>
-      {(!run || (run.finished && todo.length > 0)) && (
-        <button onClick={start} disabled={busy} style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.75rem' })}>{run ? 'Try the rest again' : `Convert ${todo.length} report${todo.length === 1 ? '' : 's'}`}</button>
+      {(!run || run.finished) && todo.length > 0 && (
+        <button onClick={() => start(false)} disabled={busy} style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.75rem' })}>{run ? 'Try the rest again' : `Convert ${todo.length} report${todo.length === 1 ? '' : 's'}`}</button>
+      )}
+      {(!run || run.finished) && todoAll.length > todo.length && (
+        <button onClick={() => start(true)} disabled={busy} style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.75rem' })}>Convert all projects ({todoAll.length})</button>
       )}
     </div>
   );
@@ -15431,7 +15437,12 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
 
   // v23.19: the deletion is recorded on the server (tombstone) so a device that still has
   // this report can't bring it back onto the shared list.
-  const deleteReport = (id) => { cloudDelete(drKey(id), { tombstone: true }); setDailyReports(prev => prev.filter(r => r.id !== id)); showAlert("success", "Report deleted"); };
+  const deleteReport = (id) => {
+    // v23.20: ask first — a deleted report is removed from every device and can't be brought back
+    const r = dailyReports.find(x => x.id === id);
+    const n = countReportPhotos(r).total;
+    if (!window.confirm(`Delete the daily report${r?.date ? ` for ${r.date}` : ''}${n ? ` and its ${n} photo${n === 1 ? '' : 's'}` : ''}? This removes it for everyone and cannot be undone.`)) return;
+    cloudDelete(drKey(id), { tombstone: true }); setDailyReports(prev => prev.filter(r => r.id !== id)); showAlert("success", "Report deleted"); };
 
   const updateWeather = (idx, field, val) => {
     setRForm(f => ({ ...f, weather: f.weather.map((w,i) => i === idx ? { ...w, [field]: val } : w) }));
@@ -16681,7 +16692,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
         </div>
       )}
 
-      {isFullAdmin(user) && <ReportPhotoConvert th={th} project={project} reports={projReports} setDailyReports={setDailyReports} />}
+      {isFullAdmin(user) && <ReportPhotoConvert th={th} project={project} reports={projReports} allReports={dailyReports} setDailyReports={setDailyReports} />}
 
       {projReports.length === 0 ? (
         <div style={{ ...card(th), padding: "2rem", textAlign: "center" }}>
@@ -32943,7 +32954,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.19";
+const APP_VERSION = "v23.20";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

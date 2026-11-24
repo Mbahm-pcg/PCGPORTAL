@@ -11,3 +11,6 @@ deno.lock
 index 2.html
 .worktrees/
 .scratch/
+
+# local-only iOS push prototype — not part of the portal; keep it out of deploys from this folder
+netlify/functions/apns.mjs

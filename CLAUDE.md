@@ -5,7 +5,7 @@
 
 **Live URL:** https://pcg-ops.netlify.app
 **Hosting:** Netlify (Pro plan) — bundled static SPA + serverless functions + Netlify Blobs + Neon Postgres
-**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.19**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
+**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.20**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
 
 ---
 

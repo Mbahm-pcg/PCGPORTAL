@@ -14650,18 +14650,20 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     await cloudSaveOrThrow(drPhotosKey(report.id), {});
     return { report: { ...done, _photosLoaded: true }, converted: slots.length };
   }
-  function ReportPhotoConvert({ th, project, reports, setDailyReports }) {
+  function ReportPhotoConvert({ th, project, reports, allReports, setDailyReports }) {
     const todo = (reports || []).filter(needsLegacyConversion);
+    const todoAll = (allReports || []).filter(needsLegacyConversion);
     const [run, setRun] = useState13(null);
-    if (!todo.length && !run) return null;
+    if (!todo.length && !todoAll.length && !run) return null;
     const busy = run && !run.finished;
-    const start = async () => {
-      const list = todo.slice(), failed = [];
+    const start = async (everything) => {
+      const list = (everything ? todoAll : todo).slice(), failed = [];
       let photos = 0;
       setRun({ done: 0, total: list.length, photos: 0, failed, finished: false });
       for (let i = 0; i < list.length; i++) {
         try {
-          const out = await convertLegacyReportPhotos(list[i].id, project);
+          const own = String(list[i].projectId) === String(project.id);
+          const out = await convertLegacyReportPhotos(list[i].id, own ? project : { id: list[i].projectId });
           photos += out.converted;
           setDailyReports((prev) => prev.map((r) => r.id === list[i].id ? out.report : r));
         } catch (e) {
@@ -14670,7 +14672,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setRun({ done: i + 1, total: list.length, photos, failed, finished: i === list.length - 1 });
       }
     };
-    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.8rem", marginBottom: "0.75rem", fontSize: "0.78rem", color: th.text, display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px" } }, run ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, run.finished ? "Conversion finished" : `Converting report ${Math.min(run.done + 1, run.total)} of ${run.total}\u2026`), run.finished && /* @__PURE__ */ React.createElement("span", null, " \u2014 ", run.photos, " photo", run.photos === 1 ? "" : "s", " moved in ", run.total - run.failed.length, " report", run.total - run.failed.length === 1 ? "" : "s", "."), !run.finished && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " Keep this page open."), run.failed.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", marginTop: 3 } }, "Not finished \u2014 use \u201CTry the rest again\u201D: ", run.failed.join("; "))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, todo.length, " older report", todo.length === 1 ? "" : "s"), " in this project still store", todo.length === 1 ? "s" : "", " photos the old way.", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " Converting moves each photo to the new storage \u2014 same photos, same order. The old copies are kept for 30 days."))), (!run || run.finished && todo.length > 0) && /* @__PURE__ */ React.createElement("button", { onClick: start, disabled: busy, style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.75rem" }) }, run ? "Try the rest again" : `Convert ${todo.length} report${todo.length === 1 ? "" : "s"}`));
+    return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.8rem", marginBottom: "0.75rem", fontSize: "0.78rem", color: th.text, display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px" } }, run ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, run.finished ? "Conversion finished" : `Converting report ${Math.min(run.done + 1, run.total)} of ${run.total}\u2026`), run.finished && /* @__PURE__ */ React.createElement("span", null, " \u2014 ", run.photos, " photo", run.photos === 1 ? "" : "s", " moved in ", run.total - run.failed.length, " report", run.total - run.failed.length === 1 ? "" : "s", "."), !run.finished && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " Keep this page open."), run.failed.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", marginTop: 3 } }, "Not finished \u2014 use \u201CTry the rest again\u201D: ", run.failed.join("; "))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, todo.length, " older report", todo.length === 1 ? "" : "s"), " in this project", todoAll.length > todo.length ? ` (${todoAll.length} across all projects)` : "", " still store", todo.length === 1 ? "s" : "", " photos the old way.", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " Converting moves each photo to the new storage \u2014 same photos, same order. The old copies are kept for 30 days."))), (!run || run.finished) && todo.length > 0 && /* @__PURE__ */ React.createElement("button", { onClick: () => start(false), disabled: busy, style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.75rem" }) }, run ? "Try the rest again" : `Convert ${todo.length} report${todo.length === 1 ? "" : "s"}`), (!run || run.finished) && todoAll.length > todo.length && /* @__PURE__ */ React.createElement("button", { onClick: () => start(true), disabled: busy, style: btn(th, { padding: "0.35rem 0.8rem", fontSize: "0.75rem" }) }, "Convert all projects (", todoAll.length, ")"));
   }
   async function resolveReportPhotosForPdf(report) {
     const jobs = [];
@@ -19512,8 +19514,11 @@ ${t2.slice(0, 300)}`);
       setEditReport(null);
     };
     const deleteReport = (id) => {
+      const r = dailyReports.find((x) => x.id === id);
+      const n = countReportPhotos(r).total;
+      if (!window.confirm(`Delete the daily report${r?.date ? ` for ${r.date}` : ""}${n ? ` and its ${n} photo${n === 1 ? "" : "s"}` : ""}? This removes it for everyone and cannot be undone.`)) return;
       cloudDelete(drKey(id), { tombstone: true });
-      setDailyReports((prev) => prev.filter((r) => r.id !== id));
+      setDailyReports((prev) => prev.filter((r2) => r2.id !== id));
       showAlert2("success", "Report deleted");
     };
     const updateWeather = (idx, field, val) => {
@@ -20411,7 +20416,7 @@ ${t2.slice(0, 300)}`);
         })
       },
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1rem", lineHeight: 1.2 } }, /* @__PURE__ */ React.createElement("span", null, backupState === "running" ? "\u23F3 Backing up\u2026" : backupState === "done" ? "\u2713 Backed Up" : backupState === "error" ? "\u26A0 Failed" : "\u{1F5C4} Backup Reports"), backupState === "idle" && lastBackupTime && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", opacity: 0.7 } }, "Last: ", lastBackupTime.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })))
-    ), isFullAdmin(user) && /* @__PURE__ */ React.createElement(ReportPhotoRestore, { th, showAlert: showAlert2 }))), forceSyncMsg && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: forceSyncState === "error" ? "#ef4444" : th.muted, marginBottom: "0.75rem", marginTop: "-0.5rem" } }, forceSyncMsg), isFullAdmin(user) && /* @__PURE__ */ React.createElement(ReportPhotoConvert, { th, project, reports: projReports, setDailyReports }), projReports.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem", marginBottom: "0.5rem" } }, "\u{1F4CB}"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.875rem" } }, "No daily reports yet."), editable && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: startCreate, style: { ...btn(th), fontSize: "0.8125rem" } }, "Create First Report"), /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: th.card3, color: th.muted, cursor: "pointer" }), display: "inline-flex", alignItems: "center", gap: "0.25rem", fontSize: "0.8125rem", opacity: pdfImporting ? 0.6 : 1 } }, /* @__PURE__ */ React.createElement("input", { ref: pdfImportRef, type: "file", accept: ".pdf", style: { display: "none" }, onChange: importPdfReport, disabled: pdfImporting }), pdfImporting ? "\u23F3 Importing..." : "\u{1F4C4} Import PDF"))) : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.625rem" } }, projReports.map((r) => /* @__PURE__ */ React.createElement(
+    ), isFullAdmin(user) && /* @__PURE__ */ React.createElement(ReportPhotoRestore, { th, showAlert: showAlert2 }))), forceSyncMsg && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: forceSyncState === "error" ? "#ef4444" : th.muted, marginBottom: "0.75rem", marginTop: "-0.5rem" } }, forceSyncMsg), isFullAdmin(user) && /* @__PURE__ */ React.createElement(ReportPhotoConvert, { th, project, reports: projReports, allReports: dailyReports, setDailyReports }), projReports.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem", marginBottom: "0.5rem" } }, "\u{1F4CB}"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.875rem" } }, "No daily reports yet."), editable && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: startCreate, style: { ...btn(th), fontSize: "0.8125rem" } }, "Create First Report"), /* @__PURE__ */ React.createElement("label", { style: { ...btn(th, { background: th.card3, color: th.muted, cursor: "pointer" }), display: "inline-flex", alignItems: "center", gap: "0.25rem", fontSize: "0.8125rem", opacity: pdfImporting ? 0.6 : 1 } }, /* @__PURE__ */ React.createElement("input", { ref: pdfImportRef, type: "file", accept: ".pdf", style: { display: "none" }, onChange: importPdfReport, disabled: pdfImporting }), pdfImporting ? "\u23F3 Importing..." : "\u{1F4C4} Import PDF"))) : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.625rem" } }, projReports.map((r) => /* @__PURE__ */ React.createElement(
       "div",
       {
         key: r.id,
@@ -31833,7 +31838,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.19";
+  var APP_VERSION = "v23.20";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
