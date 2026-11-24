@@ -5,8 +5,9 @@
 // time-off balances show beside the request. Everything the Google Form asked is required; up to 5
 // supporting documents are optional. They sign, then "Send to HR" sends first (Drive + the Admin ·
 // Notifications · Time Off Request list, time-off-request.mjs) and then hands over the PDF.
-// Straight to HR — no approval step. A signature is void if the form changes after it.
+// v23.22: it waits for approval (Mike) first, then goes to HR. A signature is void if the form changes after it.
 import { O, FONTS } from './theme.js';
+import { ApprovalQueue } from './approval-queue-ui.jsx';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
 import { SignatureModal, InlineSign, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
@@ -121,15 +122,12 @@ export function TimeOffRequest({ th, isMobile, onBack }) {
 
   const savedLine = () => {
     if (!saved) return null;
-    if (saved.state === 'saving') return <span style={{ color: th.muted }}>Sending to HR…</span>;
+    if (saved.state === 'saving') return <span style={{ color: th.muted }}>Sending for approval…</span>;
     if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Not sent: {saved.error}. Press the button again to retry.</span>;
-    const d = saved.drive || {}, a = saved.alert || {};
-    return (
-      <span style={{ color: d.saved && !a.error ? '#16a34a' : '#d97706' }}>
-        {d.saved ? <>Sent to HR and saved to Google Drive{d.link ? <> (<a href={d.link} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>open</a>)</> : ''}.</> : `Not saved to Drive: ${d.error || 'unknown error'}. Press the button again to retry.`}
-        {' '}{a.error ? `Alert failed: ${a.error}.` : a.recipients === 0 ? 'No one is on the Time Off Request alert list yet.' : ''}
-      </span>
-    );
+    // v23.22: it waits for approval (Mike); HR gets it once approved.
+    const who = (saved.approvers || []).length ? saved.approvers.join(' / ') : 'the approver';
+    if (saved.already) return <span style={{ color: '#16a34a' }}>Already sent{saved.status === 'pending' ? `, waiting for ${who}` : saved.status === 'approved' ? ' and approved' : ''}.</span>;
+    return <span style={{ color: '#16a34a' }}>Sent to {who} for approval{saved.notified ? '' : ' (no approver could be reached, tell IT)'}. You'll get an email when it's approved; then it goes to HR and Google Drive.</span>;
   };
 
   // ── field pieces ──
@@ -166,7 +164,8 @@ export function TimeOffRequest({ th, isMobile, onBack }) {
       <style>{FIN_CSS(th)}</style>
       {onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
       <h2 style={S.title}>Time Off Request</h2>
-      <p style={S.lede}>Request your own time off. Your name, contact details, position and location are filled in from your account. Every field is required; supporting documents are optional. It goes straight to HR. Please allow 24–48 hours for HR to confirm your request.</p>
+      <ApprovalQueue th={th} isMobile={isMobile} fn="time-off-request" noun="Time off request" openKey="to_open" refresh={saved && saved.state === 'done' ? saved.id : 0} />
+      <p style={S.lede}>Request your own time off. Your name, contact details, position and location are filled in from your account. Every field is required; supporting documents are optional. It goes to Mike for approval, then to HR. Please allow 24–48 hours for HR to confirm your request.</p>
 
       {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
       {sig && !sigOk && <FinBanner th={th} tone="warn">The request changed after you signed it, so the signature no longer counts. Sign again.</FinBanner>}
@@ -243,7 +242,7 @@ export function TimeOffRequest({ th, isMobile, onBack }) {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.9rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
         {!ready && !busy && <span style={{ color: th.muted, fontSize: '0.82rem' }}>{missing.length ? `Still needed: ${missing.join(', ')}` : ''}</span>}
-        <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? 'pointer' : 'not-allowed' }} disabled={!ready} onClick={send} onMouseEnter={() => setTouched(true)}>{busy ? 'Sending…' : 'Send to HR'}</button>
+        <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? 'pointer' : 'not-allowed' }} disabled={!ready} onClick={send} onMouseEnter={() => setTouched(true)}>{busy ? 'Sending…' : 'Send for approval'}</button>
       </div>
       {saved && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginBottom: '2rem' }}>{savedLine()}{saved.pdfUrl && <div style={{ marginTop: '0.6rem' }}><PdfOpenButton url={saved.pdfUrl} style={{ ...S.ghost }} /></div>}</div>}
 

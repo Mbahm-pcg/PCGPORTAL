@@ -8,6 +8,7 @@
 // letter changes after it was given. The signed PDF matches the template
 // (src/transfer-notice-pdf.mjs). Data from transfer-notice.mjs, scoped server-side.
 import { O, FONTS } from './theme.js';
+import { ApprovalQueue } from './approval-queue-ui.jsx';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles, finMoney } from './finance-ui.jsx';
 import { buildTransferNoticePdf, TRANSFER_FONT, TRANSFER_CHROME, formatLetterDate } from './transfer-notice-pdf.mjs';
@@ -337,15 +338,12 @@ export function TransferNotice({ th, isMobile, onBack }) {
   };
   const savedLine = () => {
     if (!saved) return null;
-    if (saved.state === 'saving') return <span style={{ color: th.muted }}>Saving to Google Drive and sending the alert…</span>;
-    if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Not saved to Drive: {saved.error}. Press the button again to retry.</span>;
-    const d = saved.drive || {}, a = saved.alert || {};
-    return (
-      <span style={{ color: d.saved && !a.error ? '#16a34a' : '#d97706' }}>
-        {d.saved ? <>Saved to Google Drive{d.link ? <> — <a href={d.link} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>open</a></> : ''}.</> : `Not saved to Drive: ${d.error || 'unknown error'}. Press the button again to retry.`}
-        {' '}{a.error ? `Alert failed: ${a.error}.` : a.recipients ? `Alert sent to ${a.recipients} recipient${a.recipients === 1 ? '' : 's'}.` : a.recipients === 0 ? 'No one is on the Transfer Notice alert list yet.' : ''}
-      </span>
-    );
+    if (saved.state === 'saving') return <span style={{ color: th.muted }}>Sending for approval…</span>;
+    if (saved.state === 'failed') return <span style={{ color: '#dc2626' }}>Not sent: {saved.error}. Press the button again to retry.</span>;
+    // v23.22: it waits for approval (Mike); it's filed in Drive once approved.
+    const who = (saved.approvers || []).length ? saved.approvers.join(' / ') : 'the approver';
+    if (saved.already) return <span style={{ color: '#16a34a' }}>Already sent{saved.status === 'pending' ? `, waiting for ${who}` : saved.status === 'approved' ? ' and approved' : ''}.</span>;
+    return <span style={{ color: '#16a34a' }}>Sent to {who} for approval{saved.notified ? '' : ' (no approver could be reached, tell IT)'}. You'll get an email when it's approved; then it's filed in Google Drive.</span>;
   };
 
   // ── letter pieces ──
@@ -400,7 +398,8 @@ export function TransferNotice({ th, isMobile, onBack }) {
       <style>{FIN_CSS(th) + LETTER_CSS}</style>
       {onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
       <h2 style={S.title}>Transfer Notice</h2>
-      <p style={S.lede}>Fill in the letter with the employee. The tinted blanks are yours; the employee's name, current position, store and hourly wage come straight from Paycor. Then the employee and the DM each sign on their line.</p>
+      <ApprovalQueue th={th} isMobile={isMobile} fn="transfer-notice" noun="Transfer notice" openKey="tn_open" refresh={saved && saved.state === 'done' ? saved.id : 0} />
+      <p style={S.lede}>Fill in the letter with the employee. The tinted blanks are yours; the employee's name, current position, store and hourly wage come straight from Paycor. Then the employee and the DM each sign on their line. It goes to Mike for approval, then it's filed in Google Drive and the office is told.</p>
 
       {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
       {employee && !hourly && <FinBanner th={th} tone="warn">Paycor has no hourly rate for {employee.name}{employee.payType ? ` (pay type: ${employee.payType})` : ''}, so this letter can't be made. Fix the rate in Paycor first.</FinBanner>}
@@ -455,7 +454,7 @@ export function TransferNotice({ th, isMobile, onBack }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.9rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
         {!ready && <span style={{ color: th.muted, fontSize: '0.82rem' }}>{sameStore ? 'The new store must be different.' : missing.length ? `Still needed: ${missing.join(', ')}` : ''}</span>}
         <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? 'pointer' : 'not-allowed' }} disabled={!ready} onClick={download}>
-          {busy ? 'Saving…' : 'Save & download signed PDF'}
+          {busy ? 'Sending…' : 'Send for approval & download'}
         </button>
       </div>
       {saved && <div style={{ textAlign: 'right', fontSize: '0.85rem', marginTop: '-1.4rem', marginBottom: '2rem' }}>{savedLine()}{saved.pdfUrl && <div style={{ marginTop: '0.6rem' }}><PdfOpenButton url={saved.pdfUrl} style={{ ...S.ghost }} /></div>}</div>}

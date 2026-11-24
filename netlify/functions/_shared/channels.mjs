@@ -79,7 +79,8 @@ export function sendEmail(to, subject, text) {
   });
 }
 
-export async function sendPush(blobStore, userIds, title, body, tag) {
+// v23.22: optional url — where tapping the notification opens (a path on the portal); home by default.
+export async function sendPush(blobStore, userIds, title, body, tag, url) {
   try {
     if (!userIds.length) return { sent: 0 };
     const vpub = process.env.VAPID_PUBLIC_KEY, vpriv = process.env.VAPID_PRIVATE_KEY;
@@ -87,7 +88,7 @@ export async function sendPush(blobStore, userIds, title, body, tag) {
     const w = await blobStore.get('pcg_push_subscriptions_v1', { type: 'json' });
     const subs = (w && w.data) ? w.data : {};
     webpush.setVapidDetails(process.env.VAPID_SUBJECT || `mailto:${process.env.VAPID_EMAIL || 'noreply@pcgops.com'}`, vpub, vpriv);
-    const payload = JSON.stringify({ title, body: body || '', icon: '/apple-touch-icon.png', url: '/', tag: tag || undefined });
+    const payload = JSON.stringify({ title, body: body || '', icon: '/apple-touch-icon.png', url: (typeof url === 'string' && url.startsWith('/')) ? url : '/', tag: tag || undefined });
     let sent = 0;
     for (const uid of userIds) for (const sub of (subs[String(uid)] || [])) {
       try { await webpush.sendNotification(sub, payload); sent++; } catch { /* expired subscription */ }

@@ -9,6 +9,8 @@ import { notifyApprovers, notifyOfficeStep } from './pay-increase.mjs';
 import { notifyViolationApprovers, ensureNoticeTable } from './violation-notice.mjs';
 import { notifyMissingHoursApprovers, ensureMissingHoursTable } from './missing-hours.mjs';
 import { runSignFollowups } from './violation-sign.mjs';
+import { notifyTransferApprovers } from './transfer-notice.mjs';
+import { notifyTimeOffApprovers } from './time-off-request.mjs';
 
 export const config = { schedule: '*/15 * * * *' };
 
@@ -68,6 +70,19 @@ export default async () => {
     }
     if (mDue.length) console.log(`[missing-hours-reminder] ${mDue.length} reminder(s)`);
   } catch (e) { console.error('[missing-hours-reminder]', e.message); }
+  // v23.22: Transfer Notices and Time Off Requests waiting for approval (Mike) — same 3-hour reminders.
+  for (const [table, notify, tag] of [['transfer_notices', notifyTransferApprovers, 'transfer'], ['time_off_requests', notifyTimeOffApprovers, 'timeoff']]) {
+    try {
+      const due = table === 'transfer_notices'
+        ? await db`SELECT * FROM transfer_notices WHERE status = 'pending' AND COALESCE(reminded_at, created_at) <= now() - make_interval(hours => ${EVERY_HOURS}) ORDER BY created_at`
+        : await db`SELECT * FROM time_off_requests WHERE status = 'pending' AND COALESCE(reminded_at, created_at) <= now() - make_interval(hours => ${EVERY_HOURS}) ORDER BY created_at`;
+      for (const row of due) {
+        try { await notify(db, row, { reminder: true }); sent++; }
+        catch (e) { console.error(`[${tag}-reminder]`, row.id, e.message); }
+      }
+      if (due.length) console.log(`[${tag}-reminder] ${due.length} reminder(s)`);
+    } catch (e) { console.log(`[${tag}-reminder] not ready yet:`, e.message); }
+  }
   // v22.91: signing links opened 24h+ ago but not signed → one reminder; links running out → tell the sender.
   try { const f = await runSignFollowups(db); if (f.reminded || f.warned) console.log('[sign-followups]', JSON.stringify(f)); }
   catch (e) { console.error('[sign-followups]', e.message); }
