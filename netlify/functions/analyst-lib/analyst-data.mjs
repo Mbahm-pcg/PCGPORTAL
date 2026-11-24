@@ -208,6 +208,9 @@ async function buildKPISnapshot({ district } = {}) {
   const storeData = labor.stores || {};
   const filteredStores = [];
   let totalLaborDollars = 0, totalSales = 0, totalScheduledNow = 0, totalOT = 0;
+  // v23.6: labor % counts only stores that have rung up sales today — at 5 AM a few openers' labor
+  // over a few dollars of sales gave the exec brief "1,222% labor" (2026-11-23).
+  let pairedLabor = 0, pairedSales = 0, storesWithSales = 0;
 
   for (const s of stores) {
     const sd = storeData[s.pc];
@@ -235,20 +238,27 @@ async function buildKPISnapshot({ district } = {}) {
     });
     totalLaborDollars += today.laborDollars || 0;
     totalSales += today.sales || 0;
+    if ((today.sales || 0) > 0) { pairedLabor += today.laborDollars || 0; pairedSales += today.sales; storesWithSales++; }
     totalScheduledNow += today.scheduledNow || 0;
     totalOT += today.overtimeCount || 0;
   }
 
-  const networkLaborPct = totalSales > 0 ? (totalLaborDollars / totalSales) * 100 : 0;
+  const rawPct = pairedSales > 0 ? (pairedLabor / pairedSales) * 100 : 0;
+  // Too early to mean anything: under half the stores have sales, or under $5k sold network-wide.
+  const tooEarly = storesWithSales < filteredStores.length / 2 || pairedSales < 5000 || rawPct > 100;
+  const networkLaborPct = tooEarly ? null : rawPct;
+  const etTime = (iso) => { try { return new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET'; } catch { return iso; } };
 
   return {
-    asOf: labor.lastUpdated,
+    asOf: etTime(labor.lastUpdated), // v23.6: Eastern time (Orion read the raw UTC stamp as local time)
     busDt: labor.busDt,
     scope: district ? `District ${district}` : 'Network',
     network: {
       laborDollars: Math.round(totalLaborDollars * 100) / 100,
       sales: Math.round(totalSales * 100) / 100,
-      laborPct: Math.round(networkLaborPct * 10) / 10,
+      laborPct: networkLaborPct == null ? null : Math.round(networkLaborPct * 10) / 10,
+      laborPctNote: networkLaborPct == null ? `Too early in the day for a meaningful network labor % (${storesWithSales} of ${filteredStores.length} stores have sales so far). Use week-to-date labor instead and do not quote a today labor %.` : undefined,
+      storesWithSales,
       scheduledNow: totalScheduledNow,
       overtimeCount: totalOT,
       storeCount: filteredStores.length,
@@ -270,7 +280,7 @@ async function buildDataContext({ district, includeStoreDetail, includeVoids } =
   context += `NETWORK SUMMARY:\n`;
   context += `  Total Sales Today: $${snapshot.network.sales.toLocaleString()}\n`;
   context += `  Total Labor Today: $${snapshot.network.laborDollars.toLocaleString()}\n`;
-  context += `  Labor %: ${snapshot.network.laborPct}%\n`;
+  context += snapshot.network.laborPct == null ? `  Labor %: not meaningful yet. ${snapshot.network.laborPctNote}\n` : `  Labor %: ${snapshot.network.laborPct}% (${snapshot.network.storesWithSales} stores with sales)\n`;
   context += `  Scheduled Now: ${snapshot.network.scheduledNow}\n`;
   context += `  Overtime Count: ${snapshot.network.overtimeCount}\n`;
   context += `  Stores: ${snapshot.network.storeCount}\n\n`;

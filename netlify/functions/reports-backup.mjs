@@ -7,7 +7,7 @@ import { mergeLoadedReport, isRefPhoto, referencedPhotoIds } from '../../src/rep
 
 const PURGE_AFTER_DAYS = 30;
 
-// v23.00 — Daily Report photos removed from a report are only soft-deleted
+// v23.11 — Daily Report photos removed from a report are only soft-deleted
 // (project_photos.deleted_at). Really delete them (row + both image blobs) 30 days later —
 // but never one a report still points at: that happens when a removal was recorded but the
 // report save behind it never reached the cloud, and such a photo is restored instead.
@@ -93,7 +93,7 @@ export default async (request) => {
         const report = reportRaw?.data || reportRaw;
         const photoMap = photosRaw?.data || photosRaw;
         if (!report) return null;
-        // Merge legacy photos back into workLogs. v23.00: photo refs already live in the
+        // Merge legacy photos back into workLogs. v23.11: photo refs already live in the
         // report blob and are kept alongside them (same rules as the app — src/report-photos.mjs).
         return mergeLoadedReport(report, photoMap);
       } catch (e) {

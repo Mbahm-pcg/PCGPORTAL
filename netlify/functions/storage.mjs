@@ -39,7 +39,7 @@ export default async (request) => {
     if (action === 'save') {
       if (!data) return new Response(JSON.stringify({ error: 'Missing data' }), { status: 400, headers });
       let toStore = data;
-      // v23.00: the copy being saved can be out of date (a second person with the report open,
+      // v23.11: the copy being saved can be out of date (a second person with the report open,
       // Force Sync, a browser on older app code) — photo references someone else added are
       // carried over, and only an explicit removal takes one out (src/report-photos.mjs).
       if (isDailyReportKey(safeKey) && data && typeof data === 'object') {

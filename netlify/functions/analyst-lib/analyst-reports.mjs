@@ -291,7 +291,7 @@ async function generateExecDailyReport() {
   const net = snapshot.network;
   const stores = snapshot.stores || [];
   const fmtD = v => '$' + Math.round(v).toLocaleString();
-  const fmtP = v => (v || 0).toFixed(1) + '%';
+  const fmtP = v => (v == null ? 'not meaningful yet (too early)' : (v || 0).toFixed(1) + '%'); // v23.6: null = too early in the day
 
   const tblStyle = 'width:100%;border-collapse:collapse;font-size:14px;margin:12px 0 20px;';
   const thStyle = 'padding:10px 12px;text-align:left;border-bottom:2px solid #FF671F;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:#666;';

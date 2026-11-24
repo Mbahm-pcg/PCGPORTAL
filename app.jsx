@@ -8736,7 +8736,7 @@ async function offloadTicketAttachments(tickets, uploaderName) {
 // Netlify Lambda request-body limit:
 //   pcg_dr_{id}        — report metadata + workLog text (no photo data)
 //   pcg_dr_{id}_photos — photo arrays keyed by workLog index
-// v23.00: that second blob only holds LEGACY photos (image inline as base64). Photos added
+// v23.11: that second blob only holds LEGACY photos (image inline as base64). Photos added
 // since then are uploaded one at a time (project-photos.mjs createForReport — its own blobs,
 // a project_photos row) and the report blob just keeps a small reference
 // { photoId, fullKey, medKey, name, timestamp }, so a report no longer has a photo ceiling.
@@ -8785,7 +8785,7 @@ async function cloudLoadReport(id) {
   return merged;
 }
 
-// ── Report photo images (v23.00) ──────────────────────────────────
+// ── Report photo images (v23.11) ──────────────────────────────────
 // A report photo is either legacy (image inline in p.data) or a reference to its own blobs
 // (medKey 800px for the report screen + PDF, fullKey 1600px for zoom). These load a
 // reference's image on demand and remember it for the session.
@@ -14860,7 +14860,7 @@ async function fetchWeatherByZip(zip, date) {
 
 async function buildReportPdf(reportIn, project) {
   const _proj = project;
-  // v23.00: every photo at PDF size (≤ 800px) — photo refs are loaded, old inline photos scaled down.
+  // v23.11: every photo at PDF size (≤ 800px) — photo refs are loaded, old inline photos scaled down.
   const report = await resolveReportPhotosForPdf(reportIn);
   const JsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null;
   if (!JsPDFCtor) throw new Error('jsPDF not available on the page');
@@ -15229,7 +15229,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
 
   const projReports = dailyReports.filter(r => r.projectId === project.id).sort((a,b) => b.date.localeCompare(a.date));
   const nextId = () => { const ts = Date.now(); const existing = new Set(dailyReports.map(r => r.id)); let id = ts; while (existing.has(id)) id++; return id; };
-  // v23.00: a new report's id is fixed when the form opens, so its photos (uploaded one at a
+  // v23.11: a new report's id is fixed when the form opens, so its photos (uploaded one at a
   // time while the form is being filled in) can be tagged with the report they belong to.
   const pendingIdRef = useRef(null);
   const photoUp = useReportPhotoUploads(setRForm, () => ({
@@ -15316,7 +15316,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     setRForm(f => ({ ...f, workLogs: f.workLogs.map((w,i) => i === idx ? { ...w, [field]: val } : w) }));
   };
 
-  // v23.00: photos are uploaded one at a time by useReportPhotoUploads (two sizes each, see
+  // v23.11: photos are uploaded one at a time by useReportPhotoUploads (two sizes each, see
   // src/report-photo-upload.mjs) — the old "all photos in one ≤6 MB blob" compressor is gone.
 
   const removePhoto = (logIdx, photoIdx) => {
@@ -16067,7 +16067,7 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     try {
       const pdfBlob = await generateEmailPdf(reportId);
       if (!pdfBlob) { showAlert && showAlert("error", "PDF generation failed"); setEmailSending(false); return; }
-      // v23.00: the PDF is always sent as a link (uploaded in chunks), never as an attachment —
+      // v23.11: the PDF is always sent as a link (uploaded in chunks), never as an attachment —
       // no size limit to trip over, and the same email whatever the photo count.
       const filename = `Daily_Report_${r.date || reportId}_${(project.nickname || project.pc || 'PCG').replace(/[^a-z0-9]+/gi, '_')}.pdf`;
       const link = await uploadReportPdf(pdfBlob, filename);
@@ -16967,7 +16967,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports, isMo
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ action: 'delete', id }),
       });
-      // v23.00: a photo that belongs to a Daily Report can only be removed from that report.
+      // v23.11: a photo that belongs to a Daily Report can only be removed from that report.
       if (res.status === 409) { const j = await res.json().catch(() => ({})); window.alert(j.error || 'This photo belongs to a Daily Report.'); return; }
       pgalLoadPhotos();
     } catch {}
@@ -16989,7 +16989,7 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports, isMo
       reportsForProject.forEach(r => {
         (r.workLogs || []).forEach((w, wi) => {
           (w.photos || []).forEach((ph, pi) => {
-            // v23.00: photo refs are already gallery rows (uploaded one at a time) — only
+            // v23.11: photo refs are already gallery rows (uploaded one at a time) — only
             // legacy inline photos need importing. They sort first, so `pi` is unchanged.
             if (isRefPhoto(ph) || isPendingPhoto(ph)) return;
             photos.push({ sourceRef: `dr_${r.id}_${wi}_${pi}`, dataUrl: ph.data, name: ph.name, timestamp: ph.timestamp, addedBy: r.preparedBy || 'Daily Report' });
@@ -20480,9 +20480,18 @@ const NOTIFY_ICONS = {
   transferNotice: <><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/></>,
   violationNotice: <><path d="M12 3 2.5 20h19Z"/><path d="M12 10v4M12 17h.01"/></>,
   missingHoursApprovers: <><circle cx="11" cy="12" r="8"/><path d="M11 8v4l2.5 1.5"/><path d="M19.5 3.5v5M17 6h5"/></>,
+  grpStore: <><path d="M3 9.5 4.5 4h15L21 9.5"/><path d="M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8"/><path d="M10 20v-4h4v4"/></>,
+  grpPeople: <><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><circle cx="12" cy="14.5" r="2"/></>,
+  grpMoney: <><rect x="2.5" y="6" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/><path d="M16 15h2"/><path d="M6 6V5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 18 5v1"/></>,
+  grpShield: <><path d="M12 3 4.5 6v5.5c0 4.5 3.2 8 7.5 9.5 4.3-1.5 7.5-5 7.5-9.5V6Z"/><path d="m8.8 12.2 2.3 2.3 4.2-4.4"/></>,
+  chevDown: <path d="m6 9 6 6 6-6"/>,
+  chevRight: <path d="m9 6 6 6-6 6"/>,
+  info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></>,
   resignationLetter: <><path d="M6 3h9l4 4v14H6Z"/><path d="M9 8h4M9 11h7"/><path d="M8.5 17.5c1.2-2.2 2.2.6 3.4-.9 1-1.3 1.7.9 3.6-.1"/></>,
   payIncrease: <><path d="M12 20V6M7 11l5-5 5 5"/><path d="M5 20h14"/></>,
   payIncreaseApprovers: <><path d="M20 6 9 17l-5-5"/></>,
+  payIncreaseOffice: <><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/><path d="m9 15 2 2 4-4"/></>,
+  payIncreasePaycor: <><path d="M19.5 9A8 8 0 0 0 5 7.5"/><path d="M4.5 3.5v4h4"/><path d="M4.5 15A8 8 0 0 0 19 16.5"/><path d="M19.5 20.5v-4h-4"/><path d="M12 8.5v7M14 10h-2.7a1.3 1.3 0 0 0 0 2.6h1.4a1.3 1.3 0 0 1 0 2.6H10"/></>,
   violationApprovers: <><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></>,
   timeOffRequest: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9.5 13.5 5 5M14.5 13.5l-5 5"/></>,
   interviewReminders: <><path d="M4 5h16v11H8l-4 4Z"/><circle cx="12" cy="10.5" r="2.2"/><path d="M8.5 14.2a4 4 0 0 1 7 0"/></>,
@@ -20497,7 +20506,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
-  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters', missingHoursApprovers: 'Missing hours approvals',
+  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', payIncreaseOffice: 'Pay increase office step', payIncreasePaycor: 'Pay increase Paycor updates', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters', missingHoursApprovers: 'Missing hours approvals',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -20512,12 +20521,12 @@ const recipientInitials = (value, users) => {
 
 function NotifyRecipientRow({ th, value, display, users, tagKey, tagText, onRemove, disabled }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', padding: '0.7rem 0.85rem 0.7rem 0.75rem', border: `1px solid ${th.cardBorder}`, borderRadius: '0.75rem', background: th.card }}>
+    <div className="nf-row" style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', minWidth: 0, padding: '0.7rem 0.85rem 0.7rem 0.75rem', border: `1px solid ${th.cardBorder}`, borderRadius: '0.75rem', background: th.card }}>
       <span style={{ width: 38, height: 38, borderRadius: '50%', background: '#FF671F1f', color: '#c2410c', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>
         {recipientInitials(value, users)}
       </span>
       <span style={{ flex: '0 1 300px', minWidth: 0, fontSize: '0.92rem', fontWeight: 600, color: th.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{display || value}</span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', color: th.muted, background: th.card2, borderRadius: 999, padding: '0.28rem 0.7rem', whiteSpace: 'nowrap' }}>
+      <span className="nf-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', color: th.muted, background: th.card2, borderRadius: 999, padding: '0.28rem 0.7rem', whiteSpace: 'nowrap' }}>
         {nIco(tagKey, th.muted, 13)}{tagText}
       </span>
       <span style={{ flex: 1 }} />
@@ -20829,9 +20838,20 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   // instead of stacked collapsible cards — only the selected one's content
   // renders below the pill row.
   const [notifSubTab, setNotifSubTab] = useState('project');
+  // v23.8 phone layout (user's mock, 2026-11-23): categories → lists → one list's recipients.
+  const [nfPhone, setNfPhone] = useState(() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } });
+  useEffect(() => {
+    let mq; try { mq = window.matchMedia('(max-width: 640px)'); } catch { return; }
+    const on = () => setNfPhone(mq.matches);
+    mq.addEventListener ? mq.addEventListener('change', on) : mq.addListener(on);
+    return () => { mq.removeEventListener ? mq.removeEventListener('change', on) : mq.removeListener(on); };
+  }, []);
+  const [nfDetail, setNfDetail] = useState(false);
+  const [nfQuery, setNfQuery] = useState('');
+  const [nfOpen, setNfOpen] = useState({ ops: true });
   // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
   // here, then kept live by each ManualNotifyListPanel's onCountChange.
-  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1', resignationLetter: 'pcg_resignation_notify_v1', missingHoursApprovers: 'pcg_missing_hours_approvers_v1' };
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1', resignationLetter: 'pcg_resignation_notify_v1', missingHoursApprovers: 'pcg_missing_hours_approvers_v1', payIncreaseOffice: 'pcg_pay_increase_office_step_v1', payIncreasePaycor: 'pcg_pay_increase_paycor_notify_v1' };
   const [notifCounts, setNotifCounts] = useState({});
   useEffect(() => {
     Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -21059,44 +21079,124 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
 
       {/* Pill sub-tabs — one "who gets notified about X" section per pill,
           instead of stacking every section as its own collapsible card. */}
-      <div style={{ ...card(th), padding: '1.5rem', marginBottom: '1.25rem' }}>
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[
-            { id: 'project', label: 'Project', count: globalNotifyEmails.length },
-            { id: 'ticket',  label: 'Ticket',  count: (ticketNotifyEmails || []).length },
+      <div className={nfPhone && !nfDetail ? 'nf-card nf-card-bare' : 'nf-card'} style={nfPhone && !nfDetail ? { marginBottom: '1.25rem' } : { ...card(th), marginBottom: '1.25rem' }}>
+        {(() => {
+          // v23.7 grouped lists; v23.8 phone layout. Desktop: chips under small headings.
+          // Phone: search, collapsible category cards, rows → tap opens that list (slides in).
+          const groups = [
+            { key: 'ops', title: 'Store & Operations', icon: 'grpStore', items: [
+              { id: 'project', label: 'Project', count: globalNotifyEmails.length },
+              { id: 'ticket',  label: 'Ticket',  count: (ticketNotifyEmails || []).length },
+              ...(isFullAdmin(user) ? [
+                { id: 'fleet', label: 'Car', count: notifCounts.fleet },
+                { id: 'foodLicense', label: 'Food License', count: notifCounts.foodLicense },
+                { id: 'systemHealth', label: 'System Health', count: notifCounts.systemHealth },
+              ] : []),
+            ] },
             ...(isFullAdmin(user) ? [
-              { id: 'fleet', label: 'Car', count: notifCounts.fleet },
-              { id: 'foodLicense', label: 'Food License', count: notifCounts.foodLicense },
-              { id: 'systemHealth', label: 'System Health', count: notifCounts.systemHealth },
-              { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
-              { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
-              { id: 'transferNotice', label: 'Transfer Notice', count: notifCounts.transferNotice },
-              { id: 'violationApprovers', label: 'Violation Notice approval', count: notifCounts.violationApprovers },
-              { id: 'violationNotice', label: 'Violation Notice', count: notifCounts.violationNotice },
-              { id: 'resignationLetter', label: 'Resignation Letter', count: notifCounts.resignationLetter },
-              { id: 'missingHoursApprovers', label: 'Missing Hours approval', count: notifCounts.missingHoursApprovers },
-              { id: 'timeOffRequest', label: 'Time Off Request', count: notifCounts.timeOffRequest },
-              { id: 'payIncreaseApprovers', label: 'Pay Increase approval', count: notifCounts.payIncreaseApprovers },
-              { id: 'payIncrease', label: 'Pay Increase (office)', count: notifCounts.payIncrease },
-              { id: 'interviewReminders', label: 'Interview Reminders' },
-              { id: 'newHires', label: 'New Hires' },
+              { key: 'people', title: 'Employee & Workforce', icon: 'grpPeople', items: [
+                { id: 'weeklyHoursSchedule', label: 'Weekly Hours + Schedule', count: notifCounts.weeklyHoursSchedule },
+                { id: 'timeOffRequest', label: 'Time Off Request', count: notifCounts.timeOffRequest },
+                { id: 'transferNotice', label: 'Transfer Notice', count: notifCounts.transferNotice },
+                { id: 'resignationLetter', label: 'Resignation Letter', count: notifCounts.resignationLetter },
+                { id: 'interviewReminders', label: 'Interview Reminders' },
+                { id: 'newHires', label: 'New Hires' },
+              ] },
+              { key: 'pay', title: 'Approvals & Compensation', icon: 'grpMoney', items: [
+                { id: 'payIncreaseApprovers', label: 'Pay Increase approval', count: notifCounts.payIncreaseApprovers },
+                { id: 'payIncreaseOffice', label: 'Pay Increase office step', count: notifCounts.payIncreaseOffice },
+                { id: 'payIncreasePaycor', label: 'Pay Increase Paycor update', count: notifCounts.payIncreasePaycor },
+                { id: 'payIncrease', label: 'Pay Increase (office)', count: notifCounts.payIncrease },
+                { id: 'missingHoursApprovers', label: 'Missing Hours approval', count: notifCounts.missingHoursApprovers },
+              ] },
+              { key: 'compliance', title: 'Compliance & Safety', icon: 'grpShield', items: [
+                { id: 'minorTimecard', label: 'Minor Timecard', count: notifCounts.minorTimecard },
+                { id: 'violationApprovers', label: 'Violation Notice approval', count: notifCounts.violationApprovers },
+                { id: 'violationNotice', label: 'Violation Notice', count: notifCounts.violationNotice },
+              ] },
             ] : []),
-          ].map(t => {
-            const on = notifSubTab === t.id;
-            return (
-              <button key={t.id} onClick={() => setNotifSubTab(t.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.15rem', borderRadius: '999px',
-                  border: `1px solid ${on ? '#FF671F66' : th.cardBorder}`,
-                  background: on ? '#FF671F14' : th.card,
-                  color: on ? '#FF671F' : th.text, fontWeight: 600, fontSize: '0.86rem', cursor: 'pointer', fontFamily: "'Source Sans 3'",
-                }}>
-                {nIco(t.id, on ? '#FF671F' : th.muted, 16)}{t.label}
-                {t.count != null && <span style={{ fontSize: '0.78rem', color: on ? '#FF671Fb3' : th.muted, fontWeight: 500 }}>({t.count})</span>}
-              </button>
-            );
-          })}
-        </div>
+          ];
+          const current = groups.flatMap(g => g.items).find(i => i.id === notifSubTab);
+
+          if (!nfPhone) return (
+            <div className="nf-groups">
+              {groups.map(g => (
+                <div key={g.key} className="nf-group">
+                  <div className="nf-group-title" style={{ color: th.muted }}>{g.title}</div>
+                  <div className="nf-chips">
+                    {g.items.map(t => {
+                      const on = notifSubTab === t.id;
+                      return (
+                        <button key={t.id} onClick={() => setNotifSubTab(t.id)} className="nf-chip"
+                          style={{ border: `1px solid ${on ? '#FF671F66' : th.cardBorder}`, background: on ? '#FF671F14' : th.card, color: on ? '#FF671F' : th.text }}>
+                          {nIco(t.id, on ? '#FF671F' : th.muted, 15)}{t.label}
+                          {t.count != null && <span style={{ fontSize: '0.76rem', color: on ? '#FF671Fb3' : th.muted, fontWeight: 500 }}>{t.count}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+
+          // Phone, one list open: a back bar, then that list's panel (rendered below).
+          if (nfDetail) return (
+            <button type="button" onClick={() => runPageTransition('back', () => setNfDetail(false))} className="nfm-back" style={{ color: th.text, borderColor: th.cardBorder, background: th.card }}>
+              <span aria-hidden="true" style={{ color: '#FF671F', fontSize: '1.1rem', lineHeight: 1 }}>‹</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>{nIco(notifSubTab, '#FF671F', 18)}<b style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current?.label || 'Notifications'}</b></span>
+              <span style={{ marginLeft: 'auto', color: th.muted, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>All types</span>
+            </button>
+          );
+
+          // Phone, categories.
+          const q = nfQuery.trim().toLowerCase();
+          const shown = groups.map(g => ({ ...g, items: q ? g.items.filter(i => i.label.toLowerCase().includes(q)) : g.items })).filter(g => g.items.length);
+          return (
+            <div className="nfm">
+              <label className="nfm-search" style={{ background: th.card, borderColor: th.cardBorder }}>
+                {nIco('search', th.muted, 17)}
+                <input value={nfQuery} onChange={e => setNfQuery(e.target.value)} placeholder="Search notification types…" aria-label="Search notification types" style={{ color: th.text }} />
+              </label>
+              <div className="pcg-stagger nfm-list">
+                {shown.map(g => {
+                  const open = !!q || !!nfOpen[g.key];
+                  return (
+                    <div key={g.key} className="nfm-cat" style={{ background: th.card, borderColor: th.cardBorder }}>
+                      <button type="button" className="nfm-cat-head" aria-expanded={open} onClick={() => setNfOpen(o => ({ ...o, [g.key]: !o[g.key] }))} style={{ color: th.text }}>
+                        <span className="nfm-cat-ico">{nIco(g.icon, '#FF671F', 22)}</span>
+                        <span className="nfm-cat-title">{g.title}</span>
+                        <span className="nfm-badge" style={{ background: th.card2, color: th.text }}>{g.items.length}</span>
+                        <span className="nfm-chev" style={{ transform: open ? 'rotate(180deg)' : 'none' }}>{nIco('chevDown', th.text, 18)}</span>
+                      </button>
+                      {open && (
+                        <div className="nfm-rows">
+                          {g.items.map(t => {
+                            const on = notifSubTab === t.id;
+                            return (
+                              <button key={t.id} type="button" className="nfm-row" onClick={() => runPageTransition('forward', () => { setNotifSubTab(t.id); setNfDetail(true); })}
+                                style={{ background: on ? '#FF671F14' : 'transparent', color: on ? '#FF671F' : th.text }}>
+                                <span className="nfm-row-ico">{nIco(t.id, on ? '#FF671F' : th.text, 20)}</span>
+                                <span className="nfm-row-label">{t.label}</span>
+                                {t.count != null && <span style={{ color: th.muted, fontSize: '0.85rem' }}>({t.count})</span>}
+                                <span style={{ marginLeft: 'auto' }}>{nIco('chevRight', th.muted, 16)}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {!shown.length && <p style={{ color: th.muted, fontSize: '0.88rem', textAlign: 'center', margin: '1rem 0' }}>No notification types match "{nfQuery}".</p>}
+              </div>
+              <div className="nfm-hint" style={{ background: th.card2, color: th.muted }}>
+                {nIco('info', '#FF671F', 18)}<span>Tap a category to see its notification types, then tap one to manage who gets it.</span>
+              </div>
+            </div>
+          );
+        })()}
+        <div style={{ display: nfPhone && !nfDetail ? 'none' : undefined }}>
 
       {/* Project */}
       {notifSubTab === 'project' && <>
@@ -21294,6 +21394,21 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           here are the only ones who can approve (in Tools · Pay Increase); the emails / numbers get
           the "waiting for approval" email / text with a link. While no one is named, every
           executive approves and gets it. v22.60 */}
+      {/* v23.1 Pay Increase office step — full admins only. People added BY NAME here (Roxy) set the
+          effective date, paycheck date and payroll signature on approved pay increases; they get an
+          email + text + push and a reminder every 3 hours until it's done. */}
+      {notifSubTab === 'payIncreaseOffice' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_office_step_v1" tagKey="payIncreaseOffice" onCountChange={setNotifCount('payIncreaseOffice')}
+          description="These people do the office step of Tools · Pay Increase. Once Mike approves a pay increase, they get an email with an Open button, a text and a phone push, and a reminder every 3 hours until they set the effective date, the paycheck date and sign. Only people added by name (and exec / IT) can complete it; while no one is named here, the people named on Pay Increase (office) can. Completing it files it in Google Drive and emails the person who sent it."
+          smsLabel="Pay Increase office step SMS Numbers" />
+      )}
+      {/* v23.10 Pay Increase Paycor update — full admins only. Told when the office queues a pay
+          increase for Paycor, and again on the effective date when it's sent (or if it couldn't be). */}
+      {notifSubTab === 'payIncreasePaycor' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_paycor_notify_v1" tagKey="payIncreasePaycor" onCountChange={setNotifCount('payIncreasePaycor')}
+          description="Who hears about pay increases going into Paycor. After the office completes a pay increase and presses Update pay in Paycor, these people get an email (with an Open button), a text and a phone push saying it's queued and the day it will be updated. On that day it's sent to Paycor automatically and they're told again: updated, or not updated and why. Also told if it's cancelled or its date moves. While no one is here, only the person who queued it is told."
+          smsLabel="Pay Increase Paycor update SMS Numbers" />
+      )}
       {notifSubTab === 'payIncreaseApprovers' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_approvers_v1" tagKey="payIncreaseApprovers" onCountChange={setNotifCount('payIncreaseApprovers')}
           description="Who approves pay increases (e.g. Mike). When a manager or DM sends one, these people get an email and a text with a link to review it, then approve it or send it back in Tools · Pay Increase. Add the approver by name (that's what lets them approve) and add their mobile number below for the text. While no one is added by name, every executive can approve and gets the email."
@@ -21306,6 +21421,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       )}
       {notifSubTab === 'interviewReminders' && isFullAdmin(user) && <InterviewRemindersPanel th={th} showAlert={showAlert} users={users} />}
       {notifSubTab === 'newHires' && isFullAdmin(user) && <NewHiresPanel th={th} showAlert={showAlert} users={users} />}
+        </div>{/* v23.8 end of the list panels (hidden on phones until a list is opened) */}
       </div>
 
       {/* Test Notifications */}
@@ -25355,7 +25471,8 @@ const RESIGNATION_LETTER_ROLES = new Set(['executive', 'it', 'office_staff', 'dm
 const MISSING_HOURS_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
 // v22.60 Pay Increase: a Store Manager or DM makes it and signs their own line; it goes to the
 // approver (Mike) and, once approved, to the office.
-const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
+// v23.0: office_staff too — the office step (effective date) is done by people on the Pay Increase (office) list.
+const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager', 'office_staff']);
 const accessSubOn = (overrides, rt, hubId, subId) => (overrides?.[rt]?.[`${hubId}:${subId}`]) !== false;
 
 
@@ -32329,7 +32446,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
 
   return (
     <div style={{ minHeight: "100vh", background: dark ? "#0b0d13" : "#f7f2ec", color: th.text }}>
-      <div className="fade-in" style={{ maxWidth: 380, margin: "0 auto", padding: "1rem 1rem 5.9rem", display: "grid", gap: "0.75rem" }}>
+      <div className="pcg-stagger" style={{ maxWidth: 380, margin: "0 auto", padding: "1rem 1rem 5.9rem", display: "grid", gap: "0.75rem" }}>
         {/* In-content header — greeting + LIVE pill + avatar menu (app chrome removed) */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.1rem" }}>
           <div style={{ minWidth: 0 }}>
@@ -32346,7 +32463,7 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
             <button onClick={() => setShowUserMenu(v => !v)} title="Account" aria-label="Account menu" style={{ width: 38, height: 38, borderRadius: "50%", background: O, border: "none", color: "#fff", fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.82rem", letterSpacing: 0.3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 2px 8px ${O}55`, flexShrink: 0 }}>{userInitials}</button>
             {showUserMenu && (<>
               <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-              <div style={{ position: "absolute", top: 46, right: 0, zIndex: 50, minWidth: 200, ...cardBase, padding: "0.4rem" }}>
+              <div className="pcg-pop" style={{ position: "absolute", top: 46, right: 0, zIndex: 50, minWidth: 200, ...cardBase, padding: "0.4rem" }}>
                 <div style={{ padding: "0.5rem 0.6rem 0.4rem" }}>
                   <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "0.84rem", color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.name || "Manager"}</div>
                   <div style={{ color: th.muted, fontSize: "0.6rem", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name || `Store #${pc}`} · #{pc}</div>
@@ -32609,8 +32726,8 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       </div>
 
       {showStoreInfo && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setShowStoreInfo(false)}>
-          <div style={{ background: th.card, borderRadius: "1.25rem 1.25rem 0 0", width: "100%", maxWidth: 480, padding: "1.4rem 1.25rem 2.5rem", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.28)" }} onClick={e => e.stopPropagation()}>
+        <div className="pcg-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setShowStoreInfo(false)}>
+          <div className="pcg-sheet" style={{ background: th.card, borderRadius: "1.25rem 1.25rem 0 0", width: "100%", maxWidth: 480, padding: "1.4rem 1.25rem 2.5rem", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.28)" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
               <div>
                 <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: th.text, lineHeight: 1.1 }}>{store.name || `Store #${pc}`}</div>
@@ -32671,7 +32788,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.00";
+const APP_VERSION = "v23.11";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -32716,7 +32833,7 @@ function saveToStorage(data) {
   // local copy is only a metadata cache so we can render the list fast.
   const slimmed = { ...data };
   if (slimmed.dailyReports && Array.isArray(slimmed.dailyReports)) {
-    // v23.00: photo refs (tiny, no image data) are kept — a local copy that lost them would
+    // v23.11: photo refs (tiny, no image data) are kept — a local copy that lost them would
     // drop the photos from the report the next time it was saved to the cloud.
     slimmed.dailyReports = slimmed.dailyReports.map(stripReportPhotosForLocal);
   }
@@ -46632,6 +46749,42 @@ const HubNoMatches = ({ th, query }) => (
 // this existed, so this screen also carries the profile/theme/sign-out controls
 // that used to live only in the sidebar.
 const MOBILE_LAUNCHER_TAB_ID = '__launcher__';
+
+// v23.4 app-style screen transitions (user, 2026-11-23: "move smoothly like Instagram / Facebook").
+// Every screen change goes through PCGPortal's setTab, which calls this. It uses the browser's View
+// Transitions API: only the content area (view-transition-name: pcg-page) glides — forward slides in
+// from the right, back from the left — while the sidebar and top bar stay put. Browsers without the
+// API (older iPhones), "reduce motion", or a hidden tab change screens instantly, exactly as before.
+// v23.5 phones: one tap often changes two things (leave the phone home AND open a screen). Both
+// must land inside ONE transition, or the first commits before the snapshot and the screen flashes.
+// queueNav collects every update made in the same tap and runs them together on the next microtask.
+const _navBatch = { fns: [], dir: null, shell: false, scheduled: false };
+function queueNav(dir, fn, opts = {}) {
+  _navBatch.fns.push(fn);
+  if (!_navBatch.dir) _navBatch.dir = dir;
+  if (opts.shell) _navBatch.shell = true;
+  if (_navBatch.scheduled) return;
+  _navBatch.scheduled = true;
+  queueMicrotask(() => {
+    const fns = _navBatch.fns.splice(0), d = _navBatch.dir || 'forward', shell = _navBatch.shell;
+    _navBatch.dir = null; _navBatch.shell = false; _navBatch.scheduled = false;
+    runPageTransition(d, () => fns.forEach(f => f()), { shell });
+  });
+}
+
+function runPageTransition(dir, update, opts = {}) {
+  let reduce = false;
+  try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch {}
+  if (typeof document === 'undefined' || !document.startViewTransition || reduce || document.hidden) { update(); return; }
+  const root = document.documentElement;
+  root.dataset.navDir = dir;
+  if (opts.shell) root.dataset.navShell = '1'; else delete root.dataset.navShell;
+  try {
+    const t = document.startViewTransition(() => { ReactDOM.flushSync(update); });
+    const done = () => { if (root.dataset.navDir === dir) { delete root.dataset.navDir; delete root.dataset.navShell; } };
+    t.finished.then(done, done);
+  } catch { delete root.dataset.navDir; delete root.dataset.navShell; update(); }
+}
 // A single compact icon+label app-icon tile — deliberately no description text,
 // unlike HubTile — a launcher grid is meant to be scanned at a glance, not read.
 function LauncherTile({ th, icon, label, badge, onClick, pinned, onTogglePin }) {
@@ -51147,7 +51300,9 @@ function EmailTab({ th, user }) {
 // ── Mobile Analyst Shell ─────────────────────────────────────────────────────
 function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, announcementsDismissed, setAnnouncementsDismissed, onSwitchToFull, onTickets, onTasks, onExpenses, todos, projects, users }) {
   const O = '#FF671F';
-  const [activeTab, setActiveTab] = React.useState('brief');
+  const [activeTab, setActiveTabState] = React.useState('brief');
+  // v23.5: switching bottom tabs fades through (Instagram-style), not an instant swap.
+  const setActiveTab = React.useCallback((t) => runPageTransition('tab', () => setActiveTabState(t)), []);
   const [brief, setBrief] = React.useState(null);
   const [cases, setCases] = React.useState([]);
   const [kpi, setKpi] = React.useState(null);
@@ -51488,8 +51643,8 @@ function MobileAnalystShell({ user, th, dark, onLogout, stores, announcements, a
         </div>
       </div>
 
-      {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 100px', WebkitOverflowScrolling: 'touch' }}>
+      {/* Scrollable content — v23.6: each tab's cards cascade in one by one (pcg-stagger-2) */}
+      <div className="pcg-stagger-2" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 100px', WebkitOverflowScrolling: 'touch' }}>
 
         {/* ── PULSE TAB ── */}
         {activeTab === 'pulse' && (() => {
@@ -52053,7 +52208,8 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatC
     catch { return null; }
   };
 
-  const [activeTab, setActiveTab] = React.useState('calendar');
+  const [activeTab, setActiveTabState] = React.useState('calendar');
+  const setActiveTab = React.useCallback((t) => runPageTransition('tab', () => setActiveTabState(t)), []); // v23.5
   const [tickets, setTickets] = React.useState(() => { try { return JSON.parse(localStorage.getItem('pcg_tickets_v1') || '[]'); } catch { return []; } });
   const [selectedDay, setSelectedDay] = React.useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
   const [weekOffset, setWeekOffset] = React.useState(0);
@@ -52330,8 +52486,8 @@ function MaintenanceMobileView({ th, user, stores, onFullPortal, onLogout, chatC
 
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 9000, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={closeSheet} />
-        <div style={{ position: 'relative', zIndex: 1, background: th.bg, borderRadius: '1.5rem 1.5rem 0 0', maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom, 20px)' }}>
+        <div className="pcg-backdrop" style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={closeSheet} />
+        <div className="pcg-sheet" style={{ position: 'relative', zIndex: 1, background: th.bg, borderRadius: '1.5rem 1.5rem 0 0', maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom, 20px)' }}>
 
           {/* Drag handle */}
           <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 10, paddingBottom: 4 }}>
@@ -52990,7 +53146,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   const [syncMsg, setSyncMsg] = useState('');
   const [selectedReport, setSelectedReport] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState(null); // a report photo object (legacy inline or v23.00 ref)
+  const [lightboxSrc, setLightboxSrc] = useState(null); // a report photo object (legacy inline or v23.11 ref)
   const mobileReportIdRef = useRef(null);
   const photoUp = useReportPhotoUploads(setRForm, () => ({
     projectId: selectedProject?.id,
@@ -53041,7 +53197,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
     try {
       const pdfBlob = await mobileGeneratePdf(r, proj, false);
       if (!pdfBlob) { setEmailSending(false); return; }
-      // v23.00: always a link to the PDF, never an attachment (no size limit to trip over).
+      // v23.11: always a link to the PDF, never an attachment (no size limit to trip over).
       const filename = `Daily_Report_${r.date||r.id}_${(proj.nickname||proj.pc||'PCG').replace(/[^a-z0-9]+/gi,'_')}.pdf`;
       const link = await uploadReportPdf(pdfBlob, filename);
       const res = await fetch('/.netlify/functions/notify', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
@@ -53114,7 +53270,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
       survey: Object.fromEntries(SURVEY_KEYS.map(k=>[k,null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map(k=>[k,''])),
     });
-    // v23.00: id fixed when the form opens so each uploaded photo is tagged with its report.
+    // v23.11: id fixed when the form opens so each uploaded photo is tagged with its report.
     mobileReportIdRef.current = 'dr_'+Date.now();
     photoUp.reset();
     goTo('report');
@@ -53126,7 +53282,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
   const setSurvey  = (k,v) => setRForm(f => ({...f, survey:{...f.survey,[k]:v}}));
   const setSurveyNote = (k,v) => setRForm(f => ({...f, surveyNotes:{...f.surveyNotes,[k]:v}}));
 
-  // v23.00: photos upload one at a time through the shared useReportPhotoUploads hook (same
+  // v23.11: photos upload one at a time through the shared useReportPhotoUploads hook (same
   // as the full portal) — no shared 6 MB budget, so no photo ceiling.
   const addLogPhoto = (logIdx, files) => photoUp.addPhotos(logIdx, files);
 
@@ -53163,7 +53319,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
         signature: status==='submitted'?(user?.name||rForm.preparedBy):'',
         signedAt: status==='submitted'?now:'',
       };
-      // Save the report (text + photo references). v23.00: a failed save is no longer
+      // Save the report (text + photo references). v23.11: a failed save is no longer
       // swallowed — the form stays open with everything in it so nothing is lost quietly.
       try { await cloudSaveReport(report); }
       catch (e) {
@@ -53608,7 +53764,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                             {photoCount > 0 ? (
                               <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                                 {w.photos.map((ph,pi)=>{
-                                  // legacy: inline image (or a bare data-URL string); v23.00 ref: loaded on demand
+                                  // legacy: inline image (or a bare data-URL string); v23.11 ref: loaded on demand
                                   const photo = typeof ph === 'string' ? { data: ph } : ph;
                                   if (!isRefPhoto(photo) && !(typeof photo?.data === 'string' && photo.data)) return null;
                                   return (
@@ -55219,7 +55375,8 @@ function PCGPortal() {
     } else {
       try { localStorage.removeItem('pcg_prefer_full_portal'); } catch {}
     }
-    setPreferFullPortal(full);
+    // v23.5: animated with the screen change that usually follows in the same tap (queueNav).
+    queueNav(full ? 'forward' : 'back', () => setPreferFullPortal(full), { shell: true });
   };
   // One-time self-heal: managers/maintenance/office_staff who tapped a mobile-dashboard
   // card (Tasks, Tickets, Pulse, Labor, Open CAPs, Open Full Portal) before their role
@@ -55245,7 +55402,7 @@ function PCGPortal() {
     setPreferFullPortal(false);
     setUser(null);
   };
-  const [tab, setTab]           = useState("dashboard");
+  const [tab, setTabRaw]        = useState("dashboard");
   // Which sub-tab ManagerPulse's StoreDetail should open on — lets the mobile
   // dashboard's Labor tile deep-link straight to the Labor sub-tab instead of
   // always landing on Sales.
@@ -55264,6 +55421,16 @@ function PCGPortal() {
   };
   const tabHistoryRef  = useRef(["dashboard"]); // visited tab stack for swipe-back
   const isGoingBackRef = useRef(false);          // flag to suppress history push on goBack
+  // v23.4: setTab animates the change (see runPageTransition). Back = goBack(), Home or Dashboard.
+  const tabNowRef = useRef("dashboard");
+  tabNowRef.current = tab;
+  const setTab = useCallback((next) => {
+    const target = typeof next === 'function' ? next(tabNowRef.current) : next;
+    if (target === tabNowRef.current) return;
+    const dir = isGoingBackRef.current || target === MOBILE_LAUNCHER_TAB_ID || target === 'dashboard' ? 'back' : 'forward';
+    tabNowRef.current = target;
+    queueNav(dir, () => setTabRaw(target));
+  }, []);
   const sidebarNavRef  = useRef(null);           // ref to sidebar nav scroll container
   const sidebarScrollPos = useRef(0);            // persisted scroll position across re-renders
   // Default to collapsed (icon rail) on first-ever load so every page starts with more
@@ -58427,7 +58594,7 @@ function PCGPortal() {
           document.body
         )}
 
-        <div className="main-content-padding" style={{ padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : (tab === "district-alignment" || tab === "tools-hub") ? "1.5rem 1.25rem 1rem" : (tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
+        <div className="main-content-padding" style={{ viewTransitionName: "pcg-page", padding: (tab === "map" || (tab === "locations" && locationsMapMode)) ? "0.75rem 1rem" : tab === "locations" ? "1.5rem 1.25rem 1rem" : (tab === "district-alignment" || tab === "tools-hub") ? "1.5rem 1.25rem 1rem" : (tab === "admin" || tab === "users") ? "1.5rem 5vw 1rem" : tab === "pulse" ? "0.75rem 5vw 0.75rem" : "3vw 5vw" }}>
           {/* App-wide error boundary: any tab that throws during render shows a fallback
               instead of white-screening the whole app. key={tab} remounts it on tab change
               so a crash on one tab doesn't leave every other tab stuck on the fallback. */}

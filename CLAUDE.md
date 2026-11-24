@@ -5,7 +5,7 @@
 
 **Live URL:** https://pcg-ops.netlify.app
 **Hosting:** Netlify (Pro plan) — bundled static SPA + serverless functions + Netlify Blobs + Neon Postgres
-**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.00**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
+**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.11**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
 
 ---
 
@@ -485,11 +485,11 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
 7. **Blob wrapper** — All blobs stored as `{ savedAt, data }`; `cloudLoad` unwraps.
 8. **Week start** — Labor uses Monday; Pulse uses Sunday.
 9. **Duplicated store config** — Store arrays live in multiple functions; update all when stores change.
-10. **Daily Report photos (v23.00)** — a report photo is uploaded on its own (`project-photos.mjs`
+10. **Daily Report photos (v23.11)** — a report photo is uploaded on its own (`project-photos.mjs`
     `createForReport`: a `project_photos` row with `source='daily_report'`, `report_id`, and two
     blobs — 1600px at `image_key`, 800px at `med_key`). The report blob `pcg_dr_{id}` keeps only a
     reference `{ photoId, fullKey, medKey, name, timestamp }`, so there is no photo ceiling.
-    Reports from before v23.00 still carry their photos inline in `pcg_dr_{id}_photos` and are read
+    Reports from before v23.11 still carry their photos inline in `pcg_dr_{id}_photos` and are read
     unchanged; one work log can hold both kinds (legacy first). All split/merge rules are in
     `src/report-photos.mjs` (used by `app.jsx`, `storage.mjs`, `reports-backup.mjs`) — don't
     re-implement them. **Refs are reconciled server-side on every report save** (`storage.mjs` →

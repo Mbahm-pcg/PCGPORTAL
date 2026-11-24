@@ -21,7 +21,7 @@ const AUDITS_ACCESS_VALUES = new Set([null, 'view', 'full']);
 // rewrite their entries here so the server (which sends the alerts) uses the new address at once.
 const NOTIFY_LIST_KEYS = ['pcg_fleet_notify_v1', 'pcg_food_license_notify_v1', 'pcg_system_health_notify_v1', 'pcg_minor_timecard_notify_v1',
   'pcg_weekly_hours_schedule_notify_v1', 'pcg_transfer_notice_notify_v1', 'pcg_pay_increase_notify_v1', 'pcg_pay_increase_approvers_v1',
-  'pcg_violation_notice_notify_v1', 'pcg_time_off_notify_v1', 'pcg_violation_approvers_v1', 'pcg_resignation_notify_v1', 'pcg_missing_hours_approvers_v1'];
+  'pcg_violation_notice_notify_v1', 'pcg_time_off_notify_v1', 'pcg_violation_approvers_v1', 'pcg_resignation_notify_v1', 'pcg_missing_hours_approvers_v1', 'pcg_pay_increase_office_step_v1', 'pcg_pay_increase_paycor_notify_v1'];
 export async function syncNotifyLists(userId, email, phone, store = getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN })) {
   const uid = String(userId);
   let touched = 0;

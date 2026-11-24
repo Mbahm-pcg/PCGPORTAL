@@ -10,7 +10,7 @@
 // While a form is open a photo may also carry transient fields (_status, _localId, _error,
 // and for refs a local `data` preview). Those never reach storage.
 
-export const PHOTO_FORMAT_VERSION = 2; // stamped on every report blob saved by v23.00+ code
+export const PHOTO_FORMAT_VERSION = 2; // stamped on every report blob saved by v23.11+ code
 export const REPORT_PHOTO_ROLES = ['executive', 'it', 'office_staff', 'construction'];
 export const canUploadReportPhotos = (userType) => REPORT_PHOTO_ROLES.includes(userType);
 
@@ -65,7 +65,7 @@ export function mergeLoadedReport(report, photoMap) {
 
 // Photo refs are reconciled on the SERVER every time a report blob is saved (storage.mjs),
 // because the copy doing the saving can be out of date: a second person with the same report
-// open, a phone that missed an update, Force Sync, or a browser still running pre-v23.00 code
+// open, a phone that missed an update, Force Sync, or a browser still running pre-v23.11 code
 // (which saves every report with `photos: []`). Any of those used to be able to drop refs
 // that someone else had just added.
 //

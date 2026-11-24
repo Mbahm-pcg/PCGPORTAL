@@ -15,7 +15,7 @@
 //   migrateFromDailyReports { projectId, projectNickname, photos:[{sourceRef,dataUrl,name,timestamp,addedBy}] }
 //     → { ok, imported, skipped }  (executive/it only; idempotent per sourceRef)
 //
-// Daily Report photos (v23.00) — each report photo is uploaded on its own instead of all
+// Daily Report photos (v23.11) — each report photo is uploaded on its own instead of all
 // of a report's photos travelling in one blob. Open to everyone who can edit projects
 // (REPORT_PHOTO_ROLES: adds office_staff to the gallery roles):
 //   createForReport { projectId, projectNickname, reportId, fileName, imageBase64, mediumBase64 }
@@ -74,7 +74,7 @@ async function ensureTables() {
   )`;
   await sql`CREATE INDEX IF NOT EXISTS idx_pphoto_project ON project_photos(project_id)`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pphoto_source_ref ON project_photos(source_ref) WHERE source_ref IS NOT NULL`;
-  // v23.00 — Daily Report photos
+  // v23.11 — Daily Report photos
   await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS med_key text`;
   await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS report_id text`;
   await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS file_name text`;

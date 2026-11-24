@@ -16,7 +16,7 @@ import https from 'node:https';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
-import { syncDistricts } from './_shared/store-status.mjs';
+import { syncDistricts, refreshStoreList } from './_shared/store-status.mjs';
 import { saveToDrive } from './transfer-notice.mjs';
 import { sendSms, sendPush } from './_shared/channels.mjs';
 import { CORPORATE, defaultPosition, missingTimeOffFields, timeOffProblem, timeOffFingerprint, timeOffFileName, timeOffAlertText, timeOffEmailHtml } from '../../src/time-off-request.mjs';
@@ -69,7 +69,7 @@ export default async (request) => {
   if (!authed) return json(401, { error: 'unauthorized' });
   const role = authed.realUserType || authed.userType;
   if (!ROLES.has(role)) return json(403, { error: 'Time off requests are for managers, DMs, Directors and executives.' });
-  await syncDistricts(STORES, ALL_STORES);
+  await refreshStoreList(STORES, ALL_STORES); // v23.3: skips permanently closed stores (Locations) and syncs districts
   const me = (await db`SELECT id, name, email, phone, store_pc, paycor_employee_id FROM users WHERE id = ${authed.sub}`)[0] || {};
   const myStore = role === 'manager' ? STORES.find(s => String(s.pc) === String(me.store_pc || '')) : null;
   const locations = [...STORES.map(storeLabel).sort(), CORPORATE];

@@ -113,7 +113,7 @@ export function payFileName(v, storeName) {
 // Push / SMS / bell text never carries pay rates; the email (to the list) does.
 export function payAlertText(v, storeName, submittedBy) {
   const title = `Pay increase: ${v.employeeName}`;
-  const line = `A signed pay increase for ${v.employeeName} (${v.position}, ${storeName || 'PC ' + v.pc}) is ready to be entered in Paycor.`;
+  const line = `A pay increase for ${v.employeeName} (${v.position}, ${storeName || 'PC ' + v.pc}) was approved and needs the office: enter it in Paycor and set the effective date in Tools > Pay Increase.`;
   const by = submittedBy ? ` Sent by ${submittedBy}.` : '';
   return { title, line: line + by, sms: `PCG ${title}\n${line}${by}` };
 }
@@ -124,9 +124,9 @@ export function payEmailHtml(v, storeName, submittedBy, driveLink, clientId, app
     ['Current pay', money(v.currentRate, v.payBasis)], ['New pay', money(v.newRate, v.payBasis)], ['Reason', v.reason], ['Form date', usDate(v.date)],
     ['Store Manager', v.smName], [v.secondLabel || 'District Manager', v.dmName], ['Sent by', submittedBy], ['Approved by', approvedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<p>A pay increase signed by the ${SIGNER_LABEL[v.signer] || 'Store Manager'}${approvedBy ? ` and approved by ${esc(approvedBy)}` : ''} is ready. The signed form is attached — please enter it in Paycor.</p>
+<p>A pay increase signed by the ${SIGNER_LABEL[v.signer] || 'Store Manager'}${approvedBy ? ` and approved by ${esc(approvedBy)}` : ''} is ready for the office. The signed form is attached. Enter it in Paycor, then open it in the portal (Tools &gt; Pay Increase, Office tab) to fill in the effective date, the paycheck date and your signature; that files it and tells ${esc(submittedBy || 'the person who sent it')}.</p>
 <table cellpadding="6" style="border-collapse:collapse">${rows.filter(r => r[1]).map(([k, val]) => `<tr><td style="color:#666;padding-right:14px;vertical-align:top">${esc(k)}</td><td><b>${esc(val)}</b></td></tr>`).join('')}</table>
-${driveLink ? `<p><a href="${esc(driveLink)}">Open it in Google Drive</a></p>` : ''}</div>`;
+${driveLink ? `<p><a href="${esc(driveLink)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">${/payIncrease=/.test(driveLink) ? 'Open it in the portal' : 'Open it in Google Drive'}</a></p>` : ''}</div>`;
 }
 
 // The approval step. Text / push / bell never carry pay rates; the approver's email does.
@@ -136,7 +136,9 @@ export function approvalAlertText(kind, r, storeName, extra = {}) {
     const line = `${r.submitted_by_name || 'A manager'} sent a pay increase for ${who} for your approval.`;
     return { title: 'Pay increase to approve', line, sms: `PCG: ${line} Open it to approve:` };
   }
-  if (kind === 'approved') return { title: 'Pay increase approved', line: `${extra.by || 'The approver'} approved the pay increase for ${who}. It has gone to the office.` };
+  if (kind === 'approved') return { title: 'Pay increase approved', line: `${extra.by || 'The approver'} approved the pay increase for ${who}. It's now with the office to set the effective date; you'll get another email when it's complete.` };
+  // v23.0: the office has set the effective date and filed it.
+  if (kind === 'completed') return { title: 'Pay increase complete', line: `The pay increase for ${who} is complete (${extra.at || 'today'}). It takes effect ${extra.effective || 'on the effective date'}${extra.paycheck ? `, first on the paycheck dated ${extra.paycheck}` : ''}.${extra.by ? ` Completed by ${extra.by}.` : ''}` };
   return { title: 'Pay increase sent back', line: `${extra.by || 'The approver'} sent back the pay increase for ${who}: "${extra.note || ''}"` };
 }
 

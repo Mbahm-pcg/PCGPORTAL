@@ -1,4 +1,4 @@
-// report-pdf.mjs — emailed Daily Report PDFs as a link instead of an attachment (v23.00).
+// report-pdf.mjs — emailed Daily Report PDFs as a link instead of an attachment (v23.11).
 // See docs/superpowers/specs/2026-11-21-daily-report-photos-design.md.
 //
 // POST { action:'put', token?, index, total, chunk, fileName }   signed in, project-edit roles

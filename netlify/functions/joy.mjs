@@ -10,7 +10,7 @@
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
-import { syncDistricts } from './_shared/store-status.mjs';
+import { refreshStoreList } from './_shared/store-status.mjs';
 import { DAILY_KEY, loadJSON, etToday, windowStart } from './joy-lib/run.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -21,7 +21,7 @@ export default async (request) => {
   if (!authed) return json(401, { error: 'unauthorized' });
   const role = authed.realUserType || authed.userType;
 
-  await syncDistricts(STORES, ALL_STORES);
+  await refreshStoreList(STORES, ALL_STORES); // v23.6: permanently closed stores (Willits, Allentown GS) are not on the leaderboard
   let visible = STORES;
   let scope = 'all';
   if (role === 'manager' || role === 'store_tablet') {
