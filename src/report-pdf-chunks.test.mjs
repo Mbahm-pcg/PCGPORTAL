@@ -34,13 +34,15 @@ test('splitBase64 chunks decode independently and re-join to the original bytes'
 });
 
 test('chunkProblem', () => {
-  const ok = { index: 0, total: 1, chunk: 'QUJD' };
+  const ok = { index: 0, total: 1, chunk: 'JVBERi0x' };
   assert.equal(chunkProblem(ok), null);
-  assert.equal(chunkProblem({ index: 0, total: 1, chunk: 'QUI=' }), null);
+  assert.equal(chunkProblem({ index: 0, total: 1, chunk: 'JVBERi0x' }), null);
+  assert.match(chunkProblem({ index: 0, total: 1, chunk: 'QUI=' }), /not a PDF/);
+  assert.equal(chunkProblem({ index: 1, total: 2, chunk: 'QUI=' }), null);
   assert.match(chunkProblem({ ...ok, total: MAX_CHUNKS + 1 }), /total/);
   assert.match(chunkProblem({ ...ok, index: 1 }), /index/);
   assert.match(chunkProblem({ ...ok, chunk: '' }), /chunk/);
   assert.match(chunkProblem({ ...ok, chunk: 'x'.repeat(CHUNK_CHARS + 4) }), /too large/);
-  assert.match(chunkProblem({ index: 0, total: 2, chunk: 'QUJDR' }), /aligned/);
+  assert.match(chunkProblem({ index: 0, total: 2, chunk: 'JVBERi0xL' }), /aligned/);
   assert.match(chunkProblem({ ...ok, chunk: '<script>' }), /base64/);
 });

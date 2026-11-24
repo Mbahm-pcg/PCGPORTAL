@@ -22,6 +22,9 @@ export function splitBase64(b64) {
   return out.length ? out : [''];
 }
 
+export const PDF_MAGIC_B64 = 'JVBERi0'; // base64 of "%PDF-"
+export const REPORT_PDF_PREFIX = 'pcg_report_pdf_';
+
 // Validate one upload request. → null when fine, else an error string.
 export function chunkProblem({ index, total, chunk }) {
   if (!Number.isInteger(total) || total < 1 || total > MAX_CHUNKS) return `total must be 1-${MAX_CHUNKS}`;
@@ -29,5 +32,7 @@ export function chunkProblem({ index, total, chunk }) {
   if (typeof chunk !== 'string' || chunk.length === 0 || chunk.length > CHUNK_CHARS) return 'chunk empty or too large';
   if (chunk.length % 4 !== 0 && index !== total - 1) return 'chunk not base64-aligned';
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(chunk.slice(-8)) || !/^[A-Za-z0-9+/]+$/.test(chunk.slice(0, 64).replace(/=+$/, ''))) return 'chunk is not base64';
+  // The link is served as application/pdf to anyone who has it — only take real PDFs ("%PDF-").
+  if (index === 0 && !chunk.startsWith(PDF_MAGIC_B64)) return 'file is not a PDF';
   return null;
 }

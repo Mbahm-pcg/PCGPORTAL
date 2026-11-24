@@ -247,9 +247,10 @@ export default async (request) => {
       if (!id) return json(400, { error: 'id required' });
       const rows = await sql`SELECT * FROM project_photos WHERE id = ${id}`;
       if (!rows.length) return json(404, { error: 'Not found' });
-      // A Daily Report still points at this photo — deleting it here would leave a hole in
-      // the report. It has to be removed from the report (removeFromReport) instead.
-      if (rows[0].source === 'daily_report' && !rows[0].deleted_at) {
+      // A Daily Report photo is never hard-deleted here, even after it was removed from its
+      // report: a stale copy of the report can still point at it, and only the nightly purge
+      // (reports-backup.mjs) checks that before deleting for good.
+      if (rows[0].source === 'daily_report') {
         return json(409, { error: 'This photo belongs to a Daily Report. Remove it from the report instead.' });
       }
       await blobStore().delete(rows[0].image_key).catch(() => {});

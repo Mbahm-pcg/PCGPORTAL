@@ -3,6 +3,7 @@
 
 import { getStore } from '@netlify/blobs';
 import { reconcileReportRefs } from '../../src/report-photos.mjs';
+import { REPORT_PDF_PREFIX } from '../../src/report-pdf-chunks.mjs';
 
 // A Daily Report blob (pcg_dr_<id>) — not its legacy photo map (pcg_dr_<id>_photos).
 const isDailyReportKey = (k) => k.startsWith('pcg_dr_') && !k.endsWith('_photos');
@@ -27,6 +28,9 @@ export default async (request) => {
 
   // Sanitize key — allow alphanumeric, underscore, hyphen, slash, dot (for path-style keys like analyst/briefs/...)
   const safeKey = key.replace(/[^a-zA-Z0-9_\-/.]/g, '_').slice(0, 128);
+
+  // Emailed report PDFs are public links — only report-pdf.mjs (signed in) may write or read them.
+  if (safeKey.startsWith(REPORT_PDF_PREFIX)) return new Response(JSON.stringify({ error: 'Not allowed' }), { status: 403, headers });
 
   try {
     const store = getStore({
