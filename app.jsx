@@ -8584,7 +8584,9 @@ async function cloudDelete(key, { tombstone = false } = {}) {
   try {
     await fetch('/.netlify/functions/storage', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // the sign-in is only sent (and only needed) when recording a report as deleted
+      ...(tombstone ? { credentials: 'include' } : {}),
+      headers: { 'Content-Type': 'application/json', ...(tombstone ? authHeader() : {}) },
       body: JSON.stringify({ action: 'delete', key, ...(tombstone ? { tombstone: true } : {}) }),
     });
   } catch {}

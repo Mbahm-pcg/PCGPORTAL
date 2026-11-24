@@ -2,18 +2,28 @@
 // Handles save/load of scorecard data so it persists across devices & browsers
 
 import { getStore } from '@netlify/blobs';
-import { reconcileReportRefs } from '../../src/report-photos.mjs';
+import { sql } from './_shared/db.mjs';
+import { requireActiveUser } from './auth-lib/require-user.js';
+import { reconcileReportRefs, canUploadReportPhotos } from '../../src/report-photos.mjs';
 import { REPORT_PDF_PREFIX } from '../../src/report-pdf-chunks.mjs';
 import { REPORT_INDEX_KEY, REPORT_LEGACY_KEY, REPORT_DELETED_KEY, mergeReportList, missingFromIncoming, addDeleted, deletedIds } from '../../src/report-index.mjs';
 
 // A Daily Report blob (pcg_dr_<id>) — not its legacy photo map (pcg_dr_<id>_photos).
 const isDailyReportKey = (k) => k.startsWith('pcg_dr_') && !k.endsWith('_photos');
 
+async function canTombstone(request) {
+  try {
+    const shim = { headers: { authorization: request.headers.get('authorization') || '', cookie: request.headers.get('cookie') || '' } };
+    const claims = await requireActiveUser(shim, sql());
+    return !!claims && canUploadReportPhotos(claims.userType);
+  } catch (e) { console.warn('[storage] tombstone auth check failed:', e.message); return false; }
+}
+
 export default async (request) => {
   const headers = {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Type': 'application/json',
   };
 
@@ -32,6 +42,10 @@ export default async (request) => {
 
   // Emailed report PDFs are public links — only report-pdf.mjs (signed in) may write or read them.
   if (safeKey.startsWith(REPORT_PDF_PREFIX)) return new Response(JSON.stringify({ error: 'Not allowed' }), { status: 403, headers });
+
+  // The deleted-reports record decides what can never be saved again — it is only ever
+  // changed by the signed-in delete path below, never written or removed directly.
+  if (safeKey === REPORT_DELETED_KEY && action !== 'load') return new Response(JSON.stringify({ error: 'Not allowed' }), { status: 403, headers });
 
   try {
     const store = getStore({
@@ -93,7 +107,8 @@ export default async (request) => {
 
     if (action === 'delete') {
       // v23.18: a user deleting a report records it, so no other device's copy revives it
-      if (payload.tombstone === true && isDailyReportKey(safeKey)) {
+      // Only for a signed-in user who can edit reports, and only for a report that exists.
+      if (payload.tombstone === true && isDailyReportKey(safeKey) && await canTombstone(request) && await store.getMetadata(safeKey).then(m => m !== null, () => false)) {
         const rec = await store.get(REPORT_DELETED_KEY, { type: 'json' }).catch(() => null);
         await store.setJSON(REPORT_DELETED_KEY, { savedAt: new Date().toISOString(), data: addDeleted(rec?.data, safeKey.slice('pcg_dr_'.length), new Date().toISOString()) });
       }
