@@ -61,7 +61,7 @@ export function buildMissingHoursPdf(jsPDF, v = {}, opts = {}) {
   const S = MH_SIG;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
   // v22.90: titled by who signs it (Store Manager / District Manager / Director of Operations / ...); the
-  // line starts right after the title, like the Pay Increase form.
+  // line starts right after the title, like the Pay Rate Change form.
   const label = opts.signLabel || 'District Manager Signature:';
   doc.text(label, 72, S.lineY);
   const sx0 = Math.max(S.x0, 72 + doc.getTextWidth(label) + 4), sx1 = Math.min(388, Math.max(S.x1, sx0 + 140));

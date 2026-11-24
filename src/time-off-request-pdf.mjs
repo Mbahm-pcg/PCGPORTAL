@@ -1,6 +1,6 @@
 // src/time-off-request-pdf.mjs — PCG "Time Off Request Form" PDF (v22.80). HR's old version was a
 // Google Form, so there is no paper template to copy: this is a branded PCG form in the same family
-// as Pay Increase / Violation Notice — the PCG logo, the seal behind the page, Caladea, labelled
+// as Pay Rate Change / Violation Notice — the PCG logo, the seal behind the page, Caladea, labelled
 // rows on ruled lines, the employee's drawn signature. Pure: no DOM, no fetch.
 import { usDate, usTime, leaveLabel } from './time-off-request.mjs';
 

@@ -88,3 +88,21 @@ export function violationEmailHtml(v, storeName, submittedBy, driveLink, clientI
 <table cellpadding="6" style="border-collapse:collapse">${rows.filter(r => r[1]).map(([k, val]) => `<tr><td style="color:#666;padding-right:14px;vertical-align:top">${esc(k)}</td><td><b>${esc(val)}</b></td></tr>`).join('')}</table>
 ${driveLink ? `<p><a href="${esc(driveLink)}">Open it in Google Drive</a></p>` : ''}</div>`;
 }
+
+// v23.14 (user, 2026-11-23): a violation notice can be made for someone already TERMINATED in
+// Paycor. The active roster (loadRoster) + the Terminations report's daily list (pcg_terminations_v1),
+// people who left in the last `days` days, tagged { terminated: true, terminationDate }. Someone
+// active again at that store (rehired) shows once, as active.
+export function withTerminated(stores, termRows, todayIso, days = 365) {
+  const cutoff = new Date(Date.parse(String(todayIso).slice(0, 10) + 'T12:00:00Z') - days * 864e5).toISOString().slice(0, 10);
+  const out = {};
+  for (const [pc, list] of Object.entries(stores || {})) out[pc] = [...(list || [])];
+  for (const r of termRows || []) {
+    if (!r?.id || !r.pc || !r.terminationDate || r.terminationDate < cutoff) continue;
+    const list = (out[String(r.pc)] ||= []);
+    const same = list.find(e => e.id === String(r.id));
+    if (same) { if (same.terminated && r.terminationDate > same.terminationDate) same.terminationDate = r.terminationDate; continue; }
+    list.push({ id: String(r.id), name: r.name, jobTitle: r.jobTitle || '', terminated: true, terminationDate: r.terminationDate });
+  }
+  return out;
+}

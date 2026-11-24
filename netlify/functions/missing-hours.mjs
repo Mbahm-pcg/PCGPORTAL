@@ -23,6 +23,18 @@ import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 import { syncDistricts, refreshStoreList } from './_shared/store-status.mjs';
 import { loadRoster, saveToDrive } from './transfer-notice.mjs';
+import { withTerminated } from '../../src/violation-notice.mjs';
+import { loadTerminations } from './terminations-lib/run.mjs';
+
+// v23.15 (user, 2026-11-24): someone who worked and quit the next day probably forgot to clock in —
+// so the active Paycor roster PLUS people terminated in the last 30 days (Terminations report's
+// daily Paycor list), tagged terminated. Hours after their termination date are refused.
+const LEFT_DAYS = 30;
+async function hoursRoster() {
+  const [roster, term] = await Promise.all([loadRoster(), loadTerminations().catch(() => null)]);
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  return { ...roster, stores: withTerminated(roster.stores, term?.rows, today, LEFT_DAYS) };
+}
 import { callPaycor } from './paycor.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
 import { missingHoursProblems, missingHoursFingerprint, missingHoursFileName, missingHoursRowsHtml, usDate, fmtHours, rowHours, periodFor, MH_MAX_ROWS } from '../../src/missing-hours.mjs';
@@ -125,7 +137,7 @@ async function stageInPaycor(db, row) {
     const payGroupId = groups[0]?.payGroupId;
     if (!payGroupId) throw new Error("Couldn't look up the store's Paycor pay group");
     // Department from the employee's job title today (live roster), like the tips send.
-    const roster = await loadRoster().catch(() => ({ stores: {} }));
+    const roster = await hoursRoster().catch(() => ({ stores: {} }));
     const live = (roster.stores[String(row.pc)] || []).find(e => e.id === row.employee_id);
     const departmentCode = deptCodeFor(live?.jobTitle || row.job_title);
     const importEarnings = (v.rows || []).filter(r => r.hours > 0).map(r => ({
@@ -216,7 +228,7 @@ export default async (request) => {
       });
       const out = { myName, canApprove, seeAll, stores: STORES.filter(s => inScope(s.pc)).map(s => ({ pc: String(s.pc), name: s.name })), employees: [],
         pending: items.filter(i => i.status === 'pending').reverse(), sentBack: items.filter(i => i.status === 'rejected'), complete: items.filter(i => i.status === 'approved') };
-      const roster = await loadRoster().catch(e => { console.error('[missing-hours] roster', e.message); out.rosterError = 'Paycor is not responding, so employee search is unavailable. Try again in a minute.'; return { stores: {} }; });
+      const roster = await hoursRoster().catch(e => { console.error('[missing-hours] roster', e.message); out.rosterError = 'Paycor is not responding, so employee search is unavailable. Try again in a minute.'; return { stores: {} }; });
       for (const s of out.stores) for (const e of roster.stores[s.pc] || []) out.employees.push({ ...e, pc: s.pc });
       out.employees.sort((a, b) => a.name.localeCompare(b.name));
       return json(200, out);
@@ -277,9 +289,12 @@ export default async (request) => {
     if (!isSig(v.signature)) return json(400, { error: 'Sign again — the signature did not come through.' });
     if (!inScope(v.pc)) return json(403, { error: 'You can only send missing hours for employees at your own stores.' });
     const store = storeOf(v.pc);
-    const roster = await loadRoster();
+    const roster = await hoursRoster();
     const emp = (roster.stores[String(store.pc)] || []).find(e => e.id === String(body.employeeId || ''));
-    if (!emp) return json(404, { error: 'This employee is not on that store\'s active roster in Paycor.' });
+    if (!emp) return json(404, { error: 'This employee is not on that store\'s Paycor roster (active, or left in the last 30 days).' });
+    // Someone who left: only days up to their last day.
+    const late = emp.terminated ? (v.rows || []).find(r => r && r.date && Number(r.hours) > 0 && String(r.date) > emp.terminationDate) : null;
+    if (late) return json(400, { error: `${emp.name} left on ${usDate(emp.terminationDate)} in Paycor, so hours on ${usDate(late.date)} can\'t be added. Only days up to their last day.` });
     if (emp.name !== v.employeeName) return json(409, { error: "Paycor's details for this employee changed — pick the employee again." });
     const pdf = Buffer.from(String(body.pdf || '').replace(/^data:[^,]*,/, ''), 'base64');
     if (pdf.length < 1000 || pdf.length > 8e6 || pdf.subarray(0, 5).toString() !== '%PDF-') return json(400, { error: 'The PDF did not come through — try again.' });

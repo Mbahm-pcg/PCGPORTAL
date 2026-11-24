@@ -1,7 +1,7 @@
-// src/pay-increase.mjs — pure rules for Tools · Pay Increase (v22.55; approval v22.60; v22.62). No I/O.
+// src/pay-increase.mjs — pure rules for Tools · Pay Rate Change (v22.55; approval v22.60; v22.62). No I/O.
 // Shared by netlify/functions/pay-increase.mjs (server) and the screen.
 //
-// A Store Manager or a DM fills HR's Pay Increase Form with the employee's details from Paycor and
+// A Store Manager or a DM fills HR's Pay Rate Change Form with the employee's details from Paycor and
 // signs; it goes to the approver (Mike), then to the office, who make the change in Paycor. The
 // "For Office Use Only" box stays blank on the portal's copy.
 //
@@ -23,7 +23,8 @@ export function rateProblem(currentRate, newRate, basis = 'hour') {
   const cur = Number(currentRate), nr = Number(newRate);
   if (!(nr > 0)) return basis === 'year' ? 'Enter the new yearly salary.' : 'Enter the new pay rate.';
   if (!(cur > 0)) return basis === 'year' ? 'Paycor has no current salary for this employee.' : 'Paycor has no current hourly rate for this employee.';
-  if (nr <= cur) return `The new ${basis === 'year' ? 'salary' : 'rate'} has to be higher than the current ${fmtPay(cur, basis)}.`;
+  // v23.13 (user, 2026-11-23): a Pay Rate Change can also LOWER pay (e.g. moved to another district).
+  if (Math.abs(nr - cur) < 0.005) return `The new ${basis === 'year' ? 'salary' : 'rate'} is the same as the current ${fmtPay(cur, basis)}.`;
   if (nr > (basis === 'year' ? 500000 : 100)) return 'That amount looks wrong — check it.';
   return null;
 }
@@ -107,13 +108,13 @@ const money = (n, basis) => fmtPay(n, basis);
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export function payFileName(v, storeName) {
-  return `Pay Increase - ${v.employeeName} - ${storeName || v.pc} - ${usDate(v.date).replace(/\//g, '-')}.pdf`.replace(/[\\/:*?"<>|]+/g, '-');
+  return `Pay Rate Change - ${v.employeeName} - ${storeName || v.pc} - ${usDate(v.date).replace(/\//g, '-')}.pdf`.replace(/[\\/:*?"<>|]+/g, '-');
 }
 
 // Push / SMS / bell text never carries pay rates; the email (to the list) does.
 export function payAlertText(v, storeName, submittedBy) {
-  const title = `Pay increase: ${v.employeeName}`;
-  const line = `A pay increase for ${v.employeeName} (${v.position}, ${storeName || 'PC ' + v.pc}) was approved and needs the office: enter it in Paycor and set the effective date in Tools > Pay Increase.`;
+  const title = `Pay rate change: ${v.employeeName}`;
+  const line = `A pay rate change for ${v.employeeName} (${v.position}, ${storeName || 'PC ' + v.pc}) was approved and needs the office: enter it in Paycor and set the effective date in Tools > Pay Rate Change.`;
   const by = submittedBy ? ` Sent by ${submittedBy}.` : '';
   return { title, line: line + by, sms: `PCG ${title}\n${line}${by}` };
 }
@@ -124,7 +125,7 @@ export function payEmailHtml(v, storeName, submittedBy, driveLink, clientId, app
     ['Current pay', money(v.currentRate, v.payBasis)], ['New pay', money(v.newRate, v.payBasis)], ['Reason', v.reason], ['Form date', usDate(v.date)],
     ['Store Manager', v.smName], [v.secondLabel || 'District Manager', v.dmName], ['Sent by', submittedBy], ['Approved by', approvedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<p>A pay increase signed by the ${SIGNER_LABEL[v.signer] || 'Store Manager'}${approvedBy ? ` and approved by ${esc(approvedBy)}` : ''} is ready for the office. The signed form is attached. Enter it in Paycor, then open it in the portal (Tools &gt; Pay Increase, Office tab) to fill in the effective date, the paycheck date and your signature; that files it and tells ${esc(submittedBy || 'the person who sent it')}.</p>
+<p>A pay rate change signed by the ${SIGNER_LABEL[v.signer] || 'Store Manager'}${approvedBy ? ` and approved by ${esc(approvedBy)}` : ''} is ready for the office. The signed form is attached. Enter it in Paycor, then open it in the portal (Tools &gt; Pay Rate Change, Office tab) to fill in the effective date, the paycheck date and your signature; that files it and tells ${esc(submittedBy || 'the person who sent it')}.</p>
 <table cellpadding="6" style="border-collapse:collapse">${rows.filter(r => r[1]).map(([k, val]) => `<tr><td style="color:#666;padding-right:14px;vertical-align:top">${esc(k)}</td><td><b>${esc(val)}</b></td></tr>`).join('')}</table>
 ${driveLink ? `<p><a href="${esc(driveLink)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">${/payIncrease=/.test(driveLink) ? 'Open it in the portal' : 'Open it in Google Drive'}</a></p>` : ''}</div>`;
 }
@@ -133,13 +134,13 @@ ${driveLink ? `<p><a href="${esc(driveLink)}" style="display:inline-block;backgr
 export function approvalAlertText(kind, r, storeName, extra = {}) {
   const who = `${r.employee_name ?? r.employeeName} (${storeName || 'PC ' + r.pc})`;
   if (kind === 'request') {
-    const line = `${r.submitted_by_name || 'A manager'} sent a pay increase for ${who} for your approval.`;
-    return { title: 'Pay increase to approve', line, sms: `PCG: ${line} Open it to approve:` };
+    const line = `${r.submitted_by_name || 'A manager'} sent a pay rate change for ${who} for your approval.`;
+    return { title: 'Pay rate change to approve', line, sms: `PCG: ${line} Open it to approve:` };
   }
-  if (kind === 'approved') return { title: 'Pay increase approved', line: `${extra.by || 'The approver'} approved the pay increase for ${who}. It's now with the office to set the effective date; you'll get another email when it's complete.` };
+  if (kind === 'approved') return { title: 'Pay rate change approved', line: `${extra.by || 'The approver'} approved the pay rate change for ${who}. It's now with the office to set the effective date; you'll get another email when it's complete.` };
   // v23.0: the office has set the effective date and filed it.
-  if (kind === 'completed') return { title: 'Pay increase complete', line: `The pay increase for ${who} is complete (${extra.at || 'today'}). It takes effect ${extra.effective || 'on the effective date'}${extra.paycheck ? `, first on the paycheck dated ${extra.paycheck}` : ''}.${extra.by ? ` Completed by ${extra.by}.` : ''}` };
-  return { title: 'Pay increase sent back', line: `${extra.by || 'The approver'} sent back the pay increase for ${who}: "${extra.note || ''}"` };
+  if (kind === 'completed') return { title: 'Pay rate change complete', line: `The pay rate change for ${who} is complete (${extra.at || 'today'}). It takes effect ${extra.effective || 'on the effective date'}${extra.paycheck ? `, first on the paycheck dated ${extra.paycheck}` : ''}.${extra.by ? ` Completed by ${extra.by}.` : ''}` };
+  return { title: 'Pay rate change sent back', line: `${extra.by || 'The approver'} sent back the pay rate change for ${who}: "${extra.note || ''}"` };
 }
 
 export function approvalEmailHtml(v, storeName, submittedBy, link, clientId, waitingHours = 0) {
@@ -147,7 +148,7 @@ export function approvalEmailHtml(v, storeName, submittedBy, link, clientId, wai
     ['Current pay', money(v.currentRate, v.payBasis)], ['New pay', money(v.newRate, v.payBasis)], ['Reason', v.reason], ['Form date', usDate(v.date)],
     ['Store Manager', v.smName], [v.secondLabel || 'District Manager', v.dmName], ['Sent by', submittedBy]];
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<p>${waitingHours ? `<b>Reminder:</b> this has been waiting for your approval for ${waitingHours} hour${waitingHours === 1 ? '' : 's'}. ` : ''}${esc(submittedBy || 'A manager')} sent this pay increase for your approval. Once you approve it, it goes to the office to be entered in Paycor.</p>
+<p>${waitingHours ? `<b>Reminder:</b> this has been waiting for your approval for ${waitingHours} hour${waitingHours === 1 ? '' : 's'}. ` : ''}${esc(submittedBy || 'A manager')} sent this pay rate change for your approval. Once you approve it, it goes to the office to be entered in Paycor.</p>
 <table cellpadding="6" style="border-collapse:collapse">${rows.filter(r => r[1]).map(([k, val]) => `<tr><td style="color:#666;padding-right:14px;vertical-align:top">${esc(k)}</td><td><b>${esc(val)}</b></td></tr>`).join('')}</table>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Review and approve</a></p></div>`;
 }

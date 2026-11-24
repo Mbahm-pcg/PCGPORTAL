@@ -62,7 +62,7 @@ const CSS = `
 .vn-blank:focus-visible, .vn-lines:focus-visible, .vn-sigbtn:focus-visible, .vn-sigimg:focus-visible, .vn-check input:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .vn-blank, .vn-sigbtn { transition: none; } }`;
 
-// Approver's view of one waiting notice: the signed PDF, then Approve or Send back (like Pay Increase).
+// Approver's view of one waiting notice: the signed PDF, then Approve or Send back (like Pay Rate Change).
 function VnReview({ th, isMobile, form, onClose, canApprove, onEdit }) {
   const S = finStyles(th);
   const [busy, setBusy] = useState(false);
@@ -300,7 +300,8 @@ export function ViolationNotice({ th, isMobile, onBack }) {
           {matches.map(e => (
             <button key={e.pc + e.id} type="button" role="option" aria-selected="false" className="fin-btn" onMouseDown={ev => ev.preventDefault()} onClick={() => pick(e)}
               style={{ display: 'flex', width: '100%', justifyContent: 'space-between', gap: '0.8rem', padding: '0.6rem 0.9rem', background: 'none', border: 'none', borderBottom: `1px solid ${th.cardBorder}`, color: th.text, textAlign: 'left', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.88rem' }}>
-              <span style={{ minWidth: 0 }}>{e.name}{e.jobTitle && <span style={{ color: th.muted }}> — {e.jobTitle}</span>}</span>
+              <span style={{ minWidth: 0 }}>{e.name}{e.jobTitle && <span style={{ color: th.muted }}> — {e.jobTitle}</span>}
+                {e.terminated && <span style={{ display: 'block', color: '#dc2626', fontSize: '0.78rem', fontWeight: 700 }}>Terminated {new Date(e.terminationDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}</span>
               <span style={{ color: th.muted, whiteSpace: 'nowrap' }}>{storeName(e.pc)} · {e.pc}</span>
             </button>
           ))}
@@ -479,7 +480,7 @@ export function ViolationNotice({ th, isMobile, onBack }) {
         </label>
         <div style={{ ...S.panel, padding: '1rem 1.1rem', display: 'grid', gap: '0.9rem', gridTemplateColumns: isMobile ? 'minmax(0,1fr)' : 'repeat(2, minmax(0,1fr))', overflow: 'visible' }}>
           <label style={{ ...S.fieldLabel, gridColumn: isMobile ? undefined : '1 / -1' }}>Employee (from Paycor)<span className="vn-paper" style={{ background: 'transparent', fontSize: '0.95rem' }}>{empSearch}</span>
-            {picked && <span style={{ color: th.text }}>{picked.name}{picked.jobTitle ? `, ${picked.jobTitle}` : ''} at {storeName(picked.pc)} (PC {picked.pc})</span>}</label>
+            {picked && <span style={{ color: th.text }}>{picked.name}{picked.jobTitle ? `, ${picked.jobTitle}` : ''} at {storeName(picked.pc)} (PC {picked.pc}){picked.terminated && <b style={{ color: '#dc2626' }}> · Terminated {new Date(picked.terminationDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</b>}</span>}</label>
           <label style={S.fieldLabel}>Date on the letter<input type="date" style={S.input} value={L.date} max={todayIso()} onChange={e => set({ date: e.target.value })} /></label>
           <span />
           <label style={S.fieldLabel}>Employee's email (the letter goes here)<input type="email" inputMode="email" autoComplete="off" style={S.input} value={L.email} maxLength={120} onChange={e => set({ email: e.target.value })} /></label>

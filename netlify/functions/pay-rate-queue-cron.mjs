@@ -1,12 +1,11 @@
-// pay-rate-queue-cron.mjs — sends queued pay increases to Paycor on their effective date (v23.10).
+// pay-rate-queue-cron.mjs — the day a pay rate change starts (v23.10; v23.11).
 //
-// The office (Roxy) completes a pay increase, presses "Update pay in Paycor" and confirms; if the
-// effective date is still ahead it waits in the queue (pay_increase_forms.paycor_rate_status =
-// 'queued'). On the day, this sends it — reading Paycor first, so it only writes when Paycor still
-// shows the form's current pay — and tells Admin · Notifications · Pay Increase Paycor update how it
-// went. Runs every 15 minutes between 7am and 9pm ET (nobody gets a text at midnight), at most 4 a
-// run so it stays well inside the scheduled-function time limit; more just go 15 minutes later.
-// Nothing is sent while exec / IT have "Update Paycor" switched OFF — queued ones simply wait.
+// The office (Roxy) completes a pay rate change, presses "Update pay in Paycor" and confirms; the new
+// rate goes into Paycor right then, dated on the effective date — Paycor holds it and keeps paying the
+// old rate until that day (v23.11, user: "Paycor has their own queue"). On the day, this reads Paycor
+// (read only) and tells Admin · Notifications · Pay Rate Change Paycor update "starts today, Paycor shows
+// $16.50" — or "check Paycor" if it shows something else. It also sends anything v23.10 left queued.
+// Every 15 minutes, 7am–9pm ET (nobody gets a text at midnight), at most 4 a run.
 import { sql } from './_shared/db.mjs';
 import { runDuePayRates } from './pay-increase.mjs';
 
@@ -27,7 +26,8 @@ export default async () => {
   } catch (e) { console.log('[pay-rate-queue] table not ready yet:', e.message); return new Response('no table'); }
   try {
     const r = await runDuePayRates(db, { limit: 4 });
-    if (r.held) console.log(`[pay-rate-queue] ${r.held} due but held: Update Paycor is switched OFF`);
+    if (r.started || r.checks) console.log(`[pay-rate-queue] day-of: ${r.started} confirmed in Paycor, ${r.checks} to check`);
+    if (r.held) console.log(`[pay-rate-queue] ${r.held} queued but held: Update Paycor is switched OFF`);
     if (r.sent || r.problems) console.log(`[pay-rate-queue] sent ${r.sent}, problems ${r.problems}`);
     return new Response(JSON.stringify(r), { headers: { 'Content-Type': 'application/json' } });
   } catch (e) {

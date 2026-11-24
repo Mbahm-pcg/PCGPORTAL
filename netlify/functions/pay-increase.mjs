@@ -1,6 +1,6 @@
-// pay-increase.mjs — data for Tools · Pay Increase (v22.55; approval step v22.60).
+// pay-increase.mjs — data for Tools · Pay Rate Change (v22.55; approval step v22.60).
 //
-// Flow (user, 2026-11-10): a Store Manager or DM fills HR's Pay Increase Form and signs their own
+// Flow (user, 2026-11-10): a Store Manager or DM fills HR's Pay Rate Change Form and signs their own
 // line → it waits for approval and the approver (Mike) gets an email + text + push → once
 // approved, the signed PDF is filed in the "Pay Changes" Shared Drive and the office list (Ella,
 // Roxy) is alerted, exactly as before. Sent back → the person who made it is told why.
@@ -13,7 +13,7 @@
 //   POST { action:'approve', id }             approver: file in Drive + alert the office
 //   POST { action:'reject', id, note }        approver: send back to the person who made it
 //
-// Approvers: the people added BY NAME to Admin · Notifications · Pay Increase approval
+// Approvers: the people added BY NAME to Admin · Notifications · Pay Rate Change approval
 // (pcg_pay_increase_approvers_v1); the emails / numbers on that list get the request. While no one
 // is named there, every executive can approve and gets the request.
 // Makers: Store Managers (their store), DMs / Directors (their districts), exec / IT (all stores).
@@ -22,7 +22,7 @@
 // Director of Operations / Vice President (Mike) / Executive by who they are (secondLineLabel).
 import { getStore } from '@netlify/blobs';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { cleanRates, currentRate, compareToForm, buildNewRate, canMoveEffective, isDueNow, paycorNoticeText } from '../../src/pay-rate-paycor.mjs';
+import { cleanRates, currentRate, compareToForm, buildNewRate, canMoveEffective, isDueNow, paycorNoticeText, alreadyScheduled, payOf } from '../../src/pay-rate-paycor.mjs';
 import { callPaycor } from './paycor.mjs';
 import { createHash } from 'node:crypto';
 import { sql } from './_shared/db.mjs';
@@ -39,9 +39,9 @@ const OFFICE_KEY = 'pcg_pay_increase_notify_v1';
 const APPROVERS_KEY = 'pcg_pay_increase_approvers_v1';
 // v23.1: who does the office step (effective date) — Roxy. Its own list, like the approver list.
 const OFFICE_STEP_KEY = 'pcg_pay_increase_office_step_v1';
-// v23.9: is "update pay in Paycor" switched on? { enabled, by, at } — flipped by exec / IT in Tools · Pay Increase.
+// v23.9: is "update pay in Paycor" switched on? { enabled, by, at } — flipped by exec / IT in Tools · Pay Rate Change.
 const PAYRATE_SWITCH_KEY = 'pcg_payrate_write_v1';
-// v23.10: who hears about the Paycor queue (queued, then on the day) — Admin · Notifications · Pay Increase Paycor update.
+// v23.10: who hears about the Paycor queue (queued, then on the day) — Admin · Notifications · Pay Rate Change Paycor update.
 const PAYCOR_NOTIFY_KEY = 'pcg_pay_increase_paycor_notify_v1';
 const PORTAL = 'https://uop.peoplecapitalgroup.com';
 const storeOf = (pc) => STORES.find(s => String(s.pc) === String(pc));
@@ -75,8 +75,8 @@ async function bell(b, ids, message, tag) {
   } catch (e) { console.warn('[pay-increase] bell write failed', e.message); }
 }
 
-// v23.1: the people who do the office step: named on the "Pay Increase office step" list; nobody
-// named there yet → the people named on the Pay Increase (office) list (who did it in v23.0), but
+// v23.1: the people who do the office step: named on the "Pay Rate Change office step" list; nobody
+// named there yet → the people named on the Pay Rate Change (office) list (who did it in v23.0), but
 // with no extra emails / texts (that list already gets its own email on approval).
 async function officeDoers() {
   const l = await readList(OFFICE_STEP_KEY);
@@ -93,16 +93,16 @@ export async function notifyOfficeStep(db, row, { reminder = false } = {}) {
   const link = `${PORTAL}/?payIncrease=${row.id}`;
   const who = `${row.employee_name} (${store?.name || 'PC ' + row.pc})`;
   const waited = reminder ? Math.max(1, Math.round((Date.now() - Date.parse(row.decided_at || row.created_at)) / 3600e3)) : 0;
-  const title = reminder ? `Reminder: pay increase waiting on the office (${waited} h)` : `Pay increase needs the effective date: ${row.employee_name}`;
-  const line = reminder ? `The pay increase for ${who} approved by ${row.decided_by_name || 'Mike'} is still waiting for the effective date (${waited} h).`
-    : `${row.decided_by_name || 'Mike'} approved the pay increase for ${who}. It needs the effective date, paycheck date and your signature.`;
+  const title = reminder ? `Reminder: pay rate change waiting on the office (${waited} h)` : `Pay rate change needs the effective date: ${row.employee_name}`;
+  const line = reminder ? `The pay rate change for ${who} approved by ${row.decided_by_name || 'Mike'} is still waiting for the effective date (${waited} h).`
+    : `${row.decided_by_name || 'Mike'} approved the pay rate change for ${who}. It needs the effective date, paycheck date and your signature.`;
   const b = blobs();
   await Promise.all([
     d.emails.length ? sendHtmlEmail(d.emails, title, `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>${esc(line)}</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Open it</a></p>
-<p style="color:#666">Or open the portal: Tools, then Pay Increase, Office tab.</p></div>`) : null,
+<p style="color:#666">Or open the portal: Tools, then Pay Rate Change, Office tab.</p></div>`) : null,
     // No link in the text — Textbelt refuses links on this account; the email has it.
-    d.phones.length ? sendSms(d.phones, `PCG: ${line} Check your email or open the portal (Tools > Pay Increase > Office).`) : null,
+    d.phones.length ? sendSms(d.phones, `PCG: ${line} Check your email or open the portal (Tools > Pay Rate Change > Office).`) : null,
     !reminder && d.ids.length ? sendPush(b, d.ids, title, line, `pay-increase-office-${row.id}`) : null,
   ]);
   if (!reminder) await bell(b, d.ids, line, 'office-step');
@@ -146,7 +146,7 @@ export async function notifyApprovers(db, row, { reminder = false } = {}) {
   const t = approvalAlertText('request', row, store?.name);
   const waited = reminder ? Math.max(1, Math.round((Date.now() - Date.parse(row.created_at)) / 3600e3)) : 0;
   const title = reminder ? `Reminder: ${t.title.toLowerCase()} (waiting ${waited} h)` : t.title;
-  const sms = reminder ? `PCG reminder: a pay increase for ${row.employee_name} (${store?.name || 'PC ' + row.pc}) from ${row.submitted_by_name || 'a manager'} is still waiting for your approval (${waited} h). Open it:` : t.sms;
+  const sms = reminder ? `PCG reminder: a pay rate change for ${row.employee_name} (${store?.name || 'PC ' + row.pc}) from ${row.submitted_by_name || 'a manager'} is still waiting for your approval (${waited} h). Open it:` : t.sms;
   const b = blobs();
   await Promise.all([
     appr.emails.length ? sendHtmlEmail(appr.emails, title, approvalEmailHtml(v, store?.name, row.submitted_by_name, link, store?.paycor, waited)) : null,
@@ -200,6 +200,8 @@ async function pushPayRate(db, r) {
     const res = await callPaycor(`/employees/${r.employee_id}/payrates`);
     if (res.status !== 200) return await set('failed', `Paycor pay rates ${res.status}`);
     const records = res.data?.records || res.data || [];
+    // v23.11: the new rate already waiting in Paycor on the effective date → never write it twice.
+    if (alreadyScheduled(records, formOf(r))) return await set('sent', null, cleanRates(records).find(x => x.effectiveStartDate === String(r.effective_date).slice(0, 10))?.id);
     const cur = currentRate(records, todayET());
     const state = compareToForm(cur, formOf(r));
     if (state === 'already') return await set('sent', null, cur?.id);
@@ -226,9 +228,11 @@ export async function ensurePayRateColumns(db) {
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS paycor_queued_by integer`;
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS paycor_queued_by_name text`;
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS paycor_queued_at timestamptz`;
+  // v23.11: when the list was told "starts today" (the day-of check), so it's said once.
+  await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS paycor_effective_notified_at timestamptz`;
 }
 
-// Email (Open button) + text (no link) + push + bell to the "Pay Increase Paycor update" list.
+// Email (Open button) + text (no link) + push + bell to the "Pay Rate Change Paycor update" list.
 // Nobody on the list yet → the person who queued it, so a problem is never silent. Never throws.
 export async function notifyPaycorList(db, row, kind, extra = {}) {
   try {
@@ -244,7 +248,7 @@ export async function notifyPaycorList(db, row, kind, extra = {}) {
     await Promise.all([
       emails.length ? sendHtmlEmail(emails, t.title, `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>${esc(t.line)}</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Open it</a></p>
-<p style="color:#666">Or open the portal: Tools, then Pay Increase, Complete tab.</p></div>`) : null,
+<p style="color:#666">Or open the portal: Tools, then Pay Rate Change, Complete tab.</p></div>`) : null,
       // No link in the text — Textbelt refuses links on this account; the email has it.
       phones.length ? sendSms(phones, `PCG: ${t.line}`) : null,
       ids.length ? sendPush(b, ids, t.title, t.line, `pay-increase-paycor-${row.id}`) : null,
@@ -254,33 +258,58 @@ export async function notifyPaycorList(db, row, kind, extra = {}) {
   } catch (e) { console.error('[pay-increase] paycor list notify', row.id, kind, e.message); return 0; }
 }
 
-// Send one claimed ('sending') row to Paycor and tell the list how it went.
-async function sendClaimed(db, row) {
+// Send one claimed ('sending') row to Paycor and tell the list how it went. v23.11: sent straight
+// away even when the effective date is ahead — Paycor holds a future-dated rate itself — and the list
+// hears again on the day (runDuePayRates). Already in effect → that second notice isn't needed.
+async function sendClaimed(db, row, { by } = {}) {
   const res = await pushPayRate(db, row);
-  await notifyPaycorList(db, row, res.status === 'sent' ? 'sent' : 'problem', { error: res.error });
-  return res;
+  const future = !isDueNow(row.effective_date, todayET());
+  if (res.status === 'sent' && !future) await db`UPDATE pay_increase_forms SET paycor_effective_notified_at = now() WHERE id = ${row.id}`;
+  await notifyPaycorList(db, row, res.status === 'sent' ? 'sent' : 'problem', { error: res.error, future, by });
+  return { ...res, future };
 }
 
-// pay-rate-queue-cron.mjs: queued raises whose effective date has come. A row stuck in 'sending' for
-// 20+ minutes (the function died mid-way) is picked up again — safe, because pushPayRate reads Paycor
-// first: if the earlier POST did land, Paycor already shows the new pay and nothing is written twice.
+// pay-rate-queue-cron.mjs, every 15 minutes 7am–9pm ET:
+//  1. the day a raise starts: read Paycor (read only) and tell the list "starts today, Paycor shows
+//     $16.50" — or "check Paycor" if it shows something else. Once per raise.
+//  2. anything left 'queued' by v23.10 (or stuck 'sending' 20+ minutes because the function died) is
+//     sent — safe, pushPayRate reads Paycor first and never writes the same rate twice.
 export async function runDuePayRates(db, { limit = 4 } = {}) {
   await ensurePayRateColumns(db);
+  const today = todayET();
+  let started = 0, checks = 0, sent = 0, problems = 0, held = 0;
+  const due = await db`SELECT * FROM pay_increase_forms WHERE status = 'approved' AND paycor_rate_status = 'sent'
+    AND paycor_queued_at IS NOT NULL AND paycor_effective_notified_at IS NULL AND effective_date IS NOT NULL AND effective_date <= ${today}
+    ORDER BY effective_date, id LIMIT ${limit}`;
+  for (const row of due) {
+    // Claim it first, so two runs never both tell the list.
+    const got = (await db`UPDATE pay_increase_forms SET paycor_effective_notified_at = now() WHERE id = ${row.id} AND paycor_effective_notified_at IS NULL RETURNING id`)[0];
+    if (!got) continue;
+    try {
+      const res = await callPaycor(`/employees/${row.employee_id}/payrates`);
+      const cur = res.status === 200 ? currentRate(res.data?.records || res.data || [], today) : null;
+      const shows = cur ? payOf(cur, row.pay_basis || 'hour') : null;
+      if (shows != null && Math.abs(Number(shows) - Number(row.new_rate)) <= 0.004) { await notifyPaycorList(db, row, 'effective'); started++; }
+      else { await notifyPaycorList(db, row, 'notEffective', { shows }); checks++; }
+    } catch (e) {
+      console.error('[pay-increase] day-of check', row.id, e.message);
+      await db`UPDATE pay_increase_forms SET paycor_effective_notified_at = NULL WHERE id = ${row.id}`; // try again next run
+    }
+  }
   if (!await payrateSwitchOn()) {
-    const held = (await db`SELECT count(*)::int AS n FROM pay_increase_forms WHERE paycor_rate_status = 'queued' AND effective_date <= ${todayET()}`)[0]?.n || 0;
-    return { held, sent: 0, problems: 0 };
+    held = (await db`SELECT count(*)::int AS n FROM pay_increase_forms WHERE paycor_rate_status = 'queued'`)[0]?.n || 0;
+    return { started, checks, held, sent, problems };
   }
   const rows = await db`UPDATE pay_increase_forms SET paycor_rate_status = 'sending', paycor_rate_at = now()
-    WHERE id IN (SELECT id FROM pay_increase_forms WHERE status = 'approved' AND effective_date IS NOT NULL AND effective_date <= ${todayET()}
+    WHERE id IN (SELECT id FROM pay_increase_forms WHERE status = 'approved' AND effective_date IS NOT NULL
       AND (paycor_rate_status = 'queued' OR (paycor_rate_status = 'sending' AND paycor_rate_at < now() - interval '20 minutes'))
       ORDER BY effective_date, id LIMIT ${limit})
     RETURNING *`;
-  let sent = 0, problems = 0;
   for (const row of rows) {
     const res = await sendClaimed(db, row);
     if (res.status === 'sent') sent++; else problems++;
   }
-  return { held: 0, sent, problems };
+  return { started, checks, held, sent, problems };
 }
 
 // v23.9 — move a completed form's effective date (only while it's still in the future): white out
@@ -420,7 +449,7 @@ export default async (request) => {
 
     // ── approver decisions ──
     if (body.action === 'approve' || body.action === 'reject') {
-      if (!canApprove) return json(403, { error: 'Only the pay increase approver can do this.' });
+      if (!canApprove) return json(403, { error: 'Only the pay rate change approver can do this.' });
       const r = (await db`SELECT * FROM pay_increase_forms WHERE id = ${Number(body.id)}`)[0];
       if (!r) return json(404, { error: 'Not found' });
       if (body.action === 'reject') {
@@ -452,7 +481,7 @@ export default async (request) => {
 
     // ── v23.0 office step: effective date, paycheck date, payroll signature → stamped, filed, maker told ──
     if (body.action === 'complete') {
-      if (!canOffice) return json(403, { error: 'Only the people on Admin · Notifications · Pay Increase office step (added by name), exec or IT can complete this.' });
+      if (!canOffice) return json(403, { error: 'Only the people on Admin · Notifications · Pay Rate Change office step (added by name), exec or IT can complete this.' });
       const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
       if (!isDate(body.effectiveDate)) return json(400, { error: 'Enter the effective date.' });
       if (!isDate(body.paycheckDate)) return json(400, { error: 'Enter the effective pay rate paycheck date.' });
@@ -512,25 +541,23 @@ export default async (request) => {
       const form = { ...formOf(r), effectiveDate: r.effective_date || body.effectiveDate || todayET() };
       return json(200, { rates: cleanRates(records), current: cur, state: compareToForm(cur, form), wouldSend: cur ? buildNewRate(cur, form, { formId: r.id, approvedBy: r.decided_by_name }) : null });
     }
-    // v23.10: "Update pay in Paycor" (confirmed by the office). Effective date still ahead → queued,
-    // the list is told now and again on the day. Today or already past → sent right now.
+    // "Update pay in Paycor" (confirmed by the office). v23.11 (user, 2026-11-23: "Paycor has their
+    // own queue and it will hold off there"): sent to Paycor NOW, dated on the effective date; Paycor
+    // keeps paying the old rate until then. The list is told now, and again on the day.
     if (body.action === 'queuePayRate') {
       if (!canOffice) return json(403, { error: 'forbidden' });
-      if (!await payrateSwitchOn()) return json(409, { error: 'Updating Paycor is switched off. Exec or IT can switch it on in Tools > Pay Increase.' });
+      if (!await payrateSwitchOn()) return json(409, { error: 'Updating Paycor is switched off. Exec or IT can switch it on in Tools > Pay Rate Change.' });
       const r = (await db`SELECT * FROM pay_increase_forms WHERE id = ${Number(body.id)} AND status = 'approved' AND effective_date IS NOT NULL`)[0];
       if (!r) return json(404, { error: 'Not found' });
       if (r.paycor_rate_status === 'sent') return json(200, { ok: true, paycor: { status: 'sent' } });
-      if (r.paycor_rate_status === 'queued') return json(200, { ok: true, queued: true, effectiveDate: r.effective_date });
       if (r.paycor_rate_status === 'sending') return json(409, { error: 'It is being sent to Paycor right now. Reload in a minute.' });
-      const now = isDueNow(r.effective_date, todayET());
-      const claimed = (await db`UPDATE pay_increase_forms SET paycor_rate_status = ${now ? 'sending' : 'queued'}, paycor_rate_error = NULL, paycor_rate_at = now(),
+      const claimed = (await db`UPDATE pay_increase_forms SET paycor_rate_status = 'sending', paycor_rate_error = NULL, paycor_rate_at = now(),
           paycor_queued_by = ${Number(authed.sub)}, paycor_queued_by_name = ${myName}, paycor_queued_at = now()
-        WHERE id = ${r.id} AND (paycor_rate_status IS NULL OR paycor_rate_status IN ('failed', 'mismatch', 'cancelled')) RETURNING *`)[0];
+        WHERE id = ${r.id} AND (paycor_rate_status IS NULL OR paycor_rate_status IN ('queued', 'failed', 'mismatch', 'cancelled')) RETURNING *`)[0];
       if (!claimed) return json(409, { error: 'Someone else just did this — reload.' });
-      try { await db`INSERT INTO audit_log (type, user_id, user_role, action, metadata) VALUES ('payrate', ${String(authed.sub)}, ${realType}, ${now ? 'payrate_send_now' : 'payrate_queued'}, ${JSON.stringify({ form: r.id, effective: r.effective_date, by: myName })})`; } catch {}
-      if (now) return json(200, { ok: true, queued: false, paycor: await sendClaimed(db, claimed) });
-      const notified = await notifyPaycorList(db, claimed, 'queued', { by: myName });
-      return json(200, { ok: true, queued: true, effectiveDate: claimed.effective_date, notified });
+      try { await db`INSERT INTO audit_log (type, user_id, user_role, action, metadata) VALUES ('payrate', ${String(authed.sub)}, ${realType}, 'payrate_sent', ${JSON.stringify({ form: r.id, effective: r.effective_date, by: myName })})`; } catch {}
+      const paycor = await sendClaimed(db, claimed, { by: myName });
+      return json(200, { ok: true, paycor, effectiveDate: claimed.effective_date, notified: await readList(PAYCOR_NOTIFY_KEY).then(l => new Set([...l.ids, ...l.emails, ...l.phones]).size).catch(() => 0) });
     }
     if (body.action === 'cancelPayRate') {
       if (!canOffice) return json(403, { error: 'forbidden' });
@@ -550,7 +577,7 @@ export default async (request) => {
       const r = (await db`SELECT * FROM pay_increase_forms WHERE id = ${Number(body.id)} AND status = 'approved' AND effective_date IS NOT NULL`)[0];
       if (!r) return json(404, { error: 'Not found' });
       if (r.paycor_rate_status === 'sending') return json(409, { error: 'It is being sent to Paycor right now. Try again in a minute.' });
-      if (!canMoveEffective(r.effective_date, todayET())) return json(409, { error: `This raise already took effect on ${usDate(r.effective_date)}. Paycor may already have paid at the new rate, so change it in Paycor directly.` });
+      if (!canMoveEffective(r.effective_date, todayET())) return json(409, { error: `This pay rate change already took effect on ${usDate(r.effective_date)}. Paycor may already have paid at the new rate, so change it in Paycor directly.` });
       if (body.effectiveDate <= todayET()) return json(400, { error: 'The new effective date has to be after today.' });
       // Paycor first (if the raise was already written there): move that rate's start date.
       let paycor = null;
@@ -584,15 +611,16 @@ export default async (request) => {
       try {
         const u = (await db`SELECT id, email FROM users WHERE id = ${upd.submitted_by}`)[0];
         if (u) {
-          const line = `The pay increase for ${upd.employee_name} (${store?.name || 'PC ' + upd.pc}) now takes effect ${usDate(body.effectiveDate)} (was ${usDate(change.from)}), first on the paycheck dated ${usDate(body.paycheckDate)}. Changed by ${myName}: ${reason}`;
+          const line = `The pay rate change for ${upd.employee_name} (${store?.name || 'PC ' + upd.pc}) now takes effect ${usDate(body.effectiveDate)} (was ${usDate(change.from)}), first on the paycheck dated ${usDate(body.paycheckDate)}. Changed by ${myName}: ${reason}`;
           const b = blobs();
-          await Promise.all([u.email ? emailWithPdf([u.email], `Pay increase effective date changed: ${upd.employee_name}`, `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>${esc(line)}</p><p>The updated form is attached.</p></div>`, fileName, pdf) : null,
-            sendPush(b, [String(u.id)], 'Pay increase date changed', line, `pay-increase-${upd.id}`)]);
+          await Promise.all([u.email ? emailWithPdf([u.email], `Pay rate change effective date changed: ${upd.employee_name}`, `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>${esc(line)}</p><p>The updated form is attached.</p></div>`, fileName, pdf) : null,
+            sendPush(b, [String(u.id)], 'Pay rate change date changed', line, `pay-increase-${upd.id}`)]);
           await bell(b, [u.id], line, 'eff-change');
         }
       } catch (e) { console.error('[pay-increase] tell maker (date change)', e.message); }
       // v23.10: a queued Paycor update simply moves with the date; its list hears about it.
-      if (upd.paycor_rate_status === 'queued') await notifyPaycorList(db, upd, 'moved', { from: change.from, by: myName });
+      // (v23.11: one already in Paycor was moved there above, by PUT.)
+      if (upd.paycor_queued_at && ['queued', 'sent'].includes(upd.paycor_rate_status)) await notifyPaycorList(db, upd, 'moved', { from: change.from, by: myName });
       return json(200, { ok: true, drive, paycor, queued: upd.paycor_rate_status === 'queued' });
     }
 
@@ -600,7 +628,7 @@ export default async (request) => {
     const v = body.values || {};
     const missing = missingPayFields(v, realType);
     if (missing.length) return json(400, { error: `Still needed: ${missing.join(', ')}` });
-    if (!inScope(v.pc)) return json(403, { error: 'You can only send pay increases for your own stores.' });
+    if (!inScope(v.pc)) return json(403, { error: 'You can only send pay rate changes for your own stores.' });
     const sigProblem = signatureProblem(realType, v);
     if (sigProblem) return json(400, { error: sigProblem });
     // The second line's title is decided by who is signed in, never by the browser.

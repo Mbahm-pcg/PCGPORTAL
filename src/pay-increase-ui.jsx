@@ -1,6 +1,6 @@
-// src/pay-increase-ui.jsx — Tools · Pay Increase (v22.55; approval v22.60; v22.62).
+// src/pay-increase-ui.jsx — Tools · Pay Rate Change (v22.55; approval v22.60; v22.62).
 //
-// The screen IS HR's Pay Increase Form, ready to fill the moment it opens. A Store Manager or DM
+// The screen IS HR's Pay Rate Change Form, ready to fill the moment it opens. A Store Manager or DM
 // picks the employee (name, position, store and current rate come from Paycor, locked), types the
 // new rate and the reason, and signs. A Store Manager signs with their District Manager on the
 // same screen; anyone else has the Store Manager line N/A and signs the second line, titled by who
@@ -68,11 +68,11 @@ const PAPER_CSS = `
 // v22.69: the signed form drawn with pdf.js (already on the page) instead of the browser's own PDF
 // viewer in an <iframe>, which showed nothing for Mike. A small preview; click it for the full page.
 const pdfCache = new Map();
-// v22.81: id is a pay increase id, or a full URL ("/...") so the Violation Notice approval view reuses this.
+// v22.81: id is a pay rate change id, or a full URL ("/...") so the Violation Notice approval view reuses this.
 const pdfUrl = (id) => (String(id).startsWith("/") ? String(id) : `/.netlify/functions/pay-increase?pdf=${id}`);
 // v23.2: a cached copy is reused for 20 s only (the thumbnail and the full-size view share it). A
 // form changes after it's first shown — the office box, signatures added later — and "View form"
-// kept showing the copy from before (Roxy's completed pay increase, 2026-11-23).
+// kept showing the copy from before (Roxy's completed pay rate change, 2026-11-23).
 const PDF_CACHE_MS = 20000;
 function loadPayPdf(id) {
   const hit = pdfCache.get(id);
@@ -165,7 +165,7 @@ function Review({ th, isMobile, form, onClose, canApprove = true }) {
       </div>
       <p style={{ color: th.text, fontSize: '0.9rem', margin: '0.4rem 0 0.8rem' }}>{form.reason}</p>
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <FormPreview th={th} id={form.id} title={`Pay increase for ${form.employeeName}`} thumbWidth={isMobile ? 200 : 260} />
+        <FormPreview th={th} id={form.id} title={`Pay rate change for ${form.employeeName}`} thumbWidth={isMobile ? 200 : 260} />
         <p style={{ fontSize: '0.82rem', color: th.muted, margin: 0, maxWidth: '22em' }}>Click the form to see it full size. <a href={`/.netlify/functions/pay-increase?pdf=${form.id}`} target="_blank" rel="noreferrer" style={{ color: O }}>Download the PDF</a></p>
       </div>
       {err && <FinBanner th={th} tone="error" style={{ marginTop: '0.8rem' }}>{err}</FinBanner>}
@@ -177,7 +177,7 @@ function Review({ th, isMobile, form, onClose, canApprove = true }) {
       )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.9rem' }}>
         <button type="button" className="fin-btn" style={S.ghost} onClick={() => onClose(null)} disabled={busy}>Back</button>
-        {!canApprove && <span style={{ color: th.muted, fontSize: '0.85rem', alignSelf: 'center' }}>Only the pay increase approver can approve this.</span>}
+        {!canApprove && <span style={{ color: th.muted, fontSize: '0.85rem', alignSelf: 'center' }}>Only the pay rate change approver can approve this.</span>}
         {canApprove && (backing
           ? <button type="button" className="fin-btn" style={{ ...S.primary, background: '#b91c1c', opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }} disabled={note.trim().length < 3 || busy} onClick={() => decide('reject')}>{busy ? 'Sending…' : 'Send back'}</button>
           : <button type="button" className="fin-btn" style={S.ghost} onClick={() => setBacking(true)} disabled={busy}>Send back…</button>)}
@@ -250,7 +250,7 @@ function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount
         <span style={{ color: th.muted, fontSize: '0.88rem' }}>{fmtPay(form.currentRate, form.payBasis)} to {fmtPay(form.newRate, form.payBasis)}, approved by {form.approvedBy}</span>
       </div>
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.8rem' }}>
-        <FormPreview th={th} id={form.id} title={`Pay increase for ${form.employeeName}`} thumbWidth={isMobile ? 200 : 260} />
+        <FormPreview th={th} id={form.id} title={`Pay rate change for ${form.employeeName}`} thumbWidth={isMobile ? 200 : 260} />
         <p style={{ fontSize: '0.82rem', color: th.muted, margin: 0, maxWidth: '24em' }}>Everything on the form is locked. Fill in the For Office Use Only box below and sign; that files it in Google Drive and emails {form.submittedBy} when it was completed and when it takes effect.</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0,1fr)' : 'repeat(3, minmax(0,1fr))', gap: '0.8rem', marginTop: '1rem', alignItems: 'end' }}>
@@ -277,8 +277,8 @@ function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount
 
 const usLong = (iso) => (iso ? new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
-// v23.10 "Update pay in Paycor" -> "This will automatically be updated on Paycor on <date>. Do you
-// want to continue?" Continue queues it (or sends it now when the date is today or past).
+// v23.10 "Update pay in Paycor" -> "This will automatically be updated on Paycor ... Do you want to
+// continue?" v23.11: Continue sends it to Paycor now, dated on the effective date (Paycor holds it).
 function PaycorConfirm({ th, form, effectiveDate, notifyCount, onCancel, onDone }) {
   const S = finStyles(th);
   const [busy, setBusy] = useState(false);
@@ -288,8 +288,9 @@ function PaycorConfirm({ th, form, effectiveDate, notifyCount, onCancel, onDone 
     setBusy(true); setErr(null);
     try {
       const b = await call('', { action: 'queuePayRate', id: form.id });
-      onDone(b.queued ? `Queued: ${form.employeeName}'s pay will be updated in Paycor automatically on ${usLong(b.effectiveDate || effectiveDate)}${b.notified ? `; ${b.notified} ${b.notified === 1 ? 'person was' : 'people were'} notified` : ''}.`
-        : b.paycor?.status === 'sent' ? `Pay updated in Paycor for ${form.employeeName}.`
+      const told = b.notified ? `; ${b.notified} ${b.notified === 1 ? 'person was' : 'people were'} notified` : '';
+      onDone(b.paycor?.status === 'sent'
+        ? (b.paycor.future ? `Entered in Paycor: ${form.employeeName}'s new pay takes effect ${usLong(b.effectiveDate || effectiveDate)}${told}.` : `Pay updated in Paycor for ${form.employeeName}${told}.`)
         : `Paycor NOT updated for ${form.employeeName}: ${b.paycor?.error || 'error'}.`);
     } catch (e) { setErr(e.message); setBusy(false); }
   };
@@ -305,15 +306,15 @@ function PaycorConfirm({ th, form, effectiveDate, notifyCount, onCancel, onDone 
         </div>
         <p style={{ margin: 0, fontSize: '0.95rem' }}>{now
           ? <>The effective date ({usLong(effectiveDate)}) is today or already past, so this will be updated on Paycor <b>right now</b>.</>
-          : <>This will automatically be updated on Paycor on <b>{usLong(effectiveDate)}</b>. Paycor keeps paying {fmtPay(form.currentRate, form.payBasis)} until then.</>}</p>
+          : <>This will automatically be updated on Paycor, effective <b>{usLong(effectiveDate)}</b>. It goes into Paycor now; Paycor holds it and keeps paying {fmtPay(form.currentRate, form.payBasis)} until then.</>}</p>
         <p style={{ margin: 0, fontSize: '0.84rem', color: th.muted }}>{n
-          ? (now ? `The ${people} on the Pay Increase Paycor update list will be told how it went.` : `The ${people} on the Pay Increase Paycor update list will be notified now, and again on that day.`)
-          : 'No one is on the Pay Increase Paycor update list yet, so only you will be told how it went.'} If Paycor no longer shows {fmtPay(form.currentRate, form.payBasis)} then, nothing is changed and you are told.</p>
+          ? (now ? `The ${people} on the Pay Rate Change Paycor update list will be told how it went.` : `The ${people} on the Pay Rate Change Paycor update list will be notified now, and again on ${usLong(effectiveDate)}.`)
+          : 'No one is on the Pay Rate Change Paycor update list yet, so only you will be told how it went.'} If Paycor no longer shows {fmtPay(form.currentRate, form.payBasis)} then, nothing is changed and you are told.</p>
         {err && <FinBanner th={th} tone="error">{err}</FinBanner>}
         <div style={{ fontWeight: 600 }}>Do you want to continue?</div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
           <button type="button" className="fin-btn" style={S.ghost} onClick={onCancel} disabled={busy}>Cancel</button>
-          <button type="button" className="fin-btn" style={{ ...S.primary, opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy} autoFocus>{busy ? (now ? 'Updating...' : 'Queuing...') : 'Continue'}</button>
+          <button type="button" className="fin-btn" style={{ ...S.primary, opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy} autoFocus>{busy ? 'Updating Paycor...' : 'Continue'}</button>
         </div>
       </div>
     </div>
@@ -327,7 +328,7 @@ function PaycorRatesModal({ th, form, onClose }) {
   const [err, setErr] = useState(null);
   useEffect(() => { call('', { action: 'paycorRates', id: form.id }).then(setData).catch(e => setErr(e.message)); }, []);
   const d = (x) => (x ? new Date(x + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
-  const STATE = { ready: 'Paycor still shows the form\u2019s current pay, so the raise can be written.', already: 'Paycor already shows the new pay. Nothing to send.', mismatch: 'Paycor shows a different pay than the form. Nothing will be written; check it in Paycor.', none: 'Paycor has no pay rate for this employee.' };
+  const STATE = { ready: 'Paycor still shows the form\u2019s current pay, so the new pay can be written.', already: 'Paycor already shows the new pay. Nothing to send.', mismatch: 'Paycor shows a different pay than the form. Nothing will be written; check it in Paycor.', none: 'Paycor has no pay rate for this employee.' };
   return (
     <div className="pcg-backdrop" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div className="pcg-pop" onClick={e => e.stopPropagation()} style={{ background: th.card, color: th.text, borderRadius: 14, width: 'min(760px, 100%)', maxHeight: '88vh', overflowY: 'auto', padding: '1.1rem 1.2rem' }}>
@@ -381,7 +382,7 @@ function ChangeEffective({ th, form, onDone, onCancel }) {
         <label style={S.fieldLabel}>New effective date<input type="date" value={eff} onChange={e => setEff(e.target.value)} style={S.input} /></label>
         <label style={S.fieldLabel}>New paycheck date<input type="date" value={pay} onChange={e => setPay(e.target.value)} style={S.input} /></label>
       </div>
-      <label style={S.fieldLabel}>Why is it changing?<input value={reason} onChange={e => setReason(e.target.value)} maxLength={200} style={S.input} placeholder="e.g. raise pushed back one pay period" /></label>
+      <label style={S.fieldLabel}>Why is it changing?<input value={reason} onChange={e => setReason(e.target.value)} maxLength={200} style={S.input} placeholder="e.g. change pushed back one pay period" /></label>
       {err && <FinBanner th={th} tone="error">{err}</FinBanner>}
       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
         <button type="button" className="fin-btn" style={S.ghost} onClick={onCancel} disabled={busy}>Cancel</button>
@@ -422,7 +423,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
   const [pending, setPending] = useState(null); // list screen: forms waiting for approval
   const [reviewing, setReviewing] = useState(null);
   // v22.63: executives / IT (and approvers) open on a list — Pending (to approve) and Complete
-  // (approved, to look up) — with "Start a pay increase" for the form. Everyone else gets the form.
+  // (approved, to look up) — with "Start a pay rate change" for the form. Everyone else gets the form.
   const [listView, setListView] = useState(false);
   const [canApprove, setCanApprove] = useState(false);
   const [canOffice, setCanOffice] = useState(false); // v23.0 the office step
@@ -440,6 +441,12 @@ export function PayIncrease({ th, isMobile, onBack }) {
   const [view, setView] = useState('list');
   const [listTab, setListTab] = useState('pending');
   const [viewing, setViewing] = useState(null); // Complete tab: the form shown full size
+  // v23.12 Complete tab: search, filters, 5 a page.
+  const [cq, setCq] = useState('');
+  const [cStatus, setCStatus] = useState('all');
+  const [cStore, setCStore] = useState('all');
+  const [cWhen, setCWhen] = useState('any');
+  const [cPage, setCPage] = useState(0);
   // v22.68: nothing until the first load says which screen this person gets — otherwise an exec
   // saw the form flash up for a second before the Pending / Complete list replaced it.
   const [loaded, setLoaded] = useState(false);
@@ -582,18 +589,18 @@ export function PayIncrease({ th, isMobile, onBack }) {
     <div className="fin-root" style={{ maxWidth: 900, margin: '0 auto' }}>
       <style>{FIN_CSS(th) + PAPER_CSS}</style>
       {listView && view === 'form'
-        ? <button type="button" className="fin-btn" onClick={() => { setView('list'); loadMain(); }} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Pay Increases</button>
+        ? <button type="button" className="fin-btn" onClick={() => { setView('list'); loadMain(); }} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Pay Rate Changes</button>
         : onBack && <button type="button" className="fin-btn" onClick={onBack} style={{ ...S.link, color: th.muted, fontWeight: 600, marginBottom: '0.4rem' }}>Back to Tools</button>}
-      <h2 style={S.title}>Pay Increase</h2>
+      <h2 style={S.title}>Pay Rate Change</h2>
 
       {!loaded ? <p style={{ color: th.muted }}>Loading…</p> : listView && view === 'list' ? (<>
-        <p style={S.lede}>Pay increases from Store Managers, DMs and Directors. Pending ones wait for Mike's approval; approved ones go to the office (Office tab) for the effective date and payroll signature, then they're filed in Google Drive and show under Complete.</p>
+        <p style={S.lede}>Pay rate changes from Store Managers, DMs and Directors. Pending ones wait for Mike's approval; approved ones go to the office (Office tab) for the effective date and payroll signature, then they're filed in Google Drive and show under Complete.</p>
         {saved && saved.state === 'decided' && <FinBanner th={th} tone="success">{saved.msg}</FinBanner>}
         {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
         {reviewing ? <Review th={th} isMobile={isMobile} form={reviewing} canApprove={canApprove} onClose={(msg) => { setReviewing(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} />
           : completing ? <OfficeComplete th={th} isMobile={isMobile} form={completing} payrateWrite={payrateWrite} notifyCount={notifyCount} onClose={(msg) => { setCompleting(null); loadMain(); if (msg) setSaved({ state: 'decided', msg }); }} /> : (<>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            <div role="tablist" aria-label="Pay increases" style={{ display: 'flex', gap: '0.4rem' }}>
+            <div role="tablist" aria-label="Pay rate changes" style={{ display: 'flex', gap: '0.4rem' }}>
               {[['pending', `Pending${pending && pending.length ? ` (${pending.length})` : ''}`], ['office', `Office${office.length ? ` (${office.length})` : ''}`], ['complete', 'Complete']].map(([k, label]) => (
                 <button key={k} type="button" role="tab" aria-selected={listTab === k} className="fin-btn" onClick={() => setListTab(k)}
                   style={{ ...S.ghost, minHeight: 36, padding: '0.4rem 0.95rem', background: listTab === k ? O : th.card3, color: listTab === k ? '#fff' : th.text }}>{label}</button>
@@ -601,11 +608,11 @@ export function PayIncrease({ th, isMobile, onBack }) {
             </div>
             <span style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               {canAdmin && (
-                <button type="button" className="fin-btn" onClick={async () => { const on = !payrateWrite; if (on && !window.confirm('Switch ON updating pay in Paycor? The office then gets an "Update pay in Paycor" button after completing a pay increase, and queued ones are sent on their effective date.')) return; try { await call('', { action: 'payrateSwitch', enabled: on }); setPayrateWrite(on); setSaved({ state: 'decided', msg: `Updating pay in Paycor is now ${on ? 'ON' : 'OFF'}.` }); } catch (e) { setError(e.message); } }}
+                <button type="button" className="fin-btn" onClick={async () => { const on = !payrateWrite; if (on && !window.confirm('Switch ON updating pay in Paycor? The office then gets an "Update pay in Paycor" button after completing a pay rate change, and queued ones are sent on their effective date.')) return; try { await call('', { action: 'payrateSwitch', enabled: on }); setPayrateWrite(on); setSaved({ state: 'decided', msg: `Updating pay in Paycor is now ${on ? 'ON' : 'OFF'}.` }); } catch (e) { setError(e.message); } }}
                   style={{ ...S.ghost, minHeight: 36, padding: '0.35rem 0.8rem', fontSize: '0.82rem', borderColor: payrateWrite ? '#16a34a' : th.cardBorder, color: payrateWrite ? '#16a34a' : th.muted }}
                   title="Exec / IT only">Update Paycor: {payrateWrite ? 'ON' : 'OFF'}</button>
               )}
-              <button type="button" className="fin-btn" style={S.primary} onClick={() => { setSaved(null); setView('form'); }}>Start a pay increase</button>
+              <button type="button" className="fin-btn" style={S.primary} onClick={() => { setSaved(null); setView('form'); }}>Start a pay rate change</button>
             </span>
           </div>
           {listTab === 'pending' && (pending && pending.length ? (
@@ -632,15 +639,49 @@ export function PayIncrease({ th, isMobile, onBack }) {
               ))}
             </div>
           ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>Nothing waiting on the office.</p>)}
-          {listTab === 'complete' && (complete.length ? (
+          {listTab === 'complete' && (complete.length ? (() => {
+            // v23.12: search + filters + 5 a page.
+            const PER = 5;
+            const q = cq.trim().toLowerCase();
+            const paycorOf = (f) => f.paycorRateStatus === 'sent' ? 'in' : f.paycorRateStatus === 'failed' || f.paycorRateStatus === 'mismatch' ? 'problem' : f.paycorRateStatus === 'queued' || f.paycorRateStatus === 'sending' ? 'in' : 'not';
+            const since = cWhen === '7' ? Date.now() - 7 * 864e5 : cWhen === '30' ? Date.now() - 30 * 864e5 : cWhen === '90' ? Date.now() - 90 * 864e5 : cWhen === 'year' ? new Date(new Date().getFullYear(), 0, 1).getTime() : 0;
+            const storeNames = [...new Set(complete.map(f => f.storeName).filter(Boolean))].sort();
+            const rows = complete.filter(f => (!q || [f.employeeName, f.storeName, f.submittedBy, f.approvedBy, f.officeBy].some(x => String(x || '').toLowerCase().includes(q)))
+              && (cStatus === 'all' || (cStatus === 'starts' ? !!(f.effectiveDate && today && f.effectiveDate > today) : paycorOf(f) === cStatus))
+              && (cStore === 'all' || f.storeName === cStore)
+              && (!since || Date.parse(f.approvedAt || f.createdAt) >= since));
+            const pages = Math.max(1, Math.ceil(rows.length / PER));
+            const page = Math.min(cPage, pages - 1);
+            const shown = rows.slice(page * PER, page * PER + PER);
+            const set = (fn) => (e) => { fn(e.target.value); setCPage(0); };
+            const filtered = q || cStatus !== 'all' || cStore !== 'all' || cWhen !== 'any';
+            const sel = { ...S.input, width: 'auto', minWidth: 0, flex: '1 1 150px', cursor: 'pointer' };
+            return (
             <div style={{ display: 'grid', gap: '0.5rem' }}>
-              {complete.map(f => (
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.3rem' }}>
+                <input className="fin-input" type="search" value={cq} onChange={set(setCq)} placeholder="Search employee, store or who sent it" aria-label="Search pay rate changes" style={{ ...S.input, flex: '3 1 240px', minWidth: 0 }} />
+                <select className="fin-input" value={cStatus} onChange={set(setCStatus)} aria-label="Paycor" style={sel}>
+                  <option value="all">Any Paycor status</option><option value="not">Not in Paycor</option><option value="in">In Paycor</option><option value="starts">Starts later</option><option value="problem">Paycor problem</option>
+                </select>
+                <select className="fin-input" value={cStore} onChange={set(setCStore)} aria-label="Store" style={sel}>
+                  <option value="all">All stores</option>{storeNames.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <select className="fin-input" value={cWhen} onChange={set(setCWhen)} aria-label="Approved" style={sel}>
+                  <option value="any">Any time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="year">This year</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', fontSize: '0.82rem', color: th.muted }}>
+                <span>{rows.length ? `${page * PER + 1}–${page * PER + shown.length} of ${rows.length}${filtered ? ` (of ${complete.length})` : ''}` : 'No matches'}</span>
+                {filtered && <button type="button" className="fin-btn" onClick={() => { setCq(''); setCStatus('all'); setCStore('all'); setCWhen('any'); setCPage(0); }} style={{ ...S.link, color: O, fontWeight: 700 }}>Clear</button>}
+              </div>
+              {!rows.length && <p style={{ color: th.muted, fontSize: '0.9rem' }}>Nothing matches. Try a different search or filter.</p>}
+              {shown.map(f => (
                 <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', padding: '0.75rem 0.95rem', borderRadius: 12, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, fontFamily: FONTS.body }}>
                   <span style={{ minWidth: 0 }}><strong>{f.employeeName}</strong> <span style={{ color: th.muted }}>{f.storeName}, {fmtPay(f.currentRate, f.payBasis)} to {fmtPay(f.newRate, f.payBasis)}</span>
                     <span style={{ display: 'block', color: th.muted, fontSize: '0.8rem', marginTop: 2 }}>Sent by {f.submittedBy}{f.approvedBy ? `, approved by ${f.approvedBy} on ${new Date(f.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : `, ${new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}{f.effectiveDate ? `. Effective ${new Date(f.effectiveDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}${f.officeBy ? ` (set by ${f.officeBy})` : ''}` : ''}</span></span>
                   {f.effectiveDate && (
                     <span style={{ flexBasis: '100%', fontSize: '0.8rem', fontWeight: 600, color: f.paycorRateStatus === 'sent' ? '#16a34a' : f.paycorRateStatus === 'queued' || f.paycorRateStatus === 'sending' ? O : f.paycorRateStatus === 'failed' || f.paycorRateStatus === 'mismatch' ? '#dc2626' : th.muted }}>
-                      {f.paycorRateStatus === 'sent' ? 'Pay updated in Paycor'
+                      {f.paycorRateStatus === 'sent' ? (today && f.effectiveDate > today ? `In Paycor: takes effect ${usLong(f.effectiveDate)}` : 'Pay updated in Paycor')
                         : f.paycorRateStatus === 'queued' ? `Queued: updates in Paycor automatically on ${usLong(f.effectiveDate)}${f.paycorQueuedBy ? ` (queued by ${f.paycorQueuedBy})` : ''}`
                         : f.paycorRateStatus === 'sending' ? 'Sending to Paycor now'
                         : f.paycorRateStatus === 'cancelled' ? 'Paycor update cancelled'
@@ -660,15 +701,29 @@ export function PayIncrease({ th, isMobile, onBack }) {
                   {moving === f.id && <ChangeEffective th={th} form={f} onCancel={() => setMoving(null)} onDone={(m) => { setMoving(null); setSaved({ state: 'decided', msg: m }); loadMain(); }} />}
                 </div>
               ))}
+              {pages > 1 && (
+                <nav aria-label="Pages" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                  <button type="button" className="fin-btn" disabled={page === 0} onClick={() => setCPage(page - 1)} style={{ ...S.ghost, minHeight: 36, padding: '0.3rem 0.8rem', opacity: page === 0 ? 0.45 : 1 }}>Previous</button>
+                  {Array.from({ length: pages }, (_, i) => i).filter(i => pages <= 7 || i === 0 || i === pages - 1 || Math.abs(i - page) <= 1).map((i, k, arr) => (
+                    <React.Fragment key={i}>
+                      {k > 0 && i - arr[k - 1] > 1 && <span style={{ color: th.muted }}>…</span>}
+                      <button type="button" className="fin-btn" aria-current={i === page ? 'page' : undefined} onClick={() => setCPage(i)}
+                        style={{ ...S.ghost, minHeight: 36, minWidth: 36, padding: '0.3rem 0.6rem', background: i === page ? O : th.card3, color: i === page ? '#fff' : th.text, borderColor: i === page ? O : th.cardBorder }}>{i + 1}</button>
+                    </React.Fragment>
+                  ))}
+                  <button type="button" className="fin-btn" disabled={page >= pages - 1} onClick={() => setCPage(page + 1)} style={{ ...S.ghost, minHeight: 36, padding: '0.3rem 0.8rem', opacity: page >= pages - 1 ? 0.45 : 1 }}>Next</button>
+                </nav>
+              )}
             </div>
-          ) : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No approved pay increases yet.</p>)}
-          {viewing && <FormModal th={th} id={viewing.id} title={`Pay increase for ${viewing.employeeName}`} onClose={() => setViewing(null)} />}
+            );
+          })() : <p style={{ color: th.muted, fontSize: '0.9rem' }}>No approved pay rate changes yet.</p>)}
+          {viewing && <FormModal th={th} id={viewing.id} title={`Pay rate change for ${viewing.employeeName}`} onClose={() => setViewing(null)} />}
           {ratesFor && <PaycorRatesModal th={th} form={ratesFor} onClose={() => setRatesFor(null)} />}
           {queueFor && <PaycorConfirm th={th} form={queueFor} effectiveDate={queueFor.effectiveDate} notifyCount={notifyCount} onCancel={() => setQueueFor(null)} onDone={(m) => { setQueueFor(null); setSaved({ state: 'decided', msg: m }); loadMain(); }} />}
         </>)}
       </>) : (<>
       <p style={S.lede}>Fill in the form: the employee's name, position, store and current rate come straight from Paycor. Enter the new rate and the reason, then sign. A Store Manager signs with their District Manager. It goes to Mike for approval, then to the office to set the effective date; you're emailed when it's approved and again when it's complete.</p>
-      {role === 'office_staff' && <FinBanner th={th} tone="warn">Pay increases show here once IT adds you by name to Admin · Notifications · Pay Increase (office).</FinBanner>}
+      {role === 'office_staff' && <FinBanner th={th} tone="warn">Pay rate changes show here once IT adds you by name to Admin · Notifications · Pay Rate Change (office).</FinBanner>}
       {role === 'manager' && employees && !employees.length && !error && <FinBanner th={th} tone="warn">Your account isn't linked to a store yet, so there's no one to pick. Ask IT to assign your store.</FinBanner>}
       {error && <FinBanner th={th} tone="error">{error}</FinBanner>}
       {employee && !hourly && <FinBanner th={th} tone="warn">Paycor has no current {basis === 'year' ? 'salary' : 'hourly rate'} for {employee.name}{employee.payType ? ` (pay type: ${employee.payType})` : ''}, so this form can't be made. Fix it in Paycor first.</FinBanner>}
@@ -677,7 +732,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
       <div className="pi-paper" style={{ borderRadius: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)', padding: isMobile ? '1.2rem 1rem 1.6rem' : '1.6rem 4.2rem 2.4rem', fontSize: isMobile ? '15px' : '16px', lineHeight: 1.5, marginBottom: '1.2rem',
         backgroundImage: `url('/${PAY_CHROME.watermark.src}')`, backgroundRepeat: 'no-repeat', backgroundPosition: 'center 62%', backgroundSize: '77%' }}>
         <div style={{ textAlign: 'center' }}><img src={'/' + PAY_CHROME.logo.src} alt="People Capital Group" style={{ width: isMobile ? 110 : 144, height: 'auto' }} /></div>
-        <p style={{ fontWeight: 700, fontSize: '1.09em', marginTop: '1.3em' }}>PAY INCREASE FORM</p>
+        <p style={{ fontWeight: 700, fontSize: '1.09em', marginTop: '1.3em' }}>PAY RATE CHANGE FORM</p>
 
         <div style={{ display: 'flex', gap: isMobile ? '0.4em 1.5em' : '0 4.5em', flexWrap: 'wrap', marginTop: '0.5em' }}>
           <div className="pi-row"><span>Date:</span><input type="date" className="pi-blank" style={{ width: '9.5em' }} value={date} onChange={e => setDate(e.target.value)} aria-label="Form date" /></div>
@@ -698,7 +753,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
           <textarea className="pi-reason" value={reason} maxLength={600} required aria-required="true" onChange={e => setReason(e.target.value)} onBlur={() => setReasonTouched(true)}
             aria-invalid={reasonTouched && reason.trim().length < REASON_MIN} aria-describedby="pi-reason-hint"
             style={reasonTouched && reason.trim().length < REASON_MIN ? { boxShadow: 'inset 0 0 0 2px #dc2626' } : undefined}
-            placeholder="Required: why this raise (the evaluation, new responsibilities…)" aria-label="Reason for pay change / evaluation (required)" />
+            placeholder="Required: why the pay is changing (evaluation, new responsibilities, moved district…)" aria-label="Reason for pay change / evaluation (required)" />
           {reason.trim().length < REASON_MIN && <div id="pi-reason-hint" style={{ fontSize: '0.78em', padding: '0.15em 0.5em 0.3em', color: reasonTouched ? '#dc2626' : '#8a7f76', fontFamily: FONTS.body }}>Required: write at least a sentence ({reason.trim().length}/{REASON_MIN} characters).</div>}
         </div>
 

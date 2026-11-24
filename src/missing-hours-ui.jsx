@@ -152,7 +152,7 @@ export function MissingHours({ th, isMobile, onBack, userType, username }) {
   const problems = missingHoursProblems(values, today);
   const ready = !problems.length && !busy;
   useEffect(() => { setSaved(null); }, [fp]);
-  // Titled by who signs it, like the Pay Increase form (user, 2026-11-11).
+  // Titled by who signs it, like the Pay Rate Change form (user, 2026-11-11).
   const signTitle = userType === 'manager' ? 'Store Manager' : userType === 'it' ? 'HR / IT Administrator' : secondLineLabel(userType, username);
   const signLabel = `${signTitle} Signature:`;
 
@@ -268,7 +268,8 @@ export function MissingHours({ th, isMobile, onBack, userType, username }) {
           {matches.map(e => (
             <button key={e.pc + e.id} type="button" role="option" aria-selected="false" className="fin-btn" onMouseDown={ev => ev.preventDefault()} onClick={() => pick(e)}
               style={{ display: 'flex', width: '100%', justifyContent: 'space-between', gap: '0.8rem', padding: '0.6rem 0.9rem', background: 'none', border: 'none', borderBottom: `1px solid ${th.cardBorder}`, color: th.text, textAlign: 'left', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.88rem' }}>
-              <span style={{ minWidth: 0 }}>{e.name}{e.jobTitle && <span style={{ color: th.muted }}> — {e.jobTitle}</span>}</span>
+              <span style={{ minWidth: 0 }}>{e.name}{e.jobTitle && <span style={{ color: th.muted }}> — {e.jobTitle}</span>}
+                {e.terminated && <span style={{ display: 'block', color: '#dc2626', fontSize: '0.78rem', fontWeight: 700 }}>Left {new Date(e.terminationDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}</span>
               <span style={{ color: th.muted, whiteSpace: 'nowrap' }}>{storeName(e.pc)} · {e.pc}</span>
             </button>
           ))}
@@ -294,6 +295,7 @@ export function MissingHours({ th, isMobile, onBack, userType, username }) {
         <div style={{ display: 'grid', gap: '0.9em', marginBottom: '1.6em' }}>
           <span>Employee Name: {empSearch}</span>
           <span>PC #: <span className={`mh-locked${picked ? '' : ' mh-empty'}`}>{picked ? `${picked.pc} (${storeName(picked.pc)})` : 'from Paycor'}</span></span>
+          {picked?.terminated && <span style={{ color: '#dc2626', fontWeight: 700 }}>Left {new Date(picked.terminationDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}: only days up to then</span>}
           <span>Pay Period/Pay Date: <span className={`mh-locked${values.periodStart ? '' : ' mh-empty'}`}>{values.periodStart ? `${usDate(values.periodStart)} - ${usDate(values.periodEnd)}` : 'fills in from the dates'}</span></span>
         </div>
         <div style={{ overflowX: 'auto' }}>

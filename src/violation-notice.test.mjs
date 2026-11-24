@@ -36,3 +36,19 @@ test('PDF blanks + alert text (no details in the text) + email', () => {
   assert.equal(t.line, 'First Violation Notice for Ahmed Bhuiyan (Bustleton), by Dilara Begum.');
   assert.match(violationEmailHtml(v, 'Bustleton', 'Dilara', '', '193884'), /Tardiness\/Leaving Early.*Verbal Warning/s);
 });
+
+test('terminated people (last 12 months) join the active roster, tagged', async () => {
+  const { withTerminated } = await import('./violation-notice.mjs');
+  const stores = { '1': [{ id: 'a', name: 'Ann Active', jobTitle: 'Crew Member' }] };
+  const rows = [
+    { id: 't', pc: '1', name: 'Tom Gone', jobTitle: 'Crew Member', terminationDate: '2026-11-01' },
+    { id: 'a', pc: '1', name: 'Ann Active', terminationDate: '2026-03-01' }, // rehired → stays active
+    { id: 'old', pc: '1', name: 'Old Timer', terminationDate: '2024-01-01' }, // too long ago
+    { id: 'x', pc: '2', name: 'Other Store', terminationDate: '2026-10-01' },
+  ];
+  const m = withTerminated(stores, rows, '2026-11-23');
+  assert.deepEqual(m['1'].map(e => [e.id, !!e.terminated]), [['a', false], ['t', true]]);
+  assert.equal(m['1'][1].terminationDate, '2026-11-01');
+  assert.equal(m['2'][0].name, 'Other Store');
+  assert.equal(stores['1'].length, 1); // input untouched
+});
