@@ -118,12 +118,12 @@ export async function uploadReportPhoto({ projectId, projectNickname, reportId, 
 
 // Full-size links for a report PDF's photos — open without signing in, like the PDF link
 // itself. → Map photoId → absolute URL. Never throws: a PDF without links is still a PDF.
-export async function fetchPhotoLinks(photoIds) {
+export async function fetchPhotoLinks(reportId, photoIds) {
   const out = new Map();
   const ids = [...new Set((photoIds || []).filter(Boolean))];
-  if (!ids.length) return out;
+  if (!ids.length || reportId == null) return out;
   try {
-    const j = await postJson(PHOTOS_URL, { action: 'shareLinks', ids });
+    const j = await postJson(PHOTOS_URL, { action: 'shareLinks', reportId, ids });
     for (const [id, token] of Object.entries(j.tokens || {})) out.set(id, `${window.location.origin}${PHOTO_LINK_URL}?t=${token}`);
   } catch { /* no links this time */ }
   return out;

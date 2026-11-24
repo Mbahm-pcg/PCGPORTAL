@@ -6879,12 +6879,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }));
     return { photoId: j.photo.id, fullKey: j.photo.imageKey, medKey: j.photo.medKey };
   }
-  async function fetchPhotoLinks(photoIds) {
+  async function fetchPhotoLinks(reportId, photoIds) {
     const out = /* @__PURE__ */ new Map();
     const ids = [...new Set((photoIds || []).filter(Boolean))];
-    if (!ids.length) return out;
+    if (!ids.length || reportId == null) return out;
     try {
-      const j = await postJson(PHOTOS_URL, { action: "shareLinks", ids });
+      const j = await postJson(PHOTOS_URL, { action: "shareLinks", reportId, ids });
       for (const [id, token] of Object.entries(j.tokens || {})) out.set(id, `${window.location.origin}${PHOTO_LINK_URL}?t=${token}`);
     } catch {
     }
@@ -14564,7 +14564,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       if (!isPendingPhoto(p)) jobs.push({ wi, pi, p });
     }));
     const out = /* @__PURE__ */ new Map();
-    const linksReq = fetchPhotoLinks(jobs.filter((j) => isRefPhoto(j.p)).map((j) => j.p.photoId));
+    const linksReq = fetchPhotoLinks(report.id, jobs.filter((j) => isRefPhoto(j.p)).map((j) => j.p.photoId));
     await runLimited(jobs, 4, async ({ wi, pi, p }) => {
       let data = await loadReportPhotoData(p, "med");
       if (data && !isRefPhoto(p)) {

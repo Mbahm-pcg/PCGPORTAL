@@ -9082,7 +9082,7 @@ async function resolveReportPhotosForPdf(report) {
   (report.workLogs || []).forEach((w, wi) => (w.photos || []).forEach((p, pi) => { if (!isPendingPhoto(p)) jobs.push({ wi, pi, p }); }));
   const out = new Map();
   // v23.14: each photo in the PDF links to its full-size image (opens without signing in)
-  const linksReq = fetchPhotoLinks(jobs.filter(j => isRefPhoto(j.p)).map(j => j.p.photoId));
+  const linksReq = fetchPhotoLinks(report.id, jobs.filter(j => isRefPhoto(j.p)).map(j => j.p.photoId));
   await runLimited(jobs, 4, async ({ wi, pi, p }) => {
     let data = await loadReportPhotoData(p, 'med');
     if (data && !isRefPhoto(p)) { try { data = await scaleImageDataUrl(data, MED_WIDTH, MED_QUALITY); } catch {} }

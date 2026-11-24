@@ -27,7 +27,7 @@
 //   removeFromReport { ids:[], reportId } → { ok, removed }   soft delete (deleted_at); the
 //     nightly reports-backup run purges rows + blobs 30 days later
 //   setCaptions { reportId, items:[{ id, caption }] } → { ok, updated }
-//   shareLinks { ids:[] } → { ok, tokens:{ [id]: token } }   a no-sign-in token per photo, for
+//   shareLinks { reportId, ids:[] } → { ok, tokens:{ [id]: token } }   a no-sign-in token per photo, for
 //     the full-size links in a report PDF (served by report-photo.mjs)
 // See docs/superpowers/specs/2026-11-21-daily-report-photos-design.md.
 import { neon } from '@neondatabase/serverless';
@@ -258,8 +258,11 @@ export default async (request) => {
 
     if (action === 'shareLinks') {
       const ids = [...new Set((Array.isArray(payload.ids) ? payload.ids : []).map(String).filter(Boolean))].slice(0, 500);
+      // Only photos of the one report whose PDF is being built.
+      const reportId = payload.reportId != null && payload.reportId !== '' ? String(payload.reportId).slice(0, 64) : null;
+      if (!reportId) return json(400, { error: 'reportId required' });
       if (!ids.length) return json(200, { ok: true, tokens: {} });
-      const need = await sql`SELECT id FROM project_photos WHERE id = ANY(${ids}) AND source = 'daily_report' AND deleted_at IS NULL AND share_token IS NULL`;
+      const need = await sql`SELECT id FROM project_photos WHERE id = ANY(${ids}) AND report_id = ${reportId} AND source = 'daily_report' AND deleted_at IS NULL AND share_token IS NULL`;
       if (need.length) {
         const nid = need.map(r => r.id), tok = nid.map(() => randomBytes(32).toString('hex'));
         await sql`
@@ -267,7 +270,7 @@ export default async (request) => {
           FROM (SELECT unnest(${nid}::text[]) AS id, unnest(${tok}::text[]) AS token) v
           WHERE p.id = v.id AND p.share_token IS NULL`;
       }
-      const rows = await sql`SELECT id, share_token FROM project_photos WHERE id = ANY(${ids}) AND source = 'daily_report' AND deleted_at IS NULL AND share_token IS NOT NULL`;
+      const rows = await sql`SELECT id, share_token FROM project_photos WHERE id = ANY(${ids}) AND report_id = ${reportId} AND source = 'daily_report' AND deleted_at IS NULL AND share_token IS NOT NULL`;
       return json(200, { ok: true, tokens: Object.fromEntries(rows.map(r => [r.id, r.share_token])) });
     }
 
