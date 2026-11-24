@@ -29,7 +29,7 @@ const api = async (qs = '') => {
 let fontsPromise = null;
 // v22.70: never download before sending. On an iPhone (especially the home-screen app) a download
 // replaces the portal with the PDF, so the page was gone before the form was ever sent, and the
-// sessionStorage login went with it — confirmed with a Director's Pay Increase, 2026-11-10. On
+// sessionStorage login went with it — confirmed with a Director's Pay Rate Change, 2026-11-10. On
 // phones we don't auto-download at all: after the send, a button opens the PDF in its own tab.
 export const isPhoneLike = () => {
   try {

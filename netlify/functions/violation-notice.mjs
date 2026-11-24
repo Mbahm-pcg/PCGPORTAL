@@ -5,7 +5,7 @@
 // for APPROVAL: the approver (Admin · Notifications · Violation Notice approval — Sam) gets an email +
 // text + push → approved: the final PDF is filed ONCE in the "Violation Notices" Shared Drive
 // (VIOLATION_DRIVE_FOLDER_ID, folder per store) and Admin · Notifications · Violation Notice is
-// alerted. Sent back → the supervisor is told why. Like Pay Increase.
+// alerted. Sent back → the supervisor is told why. Like Pay Rate Change.
 //
 //   GET                  → { stores, employees, myName, canApprove, listView, pending?, waiting?, complete? }
 //   GET ?pdf=<id>        → the latest PDF (approvers / exec / IT, and the person who made it)
@@ -25,7 +25,16 @@ import { syncDistricts, refreshStoreList } from './_shared/store-status.mjs';
 import { loadRoster, saveToDrive, emailWithPdf } from './transfer-notice.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
 import { createSignRequest, ensureSignTable, signProgress, stampInPerson, stampRefused, stampFooter, stampWitnessName, stampHrApproval } from './violation-sign.mjs';
-import { missingViolationFields, violationFingerprint, violationFileName, violationAlertText, violationEmailHtml } from '../../src/violation-notice.mjs';
+import { missingViolationFields, violationFingerprint, violationFileName, violationAlertText, violationEmailHtml, withTerminated } from '../../src/violation-notice.mjs';
+import { loadTerminations } from './terminations-lib/run.mjs';
+
+// v23.14: who can be written up — the store's active Paycor roster plus people terminated there in
+// the last 12 months (the Terminations report's daily Paycor list), tagged terminated.
+async function violationRoster() {
+  const [roster, term] = await Promise.all([loadRoster(), loadTerminations().catch(() => null)]);
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  return { ...roster, stores: withTerminated(roster.stores, term?.rows, today) };
+}
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const blobs = () => getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
@@ -273,7 +282,7 @@ export default async (request) => {
       out.myWaiting = (await db`SELECT id, pc, employee_id, employee_name, job_title, notice, types, action, violation_date, form_date, submitted_by_name, submitted_by, created_at, status, decided_by_name, decided_at, decision_note, drive_link, kind, flow, employee_signed, employee_refused, witness_name, edited_by_name, (pdf IS NOT NULL) AS has_pdf FROM violation_notices WHERE status IN ('awaiting_signatures', 'awaiting_employee') AND submitted_by = ${Number(mine) || -1} ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 50`).map(rowItem);
       const prog = await signProgress(db, 'violation', [...(out.waiting || []), ...out.myWaiting].map(x => x.id)).catch(e => { console.error('[violation-notice] progress', e.message); return {}; });
       for (const x of [...(out.waiting || []), ...out.myWaiting]) x.signing = prog[x.id] || [];
-      const roster = await loadRoster().catch(e => { console.error('[violation-notice] roster', e.message); out.rosterError = 'Paycor is not responding, so employee search is unavailable. Try again in a minute.'; return { stores: {} }; });
+      const roster = await violationRoster().catch(e => { console.error('[violation-notice] roster', e.message); out.rosterError = 'Paycor is not responding, so employee search is unavailable. Try again in a minute.'; return { stores: {} }; });
       for (const s of out.stores) for (const e of roster.stores[s.pc] || []) out.employees.push({ ...e, pc: s.pc });
       out.employees.sort((a, b) => a.name.localeCompare(b.name));
       return json(200, out);
@@ -286,9 +295,9 @@ export default async (request) => {
       if (!listView) return json(403, { error: 'Only HR (the violation notice approvers) and exec / IT can upload warning letters.' });
       const store = storeOf(body.pc);
       if (!store) return json(400, { error: 'Pick the employee again.' });
-      const roster = await loadRoster();
+      const roster = await violationRoster();
       const emp = (roster.stores[String(store.pc)] || []).find(e => e.id === String(body.employeeId || ''));
-      if (!emp) return json(404, { error: 'This employee is not on that store\'s active roster in Paycor.' });
+      if (!emp) return json(404, { error: 'This employee is not on that store\'s Paycor roster (active, or terminated in the last 12 months).' });
       const d = String(body.phone || '').replace(/\D/g, '');
       if (!(d.length === 10 || (d.length === 11 && d[0] === '1'))) return json(400, { error: "Enter the employee's cell number (10 digits)." });
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email || '').trim())) return json(400, { error: "Enter the employee's email — the letter goes by email." });
@@ -503,9 +512,9 @@ export default async (request) => {
       if (v.action === 'suspension' && !(isDate(v.suspensionStart) && isDate(v.suspensionReturn) && v.suspensionReturn >= v.suspensionStart)) return json(400, { error: 'The return-to-work date has to be on or after the suspension start.' });
       if (!isSig(v.supervisorSignature)) return json(400, { error: 'Sign again — your signature did not come through.' });
       const store = storeOf(v.pc);
-      const roster = await loadRoster();
+      const roster = await violationRoster();
       const emp = (roster.stores[String(store.pc)] || []).find(e => e.id === String(body.employeeId || ''));
-      if (!emp) return json(404, { error: 'This employee is not on that store\'s active roster in Paycor.' });
+      if (!emp) return json(404, { error: 'This employee is not on that store\'s Paycor roster (active, or terminated in the last 12 months).' });
       if (emp.name !== v.employeeName || (emp.jobTitle && emp.jobTitle !== v.jobTitle)) return json(409, { error: "Paycor's details for this employee changed — pick the employee again." });
       const pdf = Buffer.from(String(body.pdf || '').replace(/^data:[^,]*,/, ''), 'base64');
       if (pdf.length < 1000 || pdf.length > 8e6 || pdf.subarray(0, 5).toString() !== '%PDF-') return json(400, { error: 'The PDF did not come through — try again.' });
@@ -534,9 +543,9 @@ export default async (request) => {
     for (const k of ['employeeSignature', 'supervisorSignature', 'witnessSignature']) if (v[k] && !isSig(v[k])) return json(400, { error: 'Sign again — a signature did not come through.' });
     // The employee must be on that store's active roster, and the locked fields must match it.
     const store = storeOf(v.pc);
-    const roster = await loadRoster();
+    const roster = await violationRoster();
     const emp = (roster.stores[String(store.pc)] || []).find(e => e.id === String(body.employeeId || ''));
-    if (!emp) return json(404, { error: 'This employee is not on that store\'s active roster in Paycor.' });
+    if (!emp) return json(404, { error: 'This employee is not on that store\'s Paycor roster (active, or terminated in the last 12 months).' });
     if (emp.name !== v.employeeName || (emp.jobTitle && emp.jobTitle !== v.jobTitle)) return json(409, { error: "Paycor's details for this employee changed — pick the employee again." });
     // Employee and/or witness not there → email them a private link to sign (violation-sign.mjs).
     const rs = body.remoteSign || {};

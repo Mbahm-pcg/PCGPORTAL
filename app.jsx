@@ -20488,7 +20488,7 @@ const NOTIFY_ICONS = {
   chevRight: <path d="m9 6 6 6-6 6"/>,
   info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></>,
   resignationLetter: <><path d="M6 3h9l4 4v14H6Z"/><path d="M9 8h4M9 11h7"/><path d="M8.5 17.5c1.2-2.2 2.2.6 3.4-.9 1-1.3 1.7.9 3.6-.1"/></>,
-  payIncrease: <><path d="M12 20V6M7 11l5-5 5 5"/><path d="M5 20h14"/></>,
+  payIncrease: <><path d="M8 19V5M4.5 8.5 8 5l3.5 3.5"/><path d="M16 5v14M12.5 15.5 16 19l3.5-3.5"/></>,
   payIncreaseApprovers: <><path d="M20 6 9 17l-5-5"/></>,
   payIncreaseOffice: <><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/><path d="m9 15 2 2 4-4"/></>,
   payIncreasePaycor: <><path d="M19.5 9A8 8 0 0 0 5 7.5"/><path d="M4.5 3.5v4h4"/><path d="M4.5 15A8 8 0 0 0 19 16.5"/><path d="M19.5 20.5v-4h-4"/><path d="M12 8.5v7M14 10h-2.7a1.3 1.3 0 0 0 0 2.6h1.4a1.3 1.3 0 0 1 0 2.6H10"/></>,
@@ -20506,7 +20506,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
-  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay increases', payIncreaseApprovers: 'Pay increase approvals', payIncreaseOffice: 'Pay increase office step', payIncreasePaycor: 'Pay increase Paycor updates', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters', missingHoursApprovers: 'Missing hours approvals',
+  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay rate changes', payIncreaseApprovers: 'Pay rate change approvals', payIncreaseOffice: 'Pay rate change office step', payIncreasePaycor: 'Pay rate change Paycor updates', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters', missingHoursApprovers: 'Missing hours approvals',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -21103,10 +21103,10 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                 { id: 'newHires', label: 'New Hires' },
               ] },
               { key: 'pay', title: 'Approvals & Compensation', icon: 'grpMoney', items: [
-                { id: 'payIncreaseApprovers', label: 'Pay Increase approval', count: notifCounts.payIncreaseApprovers },
-                { id: 'payIncreaseOffice', label: 'Pay Increase office step', count: notifCounts.payIncreaseOffice },
-                { id: 'payIncreasePaycor', label: 'Pay Increase Paycor update', count: notifCounts.payIncreasePaycor },
-                { id: 'payIncrease', label: 'Pay Increase (office)', count: notifCounts.payIncrease },
+                { id: 'payIncreaseApprovers', label: 'Pay Rate Change approval', count: notifCounts.payIncreaseApprovers },
+                { id: 'payIncreaseOffice', label: 'Pay Rate Change office step', count: notifCounts.payIncreaseOffice },
+                { id: 'payIncreasePaycor', label: 'Pay Rate Change Paycor update', count: notifCounts.payIncreasePaycor },
+                { id: 'payIncrease', label: 'Pay Rate Change (office)', count: notifCounts.payIncrease },
                 { id: 'missingHoursApprovers', label: 'Missing Hours approval', count: notifCounts.missingHoursApprovers },
               ] },
               { key: 'compliance', title: 'Compliance & Safety', icon: 'grpShield', items: [
@@ -21386,38 +21386,38 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
           description="These people are alerted every time a signed Transfer Notice is saved (Tools · Transfer Notice): an email with the signed PDF attached, plus a text to the numbers below. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
           smsLabel="Transfer Notice SMS Numbers" />
       )}
-      {/* Pay Increase — full admins only. Read by pay-increase.mjs each time a DM sends a signed
-          Pay Increase Form to the office: email (PDF attached) + text to this list; push + bell
+      {/* Pay Rate Change — full admins only. Read by pay-increase.mjs each time a DM sends a signed
+          Pay Rate Change Form to the office: email (PDF attached) + text to this list; push + bell
           to anyone added by name. This list is the whole recipient set. v22.55
           */}
-      {/* Pay Increase approval — full admins only. Read by pay-increase.mjs: people added BY NAME
-          here are the only ones who can approve (in Tools · Pay Increase); the emails / numbers get
+      {/* Pay Rate Change approval — full admins only. Read by pay-increase.mjs: people added BY NAME
+          here are the only ones who can approve (in Tools · Pay Rate Change); the emails / numbers get
           the "waiting for approval" email / text with a link. While no one is named, every
           executive approves and gets it. v22.60 */}
-      {/* v23.1 Pay Increase office step — full admins only. People added BY NAME here (Roxy) set the
-          effective date, paycheck date and payroll signature on approved pay increases; they get an
+      {/* v23.1 Pay Rate Change office step — full admins only. People added BY NAME here (Roxy) set the
+          effective date, paycheck date and payroll signature on approved pay rate changes; they get an
           email + text + push and a reminder every 3 hours until it's done. */}
       {notifSubTab === 'payIncreaseOffice' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_office_step_v1" tagKey="payIncreaseOffice" onCountChange={setNotifCount('payIncreaseOffice')}
-          description="These people do the office step of Tools · Pay Increase. Once Mike approves a pay increase, they get an email with an Open button, a text and a phone push, and a reminder every 3 hours until they set the effective date, the paycheck date and sign. Only people added by name (and exec / IT) can complete it; while no one is named here, the people named on Pay Increase (office) can. Completing it files it in Google Drive and emails the person who sent it."
-          smsLabel="Pay Increase office step SMS Numbers" />
+          description="These people do the office step of Tools · Pay Rate Change. Once Mike approves a pay rate change, they get an email with an Open button, a text and a phone push, and a reminder every 3 hours until they set the effective date, the paycheck date and sign. Only people added by name (and exec / IT) can complete it; while no one is named here, the people named on Pay Rate Change (office) can. Completing it files it in Google Drive and emails the person who sent it."
+          smsLabel="Pay Rate Change office step SMS Numbers" />
       )}
-      {/* v23.10 Pay Increase Paycor update — full admins only. Told when the office queues a pay
+      {/* v23.10 Pay Rate Change Paycor update — full admins only. Told when the office queues a pay
           increase for Paycor, and again on the effective date when it's sent (or if it couldn't be). */}
       {notifSubTab === 'payIncreasePaycor' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_paycor_notify_v1" tagKey="payIncreasePaycor" onCountChange={setNotifCount('payIncreasePaycor')}
-          description="Who hears about pay increases going into Paycor. After the office completes a pay increase and presses Update pay in Paycor, these people get an email (with an Open button), a text and a phone push saying it's queued and the day it will be updated. On that day it's sent to Paycor automatically and they're told again: updated, or not updated and why. Also told if it's cancelled or its date moves. While no one is here, only the person who queued it is told."
-          smsLabel="Pay Increase Paycor update SMS Numbers" />
+          description="Who hears about pay rate changes going into Paycor. After the office completes a pay rate change and presses Update pay in Paycor, it goes into Paycor right away, dated on the effective date (Paycor holds it until then), and these people get an email (with an Open button), a text and a phone push. On the effective date the portal checks Paycor and tells them again that it starts today, or to check Paycor if it doesn't show the new pay. Also told if Paycor didn't take it, or the date moves. While no one is here, only the person who sent it is told."
+          smsLabel="Pay Rate Change Paycor update SMS Numbers" />
       )}
       {notifSubTab === 'payIncreaseApprovers' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_approvers_v1" tagKey="payIncreaseApprovers" onCountChange={setNotifCount('payIncreaseApprovers')}
-          description="Who approves pay increases (e.g. Mike). When a manager or DM sends one, these people get an email and a text with a link to review it, then approve it or send it back in Tools · Pay Increase. Add the approver by name (that's what lets them approve) and add their mobile number below for the text. While no one is added by name, every executive can approve and gets the email."
-          smsLabel="Pay Increase approval SMS Numbers" />
+          description="Who approves pay rate changes (e.g. Mike). When a manager or DM sends one, these people get an email and a text with a link to review it, then approve it or send it back in Tools · Pay Rate Change. Add the approver by name (that's what lets them approve) and add their mobile number below for the text. While no one is added by name, every executive can approve and gets the email."
+          smsLabel="Pay Rate Change approval SMS Numbers" />
       )}
       {notifSubTab === 'payIncrease' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_pay_increase_notify_v1" tagKey="payIncrease" onCountChange={setNotifCount('payIncrease')}
-          description="The office side of Tools · Pay Increase (e.g. Ella and Roxy). Once the approver approves a pay increase, these people get an email with the signed form attached (to enter in Paycor), and the numbers below get a text. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
-          smsLabel="Pay Increase SMS Numbers" />
+          description="The office side of Tools · Pay Rate Change (e.g. Ella and Roxy). Once the approver approves a pay rate change, these people get an email with the signed form attached (to enter in Paycor), and the numbers below get a text. Anyone added by name also gets a portal notification and a phone push. Empty until you add someone."
+          smsLabel="Pay Rate Change SMS Numbers" />
       )}
       {notifSubTab === 'interviewReminders' && isFullAdmin(user) && <InterviewRemindersPanel th={th} showAlert={showAlert} users={users} />}
       {notifSubTab === 'newHires' && isFullAdmin(user) && <NewHiresPanel th={th} showAlert={showAlert} users={users} />}
@@ -25405,7 +25405,7 @@ const HUB_SUBITEMS = {
     { id: 'resignation-letter', label: 'Resignation Letter' },
     { id: 'missing-hours', label: 'Missing Hours' },
     { id: 'time-off-request', label: 'Time Off Request' },
-    { id: 'pay-increase', label: 'Pay Increase' },
+    { id: 'pay-increase', label: 'Pay Rate Change' },
   ],
   finance: [
     { id: 'pnl', label: 'P&L' },
@@ -25469,9 +25469,9 @@ const TIME_OFF_REQUEST_ROLES = new Set(['executive', 'it', 'dm', 'director', 'ma
 const RESIGNATION_LETTER_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
 // v22.89 Missing Hours: manager (their store), DM / Director (their districts), exec / IT; scoped server-side.
 const MISSING_HOURS_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
-// v22.60 Pay Increase: a Store Manager or DM makes it and signs their own line; it goes to the
+// v22.60 Pay Rate Change: a Store Manager or DM makes it and signs their own line; it goes to the
 // approver (Mike) and, once approved, to the office.
-// v23.0: office_staff too — the office step (effective date) is done by people on the Pay Increase (office) list.
+// v23.0: office_staff too — the office step (effective date) is done by people on the Pay Rate Change (office) list.
 const PAY_INCREASE_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager', 'office_staff']);
 const accessSubOn = (overrides, rt, hubId, subId) => (overrides?.[rt]?.[`${hubId}:${subId}`]) !== false;
 
@@ -31277,7 +31277,7 @@ const computeRoleTabs = (user) => {
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
     { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
-    { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
+    { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
     { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
@@ -31375,7 +31375,7 @@ const computeRoleTabs = (user) => {
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
     { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
-    { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
+    { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
     { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
@@ -31406,7 +31406,7 @@ const computeRoleTabs = (user) => {
     { id: "transfer-notice", label: "Transfer Notice", icon: (c) => ICONS.transferNotice(c) },
     { id: "violation-notice", label: "Violation Notice", icon: (c) => ICONS.violationNotice(c) },
     { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
-    { id: "pay-increase", label: "Pay Increase", icon: (c) => ICONS.payIncrease(c) },
+    { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
     { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
@@ -32788,7 +32788,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.12";
+const APP_VERSION = "v23.16";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -58685,7 +58685,7 @@ function PCGPortal() {
               { id: 'resignation-letter', name: 'Resignation Letter', sub: 'HR’s resignation letter filled in from Paycor; the employee signs here or from an emailed link, and it’s filed in Drive.', show: RESIGNATION_LETTER_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'resignation-letter'), icon: <>{ICONS.resignationLetter(TOOLS)}</> },
               { id: 'missing-hours', name: 'Missing Hours', sub: 'Hours an employee worked but missed on their timecard: approved, then added to Paycor.', show: MISSING_HOURS_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'missing-hours'), icon: <>{ICONS.missingHours(TOOLS)}</> },
               { id: 'time-off-request', name: 'Time Off Request', sub: 'Request your own time off: your details and Paycor balance filled in, signed on screen and sent straight to HR.', show: TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'time-off-request'), icon: <>{ICONS.timeOffRequest(TOOLS)}</> },
-              { id: 'pay-increase', name: 'Pay Increase', sub: 'HR’s Pay Increase Form filled from Paycor, signed by the Store Manager and the DM or Director, and sent to the office.', show: PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'pay-increase'), icon: <>{ICONS.payIncrease(TOOLS)}</> },
+              { id: 'pay-increase', name: 'Pay Rate Change', sub: 'HR’s Pay Rate Change Form filled from Paycor (a raise, or a lower rate after a move), signed by the Store Manager and the DM or Director, and sent to the office.', show: PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'pay-increase'), icon: <>{ICONS.payIncrease(TOOLS)}</> },
             ].filter(t => t.show);
             return (
               <div>

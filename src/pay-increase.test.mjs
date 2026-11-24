@@ -6,9 +6,10 @@ import { payBlanks, PAY_BLANK_FIELDS, formatRate } from './pay-increase-pdf.mjs'
 const emp = { id: 'e1', name: 'Ahmed Bhuiyan', jobTitle: 'Crew Member', payRate: 15 };
 const sig = { image: 'data:image/png;base64,x' };
 
-test('new rate must be a real raise', () => {
+test('new rate: higher or lower, never the same (v23.13)', () => {
   assert.equal(rateProblem(15, 16.5), null);
-  assert.match(rateProblem(15, 15), /higher/);
+  assert.match(rateProblem(15, 15), /same as the current/);
+  assert.equal(rateProblem(15, 13.5), null); // a lower rate after a district move
   assert.match(rateProblem(15, ''), /Enter/);
   assert.match(rateProblem(null, 16), /no current/);
   assert.match(rateProblem(15, 150), /wrong/);
@@ -54,7 +55,7 @@ test('signatures follow who makes the form', () => {
 test('approval messages: the request text has a link-ready line and never a pay rate', () => {
   const r = { id: 7, employee_name: 'Ahmed Bhuiyan', pc: '332941', submitted_by_name: 'Nusrat Tanjin' };
   const t = approvalAlertText('request', r, 'Bustleton');
-  assert.match(t.line, /Nusrat Tanjin sent a pay increase for Ahmed Bhuiyan \(Bustleton\) for your approval/);
+  assert.match(t.line, /Nusrat Tanjin sent a pay rate change for Ahmed Bhuiyan \(Bustleton\) for your approval/);
   assert.doesNotMatch(t.sms + t.line, /\$/);
   assert.match(approvalAlertText('rejected', r, 'Bustleton', { by: 'Mike Bahm', note: 'Wait for the review' }).line, /Mike Bahm sent back.*Wait for the review/);
   const v = payFormValues({ employee: emp, pc: '332941', newRate: 16.5, reason: 'x', date: '2026-11-09' });
@@ -68,7 +69,7 @@ test('PDF blanks, file name, alert wording', () => {
   assert.deepEqual(payBlanks().map(b => b.field), PAY_BLANK_FIELDS);
   assert.equal(formatRate(16.5), '$16.50');
   const v = payFormValues({ employee: emp, pc: '332941', newRate: 16.5, reason: 'x <b>', date: '2026-11-09' });
-  assert.equal(payFileName(v, 'Bustleton'), 'Pay Increase - Ahmed Bhuiyan - Bustleton - 11-09-2026.pdf');
+  assert.equal(payFileName(v, 'Bustleton'), 'Pay Rate Change - Ahmed Bhuiyan - Bustleton - 11-09-2026.pdf');
   const t = payAlertText(v, 'Bustleton', 'Tejal');
   assert.doesNotMatch(t.sms + t.line, /\$/, 'push/SMS/bell never carry pay');
   assert.match(payEmailHtml(v, 'Bustleton', 'Tejal', ''), /\$16\.50.*x &lt;b&gt;/s);
@@ -102,7 +103,7 @@ test('salaried employees (Store Managers): yearly salary, raise checked against 
   const v = payFormValues({ employee: mgr, pc: '353047', newRate: 55000, reason: 'Great year', date: '2026-11-10' });
   assert.equal(v.currentRate, 52000); assert.equal(v.payBasis, 'year');
   assert.equal(rateProblem(52000, 55000, 'year'), null);
-  assert.match(rateProblem(52000, 2100, 'year'), /higher than the current \$52,000\.00 \/ year/);
+  assert.match(rateProblem(52000, 52000, 'year'), /same as the current \$52,000\.00 \/ year/);
   assert.match(rateProblem(52000, 900000, 'year'), /wrong/);
   assert.equal(fmtPay(52000, 'year'), '$52,000.00 / year'); assert.equal(fmtPay(15, 'hour'), '$15.00 / hour');
   assert.notEqual(payFingerprint(v), payFingerprint({ ...v, payBasis: 'hour' }));

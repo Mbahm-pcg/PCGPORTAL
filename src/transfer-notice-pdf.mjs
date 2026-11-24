@@ -99,7 +99,7 @@ export function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
 
   // v22.96: the two "District Manager" approval lines carry the title of whoever approves it
   // (HR / IT Administrator, Director of Operations, Vice President, ...); each blank then starts
-  // right after its label, like the Pay Increase form.
+  // right after its label, like the Pay Rate Change form.
   const title = String(values.approverTitle || 'District Manager').trim();
   let layout = TRANSFER_LAYOUT;
   if (title !== 'District Manager') {

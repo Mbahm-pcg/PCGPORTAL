@@ -1,4 +1,4 @@
-// src/pay-increase-pdf.mjs — PCG "Pay Increase Form", drawn to match HR's "Pay Change
+// src/pay-increase-pdf.mjs — PCG "Pay Rate Change Form", drawn to match HR's "Pay Change
 // Form.pdf" (US Letter, Cambria): the logo, title, the six blanks, the "Reason" box, the
 // three signature lines and the "For Office Use Only" box sit exactly where the template
 // has them (measured from it). Font = Caladea, the open font with Cambria's letter widths.
@@ -6,7 +6,7 @@
 
 // [baseline from top (pt), size, [[x, text, style]]]  style: 'b' bold, 'bi' bold italic, '' regular
 export const PAY_LAYOUT = [
-  [111.2, 12, [[72, 'PAY INCREASE FORM', 'b']]],
+  [111.2, 12, [[72, 'PAY RATE CHANGE FORM', 'b']]],
   [141.2, 11, [[72, 'Date:'], [101.4, '___________________'], [302.5, 'PC #:'], [331.9, '______________________']]],
   [185.7, 11, [[72, 'Employee Name:'], [165.5, '__________________________']]],
   [211.5, 11, [[72, 'Employee Position:'], [166.8, '__________________________']]],
@@ -85,7 +85,7 @@ export function buildPayIncreasePdf(jsPDF, fonts, values = {}, images = {}) {
   doc.addFileToVFS(PAY_FONT.regular, fonts.regular); doc.addFont(PAY_FONT.regular, F, 'normal');
   doc.addFileToVFS(PAY_FONT.bold, fonts.bold); doc.addFont(PAY_FONT.bold, F, 'bold');
   doc.addFileToVFS(PAY_FONT.boldItalic, fonts.boldItalic); doc.addFont(PAY_FONT.boldItalic, F, 'bolditalic');
-  doc.setProperties({ title: 'Pay Increase Form', creator: 'PCG Portal' });
+  doc.setProperties({ title: 'Pay Rate Change Form', creator: 'PCG Portal' });
   const C = PAY_CHROME;
   if (images.watermark) doc.addImage(images.watermark, 'PNG', C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size, 'seal', 'FAST');
   if (images.logo) doc.addImage(images.logo, 'JPEG', C.logo.x, C.logo.y, C.logo.w, C.logo.h);

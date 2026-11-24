@@ -1,5 +1,5 @@
-// pay-increase-reminder-cron.mjs — Tools · Pay Increase approval reminders (v22.65).
-// While a pay increase is still waiting for approval, the approver (Admin · Notifications · Pay
+// pay-increase-reminder-cron.mjs — Tools · Pay Rate Change approval reminders (v22.65).
+// While a pay rate change is still waiting for approval, the approver (Admin · Notifications · Pay
 // Increase approval — Mike) gets the email + text again every 3 hours until it is approved or
 // sent back (user, 2026-11-10). Reminders only go out 8am–9pm Eastern; one that comes due
 // overnight goes out at 8am instead of waking anyone up.
@@ -35,7 +35,7 @@ export default async () => {
     catch (e) { console.error('[pay-increase-reminder]', row.id, e.message); }
   }
   if (due.length) console.log(`[pay-increase-reminder] ${sent}/${due.length} reminder(s) sent`);
-  // v23.1: approved pay increases still waiting on the office step (Roxy) — same 3-hour reminders.
+  // v23.1: approved pay rate changes still waiting on the office step (Roxy) — same 3-hour reminders.
   try {
     await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS office_reminded_at timestamptz`;
     const oDue = await db`SELECT * FROM pay_increase_forms WHERE status = 'office'

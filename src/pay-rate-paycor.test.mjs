@@ -2,6 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanRates, currentRate, compareToForm, buildNewRate, canMoveEffective, isDueNow, paycorNoticeText } from './pay-rate-paycor.mjs';
 
+test('a future rate already waiting in Paycor is not written twice', async () => {
+  const { alreadyScheduled } = await import('./pay-rate-paycor.mjs');
+  const withNext = [...hourly, { id: 'c', sequenceNumber: 1, type: 'Hourly', payRate: 16.5, effectiveStartDate: '2026-11-30T00:00:00' }];
+  assert.equal(alreadyScheduled(withNext, { payBasis: 'hour', newRate: 16.5, effectiveDate: '2026-11-30' }), true);
+  assert.equal(alreadyScheduled(hourly, { payBasis: 'hour', newRate: 16.5, effectiveDate: '2026-11-30' }), false);
+  // and on the day, the rate in force is the new one
+  assert.equal(currentRate(withNext, '2026-11-30').id, 'c');
+  assert.equal(currentRate(withNext, '2026-11-29').id, 'b');
+});
+
 test('queue: due today or earlier goes now, later waits', () => {
   assert.equal(isDueNow('2026-11-23', '2026-11-23'), true);
   assert.equal(isDueNow('2026-11-20', '2026-11-23'), true);
@@ -11,7 +21,10 @@ test('queue: due today or earlier goes now, later waits', () => {
 test('notice text says who, the change and the day', () => {
   const row = { employee_name: 'Jane Doe', pc: '1', current_rate: '15', new_rate: '16.5', pay_basis: 'hour', effective_date: '2026-11-30', paycheck_date: '2026-12-11' };
   const q = paycorNoticeText('queued', row, 'Bustleton', { by: 'Roxy' });
-  assert.equal(q.line, 'Roxy queued the pay increase for Jane Doe (Bustleton), $15.00/hr to $16.50/hr. It will be updated in Paycor automatically on 11/30/2026, first on the paycheck dated 12/11/2026.');
+  assert.equal(q.line, 'Roxy queued the pay rate change for Jane Doe (Bustleton), $15.00/hr to $16.50/hr. It will be updated in Paycor automatically on 11/30/2026, first on the paycheck dated 12/11/2026.');
+  assert.match(paycorNoticeText('sent', row, 'Bustleton', { future: true, by: 'Roxy' }).line, /^Roxy entered .* effective 11\/30\/2026\. Paycor holds it/);
+  assert.match(paycorNoticeText('effective', row, 'Bustleton').line, /takes effect today \(11\/30\/2026\): Paycor now shows \$16\.50\/hr/);
+  assert.match(paycorNoticeText('notEffective', row, 'Bustleton', { shows: 15 }).line, /but Paycor shows \$15\.00\/hr/);
   assert.match(paycorNoticeText('problem', row, 'Bustleton', { error: 'Paycor said 400' }).line, /not written to Paycor: Paycor said 400/);
   assert.match(paycorNoticeText('moved', { ...row, effective_date: '2026-12-07' }, 'Bustleton', { from: '2026-11-30', by: 'Roxy' }).line, /on 12\/07\/2026 \(was 11\/30\/2026\)/);
 });
