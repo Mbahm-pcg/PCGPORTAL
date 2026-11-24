@@ -78,26 +78,69 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .tn-sigimg { background: none; border: none; padding: 0; cursor: pointer; height: 100%; display: flex; align-items: flex-end; }
 @media (prefers-reduced-motion: reduce) { .tn-blank, .tn-sigbtn { transition: none; } }`;
 
-// Signature capture: high-DPI canvas, pointer events (finger, stylus, mouse). Returns a
-// cropped PNG data URL of just the ink.
-export function SignatureModal({ th, title, onDone, onCancel }) {
+// Signature capture (every form + the emailed signing link). v23.16 (user, 2026-11-24): TYPE or
+// DRAW, like the Pay Rate Change office step. Typing renders the name in a handwriting font
+// (Dancing Script, loaded in index.html so it looks the same on iPhone / Android / PC); drawing is a
+// high-DPI canvas with pointer events (finger, stylus, mouse). Either way: a cropped PNG data URL.
+export const SIG_FONT = '"Dancing Script", "Segoe Script", "Snell Roundhand", "Lucida Handwriting", "Brush Script MT", cursive';
+
+// Crop a canvas to its ink (+ a little padding). null when it's empty.
+function cropInk(c) {
+  const g = c.getContext('2d');
+  const { data, width, height } = g.getImageData(0, 0, c.width, c.height);
+  let x0 = width, y0 = height, x1 = -1, y1 = -1;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (data[(y * width + x) * 4 + 3] > 10) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return null;
+  const pad = 6, out = document.createElement('canvas');
+  x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(width - 1, x1 + pad); y1 = Math.min(height - 1, y1 + pad);
+  out.width = x1 - x0 + 1; out.height = y1 - y0 + 1;
+  out.getContext('2d').drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+  return out.toDataURL('image/png');
+}
+
+// A typed name as a signature image.
+export async function typedSignaturePng(name) {
+  const text = String(name || '').trim();
+  try { await document.fonts?.load(`600 72px "Dancing Script"`, text); } catch {}
+  const c = document.createElement('canvas');
+  c.width = 1000; c.height = 220;
+  const x = c.getContext('2d');
+  let size = 92;
+  const f = (n) => `600 ${n}px ${SIG_FONT}`;
+  x.font = f(size);
+  while (size > 30 && x.measureText(text).width > 950) { size -= 2; x.font = f(size); }
+  x.fillStyle = INK; x.textBaseline = 'middle';
+  x.fillText(text, 24, 112);
+  return cropInk(c);
+}
+
+export function SignatureModal({ th, title, onDone, onCancel, name = '', defaultMode = 'type' }) {
   const S = finStyles(th);
   const ref = useRef(null);
   const drawing = useRef(false);
   const last = useRef(null);
+  const [mode, setMode] = useState(defaultMode === 'draw' ? 'draw' : 'type');
+  const [typed, setTyped] = useState(name || '');
   const [inked, setInked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const typedOk = typed.trim().length >= 2;
 
   useEffect(() => {
-    const c = ref.current;
+    const onKey = (e) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  // The canvas is set up each time Draw is shown (it isn't in the page while typing).
+  useEffect(() => {
+    if (mode !== 'draw') return;
+    const c = ref.current; if (!c) return;
     const dpr = window.devicePixelRatio || 1;
     const r = c.getBoundingClientRect();
     c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
     const g = c.getContext('2d');
     g.scale(dpr, dpr); g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = INK; g.lineWidth = 2.4;
-    const onKey = (e) => { if (e.key === 'Escape') onCancel(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    setInked(false);
+  }, [mode]);
 
   const pt = (e) => { const r = ref.current.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
   const down = (e) => { ref.current.setPointerCapture(e.pointerId); drawing.current = true; last.current = pt(e); const g = ref.current.getContext('2d'); g.beginPath(); g.arc(last.current.x, last.current.y, 1.1, 0, Math.PI * 2); g.fillStyle = INK; g.fill(); setInked(true); };
@@ -109,32 +152,46 @@ export function SignatureModal({ th, title, onDone, onCancel }) {
   };
   const up = () => { drawing.current = false; };
   const clear = () => { const c = ref.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); setInked(false); };
-  const done = () => {
-    const c = ref.current; const g = c.getContext('2d');
-    const { data, width, height } = g.getImageData(0, 0, c.width, c.height);
-    let x0 = width, y0 = height, x1 = -1, y1 = -1;
-    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (data[(y * width + x) * 4 + 3] > 10) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-    if (x1 < 0) return;
-    const pad = 6, out = document.createElement('canvas');
-    x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(width - 1, x1 + pad); y1 = Math.min(height - 1, y1 + pad);
-    out.width = x1 - x0 + 1; out.height = y1 - y0 + 1;
-    out.getContext('2d').drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
-    onDone(out.toDataURL('image/png'));
+  const ready = mode === 'type' ? typedOk : inked;
+  const done = async () => {
+    if (!ready || busy) return;
+    if (mode === 'draw') { const png = cropInk(ref.current); if (png) onDone(png); return; }
+    setBusy(true);
+    const png = await typedSignaturePng(typed);
+    setBusy(false);
+    if (png) onDone(png);
   };
+  const tab = (k, label) => (
+    <button type="button" role="tab" aria-selected={mode === k} className="fin-btn" onClick={() => setMode(k)}
+      style={{ ...S.ghost, minHeight: 36, padding: '0.35rem 1rem', background: mode === k ? O : th.card3, color: mode === k ? '#fff' : th.text, borderColor: mode === k ? O : th.cardBorder }}>{label}</button>
+  );
 
   return (
     <div role="dialog" aria-modal="true" aria-label={title} onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(20,16,12,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ ...S.panel, width: 'min(640px, 100%)', padding: '1.1rem' }}>
-        <div style={{ ...S.panelTitle, marginBottom: '0.3rem' }}>{title}</div>
-        <div style={{ color: th.muted, fontSize: '0.85rem', marginBottom: '0.8rem' }}>Sign in the box with your finger, a stylus or the mouse.</div>
-        <canvas ref={ref} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
-          style={{ width: '100%', height: 200, display: 'block', background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 10, touchAction: 'none', cursor: 'crosshair', backgroundImage: `linear-gradient(transparent 150px, #d9d2cb 150px, #d9d2cb 151px, transparent 151px)` }} />
+      <div className="pcg-pop" style={{ ...S.panel, width: 'min(640px, 100%)', padding: '1.1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+          <div style={S.panelTitle}>{title}</div>
+          <div role="tablist" aria-label="How to sign" style={{ display: 'flex', gap: '0.35rem' }}>{tab('type', 'Type')}{tab('draw', 'Draw')}</div>
+        </div>
+        {mode === 'type' ? (<>
+          <div style={{ color: th.muted, fontSize: '0.85rem', marginBottom: '0.6rem' }}>Type your full name. It's turned into your signature.</div>
+          <input className="fin-input" autoFocus value={typed} onChange={e => setTyped(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); done(); } }}
+            placeholder="Your full name" aria-label="Type your full name to sign" maxLength={60} autoComplete="name" style={{ ...S.input, fontSize: '1rem' }} />
+          <div aria-hidden="true" style={{ height: 120, marginTop: '0.7rem', background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 10, display: 'flex', alignItems: 'center', padding: '0 1rem', overflow: 'hidden',
+            backgroundImage: 'linear-gradient(transparent 88px, #d9d2cb 88px, #d9d2cb 89px, transparent 89px)' }}>
+            <span style={{ fontFamily: SIG_FONT, fontWeight: 600, fontSize: 'clamp(1.8rem, 7vw, 2.8rem)', color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{typed.trim() || ' '}</span>
+          </div>
+        </>) : (<>
+          <div style={{ color: th.muted, fontSize: '0.85rem', marginBottom: '0.6rem' }}>Sign in the box with your finger, a stylus or the mouse.</div>
+          <canvas ref={ref} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+            style={{ width: '100%', height: 200, display: 'block', background: '#fff', border: `1px solid ${th.cardBorder}`, borderRadius: 10, touchAction: 'none', cursor: 'crosshair', backgroundImage: `linear-gradient(transparent 150px, #d9d2cb 150px, #d9d2cb 151px, transparent 151px)` }} />
+        </>)}
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', marginTop: '0.9rem', flexWrap: 'wrap' }}>
-          <button type="button" className="fin-btn" style={S.ghost} onClick={clear} disabled={!inked}>Clear</button>
+          {mode === 'draw' ? <button type="button" className="fin-btn" style={S.ghost} onClick={clear} disabled={!inked}>Clear</button> : <span />}
           <div style={{ display: 'flex', gap: '0.6rem' }}>
             <button type="button" className="fin-btn" style={S.ghost} onClick={onCancel}>Cancel</button>
-            <button type="button" className="fin-btn" style={{ ...S.primary, opacity: inked ? 1 : 0.5 }} onClick={done} disabled={!inked}>Use this signature</button>
+            <button type="button" className="fin-btn" style={{ ...S.primary, opacity: ready && !busy ? 1 : 0.5 }} onClick={done} disabled={!ready || busy}>Use this signature</button>
           </div>
         </div>
       </div>
