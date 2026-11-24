@@ -5893,6 +5893,37 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return true;
   }
 
+  // src/routes.mjs
+  var SLUG = {
+    "pay-increase": "pay-rate-change",
+    // renamed v23.13; the tab id stayed
+    "tools-hub": "tools",
+    "ops-hub": "operations",
+    "team-hub": "team",
+    "system-hub": "system"
+  };
+  var ID_FOR_SLUG = Object.fromEntries(Object.entries(SLUG).map(([id, slug]) => [slug, id]));
+  var HOME = /* @__PURE__ */ new Set(["dashboard", "__launcher__"]);
+  function pathForTab(id, toolIds) {
+    if (!id || HOME.has(id)) return "/";
+    const slug = SLUG[id] || id;
+    return toolIds && toolIds.has(id) ? `/tools/${slug}` : `/${slug}`;
+  }
+  function tabForPath(path) {
+    let p = String(path || "/");
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+    }
+    const parts = p.toLowerCase().split("/").map((s) => s.trim().replace(/\s+/g, "-")).filter(Boolean);
+    if (!parts.length) return "dashboard";
+    const last = parts[parts.length - 1];
+    if (parts.length === 1 && (last === "tool" || last === "tools")) return "tools-hub";
+    if (ID_FOR_SLUG[last]) return ID_FOR_SLUG[last];
+    if (last === "pay-increase") return "pay-increase";
+    return last;
+  }
+
   // src/remote-sign-ui.jsx
   var { useState: useState12, useEffect: useEffect9, useRef: useRef5 } = React;
   var call7 = async (body) => {
@@ -32118,7 +32149,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.23";
+  var APP_VERSION = "v23.24";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -46526,6 +46557,72 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const dir = isGoingBackRef.current || target === MOBILE_LAUNCHER_TAB_ID || target === "dashboard" ? "back" : "forward";
       tabNowRef.current = target;
       queueNav(dir, () => setTabRaw(target));
+    }, []);
+    const routeToolIds = React.useMemo(() => new Set((HUB_SUBITEMS["tools-hub"] || []).map((s) => s.id)), []);
+    const routeAllowed = useCallback((id, u) => {
+      if (!u) return false;
+      if (id === "dashboard") return true;
+      let ids;
+      try {
+        ids = new Set(getTabs(u).map((t) => t.id));
+      } catch {
+        return false;
+      }
+      if (ids.has(id)) return true;
+      return Object.entries(HUB_SUBITEMS).some(([hub, items]) => ids.has(hub) && items.some((x) => x.id === id));
+    }, []);
+    const routeUserRef = useRef6(null);
+    const routeAppliedForRef = useRef6(null);
+    const routePendingRef = useRef6(null);
+    const routeFromPopRef = useRef6(false);
+    useEffect11(() => {
+      routeUserRef.current = user;
+      if (!user) {
+        routeAppliedForRef.current = null;
+        return;
+      }
+      const who = String(user.id ?? user.username ?? "");
+      if (routeAppliedForRef.current === who) return;
+      routeAppliedForRef.current = who;
+      const want = tabForPath(window.location.pathname);
+      if (want === "dashboard") return;
+      if (routeAllowed(want, user)) {
+        routePendingRef.current = want;
+        setTab(want);
+      } else window.history.replaceState(window.history.state, "", "/" + window.location.search);
+    }, [user]);
+    useEffect11(() => {
+      if (!user) return;
+      const pending = routePendingRef.current;
+      if (pending) {
+        if (tab === pending) {
+          routePendingRef.current = null;
+          return;
+        }
+        if (tab === "dashboard" || tab === MOBILE_LAUNCHER_TAB_ID) return;
+        routePendingRef.current = null;
+      }
+      const want = pathForTab(tab, routeToolIds);
+      const fromPop = routeFromPopRef.current;
+      routeFromPopRef.current = false;
+      if (window.location.pathname === want) return;
+      if (fromPop) window.history.replaceState({ tab }, "", want);
+      else window.history.pushState({ tab }, "", want);
+    }, [tab, user]);
+    useEffect11(() => {
+      const onPop = () => {
+        const u = routeUserRef.current;
+        if (!u) return;
+        let want = tabForPath(window.location.pathname);
+        if (!routeAllowed(want, u)) want = "dashboard";
+        if (want === tabNowRef.current) return;
+        routeFromPopRef.current = true;
+        isGoingBackRef.current = true;
+        setTab(want);
+        isGoingBackRef.current = false;
+      };
+      window.addEventListener("popstate", onPop);
+      return () => window.removeEventListener("popstate", onPop);
     }, []);
     const sidebarNavRef = useRef6(null);
     const sidebarScrollPos = useRef6(0);

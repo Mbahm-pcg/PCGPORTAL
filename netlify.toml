@@ -256,3 +256,11 @@
   for = "/*.js"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+# v23.24: every portal screen has its own address (/labor, /tools/missing-hours, ...). Any path that
+# isn't a real file or a function serves the app, which opens that screen. Real files (app.js,
+# terms.html, images, fonts) are served as-is, and /.netlify/functions/* is never rewritten.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

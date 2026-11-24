@@ -14,6 +14,7 @@ import { ResignationLetter } from './src/resignation-letter-ui.jsx';
 import { MissingHours } from './src/missing-hours-ui.jsx';
 import { TermsGate, fetchTermsStatus, TERMS_VERSION } from './src/terms-gate-ui.jsx';
 import { startUpdateWatch, reloadForUpdate } from './src/update-check.mjs';
+import { pathForTab, tabForPath } from './src/routes.mjs';
 import { RemoteSignPage } from './src/remote-sign-ui.jsx';
 import { JoyLeaderboard, JoyMobileTile } from './src/joy-leaderboard-ui.jsx';
 import { isDirector, parseDistricts } from './src/director-scope.mjs';
@@ -32970,7 +32971,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.23";
+const APP_VERSION = "v23.24";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -55623,6 +55624,64 @@ function PCGPortal() {
     const dir = isGoingBackRef.current || target === MOBILE_LAUNCHER_TAB_ID || target === 'dashboard' ? 'back' : 'forward';
     tabNowRef.current = target;
     queueNav(dir, () => setTabRaw(target));
+  }, []);
+  // v23.24 every screen has its own address (src/routes.mjs): /labor, /tools/missing-hours, ...
+  // The browser's Back / Forward move between screens, a refresh stays put, and a screen can be
+  // bookmarked or sent. Opening an address the person's role doesn't have → their Dashboard (each
+  // screen also checks the role itself before it shows anything).
+  const routeToolIds = React.useMemo(() => new Set((HUB_SUBITEMS['tools-hub'] || []).map(s => s.id)), []);
+  const routeAllowed = useCallback((id, u) => {
+    if (!u) return false;
+    if (id === 'dashboard') return true;
+    let ids;
+    try { ids = new Set(getTabs(u).map(t => t.id)); } catch { return false; }
+    if (ids.has(id)) return true;
+    return Object.entries(HUB_SUBITEMS).some(([hub, items]) => ids.has(hub) && items.some(x => x.id === id));
+  }, []);
+  const routeUserRef = useRef(null);
+  const routeAppliedForRef = useRef(null); // which signed-in user the opening address was applied for
+  const routePendingRef = useRef(null);    // the screen the opening address asked for, until it shows
+  const routeFromPopRef = useRef(false);   // this change came from the browser's Back / Forward
+  useEffect(() => {
+    routeUserRef.current = user;
+    if (!user) { routeAppliedForRef.current = null; return; }
+    const who = String(user.id ?? user.username ?? '');
+    if (routeAppliedForRef.current === who) return;
+    routeAppliedForRef.current = who;
+    const want = tabForPath(window.location.pathname);
+    if (want === 'dashboard') return;
+    if (routeAllowed(want, user)) { routePendingRef.current = want; setTab(want); }
+    else window.history.replaceState(window.history.state, '', '/' + window.location.search);
+  }, [user]);
+  useEffect(() => {
+    if (!user) return;
+    const pending = routePendingRef.current;
+    if (pending) {
+      if (tab === pending) { routePendingRef.current = null; return; } // the address is already right
+      if (tab === 'dashboard' || tab === MOBILE_LAUNCHER_TAB_ID) return; // still on the way there
+      routePendingRef.current = null; // something else opened first — follow it
+    }
+    const want = pathForTab(tab, routeToolIds);
+    const fromPop = routeFromPopRef.current;
+    routeFromPopRef.current = false;
+    if (window.location.pathname === want) return;
+    if (fromPop) window.history.replaceState({ tab }, '', want);
+    else window.history.pushState({ tab }, '', want);
+  }, [tab, user]);
+  useEffect(() => {
+    const onPop = () => {
+      const u = routeUserRef.current;
+      if (!u) return;
+      let want = tabForPath(window.location.pathname);
+      if (!routeAllowed(want, u)) want = 'dashboard';
+      if (want === tabNowRef.current) return;
+      routeFromPopRef.current = true;
+      isGoingBackRef.current = true;
+      setTab(want);
+      isGoingBackRef.current = false;
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
   const sidebarNavRef  = useRef(null);           // ref to sidebar nav scroll container
   const sidebarScrollPos = useRef(0);            // persisted scroll position across re-renders
