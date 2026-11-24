@@ -32630,8 +32630,9 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
   return (
     <div style={{ minHeight: "100vh", background: dark ? "#0b0d13" : "#f7f2ec", color: th.text }}>
       <div className="pcg-stagger" style={{ maxWidth: 380, margin: "0 auto", padding: "1rem 1rem 5.9rem", display: "grid", gap: "0.75rem" }}>
-        {/* In-content header — greeting + LIVE pill + avatar menu (app chrome removed) */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.1rem" }}>
+        {/* In-content header — greeting + LIVE pill + avatar menu (app chrome removed). v23.25: raised
+            above the cards below it so its account menu is never drawn underneath them. */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.1rem", position: "relative", zIndex: 30 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: mDisp, fontSize: "26px", fontWeight: 700, textTransform: "uppercase", lineHeight: 1.02, color: th.text }}>{greetWord}, <span style={{ color: O }}>{firstName}</span></div>
             <div style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: mMut, marginTop: "0.4rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(store.name || `Store #${pc}`) + " · " + (isLive ? now : viewDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
@@ -32971,7 +32972,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.24";
+const APP_VERSION = "v23.25";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

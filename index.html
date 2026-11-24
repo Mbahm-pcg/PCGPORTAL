@@ -206,7 +206,7 @@
   .nfm-hint{display:flex;gap:.7rem;align-items:flex-start;border-radius:14px;padding:.9rem 1rem;font-size:.86rem;line-height:1.45}
   .nfm-back{display:flex;align-items:center;gap:.7rem;width:100%;border:1px solid;border-radius:14px;padding:.75rem .95rem;margin-bottom:1rem;font:inherit;font-size:.95rem;cursor:pointer;text-align:left}
   .nfm-cat-head:focus-visible,.nfm-row:focus-visible,.nfm-back:focus-visible{outline:2px solid #FF671F;outline-offset:-2px}
-  @media (prefers-reduced-motion: no-preference){ .nfm-rows{animation:pcgFade .2s ease both} .nfm-rows > *{animation:pcgRise .32s cubic-bezier(.16,1,.3,1) both} .nfm-rows > :nth-child(2){animation-delay:35ms} .nfm-rows > :nth-child(3){animation-delay:70ms} .nfm-rows > :nth-child(4){animation-delay:105ms} .nfm-rows > :nth-child(5){animation-delay:140ms} .nfm-rows > :nth-child(n+6){animation-delay:175ms} }
+  @media (prefers-reduced-motion: no-preference){ .nfm-rows{animation:pcgFade .2s ease both} .nfm-rows > *{animation:pcgRise .32s cubic-bezier(.16,1,.3,1) backwards} .nfm-rows > :nth-child(2){animation-delay:35ms} .nfm-rows > :nth-child(3){animation-delay:70ms} .nfm-rows > :nth-child(4){animation-delay:105ms} .nfm-rows > :nth-child(5){animation-delay:140ms} .nfm-rows > :nth-child(n+6){animation-delay:175ms} }
   /* v23.4 app-style motion. Screen changes: only the content area (pcg-page) moves; the rest of
      the page (sidebar, top bar) gets a quick cross-fade. Forward = in from the right, back = in
      from the left. Skipped entirely for "reduce motion" and in browsers without View Transitions. */
@@ -235,7 +235,8 @@
     html[data-nav-dir="tab"]::view-transition-new(root) { animation: pcgFade .16s ease both; }
     /* v23.6 cascade: a screen's cards rise in one after another (55 ms apart, ~0.45 s each; the
        9th card on all start together so long lists never feel slow). */
-    .pcg-stagger > *, .pcg-stagger-2 > * > * { animation: pcgRise .46s cubic-bezier(.16,1,.3,1) both; animation-delay: 440ms; }
+    /* v23.25: 'backwards', not 'both' - 'both' kept transform:none applied forever, which made every card its own layer, so a menu opened in the first card (the phone home's account menu) was drawn UNDER the cards below it. */
+    .pcg-stagger > *, .pcg-stagger-2 > * > * { animation: pcgRise .46s cubic-bezier(.16,1,.3,1) backwards; animation-delay: 440ms; }
     .pcg-stagger > :nth-child(1), .pcg-stagger-2 > * > :nth-child(1) { animation-delay: 0ms; }
     .pcg-stagger > :nth-child(2), .pcg-stagger-2 > * > :nth-child(2) { animation-delay: 55ms; }
     .pcg-stagger > :nth-child(3), .pcg-stagger-2 > * > :nth-child(3) { animation-delay: 110ms; }
