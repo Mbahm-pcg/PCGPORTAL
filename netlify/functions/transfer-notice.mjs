@@ -13,7 +13,8 @@
 //                                 Transfer Notice (email w/ PDF, text, push, bell). v22.54
 //
 // Scope is decided here, server-side, never by the client (pay rates are sensitive):
-//   DM / Director → stores in their districts;  manager / store_tablet → their own store;
+//   DM / Director → EVERY store (v23.23, user 2026-11-24: a DM can transfer someone from another
+//   district; Mike approves every transfer and checks the PC to PC);  manager / store_tablet → their own store;
 //   kiosks → 403;  everyone else → every store.
 import { getStore } from '@netlify/blobs';
 import { sql } from './_shared/db.mjs';
@@ -305,11 +306,8 @@ export default async (request) => {
   if (ut === 'kiosk_pulse' || ut === 'kiosk_upload') return json(403, { error: 'forbidden' });
   await refreshStoreList(STORES, ALL_STORES); // v23.3: skips permanently closed stores (Locations) and syncs districts
 
-  let allowed = null; // null = every store
-  if (ut === 'dm' || ut === 'director') {
-    const ds = claimDistricts(authed);
-    allowed = new Set(STORES.filter(s => ds.includes(String(s.district))).map(s => String(s.pc)));
-  } else if (ut === 'manager' || ut === 'store_tablet') {
+  let allowed = null; // null = every store — exec / IT / office, and (v23.23) DMs and Directors too
+  if (ut === 'manager' || ut === 'store_tablet') {
     const me = (await db`SELECT store_pc FROM users WHERE id = ${authed.sub}`)[0];
     allowed = new Set(me?.store_pc ? [String(me.store_pc)] : []);
   }
