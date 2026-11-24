@@ -14,6 +14,7 @@ export const UPLOAD_CONCURRENCY = 3;
 
 const PHOTOS_URL = '/.netlify/functions/project-photos';
 const PDF_URL = '/.netlify/functions/report-pdf';
+const PHOTO_LINK_URL = '/.netlify/functions/report-photo';
 
 // Run `worker(item, index)` over items, at most `limit` at a time. Never rejects: one
 // failure must not stop the other photos. → [{ ok, value } | { ok:false, error }] in input order.
@@ -113,6 +114,19 @@ export async function uploadReportPhoto({ projectId, projectNickname, reportId, 
     imageBase64: full, mediumBase64: med,
   }));
   return { photoId: j.photo.id, fullKey: j.photo.imageKey, medKey: j.photo.medKey };
+}
+
+// Full-size links for a report PDF's photos — open without signing in, like the PDF link
+// itself. → Map photoId → absolute URL. Never throws: a PDF without links is still a PDF.
+export async function fetchPhotoLinks(photoIds) {
+  const out = new Map();
+  const ids = [...new Set((photoIds || []).filter(Boolean))];
+  if (!ids.length) return out;
+  try {
+    const j = await postJson(PHOTOS_URL, { action: 'shareLinks', ids });
+    for (const [id, token] of Object.entries(j.tokens || {})) out.set(id, `${window.location.origin}${PHOTO_LINK_URL}?t=${token}`);
+  } catch { /* no links this time */ }
+  return out;
 }
 
 // sha-256 (hex) of a string — identifies an old inline photo by its content.

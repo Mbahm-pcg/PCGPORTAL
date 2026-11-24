@@ -27,15 +27,17 @@
 //   removeFromReport { ids:[], reportId } → { ok, removed }   soft delete (deleted_at); the
 //     nightly reports-backup run purges rows + blobs 30 days later
 //   setCaptions { reportId, items:[{ id, caption }] } → { ok, updated }
+//   shareLinks { ids:[] } → { ok, tokens:{ [id]: token } }   a no-sign-in token per photo, for
+//     the full-size links in a report PDF (served by report-photo.mjs)
 // See docs/superpowers/specs/2026-11-21-daily-report-photos-design.md.
 import { neon } from '@neondatabase/serverless';
 import { getStore } from '@netlify/blobs';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { canAccessProjectGallery, sanitizeAnnotations } from './project-photos-lib/shapes.mjs';
 import { canUploadReportPhotos, cleanCaption } from '../../src/report-photos.mjs';
 
-const REPORT_ACTIONS = new Set(['createForReport', 'removeFromReport', 'setCaptions']);
+const REPORT_ACTIONS = new Set(['createForReport', 'removeFromReport', 'setCaptions', 'shareLinks']);
 const LOCAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
 const SOURCE_REF = /^dr_[A-Za-z0-9_-]{1,80}$/;
 const MAX_IMAGE_CHARS = 4 * 1024 * 1024; // one photo's data URL — far under the ~6 MB request cap
@@ -93,6 +95,9 @@ async function ensureTables() {
   // v23.13 — captions + the camera's own capture time (local wall clock, as text)
   await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS caption text`;
   await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS taken_at text`;
+  // v23.14 — full-size photo links in report PDFs (report-photo.mjs)
+  await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS share_token text`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pphoto_share_token ON project_photos(share_token) WHERE share_token IS NOT NULL`;
   _ready = true;
 }
 
@@ -249,6 +254,21 @@ export default async (request) => {
             WHERE id = ANY(${ids}) AND source = 'daily_report' AND deleted_at IS NULL AND taken_by_user_id = ${claims.sub}
             RETURNING id`;
       return json(200, { ok: true, removed: rows.length });
+    }
+
+    if (action === 'shareLinks') {
+      const ids = [...new Set((Array.isArray(payload.ids) ? payload.ids : []).map(String).filter(Boolean))].slice(0, 500);
+      if (!ids.length) return json(200, { ok: true, tokens: {} });
+      const need = await sql`SELECT id FROM project_photos WHERE id = ANY(${ids}) AND source = 'daily_report' AND deleted_at IS NULL AND share_token IS NULL`;
+      if (need.length) {
+        const nid = need.map(r => r.id), tok = nid.map(() => randomBytes(32).toString('hex'));
+        await sql`
+          UPDATE project_photos p SET share_token = v.token
+          FROM (SELECT unnest(${nid}::text[]) AS id, unnest(${tok}::text[]) AS token) v
+          WHERE p.id = v.id AND p.share_token IS NULL`;
+      }
+      const rows = await sql`SELECT id, share_token FROM project_photos WHERE id = ANY(${ids}) AND source = 'daily_report' AND deleted_at IS NULL AND share_token IS NOT NULL`;
+      return json(200, { ok: true, tokens: Object.fromEntries(rows.map(r => [r.id, r.share_token])) });
     }
 
     if (action === 'setCaptions') {

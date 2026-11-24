@@ -5,7 +5,7 @@
 
 **Live URL:** https://pcg-ops.netlify.app
 **Hosting:** Netlify (Pro plan) — bundled static SPA + serverless functions + Netlify Blobs + Neon Postgres
-**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.13**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
+**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.14**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
 
 ---
 
@@ -511,3 +511,6 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
     list (`ReportPhotoConvert` → `convertLegacyReportPhotos`): a converted report carries
     `legacyConvertedAt`, its photo map is ignored from then on (app, `storage.mjs` refuses to
     refill it, backup), and the old inline copies sit in `pcg_drbak_{id}_photos` for 30 days.
+    **v23.14:** each photo in a report PDF links to its full-size image, served WITHOUT sign-in
+    by `report-photo.mjs?t=<share_token>` (token minted by `project-photos.mjs` `shareLinks`
+    when the PDF is built; a photo removed from its report stops being served).

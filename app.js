@@ -6779,6 +6779,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var UPLOAD_CONCURRENCY = 3;
   var PHOTOS_URL = "/.netlify/functions/project-photos";
   var PDF_URL = "/.netlify/functions/report-pdf";
+  var PHOTO_LINK_URL = "/.netlify/functions/report-photo";
   async function runLimited(items, limit, worker) {
     const results = new Array(items.length);
     let next = 0;
@@ -6877,6 +6878,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       mediumBase64: med
     }));
     return { photoId: j.photo.id, fullKey: j.photo.imageKey, medKey: j.photo.medKey };
+  }
+  async function fetchPhotoLinks(photoIds) {
+    const out = /* @__PURE__ */ new Map();
+    const ids = [...new Set((photoIds || []).filter(Boolean))];
+    if (!ids.length) return out;
+    try {
+      const j = await postJson(PHOTOS_URL, { action: "shareLinks", ids });
+      for (const [id, token] of Object.entries(j.tokens || {})) out.set(id, `${window.location.origin}${PHOTO_LINK_URL}?t=${token}`);
+    } catch {
+    }
+    return out;
   }
   async function sha256Hex(text) {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text)));
@@ -14552,6 +14564,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       if (!isPendingPhoto(p)) jobs.push({ wi, pi, p });
     }));
     const out = /* @__PURE__ */ new Map();
+    const linksReq = fetchPhotoLinks(jobs.filter((j) => isRefPhoto(j.p)).map((j) => j.p.photoId));
     await runLimited(jobs, 4, async ({ wi, pi, p }) => {
       let data = await loadReportPhotoData(p, "med");
       if (data && !isRefPhoto(p)) {
@@ -14562,11 +14575,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       out.set(`${wi}:${pi}`, data || "");
     });
+    const links = await linksReq;
     return {
       ...report,
       workLogs: (report.workLogs || []).map((w, wi) => ({
         ...w,
-        photos: (w.photos || []).map((p, pi) => isPendingPhoto(p) ? null : { ...p, data: out.get(`${wi}:${pi}`) || "" }).filter(Boolean)
+        photos: (w.photos || []).map((p, pi) => isPendingPhoto(p) ? null : { ...p, data: out.get(`${wi}:${pi}`) || "", _link: isRefPhoto(p) && links.get(p.photoId) || "" }).filter(Boolean)
       }))
     };
   }
@@ -19088,6 +19102,14 @@ ${t2.slice(0, 300)}`);
         if (photoCount > 0) {
           const photos = w.photos || [], photoGap = 0.15, photoW = 2, photoH = 1.5;
           const rowWidth = photoW * 3 + photoGap * 2, rowLeft = margin + (contentW - rowWidth) / 2;
+          if (photos.some((p) => p._link)) {
+            addPageIfNeeded(photoH + 0.3);
+            setText(textFaint);
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(7);
+            doc.text("Click a photo to open it full size.", rowLeft, y - 0.03);
+            y += 0.08;
+          }
           let rowCaps = [], capH = 0;
           for (let pi = 0; pi < photos.length; pi++) {
             const col = pi % 3;
@@ -19125,6 +19147,7 @@ ${t2.slice(0, 300)}`);
                 }
                 const offX = (photoW - drawW) / 2, offY = (photoH - drawH) / 2;
                 doc.addImage(ph.data, parsed.format, px + offX, y + offY, drawW, drawH, void 0, "FAST");
+                if (ph._link) doc.link(px, y, photoW, photoH, { url: ph._link });
                 const stamp = photoStampLabel(ph);
                 if (stamp) {
                   setFill([0, 0, 0]);
@@ -31695,7 +31718,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.13";
+  var APP_VERSION = "v23.14";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

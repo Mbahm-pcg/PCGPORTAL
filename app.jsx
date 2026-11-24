@@ -33,7 +33,7 @@ import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
 import { parseDateOnly, toDateStr, defaultClosedPeriodEnd, payPeriodEndFor } from './src/office-clock-period-math.mjs';
 import { dayWorkedMinutes as ocDayWorkedMinutes, dayShiftCount as ocDayShiftCount } from './src/office-clock-day-math.mjs';
 import { isRefPhoto, isPendingPhoto, isRealReportPhoto, cleanRef, splitReportForSave, mergeLoadedReport, stripReportPhotosForLocal, countReportPhotos, cleanCaption, photoStampLabel, MAX_CAPTION, needsLegacyConversion, legacyPhotoSlots, applyConvertedRefs } from './src/report-photos.mjs';
-import { makeRenditions, readTakenAt, saveReportCaptions, sha256Hex, FULL_WIDTH, FULL_QUALITY, uploadReportPhoto, removeReportPhotos, uploadReportPdf, scaleImageDataUrl, runLimited, UPLOAD_CONCURRENCY, MED_WIDTH, MED_QUALITY } from './src/report-photo-upload.mjs';
+import { makeRenditions, readTakenAt, saveReportCaptions, sha256Hex, fetchPhotoLinks, FULL_WIDTH, FULL_QUALITY, uploadReportPhoto, removeReportPhotos, uploadReportPdf, scaleImageDataUrl, runLimited, UPLOAD_CONCURRENCY, MED_WIDTH, MED_QUALITY } from './src/report-photo-upload.mjs';
 // (runLimited: PDF photo loading; form uploads use the hook's own queue)
 
 const { useState, useRef, useCallback, useEffect } = React;
@@ -9081,16 +9081,19 @@ async function resolveReportPhotosForPdf(report) {
   const jobs = [];
   (report.workLogs || []).forEach((w, wi) => (w.photos || []).forEach((p, pi) => { if (!isPendingPhoto(p)) jobs.push({ wi, pi, p }); }));
   const out = new Map();
+  // v23.14: each photo in the PDF links to its full-size image (opens without signing in)
+  const linksReq = fetchPhotoLinks(jobs.filter(j => isRefPhoto(j.p)).map(j => j.p.photoId));
   await runLimited(jobs, 4, async ({ wi, pi, p }) => {
     let data = await loadReportPhotoData(p, 'med');
     if (data && !isRefPhoto(p)) { try { data = await scaleImageDataUrl(data, MED_WIDTH, MED_QUALITY); } catch {} }
     out.set(`${wi}:${pi}`, data || '');
   });
+  const links = await linksReq;
   return {
     ...report,
     workLogs: (report.workLogs || []).map((w, wi) => ({
       ...w,
-      photos: (w.photos || []).map((p, pi) => (isPendingPhoto(p) ? null : { ...p, data: out.get(`${wi}:${pi}`) || '' })).filter(Boolean),
+      photos: (w.photos || []).map((p, pi) => (isPendingPhoto(p) ? null : { ...p, data: out.get(`${wi}:${pi}`) || '', _link: (isRefPhoto(p) && links.get(p.photoId)) || '' })).filter(Boolean),
     })),
   };
 }
@@ -15155,6 +15158,12 @@ async function buildReportPdf(reportIn, project) {
       if (photoCount > 0) {
         const photos = w.photos||[], photoGap=0.15, photoW=2.0, photoH=1.5;
         const rowWidth=photoW*3+photoGap*2, rowLeft=margin+(contentW-rowWidth)/2;
+        if (photos.some(p => p._link)) {
+          addPageIfNeeded(photoH+0.3);
+          setText(textFaint); doc.setFont('helvetica','italic'); doc.setFontSize(7);
+          doc.text('Click a photo to open it full size.', rowLeft, y-0.03);
+          y += 0.08;
+        }
         let rowCaps = [], capH = 0;
         for (let pi = 0; pi < photos.length; pi++) {
           const col = pi%3;
@@ -15178,6 +15187,7 @@ async function buildReportPdf(reportIn, project) {
               if (srcRatio>dstRatio) { drawW=photoW; drawH=photoW/srcRatio; } else { drawH=photoH; drawW=photoH*srcRatio; }
               const offX=(photoW-drawW)/2, offY=(photoH-drawH)/2;
               doc.addImage(ph.data, parsed.format, px+offX, y+offY, drawW, drawH, undefined, 'FAST');
+              if (ph._link) doc.link(px, y, photoW, photoH, { url: ph._link }); // click → full-size photo
               // v23.13: when the photo was really taken (from the camera), else when it was uploaded
               const stamp = photoStampLabel(ph);
               if (stamp) {
@@ -32928,7 +32938,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.13";
+const APP_VERSION = "v23.14";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
