@@ -9,7 +9,7 @@
 import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
-import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
+import { SignatureModal, InlineSign, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { FormModal } from './pay-increase-ui.jsx';
 import { SignProgress } from './sign-progress-ui.jsx';
 import { buildResignationPdf, RES_FONT, RES_CHROME } from './resignation-letter-pdf.mjs';
@@ -243,7 +243,8 @@ export function ResignationLetter({ th, isMobile, onBack, storeAddresses = {} })
     const s = sigOk(key);
     if (key === 'employee' && remoteOn) return <span style={{ paddingBottom: '0.2em', paddingLeft: '0.4em', color: '#6b6158', fontStyle: 'italic' }}>Will sign by email link</span>;
     if (s) return <button type="button" className="rl-sigimg" onClick={() => setSigning(key)} title="Sign again"><img src={s.image} alt={`${label} signature`} style={{ maxHeight: '2.3em', maxWidth: '12em', objectFit: 'contain' }} /></button>;
-    return <button type="button" className="rl-sigbtn" disabled={!canSign} onClick={() => setSigning(key)} style={{ opacity: canSign ? 1 : 0.45, cursor: canSign ? 'pointer' : 'not-allowed' }}>{canSign ? `Tap to sign — ${label}` : 'Fill in the letter first'}</button>;
+    return <InlineSign th={th} can={canSign} blockedText="Fill in the letter first" label={label}
+      onSign={(image) => { setSigs(x => ({ ...x, [key]: { image, date: todayIso(), fp } })); if (key === 'employee') setRemote({ on: false }); }} />;
   };
 
   return (

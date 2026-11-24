@@ -11,7 +11,7 @@
 import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles, finMoney } from './finance-ui.jsx';
-import { SignatureModal, toB64, deliverPdf, PdfOpenButton, typedSignaturePng, SIG_FONT } from './transfer-notice-ui.jsx';
+import { SignatureModal, InlineSign, toB64, deliverPdf, PdfOpenButton, typedSignaturePng, SIG_FONT } from './transfer-notice-ui.jsx';
 import { buildPayIncreasePdf, PAY_FONT, PAY_CHROME, formatFormDate } from './pay-increase-pdf.mjs';
 import { rateProblem, payFormValues, payFingerprint, missingPayFields, REASON_MIN, payBasisOf, currentPayOf, fmtPay } from './pay-increase.mjs';
 
@@ -552,7 +552,7 @@ export function PayIncrease({ th, isMobile, onBack }) {
     const s = sigOk(key);
     return s
       ? <button type="button" className="pi-sigimg" onClick={() => setSigning(key)} title="Sign again"><img src={s.image} alt={`${label} signature`} style={{ maxHeight: '2.5em', maxWidth: '13em', objectFit: 'contain' }} /></button>
-      : <button type="button" className="pi-sigbtn" onClick={() => setSigning(key)} disabled={!canSign} style={{ opacity: canSign ? 1 : 0.45, cursor: canSign ? 'pointer' : 'not-allowed' }}>{canSign ? `Tap to sign — ${label}` : 'Fill in the form first'}</button>;
+      : <InlineSign th={th} can={canSign} label={label} onSign={(image) => setSigs(x => ({ ...x, [key]: { image, fp } }))} />;
   };
   const sigRow = (key, label) => {
     const content = key === 'sm' && !isManager

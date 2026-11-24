@@ -199,6 +199,45 @@ export function SignatureModal({ th, title, onDone, onCancel, name = '', default
   );
 }
 
+// v23.19 (user, 2026-11-24): sign RIGHT ON THE LINE, like the Pay Rate Change office step — type
+// your name (it shows in handwriting as you type) and tap Sign / press Enter, or "Draw instead" for
+// the drawing pad. Until the form is ready the line says why (blockedText). Hands back a PNG.
+const INLINE_SIGN_CSS = `
+.pcg-sign { display: inline-flex; flex-wrap: wrap; align-items: flex-end; gap: 0.3em 0.5em; padding: 0 0 0.15em 0.2em; }
+.pcg-sign-in { font-family: ${SIG_FONT}; font-weight: 600; font-size: 1.35rem; line-height: 1.2; color: ${INK}; width: 10em; max-width: 62vw; min-width: 0; background: ${FILL}; border: none; border-bottom: 1px dashed ${O}; border-radius: 4px 4px 0 0; padding: 0.05em 0.35em; }
+.pcg-sign-in::placeholder { font-family: ${FONTS.body}; font-weight: 600; font-size: 0.8rem; color: #b07a5c; }
+.pcg-sign-in:focus-visible, .pcg-sign-btn:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
+.pcg-sign-btn { font: inherit; font-family: ${FONTS.body}; font-size: 0.78rem; font-weight: 700; border-radius: 6px; padding: 0.25rem 0.6rem; cursor: pointer; white-space: nowrap; }
+.pcg-sign-off { font-family: ${FONTS.body}; font-size: 0.8rem; font-weight: 700; color: ${O}; opacity: 0.5; padding: 0 0 0.25em 0.3em; white-space: nowrap; }`;
+
+export function InlineSign({ th, can, blockedText = 'Fill in the form first', label = '', onSign, name = '' }) {
+  const [typed, setTyped] = useState(name);
+  const [drawing, setDrawing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const ok = typed.trim().length >= 2;
+  const sign = async () => {
+    if (!ok || busy) return;
+    setBusy(true);
+    const png = await typedSignaturePng(typed);
+    setBusy(false);
+    if (png) onSign(png);
+  };
+  return (
+    <span className="pcg-sign">
+      <style>{INLINE_SIGN_CSS}</style>
+      {!can ? <span className="pcg-sign-off">{blockedText}</span> : (<>
+        <input className="pcg-sign-in" value={typed} maxLength={60} autoComplete="name" onChange={e => setTyped(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); sign(); } }}
+          placeholder="Type your name to sign" aria-label={`Type your full name to sign${label ? ` (${label})` : ''}`} />
+        <button type="button" className="pcg-sign-btn" onClick={sign} disabled={!ok || busy}
+          style={{ background: O, color: '#fff', border: `1px solid ${O}`, opacity: ok && !busy ? 1 : 0.45, cursor: ok && !busy ? 'pointer' : 'not-allowed' }}>Sign</button>
+        <button type="button" className="pcg-sign-btn" onClick={() => setDrawing(true)} style={{ background: 'none', color: O, border: `1px dashed ${O}` }}>Draw instead</button>
+      </>)}
+      {drawing && <SignatureModal th={th} title={`${label || 'Your'} signature`} defaultMode="draw" name={typed} onCancel={() => setDrawing(false)} onDone={(png) => { setDrawing(false); onSign(png); }} />}
+    </span>
+  );
+}
+
 export function TransferNotice({ th, isMobile, onBack }) {
   const S = finStyles(th);
   const [stores, setStores] = useState([]);
@@ -327,9 +366,8 @@ export function TransferNotice({ th, isMobile, onBack }) {
           <img src={sig.image} alt={`${label} signature`} style={{ maxHeight: '2.9em', maxWidth: '100%', objectFit: 'contain' }} />
         </button>
       ) : (
-        <button type="button" className="tn-sigbtn" onClick={() => setSigning(who)} disabled={!canSign} style={{ opacity: canSign ? 1 : 0.45, cursor: canSign ? 'pointer' : 'not-allowed' }}>
-          {canSign ? `Tap to sign — ${label}` : 'Fill in the letter first'}
-        </button>
+        <InlineSign th={th} can={canSign} blockedText="Fill in the letter first" label={label}
+          onSign={(image) => { const sig = { image, date: todayIso(), fp }; (who === 'employee' ? setEmployeeSig : setDmSig)(sig); }} />
       )}
     </span>
   );

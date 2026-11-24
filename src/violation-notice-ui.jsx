@@ -10,7 +10,7 @@
 import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
-import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
+import { SignatureModal, InlineSign, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { FormPreview, FormModal } from './pay-increase-ui.jsx';
 import { SignProgress } from './sign-progress-ui.jsx';
 import { VnCollect } from './violation-collect-ui.jsx';
@@ -327,7 +327,8 @@ export function ViolationNotice({ th, isMobile, onBack }) {
             {refused ? <span style={{ paddingBottom: '0.2em', paddingLeft: '0.4em' }}>Refused to sign</span>
               : key !== 'supervisor' && remoteOn(key) ? <span style={{ paddingBottom: '0.2em', paddingLeft: '0.4em', color: '#6b6158', fontStyle: 'italic' }}>Will sign by email link</span>
               : s ? <button type="button" className="vn-sigimg" onClick={() => setSigning(key)} title="Sign again"><img src={s.image} alt={`${label} signature`} style={{ maxHeight: '2.3em', maxWidth: '12em', objectFit: 'contain' }} /></button>
-              : <button type="button" className="vn-sigbtn" disabled={!can} onClick={() => setSigning(key)} style={{ opacity: can ? 1 : 0.45, cursor: can ? 'pointer' : 'not-allowed' }}>{can ? `Tap to sign — ${label}` : canSign ? 'Type the witness name first' : 'Fill in the form first'}</button>}
+              : <InlineSign th={th} can={can} blockedText={canSign ? 'Type the witness name first' : 'Fill in the form first'} label={label}
+                  onSign={(image) => { setSigs(x => ({ ...x, [key]: { image, date: todayIso(), fp } })); if (key === 'employee') setEmployeeRefused(false); }} />}
           </span>
         </span>
         <span className="vn-f"><b>Date:</b><Locked value={s ? formatVioDate(s.date) : ''} placeholder="on signing" w="6.5em" /></span>

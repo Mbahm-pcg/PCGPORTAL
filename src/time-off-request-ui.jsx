@@ -9,7 +9,7 @@
 import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
-import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
+import { SignatureModal, InlineSign, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { buildTimeOffPdf, TOR_FONT, TOR_CHROME } from './time-off-request-pdf.mjs';
 import { POSITIONS, LEAVE_TYPES, timeOffValues, timeOffFingerprint, missingTimeOffFields, timeOffProblem, timeOffFileName, usDate } from './time-off-request.mjs';
 
@@ -235,9 +235,7 @@ export function TimeOffRequest({ th, isMobile, onBack }) {
               <img src={sigOk.image} alt="Your signature" style={{ maxHeight: 44, maxWidth: 220, objectFit: 'contain', display: 'block' }} />
             </button>
           ) : (
-            <button type="button" className="fin-btn" disabled={!canSign} onClick={() => setSigning(true)} style={{ ...S.ghost, border: `1px dashed ${O}`, color: O, opacity: canSign ? 1 : 0.5, cursor: canSign ? 'pointer' : 'not-allowed' }}>
-              {canSign ? 'Tap to sign' : 'Fill in the form first'}
-            </button>
+            <InlineSign th={th} can={canSign} onSign={(image) => setSig({ image, date: todayIso(), fp })} />
           )}
           {sigOk && <span style={{ fontSize: '0.85rem', color: th.muted }}>Signed {usDate(sigOk.date)}</span>}
         </div>

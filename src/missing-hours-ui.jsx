@@ -8,7 +8,7 @@
 import { O, FONTS } from './theme.js';
 import { authHeader } from './portal-auth.mjs';
 import { FIN_CSS, FinBanner, finStyles } from './finance-ui.jsx';
-import { SignatureModal, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
+import { SignatureModal, InlineSign, toB64, deliverPdf, PdfOpenButton } from './transfer-notice-ui.jsx';
 import { FormPreview, FormModal } from './pay-increase-ui.jsx';
 import { buildMissingHoursPdf, MH_CHROME } from './missing-hours-pdf.mjs';
 import { secondLineLabel } from './pay-increase.mjs';
@@ -325,7 +325,7 @@ export function MissingHours({ th, isMobile, onBack, userType, username }) {
           <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: '0.4em' }}>{signLabel}
             <span style={{ display: 'inline-flex', alignItems: 'flex-end', borderBottom: '1px solid #111', minWidth: '13em', minHeight: '2.4em' }}>
               {sigOk ? <button type="button" className="mh-sigimg" onClick={() => setSigning(true)} title="Sign again"><img src={sigOk.image} alt="Your signature" style={{ maxHeight: '2.3em', maxWidth: '12em', objectFit: 'contain' }} /></button>
-                : <button type="button" className="mh-sigbtn" disabled={!canSign} onClick={() => setSigning(true)} style={{ opacity: canSign ? 1 : 0.45, cursor: canSign ? 'pointer' : 'not-allowed' }}>{canSign ? 'Tap to sign' : 'Fill in the form first'}</button>}
+                : <InlineSign th={th} can={canSign} onSign={(image) => setSig({ image, date: today, fp })} />}
             </span></span>
           <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: '0.4em' }}>Date: <span style={{ borderBottom: '1px solid #111', minWidth: '8em', textAlign: 'center', color: sigOk ? '#111' : '#9a8f86', fontStyle: sigOk ? 'normal' : 'italic' }}>{sigOk ? usDate(sigOk.date) : 'on signing'}</span></span>
         </div>
