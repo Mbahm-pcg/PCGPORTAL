@@ -6,6 +6,7 @@
 // many photos fit in one ~6 MB request.
 import { authHeader } from './portal-auth.mjs';
 import { splitBase64, MAX_CHUNKS } from './report-pdf-chunks.mjs';
+import { exifTakenAt } from './exif-date.mjs';
 
 export const FULL_WIDTH = 1600, FULL_QUALITY = 0.75;  // tap-to-zoom, Project Gallery
 export const MED_WIDTH = 800, MED_QUALITY = 0.7;      // report screen + PDF tile (2" wide)
@@ -72,6 +73,13 @@ export async function scaleImageDataUrl(src, maxWidth = MED_WIDTH, quality = MED
   return drawScaled(img, maxWidth, quality);
 }
 
+// When the camera says the photo was taken ('YYYY-MM-DDTHH:MM:SS') or null. Must be read
+// from the ORIGINAL file — the resized copies below no longer carry it.
+export async function readTakenAt(file) {
+  try { return exifTakenAt(new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer())); }
+  catch { return null; }
+}
+
 // → { full, med } JPEG data URLs.
 export async function makeRenditions(file) {
   const img = await loadImage(await readAsDataUrl(file));
@@ -98,18 +106,32 @@ async function postJson(url, body) {
 // Upload one photo (both sizes). → the fields a report stores for it.
 // `clientRef` is a one-off id for this photo: if the request succeeded but the reply was lost,
 // the retry gets the same photo back instead of creating a second copy.
-export async function uploadReportPhoto({ projectId, projectNickname, reportId, fileName, full, med, clientRef }) {
+// Optional: takenAt, caption; sourceRef + createdAt when converting an old report's photo.
+export async function uploadReportPhoto({ projectId, projectNickname, reportId, fileName, full, med, clientRef, takenAt, caption, sourceRef, createdAt, contentHash }) {
   const j = await withRetry(() => postJson(PHOTOS_URL, {
-    action: 'createForReport', projectId, projectNickname, reportId, fileName, clientRef, imageBase64: full, mediumBase64: med,
+    action: 'createForReport', projectId, projectNickname, reportId, fileName, clientRef, takenAt, caption, sourceRef, createdAt, contentHash,
+    imageBase64: full, mediumBase64: med,
   }));
   return { photoId: j.photo.id, fullKey: j.photo.imageKey, medKey: j.photo.medKey };
 }
 
+// sha-256 (hex) of a string — identifies an old inline photo by its content.
+export async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text)));
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Copy the captions typed in a report onto its photos' gallery records. Best effort.
+export async function saveReportCaptions(reportId, items) {
+  if (reportId == null || !items?.length) return;
+  try { await postJson(PHOTOS_URL, { action: 'setCaptions', reportId, items }); } catch { /* the report itself holds the caption */ }
+}
+
 // Soft-delete photos that were removed from a report. Best effort — never throws.
-export async function removeReportPhotos(ids) {
+export async function removeReportPhotos(ids, reportId) {
   const list = [...new Set((ids || []).filter(Boolean))];
   if (!list.length) return;
-  try { await postJson(PHOTOS_URL, { action: 'removeFromReport', ids: list }); } catch { /* purge is not user-facing */ }
+  try { await postJson(PHOTOS_URL, { action: 'removeFromReport', ids: list, reportId }); } catch { /* purge is not user-facing */ }
 }
 
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {

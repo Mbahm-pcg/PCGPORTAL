@@ -169,3 +169,66 @@ test('roles', () => {
   for (const t of ['executive', 'it', 'office_staff', 'construction']) assert.equal(canUploadReportPhotos(t), true);
   for (const t of ['manager', 'dm', '', undefined]) assert.equal(canUploadReportPhotos(t), false);
 });
+
+// ── v23.13: captions, time taken, converting old reports ──────────────────────────────────
+import { cleanCaption, photoStampLabel, needsLegacyConversion, legacyPhotoSlots, applyConvertedRefs, MAX_CAPTION } from './report-photos.mjs';
+const IMG2 = 'data:image/jpeg;base64,' + 'A'.repeat(64);
+const ref2 = (id, extra = {}) => ({ photoId: id, fullKey: `k_${id}`, medKey: `k_${id}_med`, name: `${id}.jpg`, timestamp: '2026-11-20T12:00:00', ...extra });
+
+test('a ref keeps its caption and times through save, local strip and reconcile', () => {
+  const p = ref2('a', { caption: '  North wall \n framing ', takenAt: '2026-11-20T09:15:02', uploadedAt: '2026-11-20T15:00:00.000Z', _status: undefined, data: IMG2 });
+  const { slimReport } = splitReportForSave({ id: 1, workLogs: [{ photos: [p] }] });
+  assert.deepEqual(slimReport.workLogs[0].photos[0], { ...ref2('a'), caption: 'North wall framing', takenAt: '2026-11-20T09:15:02', uploadedAt: '2026-11-20T15:00:00.000Z' });
+  assert.equal(stripReportPhotosForLocal({ workLogs: [{ photos: [p] }] }).workLogs[0].photos[0].caption, 'North wall framing');
+  const stored = { workLogs: [{ photos: [ref2('a', { caption: 'kept' })] }] };
+  assert.equal(reconcileReportRefs({ workLogs: [{ photos: [] }] }, stored).workLogs[0].photos[0].caption, 'kept');
+  assert.equal('caption' in cleanRef(ref2('a', { caption: '   ', takenAt: 'yesterday', uploadedAt: 'nope' })), false);
+  assert.equal(cleanCaption('x'.repeat(500)).length, MAX_CAPTION);
+  assert.equal(cleanCaption(null), '');
+});
+
+test('photo stamp: taken time, else upload time, else the report date', () => {
+  assert.equal(photoStampLabel({ takenAt: '2026-11-24T09:05:00', uploadedAt: '2026-11-24T20:00:00Z', timestamp: '2026-11-24T12:00:00' }), 'Taken 11/24/2026 9:05 AM');
+  assert.equal(photoStampLabel({ takenAt: '2026-11-24T00:30:00' }), 'Taken 11/24/2026 12:30 AM');
+  assert.equal(photoStampLabel({ takenAt: '2026-11-24T12:00:00' }), 'Taken 11/24/2026 12:00 PM');
+  assert.equal(photoStampLabel({ uploadedAt: new Date(2026, 10, 24, 14, 7).toISOString(), timestamp: '2026-11-20T12:00:00' }), 'Uploaded 11/24/2026 2:07 PM');
+  assert.equal(photoStampLabel({ timestamp: '2026-11-20T12:00:00' }), '11/20/2026');
+  assert.equal(photoStampLabel({ takenAt: 'garbage', timestamp: '2026-11-20' }), '11/20/2026');
+  assert.equal(photoStampLabel(null), '');
+});
+
+test('converting a report: legacy photos become refs in place, ahead of newer photos', () => {
+  const report = { id: 77, workLogs: [
+    { name: 'A', photos: [{ data: IMG2, name: 'one.jpg', timestamp: '2026-10-01T12:00:00', caption: 'old' }, { data: IMG2, name: 'two.jpg', timestamp: '2026-10-01T12:00:00' }, ref2('new1')] },
+    { name: 'B', photos: [] },
+    { name: 'C', photos: [{ data: IMG2, name: 'three.jpg', timestamp: '2026-10-01T12:00:00' }] },
+  ] };
+  assert.equal(needsLegacyConversion(report), true);
+  const slots = legacyPhotoSlots(report);
+  assert.deepEqual(slots.map(s => s.sourceRef), ['dr_77_0_0', 'dr_77_0_1', 'dr_77_2_0']);
+  const refs = new Map(slots.map(s => [`${s.wi}:${s.pi}`, { photoId: `c${s.wi}${s.pi}`, fullKey: 'f', medKey: 'm' }]));
+  const done = applyConvertedRefs(report, refs, '2026-11-24T15:00:00.000Z');
+  assert.deepEqual(done.workLogs[0].photos.map(p => p.photoId), ['c00', 'c01', 'new1']);
+  assert.deepEqual(done.workLogs[0].photos[0], { photoId: 'c00', fullKey: 'f', medKey: 'm', name: 'one.jpg', timestamp: '2026-10-01T12:00:00', caption: 'old' });
+  assert.deepEqual(done.workLogs[2].photos.map(p => p.photoId), ['c20']);
+  assert.equal(needsLegacyConversion(done), false);
+  refs.delete('2:0');
+  assert.throws(() => applyConvertedRefs(report, refs, 'x'), /not uploaded/);
+  assert.equal(needsLegacyConversion({ workLogs: [{ photos: [{ name: 'x', _photoStripped: true }] }] }), true);
+  assert.equal(needsLegacyConversion({ workLogs: [{ photos: [ref2('a')] }] }), false);
+});
+
+test('a converted report ignores its old photo map and stays converted', () => {
+  const converted = { id: 77, legacyConvertedAt: '2026-11-24T15:00:00.000Z', workLogs: [{ photos: [ref2('c00')] }] };
+  const staleMap = { 0: [{ data: IMG2, name: 'one.jpg' }] };
+  assert.deepEqual(mergeLoadedReport(converted, staleMap).workLogs[0].photos.map(p => p.photoId), ['c00']);
+  // a copy loaded before the conversion (inline photos, no flag) is saved afterwards
+  const stale = { id: 77, workLogs: [{ photos: [{ data: IMG2, name: 'one.jpg' }] }] };
+  const saved = reconcileReportRefs(splitReportForSave(stale).slimReport, converted);
+  assert.equal(saved.legacyConvertedAt, converted.legacyConvertedAt);
+  assert.deepEqual(saved.workLogs[0].photos.map(p => p.photoId), ['c00']);
+  // and a converted copy never writes inline photos back
+  const split = splitReportForSave({ ...converted, workLogs: [{ photos: [{ data: IMG2, name: 'one.jpg' }, ref2('c00')] }] });
+  assert.equal(split.hasReal, false); assert.deepEqual(split.photoMap, {});
+  assert.equal(reconcileReportRefs({ workLogs: [] }, { legacyConvertedAt: 'x', workLogs: [] }).legacyConvertedAt, 'x');
+});

@@ -32,8 +32,8 @@ import { removeShiftFromEmployee, addShiftToEmployee } from './src/schedule-grid
 import { suggestUsername, generatePassword } from './src/manager-sync.mjs';
 import { parseDateOnly, toDateStr, defaultClosedPeriodEnd, payPeriodEndFor } from './src/office-clock-period-math.mjs';
 import { dayWorkedMinutes as ocDayWorkedMinutes, dayShiftCount as ocDayShiftCount } from './src/office-clock-day-math.mjs';
-import { isRefPhoto, isPendingPhoto, isRealReportPhoto, cleanRef, splitReportForSave, mergeLoadedReport, stripReportPhotosForLocal, countReportPhotos } from './src/report-photos.mjs';
-import { makeRenditions, uploadReportPhoto, removeReportPhotos, uploadReportPdf, scaleImageDataUrl, runLimited, UPLOAD_CONCURRENCY, MED_WIDTH, MED_QUALITY } from './src/report-photo-upload.mjs';
+import { isRefPhoto, isPendingPhoto, isRealReportPhoto, cleanRef, splitReportForSave, mergeLoadedReport, stripReportPhotosForLocal, countReportPhotos, cleanCaption, photoStampLabel, MAX_CAPTION, needsLegacyConversion, legacyPhotoSlots, applyConvertedRefs } from './src/report-photos.mjs';
+import { makeRenditions, readTakenAt, saveReportCaptions, sha256Hex, FULL_WIDTH, FULL_QUALITY, uploadReportPhoto, removeReportPhotos, uploadReportPdf, scaleImageDataUrl, runLimited, UPLOAD_CONCURRENCY, MED_WIDTH, MED_QUALITY } from './src/report-photo-upload.mjs';
 // (runLimited: PDF photo loading; form uploads use the hook's own queue)
 
 const { useState, useRef, useCallback, useEffect } = React;
@@ -8850,19 +8850,25 @@ function useReportPhotoUploads(setRForm, getCtx) {
   const removed = useRef([]);          // photos the user removed in this form (applied on save)
   const queue = useRef([]);            // _localIds waiting for an upload slot
   const active = useRef(0);
+  const rid = useRef(null);            // the report these photos belong to (kept for commit/discard)
+  const captioned = useRef(false);     // a caption was typed in this form
+  const noteReport = () => { const id = ctxRef.current()?.reportId; if (id != null) rid.current = id; };
   const patch = (localId, fn) => setRForm(f => ({ ...f, workLogs: (f.workLogs || []).map(w => ({ ...w, photos: (w.photos || []).map(p => (p && p._localId === localId ? fn(p) : p)) })) }));
   const uploadOne = async (localId) => {
     const file = files.current.get(localId);
     if (!file) return;
     try {
+      // v23.13: the camera's own capture time, read before the photo is resized (which drops it)
+      const takenAt = await readTakenAt(file);
       const { full, med } = await makeRenditions(file);
-      patch(localId, p => ({ ...p, data: med }));
-      const ref = await uploadReportPhoto({ ...ctxRef.current(), fileName: file.name, full, med, clientRef: localId });
+      patch(localId, p => ({ ...p, data: med, ...(takenAt ? { takenAt } : {}) }));
+      noteReport();
+      const ref = await uploadReportPhoto({ ...ctxRef.current(), fileName: file.name, full, med, clientRef: localId, takenAt });
       files.current.delete(localId);
       idByLocal.current.set(localId, ref.photoId);
-      if (dropped.current.has(localId)) { removeReportPhotos([ref.photoId]); return; }
+      if (dropped.current.has(localId)) { removeReportPhotos([ref.photoId], ctxRef.current()?.reportId ?? rid.current); return; }
       uploaded.current.push(ref.photoId);
-      patch(localId, p => { const { _status, _error, ...rest } = p; return { ...rest, ...ref }; });
+      patch(localId, p => { const { _status, _error, ...rest } = p; return { ...rest, ...ref, uploadedAt: new Date().toISOString() }; });
     } catch (e) {
       patch(localId, p => ({ ...p, _status: 'failed', _error: e?.message || 'Upload failed' }));
     }
@@ -8900,6 +8906,7 @@ function useReportPhotoUploads(setRForm, getCtx) {
   // Call with the photo being removed from the form, before dropping it from state.
   const notePhotoRemoved = (p) => {
     if (!p) return;
+    noteReport();
     if (isRefPhoto(p)) { removed.current.push(p.photoId); return; }
     if (!isPendingPhoto(p)) return; // legacy inline photo — nothing stored separately
     // Its upload may have finished a moment ago without this (older) render knowing yet.
@@ -8920,18 +8927,34 @@ function useReportPhotoUploads(setRForm, getCtx) {
   // The report's removal list (tombstones) including this form's removals — goes on the
   // saved report so the server takes those photos out even if another copy still has them.
   const removedIdsFor = (form) => [...new Set([...(Array.isArray(form?.removedPhotoIds) ? form.removedPhotoIds : []), ...removed.current])];
-  const reset = () => { files.current = new Map(); idByLocal.current = new Map(); queue.current = []; uploaded.current = []; removed.current = []; };
+  const reset = () => { files.current = new Map(); idByLocal.current = new Map(); queue.current = []; uploaded.current = []; removed.current = []; rid.current = null; captioned.current = false; };
+  // v23.13: an optional caption per photo (kept on the photo's entry in the report).
+  const setCaption = (logIdx, photoIdx, text) => {
+    captioned.current = true;
+    noteReport();
+    setRForm(f => ({ ...f, workLogs: (f.workLogs || []).map((w, i) => (i !== logIdx ? w : { ...w, photos: (w.photos || []).map((p, j) => (j === photoIdx && p ? { ...p, caption: String(text || '').slice(0, MAX_CAPTION) } : p)) })) }));
+  };
   // Report saved: the photos the user removed are now really gone from it. (If the save
   // never reaches the cloud, the nightly purge still sees the report pointing at them and
   // restores them instead of deleting.)
-  const commit = () => { removeReportPhotos(removed.current); reset(); };
+  // `saved` = the report as saved: its captions are copied onto the photos' gallery records.
+  const commit = (saved) => {
+    const reportId = saved?.id ?? rid.current;
+    removeReportPhotos(removed.current, reportId);
+    if (captioned.current && saved) {
+      const items = [];
+      for (const w of (saved.workLogs || [])) for (const p of (w.photos || [])) if (isRefPhoto(p)) items.push({ id: p.photoId, caption: cleanCaption(p.caption) });
+      saveReportCaptions(reportId, items);
+    }
+    reset();
+  };
   // Form abandoned: nothing saved, so this form's uploads belong to no report.
   const discard = () => {
     for (const id of files.current.keys()) dropped.current.add(id);
-    removeReportPhotos(uploaded.current);
+    removeReportPhotos(uploaded.current, rid.current);
     reset();
   };
-  return { addPhotos, retryPhoto, notePhotoRemoved, blockReason, removedIdsFor, reset, commit, discard };
+  return { addPhotos, retryPhoto, notePhotoRemoved, setCaption, blockReason, removedIdsFor, reset, commit, discard };
 }
 // The "View report" email both report screens send (the PDF is a link, never an attachment).
 function dailyReportEmailHtml(r, proj, link) {
@@ -8952,6 +8975,104 @@ function dailyReportEmailHtml(r, proj, link) {
     ${logs.length ? `<p><strong>Work Logs:</strong></p><ul>${logs.map(w => `<li><strong>${esc(w.name)}</strong> (Qty: ${esc(w.quantity || 0)}) — ${esc(w.description || 'No description')}</li>`).join('')}</ul>` : ''}
     <p><strong>Total:</strong> ${workers} workers | ${hours} hours</p>
     ${r.generalNotes ? `<p><strong>General Notes:</strong> ${esc(r.generalNotes)}</p>` : ''}`;
+}
+// v23.13 — convert one old report: each photo kept inline in pcg_dr_{id}_photos is uploaded
+// as its own photo (same as a photo added today) and the report then points at those. Works
+// from the cloud copy, never a local one. All or nothing per report: if any photo fails the
+// report is left exactly as it was (the uploads are reused on the next try). The old inline
+// copies stay in pcg_drbak_{id}_photos for 30 days (reports-backup.mjs drops them).
+//   → { report, converted }  — report is the fresh cloud copy to put in state.
+async function convertLegacyReportPhotos(reportId, project) {
+  const loaded = await cloudLoadReport(reportId);
+  if (!loaded) throw new Error('the report could not be loaded');
+  if (loaded.legacyConvertedAt) {
+    // Already converted — make sure the old photo map really was emptied (an earlier run may
+    // have stopped right before that; older app versions would show the photos twice).
+    await cloudSaveOrThrow(drPhotosKey(reportId), {});
+    return { report: loaded, converted: 0 };
+  }
+  if (!loaded._photosLoaded) throw new Error('its photos could not be loaded');
+  // very old entries are a bare data-URL string
+  const report = { ...loaded, workLogs: (loaded.workLogs || []).map(w => ({ ...w, photos: (w.photos || []).map(p => (typeof p === 'string' ? { data: p } : p)) })) };
+  if (countReportPhotos(report).legacy === 0) return { report, converted: 0 }; // the cloud copy has no old photos
+  const slots = legacyPhotoSlots(report);
+  const refs = new Map();
+  const idPart = String(report.id).replace(/[^A-Za-z0-9_-]/g, '');
+  // A photo is identified by its content, not its position (positions shift when a photo or
+  // work log is removed). `n` tells apart two identical photos in the same report.
+  const seen = new Map();
+  for (const slot of slots) {
+    slot.hash = await sha256Hex(slot.photo.data);
+    slot.n = seen.get(slot.hash) || 0;
+    seen.set(slot.hash, slot.n + 1);
+  }
+  const results = await runLimited(slots, UPLOAD_CONCURRENCY, async (slot) => {
+    const src = slot.photo.data;
+    const full = await scaleImageDataUrl(src, FULL_WIDTH, FULL_QUALITY); // untouched unless wider than 1600px
+    const med = await scaleImageDataUrl(src, MED_WIDTH, MED_QUALITY);
+    const ref = await uploadReportPhoto({
+      projectId: project.id, projectNickname: project.nickname || project.address || project.pc || '',
+      reportId: report.id, fileName: slot.photo.name, full, med,
+      clientRef: `conv_${idPart.slice(0, 30)}_${slot.hash.slice(0, 24)}_${slot.n}`,
+      sourceRef: slot.sourceRef, contentHash: slot.hash, createdAt: slot.photo.timestamp, caption: slot.photo.caption,
+    });
+    refs.set(`${slot.wi}:${slot.pi}`, ref);
+  });
+  const bad = results.find(r => !r.ok);
+  if (bad) throw bad.error;
+  if (new Set([...refs.values()].map(r => r.photoId)).size !== slots.length) throw new Error('two photos came back as the same upload');
+  const { _photosLoaded, ...plain } = report;
+  const done = applyConvertedRefs(plain, refs, new Date().toISOString()); // throws if a photo has no upload
+  // The uploads took a while — if anyone saved this report meanwhile, stop rather than
+  // overwrite their edit. (Nothing has been changed yet; the uploads are reused next time.)
+  const [latest, rawMap] = await Promise.all([cloudLoad(drKey(report.id)), cloudLoad(drPhotosKey(report.id))]);
+  if (!latest || latest.legacyConvertedAt || (latest.updatedAt || '') !== (loaded.updatedAt || '')) throw new Error('it was changed while converting — try again');
+  await cloudSaveOrThrow(`pcg_drbak_${report.id}_photos`, rawMap && typeof rawMap === 'object' ? rawMap : splitReportForSave(plain).photoMap);
+  await cloudSaveOrThrow(drKey(report.id), splitReportForSave(done).slimReport);
+  await cloudSaveOrThrow(drPhotosKey(report.id), {});
+  return { report: { ...done, _photosLoaded: true }, converted: slots.length };
+}
+// Admin-only strip above a project's report list: converts that project's old reports.
+function ReportPhotoConvert({ th, project, reports, setDailyReports }) {
+  const todo = (reports || []).filter(needsLegacyConversion);
+  const [run, setRun] = useState(null); // { done, total, photos, failed[], finished }
+  if (!todo.length && !run) return null;
+  const busy = run && !run.finished;
+  const start = async () => {
+    const list = todo.slice(), failed = [];
+    let photos = 0;
+    setRun({ done: 0, total: list.length, photos: 0, failed, finished: false });
+    for (let i = 0; i < list.length; i++) {
+      try {
+        const out = await convertLegacyReportPhotos(list[i].id, project);
+        photos += out.converted;
+        setDailyReports(prev => prev.map(r => (r.id === list[i].id ? out.report : r)));
+      } catch (e) { failed.push(`${list[i].date || list[i].id}: ${e?.message || 'failed'}`); }
+      setRun({ done: i + 1, total: list.length, photos, failed, finished: i === list.length - 1 });
+    }
+  };
+  return (
+    <div style={{ ...card(th), padding: '0.6rem 0.8rem', marginBottom: '0.75rem', fontSize: '0.78rem', color: th.text, display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+      <div style={{ flex: '1 1 260px' }}>
+        {run ? (
+          <>
+            <strong>{run.finished ? 'Conversion finished' : `Converting report ${Math.min(run.done + 1, run.total)} of ${run.total}…`}</strong>
+            {run.finished && <span> — {run.photos} photo{run.photos === 1 ? '' : 's'} moved in {run.total - run.failed.length} report{run.total - run.failed.length === 1 ? '' : 's'}.</span>}
+            {!run.finished && <span style={{ color: th.muted }}> Keep this page open.</span>}
+            {run.failed.length > 0 && <div style={{ color: '#ef4444', marginTop: 3 }}>Not finished — use “Try the rest again”: {run.failed.join('; ')}</div>}
+          </>
+        ) : (
+          <>
+            <strong>{todo.length} older report{todo.length === 1 ? '' : 's'}</strong> in this project still store{todo.length === 1 ? 's' : ''} photos the old way.
+            <span style={{ color: th.muted }}> Converting moves each photo to the new storage — same photos, same order. The old copies are kept for 30 days.</span>
+          </>
+        )}
+      </div>
+      {(!run || (run.finished && todo.length > 0)) && (
+        <button onClick={start} disabled={busy} style={btn(th, { padding: '0.35rem 0.8rem', fontSize: '0.75rem' })}>{run ? 'Try the rest again' : `Convert ${todo.length} report${todo.length === 1 ? '' : 's'}`}</button>
+      )}
+    </div>
+  );
 }
 // Copy of a report where every photo carries image data sized for the PDF (≤ 800px): refs
 // load their medium blob, legacy photos are scaled down. A photo that can't be loaded keeps
@@ -15034,9 +15155,17 @@ async function buildReportPdf(reportIn, project) {
       if (photoCount > 0) {
         const photos = w.photos||[], photoGap=0.15, photoW=2.0, photoH=1.5;
         const rowWidth=photoW*3+photoGap*2, rowLeft=margin+(contentW-rowWidth)/2;
+        let rowCaps = [], capH = 0;
         for (let pi = 0; pi < photos.length; pi++) {
           const col = pi%3;
-          if (col===0) addPageIfNeeded(photoH+0.15);
+          if (col===0) {
+            // v23.13: a caption sits under its photo; the row is as tall as its longest one
+            doc.setFont('helvetica','normal'); doc.setFontSize(7);
+            rowCaps = photos.slice(pi, pi+3).map(p => { const c = cleanCaption(p.caption); if (!c) return []; const all = doc.splitTextToSize(c, photoW-0.06); return all.length > 5 ? [...all.slice(0,4), all[4].replace(/.{0,2}$/, '…')] : all; });
+            const most = Math.max(0, ...rowCaps.map(l => l.length));
+            capH = most ? most*0.11+0.04 : 0;
+            addPageIfNeeded(photoH+capH+0.15);
+          }
           const ph = photos[pi], px = rowLeft+col*(photoW+photoGap);
           setFill(bgSoft); doc.rect(px, y, photoW, photoH, 'F');
           setDraw(lineLight); doc.setLineWidth(0.008); doc.rect(px, y, photoW, photoH, 'S');
@@ -15049,17 +15178,20 @@ async function buildReportPdf(reportIn, project) {
               if (srcRatio>dstRatio) { drawW=photoW; drawH=photoW/srcRatio; } else { drawH=photoH; drawW=photoH*srcRatio; }
               const offX=(photoW-drawW)/2, offY=(photoH-drawH)/2;
               doc.addImage(ph.data, parsed.format, px+offX, y+offY, drawW, drawH, undefined, 'FAST');
-              if (ph.timestamp) {
+              // v23.13: when the photo was really taken (from the camera), else when it was uploaded
+              const stamp = photoStampLabel(ph);
+              if (stamp) {
                 setFill([0,0,0]); doc.rect(px+0.03, y+photoH-0.16, photoW-0.06, 0.13, 'F');
                 setText([255,255,255]); doc.setFont('helvetica','normal'); doc.setFontSize(7);
-                const ymd=String(ph.timestamp).slice(0,10);
-                let ts=ph.timestamp;
-                if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ts=new Date(ymd+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'});
-                doc.text(ts, px+photoW/2, y+photoH-0.06, {align:'center'});
+                doc.text(stamp, px+photoW/2, y+photoH-0.06, {align:'center'});
               }
             } else { setText(textFaint); doc.setFontSize(7); doc.text('[photo]', px+photoW/2, y+photoH/2, {align:'center'}); }
           } catch { setText(textFaint); doc.setFontSize(7); doc.text('[photo]', px+photoW/2, y+photoH/2, {align:'center'}); }
-          if (col===2 || pi===photos.length-1) y += photoH+photoGap;
+          if (rowCaps[col] && rowCaps[col].length) {
+            setText([68,68,68]); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+            rowCaps[col].forEach((ln, li) => doc.text(ln, px+photoW/2, y+photoH+0.12+li*0.11, {align:'center'}));
+          }
+          if (col===2 || pi===photos.length-1) y += photoH+capH+photoGap;
         }
         y += 0.15;
       }
@@ -15278,8 +15410,8 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
       setDailyReports(prev => [...prev, nr]);
       showAlert("success", status === "submitted" ? "Report submitted" : "Draft saved");
     }
+    photoUp.commit({ ...rForm, id: editReport || pendingIdRef.current });
     pendingIdRef.current = null;
-    photoUp.commit();
     setDrView("list");
     setEditReport(null);
   };
@@ -16217,9 +16349,10 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
                       {w.photos.map((p, pi) => (
                         <div key={pi} className="photo-item" onClick={() => setLightbox({ photos: w.photos, idx: pi })} style={{ position: "relative", width: "calc(33.33% - 0.34rem)", pageBreakInside: "avoid", breakInside: "avoid", cursor: "zoom-in" }}>
                           <ReportPhotoImg photo={p} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "4/3", objectFit: "cover", maxHeight: "200px" }} />
-                          <div style={{ position: "absolute", bottom: 4, left: 4, background: "#000000aa", color: "#fff", fontSize: "0.5rem", padding: "1px 4px", borderRadius: 3 }}>
-                            {p.timestamp ? (() => { const ymd = String(p.timestamp).slice(0,10); return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? new Date(ymd + "T12:00:00").toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : p.timestamp; })() : ""}
+                          <div style={{ position: "relative" }}>
+                            <div style={{ position: "absolute", bottom: 4, left: 4, background: "#000000aa", color: "#fff", fontSize: "0.5rem", padding: "1px 4px", borderRadius: 3 }}>{photoStampLabel(p)}</div>
                           </div>
+                          {cleanCaption(p.caption) && <div style={{ fontSize: "0.6875rem", color: "#444", marginTop: 3, lineHeight: 1.25, textAlign: "center" }}>{cleanCaption(p.caption)}</div>}
                         </div>
                       ))}
                     </div>
@@ -16405,12 +16538,15 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
                   </label>
                 </div>
                 {wl.photos && wl.photos.length > 0 && (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: "0.375rem" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.5rem" }}>
                     {wl.photos.map((p, pi) => (
-                      <div key={p.photoId || p._localId || pi} style={{ position: "relative" }}>
-                        <ReportPhotoImg photo={p} onClick={() => setLightbox({ photos: wl.photos, idx: pi })} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "1", objectFit: "cover", cursor: "zoom-in" }} />
-                        <ReportPhotoStatus photo={p} onRetry={() => photoUp.retryPhoto(p._localId)} />
-                        <button onClick={() => removePhoto(idx, pi)} style={{ position: "absolute", top: 2, right: 2, background: "#ff4444", color: "#fff", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: "0.625rem", cursor: "pointer", lineHeight: "18px", padding: 0 }}>×</button>
+                      <div key={p._localId || p.photoId || pi}>
+                        <div style={{ position: "relative" }}>
+                          <ReportPhotoImg photo={p} onClick={() => setLightbox({ photos: wl.photos, idx: pi })} style={{ width: "100%", borderRadius: "0.375rem", aspectRatio: "4/3", objectFit: "cover", cursor: "zoom-in", display: "block" }} />
+                          <ReportPhotoStatus photo={p} onRetry={() => photoUp.retryPhoto(p._localId)} />
+                          <button onClick={() => removePhoto(idx, pi)} style={{ position: "absolute", top: 2, right: 2, background: "#ff4444", color: "#fff", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: "0.625rem", cursor: "pointer", lineHeight: "18px", padding: 0 }}>×</button>
+                        </div>
+                        <input value={p.caption || ""} onChange={e => photoUp.setCaption(idx, pi, e.target.value)} maxLength={MAX_CAPTION} placeholder="Caption (optional)" style={{ width: "100%", boxSizing: "border-box", marginTop: 3, padding: "0.2rem 0.35rem", fontSize: "0.6875rem", border: `1px solid ${th.cardBorder}`, borderRadius: "0.25rem", background: th.card, color: th.text }} />
                       </div>
                     ))}
                   </div>
@@ -16529,6 +16665,8 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
           {forceSyncMsg}
         </div>
       )}
+
+      {isFullAdmin(user) && <ReportPhotoConvert th={th} project={project} reports={projReports} setDailyReports={setDailyReports} />}
 
       {projReports.length === 0 ? (
         <div style={{ ...card(th), padding: "2rem", textAlign: "center" }}>
@@ -16739,7 +16877,8 @@ function ProjectPhotoAnnotator({ photo, th, onClose, onSaved, initialSrc }) {
       <div style={{ fontSize: '0.78rem', color: '#ccc', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         <span>{photo.takenByName || 'Unknown'}</span>
         <span style={{ color: '#666' }}>·</span>
-        <span>{photo.createdAt ? new Date(photo.createdAt).toLocaleString() : '—'}</span>
+        <span>{photo.takenAt ? photoStampLabel({ takenAt: photo.takenAt }) : photo.createdAt ? new Date(photo.createdAt).toLocaleString() : '—'}</span>
+        {photo.caption && <><span style={{ color: '#666' }}>·</span><span style={{ color: '#fff' }}>{photo.caption}</span></>}
         {photo.lat != null && photo.lng != null && (
           <>
             <span style={{ color: '#666' }}>·</span>
@@ -17200,8 +17339,9 @@ function ProjectGalleryTab({ user, th, projects, setProjects, dailyReports, isMo
                         <button onClick={() => pgalDeletePhoto(p.id)} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444dd', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}>✕</button>
                       </div>
                       <div style={{ fontSize: '0.68rem', color: th.text, marginTop: '0.3rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.takenByName || 'Unknown'}</div>
+                      {p.caption && <div title={p.caption} style={{ fontSize: '0.66rem', color: th.text, lineHeight: 1.25, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.caption}</div>}
                       <div style={{ fontSize: '0.64rem', color: th.muted, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <span>{p.createdAt ? new Date(p.createdAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}</span>
+                        <span>{p.takenAt ? photoStampLabel({ takenAt: p.takenAt }) : p.createdAt ? new Date(p.createdAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}</span>
                         {p.lat != null && p.lng != null && (
                           <a href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title="View location on map" style={{ color: '#3b82f6', textDecoration: 'none' }}>📍</a>
                         )}
@@ -32788,7 +32928,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.12";
+const APP_VERSION = "v23.13";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -53335,7 +53475,7 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
         // Also update legacy backup (stripped, no photos)
         await cloudSave('pcg_daily_reports_v1', newIdx.map(r=>({...r,workLogs:(r.workLogs||[]).map(w=>({...w,photos:[]}))})));
       } catch {}
-      photoUp.commit();
+      photoUp.commit(report);
       mobileReportIdRef.current = null;
       setDailyReports(prev => [report, ...prev]);
       goTo('detail');
@@ -53768,8 +53908,10 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                                   const photo = typeof ph === 'string' ? { data: ph } : ph;
                                   if (!isRefPhoto(photo) && !(typeof photo?.data === 'string' && photo.data)) return null;
                                   return (
-                                    <div key={photo.photoId||pi} onClick={()=>setLightboxSrc(photo)} style={{cursor:'pointer',borderRadius:8,overflow:'hidden',border:`1px solid ${th.cardBorder}`,flexShrink:0}}>
-                                      <ReportPhotoImg photo={photo} style={{width:90,height:90,objectFit:'cover',display:'block'}}/>
+                                    <div key={photo.photoId||pi} onClick={()=>setLightboxSrc(photo)} style={{cursor:'pointer',width:104,flexShrink:0}}>
+                                      <ReportPhotoImg photo={photo} style={{width:104,height:90,objectFit:'cover',display:'block',borderRadius:8,border:`1px solid ${th.cardBorder}`,boxSizing:'border-box'}}/>
+                                      <div style={{fontSize:9,color:th.muted,marginTop:2,lineHeight:1.2}}>{photoStampLabel(photo)}</div>
+                                      {cleanCaption(photo.caption) && <div style={{fontSize:11,color:th.text,marginTop:1,lineHeight:1.25,wordBreak:'break-word'}}>{cleanCaption(photo.caption)}</div>}
                                     </div>
                                   );
                                 })}
@@ -53945,13 +54087,17 @@ function ConstructionMobileView({ th, user, stores, projects, setProjects, todos
                 <div>
                   <div style={{fontSize:10,color:th.muted,fontWeight:700,marginBottom:6}}>PHOTOS</div>
                   {(w.photos||[]).length > 0 && (
-                    <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:8}}>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(2, minmax(0, 1fr))',gap:10,marginBottom:8}}>
                       {w.photos.map((ph,pi)=>{
                         return (
-                          <div key={ph?.photoId||ph?._localId||pi} style={{position:'relative',width:72,height:72}}>
-                            <ReportPhotoImg photo={ph} style={{width:72,height:72,objectFit:'cover',borderRadius:8,border:`1px solid ${th.cardBorder}`}}/>
-                            <ReportPhotoStatus photo={ph} onRetry={()=>photoUp.retryPhoto(ph._localId)} />
-                            <div onClick={()=>removeLogPhoto(i,pi)} style={{position:'absolute',top:-6,right:-6,width:20,height:20,background:'#ef4444',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:12,color:'#fff',fontWeight:800,boxShadow:'0 1px 4px #0004'}}>×</div>
+                          <div key={ph?._localId||ph?.photoId||pi}>
+                            <div style={{position:'relative'}}>
+                              <ReportPhotoImg photo={ph} style={{width:'100%',aspectRatio:'4/3',objectFit:'cover',borderRadius:8,border:`1px solid ${th.cardBorder}`,display:'block',boxSizing:'border-box'}}/>
+                              <ReportPhotoStatus photo={ph} onRetry={()=>photoUp.retryPhoto(ph._localId)} />
+                              <div onClick={()=>removeLogPhoto(i,pi)} style={{position:'absolute',top:-6,right:-6,width:22,height:22,background:'#ef4444',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:13,color:'#fff',fontWeight:800,boxShadow:'0 1px 4px #0004'}}>×</div>
+                            </div>
+                            {/* 16px text so iPhone doesn't zoom the page when the box is tapped */}
+                            <input value={ph?.caption||''} onChange={e=>photoUp.setCaption(i,pi,e.target.value)} maxLength={MAX_CAPTION} placeholder="Caption (optional)" style={{width:'100%',boxSizing:'border-box',marginTop:4,padding:'6px 8px',fontSize:16,border:`1px solid ${th.cardBorder}`,borderRadius:8,background:th.card,color:th.text}}/>
                           </div>
                         );
                       })}

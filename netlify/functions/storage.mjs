@@ -43,6 +43,14 @@ export default async (request) => {
     if (action === 'save') {
       if (!data) return new Response(JSON.stringify({ error: 'Missing data' }), { status: 400, headers });
       let toStore = data;
+      // v23.13: once a report's old inline photos were converted to separate photos, a copy
+      // of it loaded before that must not write the inline photos back (they'd show twice).
+      if (safeKey.startsWith('pcg_dr_') && safeKey.endsWith('_photos') && data && typeof data === 'object' && Object.keys(data).length > 0) {
+        try {
+          const report = await store.get(safeKey.slice(0, -'_photos'.length), { type: 'json' });
+          if (report?.data?.legacyConvertedAt) return new Response(JSON.stringify({ ok: true, key: safeKey, skipped: 'converted' }), { status: 200, headers });
+        } catch (e) { console.warn('[storage] converted-report check skipped:', e.message); }
+      }
       // v23.11: the copy being saved can be out of date (a second person with the report open,
       // Force Sync, a browser on older app code) — photo references someone else added are
       // carried over, and only an explicit removal takes one out (src/report-photos.mjs).

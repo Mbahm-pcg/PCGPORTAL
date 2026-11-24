@@ -20,16 +20,24 @@
 // (REPORT_PHOTO_ROLES: adds office_staff to the gallery roles):
 //   createForReport { projectId, projectNickname, reportId, fileName, imageBase64, mediumBase64 }
 //     → { ok, photo }   two blobs: full (1600px) at image_key, medium (800px) at med_key
-//   removeFromReport { ids:[] } → { ok, removed }   soft delete (deleted_at); the nightly
-//     reports-backup run purges rows + blobs 30 days later
+//     optional: takenAt (camera's capture time), caption; and for converting an old report's
+//     inline photo (exec/IT): sourceRef "dr_<report>_<log>_<n>" + contentHash (sha-256 of
+//     the old data URL) + createdAt — the gallery copy holding that same image is turned
+//     into the report's photo (no duplicate)
+//   removeFromReport { ids:[], reportId } → { ok, removed }   soft delete (deleted_at); the
+//     nightly reports-backup run purges rows + blobs 30 days later
+//   setCaptions { reportId, items:[{ id, caption }] } → { ok, updated }
 // See docs/superpowers/specs/2026-11-21-daily-report-photos-design.md.
 import { neon } from '@neondatabase/serverless';
 import { getStore } from '@netlify/blobs';
+import { createHash } from 'node:crypto';
 import { requireActiveUser } from './auth-lib/require-user.js';
 import { canAccessProjectGallery, sanitizeAnnotations } from './project-photos-lib/shapes.mjs';
-import { canUploadReportPhotos } from '../../src/report-photos.mjs';
+import { canUploadReportPhotos, cleanCaption } from '../../src/report-photos.mjs';
 
-const REPORT_ACTIONS = new Set(['createForReport', 'removeFromReport']);
+const REPORT_ACTIONS = new Set(['createForReport', 'removeFromReport', 'setCaptions']);
+const LOCAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+const SOURCE_REF = /^dr_[A-Za-z0-9_-]{1,80}$/;
 const MAX_IMAGE_CHARS = 4 * 1024 * 1024; // one photo's data URL — far under the ~6 MB request cap
 const isImageDataUrl = (s) => typeof s === 'string' && s.startsWith('data:image/') && s.length > 64 && s.length <= MAX_IMAGE_CHARS;
 
@@ -82,6 +90,9 @@ async function ensureTables() {
   await sql`CREATE INDEX IF NOT EXISTS idx_pphoto_report ON project_photos(report_id) WHERE report_id IS NOT NULL`;
   await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS client_ref text`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pphoto_client_ref ON project_photos(client_ref) WHERE client_ref IS NOT NULL`;
+  // v23.13 — captions + the camera's own capture time (local wall clock, as text)
+  await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS caption text`;
+  await sql`ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS taken_at text`;
   _ready = true;
 }
 
@@ -99,6 +110,8 @@ function rowToPhoto(r) {
     medKey: r.med_key || null,
     reportId: r.report_id || null,
     fileName: r.file_name || null,
+    caption: r.caption || null,
+    takenAt: r.taken_at || null,
     annotations: r.annotations || [],
     source: r.source,
     sourceRef: r.source_ref,
@@ -156,22 +169,60 @@ export default async (request) => {
         const dup = await sql`SELECT * FROM project_photos WHERE client_ref = ${clientRef} AND taken_by_user_id = ${claims.sub}`;
         if (dup.length) return json(200, { ok: true, photo: rowToPhoto(dup[0]) });
       }
-      const id = genId();
       const by = claims.name || claims.username;
+      const reportId = payload.reportId != null ? String(payload.reportId).slice(0, 64) : null;
+      const fileName = payload.fileName ? String(payload.fileName).slice(0, 200) : null;
+      const caption = cleanCaption(payload.caption) || null;
+      const takenAt = typeof payload.takenAt === 'string' && LOCAL_TIME.test(payload.takenAt) ? payload.takenAt : null;
+      // Converting an old report (exec / IT only). Its photo may already be in the gallery,
+      // imported earlier as a 'migrated' row. That row is found by the IMAGE ITSELF (hash of
+      // the stored data), never by its position in the report — positions shift when a photo
+      // or work log was removed — and becomes the report's photo: it keeps its id, image and
+      // markups and gains the medium size. No match → a normal new photo.
+      let sourceRef = typeof payload.sourceRef === 'string' && SOURCE_REF.test(payload.sourceRef) ? payload.sourceRef : null;
+      if (sourceRef) {
+        if (!['executive', 'it'].includes(claims.userType)) return json(403, { error: 'Only an executive or IT user can convert report photos' });
+        const prefix = `dr_${reportId}_`;
+        if (!reportId || !sourceRef.startsWith(prefix)) return json(400, { error: 'sourceRef does not belong to this report' });
+        if (!clientRef || !/^[0-9a-f]{64}$/.test(payload.contentHash || '')) return json(400, { error: 'clientRef and contentHash are required to convert a photo' });
+        const done = await sql`SELECT * FROM project_photos WHERE client_ref = ${clientRef}`;
+        if (done.length) return json(200, { ok: true, photo: rowToPhoto(done[0]) });
+        const candidates = await sql`
+          SELECT * FROM project_photos
+          WHERE project_id = ${projectId} AND source = 'migrated' AND deleted_at IS NULL
+            AND left(source_ref, ${prefix.length}) = ${prefix}
+          ORDER BY created_at LIMIT 60`;
+        for (const row of candidates) {
+          const blob = await blobStore().get(row.image_key, { type: 'json' }).catch(() => null);
+          const stored = blob?.data?.base64;
+          if (typeof stored !== 'string' || createHash('sha256').update(stored).digest('hex') !== payload.contentHash) continue;
+          const medKey = row.med_key || await saveBlob(row.id, payload.mediumBase64, by, '_med');
+          const rows = await sql`
+            UPDATE project_photos SET source = 'daily_report', med_key = ${medKey}, report_id = ${reportId}, client_ref = ${clientRef},
+              file_name = COALESCE(file_name, ${fileName}), caption = COALESCE(caption, ${caption})
+            WHERE id = ${row.id} AND source = 'migrated' RETURNING *`;
+          if (rows.length) return json(200, { ok: true, photo: rowToPhoto(rows[0]) });
+        }
+        // new row: keep the slot's sourceRef only if no other row holds it (it is unique)
+        const taken = await sql`SELECT 1 FROM project_photos WHERE source_ref = ${sourceRef}`;
+        if (taken.length) sourceRef = null;
+      }
+      const isConversion = typeof payload.contentHash === 'string' && payload.contentHash.length === 64;
+      const createdAt = isConversion && ['executive', 'it'].includes(claims.userType) && typeof payload.createdAt === 'string' && !Number.isNaN(Date.parse(payload.createdAt)) ? new Date(payload.createdAt).toISOString() : null;
+      const id = genId();
       const [imageKey, medKey] = await Promise.all([
         saveBlob(id, payload.imageBase64, by),
         saveBlob(id, payload.mediumBase64, by, '_med'),
       ]);
-      const reportId = payload.reportId != null ? String(payload.reportId).slice(0, 64) : null;
-      const fileName = payload.fileName ? String(payload.fileName).slice(0, 200) : null;
       try {
         const rows = await sql`
           INSERT INTO project_photos (
             id, project_id, project_nickname, taken_by_user_id, taken_by_name, user_type,
-            image_key, med_key, report_id, file_name, source, client_ref
+            image_key, med_key, report_id, file_name, source, client_ref, source_ref, caption, taken_at, created_at
           ) VALUES (
             ${id}, ${projectId}, ${payload.projectNickname || null}, ${claims.sub}, ${by}, ${claims.userType},
-            ${imageKey}, ${medKey}, ${reportId}, ${fileName}, 'daily_report', ${clientRef}
+            ${imageKey}, ${medKey}, ${reportId}, ${fileName}, 'daily_report', ${clientRef}, ${sourceRef}, ${caption}, ${takenAt},
+            COALESCE(${createdAt}::timestamptz, now())
           ) RETURNING *`;
         return json(200, { ok: true, photo: rowToPhoto(rows[0]) });
       } catch (e) {
@@ -184,11 +235,34 @@ export default async (request) => {
     if (action === 'removeFromReport') {
       const ids = (Array.isArray(payload.ids) ? payload.ids : []).map(String).filter(Boolean).slice(0, 500);
       if (!ids.length) return json(200, { ok: true, removed: 0 });
-      const rows = await sql`
-        UPDATE project_photos SET deleted_at = now()
-        WHERE id = ANY(${ids}) AND source = 'daily_report' AND deleted_at IS NULL
-        RETURNING id`;
+      // Only photos of the report being edited. (App versions before v23.13 don't say which
+      // report — they may only remove photos the caller uploaded.) A removal is a soft delete
+      // and the nightly run restores any photo a report still points at.
+      const reportId = payload.reportId != null && payload.reportId !== '' ? String(payload.reportId).slice(0, 64) : null;
+      const rows = reportId
+        ? await sql`
+            UPDATE project_photos SET deleted_at = now()
+            WHERE id = ANY(${ids}) AND source = 'daily_report' AND deleted_at IS NULL AND report_id = ${reportId}
+            RETURNING id`
+        : await sql`
+            UPDATE project_photos SET deleted_at = now()
+            WHERE id = ANY(${ids}) AND source = 'daily_report' AND deleted_at IS NULL AND taken_by_user_id = ${claims.sub}
+            RETURNING id`;
       return json(200, { ok: true, removed: rows.length });
+    }
+
+    if (action === 'setCaptions') {
+      const reportId = payload.reportId != null && payload.reportId !== '' ? String(payload.reportId).slice(0, 64) : null;
+      if (!reportId) return json(400, { error: 'reportId required' });
+      const items = (Array.isArray(payload.items) ? payload.items : []).filter(it => it && typeof it.id === 'string' && it.id).slice(0, 500);
+      if (!items.length) return json(200, { ok: true, updated: 0 });
+      const ids = items.map(it => it.id), caps = items.map(it => cleanCaption(it.caption));
+      const rows = await sql`
+        UPDATE project_photos p SET caption = NULLIF(v.caption, '')
+        FROM (SELECT unnest(${ids}::text[]) AS id, unnest(${caps}::text[]) AS caption) v
+        WHERE p.id = v.id AND p.source = 'daily_report' AND p.report_id = ${reportId}
+        RETURNING p.id`;
+      return json(200, { ok: true, updated: rows.length });
     }
 
     if (action === 'create') {

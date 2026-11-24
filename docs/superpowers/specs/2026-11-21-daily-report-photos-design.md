@@ -187,3 +187,23 @@ Known and accepted: `removeFromReport` is not scoped to a report (any project-ed
 soft-delete a report photo; it is restored nightly if a report still uses it). Two people editing
 the same report still overwrite each other's *text* — pre-existing, not addressed here.
 `storage.mjs` remains unauthenticated — pre-existing, separate work.
+
+## Addendum 2 — captions, time taken, converting old reports (v23.13)
+
+- **Caption** — optional, ≤ 200 characters, typed under the photo in the form. Lives on the
+  photo's entry in the report (`caption`); copied to `project_photos.caption` on save
+  (`setCaptions`, scoped to the report) so the gallery shows it. Printed under the photo in the PDF.
+- **Time taken** — the camera's EXIF `DateTimeOriginal`, read from the original file in the
+  browser before it is resized (`src/exif-date.mjs`), stored as `takenAt` (local wall clock).
+  No EXIF → the stamp reads "Uploaded …" from `uploadedAt`; photos from before this → the
+  report date, as before. `timestamp` (report date) is unchanged on every photo.
+- **Converting old reports** — run by an executive / IT user, one project at a time, from the
+  strip above that project's report list. Per report, all or nothing: every inline photo is
+  uploaded as its own photo (`createForReport` with `sourceRef`, which adopts the gallery
+  copy imported earlier instead of adding a second one); then the old map is copied to
+  `pcg_drbak_{id}_photos`, the report is saved with refs + `legacyConvertedAt`, and the old
+  map is emptied. A stale copy can't undo it: the flag is carried over on every save and
+  `storage.mjs` refuses to refill a converted report's photo map. Backups are dropped by the
+  nightly run 30 days later.
+- **Removal scope** — `removeFromReport` now only touches photos of the report named in the
+  request (older app versions: only the caller's own uploads).

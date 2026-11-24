@@ -6,7 +6,12 @@
 //   legacy — { data, name, timestamp }                     image inline as a base64 data URL;
 //            persisted together in the pcg_dr_{id}_photos blob (the "photo map").
 //   ref    — { photoId, fullKey, medKey, name, timestamp }  image lives in its own blobs
-//            (project_photos row); persisted inside the report blob itself.
+//            (project_photos row); persisted inside the report blob itself. Optional:
+//            caption (typed by the crew), takenAt (camera's own capture time, local
+//            'YYYY-MM-DDTHH:MM:SS'), uploadedAt (ISO instant the upload finished).
+// `timestamp` is the REPORT's date (noon) on every photo — kept for old code and sorting.
+// A report whose legacy photos were converted to refs carries `legacyConvertedAt`; from then
+// on its photo map is ignored (a stale copy must not bring the inline photos back).
 // While a form is open a photo may also carry transient fields (_status, _localId, _error,
 // and for refs a local `data` preview). Those never reach storage.
 
@@ -22,8 +27,33 @@ export const isPendingPhoto = (p) => !!(p && (p._status === 'uploading' || p._st
 export const isRealReportPhoto = (p) =>
   !!(p && !isRefPhoto(p) && !isPendingPhoto(p) && typeof p.data === 'string' && p.data.length > 32);
 
+export const MAX_CAPTION = 200;
+export const cleanCaption = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, MAX_CAPTION) : '');
+const LOCAL_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/;
+
 export function cleanRef(p) {
-  return { photoId: p.photoId, fullKey: p.fullKey, medKey: p.medKey, name: p.name, timestamp: p.timestamp };
+  const out = { photoId: p.photoId, fullKey: p.fullKey, medKey: p.medKey, name: p.name, timestamp: p.timestamp };
+  const caption = cleanCaption(p.caption);
+  if (caption) out.caption = caption;
+  if (typeof p.takenAt === 'string' && LOCAL_TIME.test(p.takenAt)) out.takenAt = p.takenAt;
+  if (typeof p.uploadedAt === 'string' && !Number.isNaN(Date.parse(p.uploadedAt))) out.uploadedAt = p.uploadedAt;
+  return out;
+}
+
+// The line printed on a photo: when it was really taken if the camera recorded that, else
+// when it was uploaded, else (older photos) just the report's date.
+const clock = (h, m) => `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+export function photoStampLabel(p) {
+  if (!p) return '';
+  const t = typeof p.takenAt === 'string' ? LOCAL_TIME.exec(p.takenAt) : null;
+  if (t) return `Taken ${t[2]}/${t[3]}/${t[1]} ${clock(Number(t[4]), Number(t[5]))}`;
+  const up = typeof p.uploadedAt === 'string' ? new Date(p.uploadedAt) : null;
+  if (up && !Number.isNaN(up.getTime())) {
+    const two = (n) => String(n).padStart(2, '0');
+    return `Uploaded ${two(up.getMonth() + 1)}/${two(up.getDate())}/${up.getFullYear()} ${clock(up.getHours(), up.getMinutes())}`;
+  }
+  const d = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(p.timestamp || ''));
+  return d ? `${d[2]}/${d[3]}/${d[1]}` : String(p.timestamp || '');
 }
 
 // → { slimReport, photoMap, hasReal }
@@ -40,7 +70,7 @@ export function splitReportForSave(report) {
     _pv: PHOTO_FORMAT_VERSION,
     workLogs: (rest.workLogs || []).map((w, i) => {
       const photos = w.photos || [];
-      const real = photos.filter(isRealReportPhoto);
+      const real = rest.legacyConvertedAt ? [] : photos.filter(isRealReportPhoto);
       if (real.length > 0) { photoMap[i] = real; hasReal = true; }
       return { ...w, photos: photos.filter(p => isRefPhoto(p) && !isPendingPhoto(p) && !gone.has(p.photoId)).map(cleanRef) };
     }),
@@ -52,6 +82,9 @@ export function splitReportForSave(report) {
 // position (used by the Project Gallery's "dr_<report>_<log>_<n>" source_ref) never shifts.
 export function mergeLoadedReport(report, photoMap) {
   if (!report) return report;
+  if (report.legacyConvertedAt) { // converted: refs only, whatever a leftover photo map says
+    return { ...report, workLogs: (report.workLogs || []).map(w => ({ ...w, photos: (w.photos || []).filter(isRefPhoto) })) };
+  }
   if (!photoMap || typeof photoMap !== 'object') return report;
   return {
     ...report,
@@ -84,7 +117,9 @@ export function reconcileReportRefs(incoming, existing) {
   const removed = new Set([...idList(existing?.removedPhotoIds), ...idList(incoming.removedPhotoIds)]);
   const oldLogs = Array.isArray(existing?.workLogs) ? existing.workLogs : [];
   const storedHasRefs = oldLogs.some(w => (w?.photos || []).some(isRefPhoto));
-  if (!storedHasRefs && removed.size === 0) return incoming;
+  // A copy from before the conversion must not un-convert the report.
+  const converted = incoming.legacyConvertedAt || existing?.legacyConvertedAt;
+  if (!storedHasRefs && removed.size === 0) return converted && !incoming.legacyConvertedAt ? { ...incoming, legacyConvertedAt: converted } : incoming;
 
   const logs = (Array.isArray(incoming.workLogs) ? incoming.workLogs : []).map(w => ({
     ...w,
@@ -100,7 +135,7 @@ export function reconcileReportRefs(incoming, existing) {
     target.photos = [...target.photos, ...carry];
     carry.forEach(p => have.add(p.photoId));
   });
-  return { ...incoming, workLogs: logs, removedPhotoIds: [...removed].slice(-MAX_TOMBSTONES) };
+  return { ...incoming, ...(converted ? { legacyConvertedAt: converted } : {}), workLogs: logs, removedPhotoIds: [...removed].slice(-MAX_TOMBSTONES) };
 }
 
 // Every photo id a report still points at (used by the nightly purge to never delete one).
@@ -138,4 +173,39 @@ export function countReportPhotos(report) {
     }
   }
   return out;
+}
+
+// ── Converting old reports (legacy inline photos → refs) ──────────────────────────────────
+// Needs converting: still has legacy photos (real, or placeholders in a stripped copy).
+export const needsLegacyConversion = (report) => !!report && !report.legacyConvertedAt && countReportPhotos(report).legacy > 0;
+
+// The legacy photos of a fully loaded report, with their position. `pi` is the photo's index
+// in its work log — the same number the Project Gallery used in "dr_<report>_<log>_<n>".
+export function legacyPhotoSlots(report) {
+  const out = [];
+  (report?.workLogs || []).forEach((w, wi) => (w.photos || []).forEach((p, pi) => {
+    if (isRealReportPhoto(p)) out.push({ wi, pi, photo: p, sourceRef: `dr_${report.id}_${wi}_${pi}` });
+  }));
+  return out;
+}
+
+// → the report with every legacy photo replaced by its uploaded ref (same order, still ahead
+//   of the photos added later), stamped legacyConvertedAt. `refs` = Map "wi:pi" → ref fields.
+//   Throws if a legacy photo has no ref — a half-converted report would lose that photo.
+export function applyConvertedRefs(report, refs, at) {
+  return {
+    ...report,
+    legacyConvertedAt: at,
+    workLogs: (report.workLogs || []).map((w, wi) => {
+      const converted = [], later = [];
+      (w.photos || []).forEach((p, pi) => {
+        if (isRefPhoto(p)) { later.push(p); return; }
+        if (!isRealReportPhoto(p)) return;
+        const ref = refs.get(`${wi}:${pi}`);
+        if (!ref || !ref.photoId) throw new Error(`Photo ${pi + 1} of work log ${wi + 1} was not uploaded`);
+        converted.push(cleanRef({ ...ref, name: p.name, timestamp: p.timestamp, caption: p.caption }));
+      });
+      return { ...w, photos: [...converted, ...later] };
+    }),
+  };
 }

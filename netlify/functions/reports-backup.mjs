@@ -136,6 +136,13 @@ export default async (request) => {
       } catch {}
     }
 
+    // v23.13 — a converted report's old inline photos are kept as pcg_drbak_<id>_photos for
+    // 30 days, then dropped (tried nightly for two weeks after that, then left alone).
+    for (const r of valid) {
+      const age = r.legacyConvertedAt ? (Date.now() - Date.parse(r.legacyConvertedAt)) / 86400000 : 0;
+      if (age > PURGE_AFTER_DAYS && age < PURGE_AFTER_DAYS + 14) await store.delete(`pcg_drbak_${r.id}_photos`).catch(() => {});
+    }
+
     const photos = await purgeDeletedPhotos(store, referencedPhotoIds(valid), valid.length === index.length);
 
     return new Response(

@@ -5,7 +5,7 @@
 
 **Live URL:** https://pcg-ops.netlify.app
 **Hosting:** Netlify (Pro plan) — bundled static SPA + serverless functions + Netlify Blobs + Neon Postgres
-**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.12**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
+**Version:** Single source of truth is the `APP_VERSION` constant in `app.jsx` (currently **v23.13**), rendered in both the sidebar footer and the Admin · System "Portal version / live build" field. **Increment on every code change.**
 
 ---
 
@@ -504,3 +504,10 @@ External API → Netlify Function (proxy/cron) → Netlify Blob / Neon → Front
     The PDF uses the 800px size; emailed reports are always a no-login link served by
     `report-pdf.mjs` (`?t=<64-hex token>`), never an attachment. Spec:
     `docs/superpowers/specs/2026-11-21-daily-report-photos-design.md`.
+    **v23.13:** a ref may also carry `caption`, `takenAt` (camera's EXIF capture time, read in
+    the browser BEFORE compression — `src/exif-date.mjs`; local wall clock, no timezone) and
+    `uploadedAt`; `photoStampLabel()` is the one place that turns those into the line printed
+    on a photo. Old reports are converted per project by an exec/IT-only strip above the report
+    list (`ReportPhotoConvert` → `convertLegacyReportPhotos`): a converted report carries
+    `legacyConvertedAt`, its photo map is ignored from then on (app, `storage.mjs` refuses to
+    refill it, backup), and the old inline copies sit in `pcg_drbak_{id}_photos` for 30 days.
