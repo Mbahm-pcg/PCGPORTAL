@@ -95,8 +95,17 @@ const titleOf = (r) => r.title || ROLE_LABEL[r.role] || 'Leader';
 const who = (r) => `${r.is_test ? 'TEST (not real): ' : ''}${r.name} (${titleOf(r)}${where(r) ? `, ${where(r)}` : ''})`;
 
 // ── detect ──
+// v23.28: test cases ("Send a test") clear themselves after 30 minutes — or now, from the screen.
+export async function clearTests(db, { all = false } = {}) {
+  await ensureTable(db);
+  const gone = all ? await db`DELETE FROM leader_terminations WHERE is_test RETURNING id`
+    : await db`DELETE FROM leader_terminations WHERE is_test AND detected_at < now() - interval '30 minutes' RETURNING id`;
+  return gone.length;
+}
+
 export async function detectLeaderTerminations(db) {
   await ensureTable(db);
+  await clearTests(db).catch(() => {});
   await refreshStoreList(STORES, ALL_STORES).catch(() => {});
   const cutoff = minusDays(todayET(), RECENT_DAYS);
   const found = [];

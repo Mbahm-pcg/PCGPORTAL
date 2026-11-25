@@ -1810,6 +1810,16 @@
         onClick: () => act("test", { action: "test" }, (b) => `Test sent to ${b.sent || 0} phone${b.sent === 1 ? "" : "s"}${b.emails ? ` and ${b.emails} email${b.emails === 1 ? "" : "s"}` : ""}. Reply YES or NO to the text to try it; nothing real is touched.`)
       },
       busy === "test" ? "Sending\u2026" : "Send a test"
+    ), rows.some((r) => r.isTest) && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "fin-btn",
+        disabled: busy === "clear",
+        style: { ...S.ghost, minHeight: 38, color: "#7c3aed", borderColor: "#7c3aed" },
+        onClick: () => act("clear", { action: "clearTests" }, (b) => `Removed ${b.removed} test case${b.removed === 1 ? "" : "s"}.`)
+      },
+      "Remove test cases"
     ), /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -32343,7 +32353,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.27";
+  var APP_VERSION = "v23.28";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

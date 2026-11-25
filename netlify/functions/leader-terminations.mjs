@@ -2,13 +2,14 @@
 //   GET  → { rows, live, canAdmin, canAnswer, canCheck, checklist }
 //   POST { action: 'live', enabled }        exec / IT: switch the texting on / off
 //   POST { action: 'test' }                 exec / IT: a fake case through the real texts + reply
+//   POST { action: 'clearTests' }           exec / IT: remove the test cases now (they also go after 30 min)
 //   POST { action: 'runNow' }               exec / IT: check Paycor now (and ask, if Live)
 //   POST { action: 'answer', id, answer }   someone on the ask list (or exec): YES / NO in the portal
 //   POST { action: 'check', id, item, done } IT list (or exec / IT): tick a checklist item
 //   POST { action: 'done', id }             mark the whole thing done
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { ensureTable, readList, liveOn, setLive, sendTest, detectLeaderTerminations, askWaiting, answer, CHECKLIST, ASK_KEY, IT_KEY, ROLE_LABEL } from './_shared/leader-terminations.mjs';
+import { ensureTable, readList, liveOn, setLive, sendTest, clearTests, detectLeaderTerminations, askWaiting, answer, CHECKLIST, ASK_KEY, IT_KEY, ROLE_LABEL } from './_shared/leader-terminations.mjs';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -49,6 +50,10 @@ export default async (request) => {
     if (body.action === 'test') {
       if (!isStaff) return json(403, { error: 'Only exec or IT can send a test.' });
       return json(200, { ok: true, ...(await sendTest(db, myName)) });
+    }
+    if (body.action === 'clearTests') {
+      if (!isStaff) return json(403, { error: 'Only exec or IT can do this.' });
+      return json(200, { ok: true, removed: await clearTests(db, { all: true }) });
     }
     if (body.action === 'runNow') {
       if (!isStaff) return json(403, { error: 'Only exec or IT can do this.' });
