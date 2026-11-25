@@ -112,19 +112,20 @@ export default async (request) => {
         for (const [k, val] of Object.entries(o)) if (!BLOCK.test(k)) flat(val, pre ? `${pre}.${k}` : k, out);
         return out;
       };
-      const st = storeOf(body.pc);
-      const end = todayET(), start = new Date(Date.parse(end + 'T12:00:00Z') - 7 * 864e5).toISOString().slice(0, 10);
+      // v23.30 fix: in parallel, 8 s each, no whole-store read (that took 33 s → HTTP 504).
+      const end = todayET(), start = new Date(Date.parse(end + 'T12:00:00Z') - 14 * 864e5).toISOString().slice(0, 10);
+      const { callPaycor } = await import('./paycor.mjs');
+      const capped = (path) => Promise.race([callPaycor(path), new Promise((_, rej) => setTimeout(() => rej(new Error('Paycor took over 8 s')), 8000))]);
       const live = {};
-      for (const [label, path] of [['employee', `/employees/${emp.id}?include=All`], ['ownPunches', `/employees/${emp.id}/punches?startDate=${start}&endDate=${end}`],
-        ['storePunches', `/legalentities/${st?.paycor}/punches?startDate=${start}&endDate=${end}`]]) {
+      await Promise.all([['employee', `/employees/${emp.id}?include=All`], ['punches', `/employees/${emp.id}/punches?startDate=${start}&endDate=${end}`],
+        ['timecard', `/employees/${emp.id}/employeePunches?startDate=${start}&endDate=${end}`]].map(async ([label, path]) => {
         try {
-          const res = await (await import('./paycor.mjs')).callPaycor(path);
+          const res = await capped(path);
           let d = res.data;
-          if (label === 'storePunches') { const recs = d?.records || (Array.isArray(d) ? d : []); const last = (emp.name.split(' ').pop() || '').toLowerCase(); d = recs.filter(p => JSON.stringify(p).toLowerCase().includes(last)).slice(0, 2); }
-          else if (label === 'ownPunches') d = (d?.records || (Array.isArray(d) ? d : [])).slice(0, 2);
+          if (label !== 'employee') d = (d?.records || (Array.isArray(d) ? d : [])).slice(0, 2);
           live[label] = { status: res.status, fields: flat(d) };
         } catch (e) { live[label] = { error: e.message }; }
-      }
+      }));
       return json(200, { employee: emp.name, rosterId: emp.id, typed: String(body.badge || ''), sync, syncByName, directory: dir, directoryByName: dirByName, live });
     }
     if (body.action === 'invite') {
