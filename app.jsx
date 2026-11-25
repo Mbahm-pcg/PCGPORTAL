@@ -8581,16 +8581,19 @@ async function cloudLoadOrThrow(key) {
   const j = await res.json();
   return j.data;
 }
+// v23.26: says whether it worked (and, for a report, whether the delete was recorded for every device).
 async function cloudDelete(key, { tombstone = false } = {}) {
   try {
-    await fetch('/.netlify/functions/storage', {
+    const res = await fetch('/.netlify/functions/storage', {
       method: 'POST',
       // the sign-in is only sent (and only needed) when recording a report as deleted
       ...(tombstone ? { credentials: 'include' } : {}),
       headers: { 'Content-Type': 'application/json', ...(tombstone ? authHeader() : {}) },
       body: JSON.stringify({ action: 'delete', key, ...(tombstone ? { tombstone: true } : {}) }),
     });
-  } catch {}
+    const b = await res.json().catch(() => ({}));
+    return res.ok && (!tombstone || b.tombstoned !== false);
+  } catch { return false; }
 }
 
 // ─── SyncStatus indicator ─────────────────────────────────────────
@@ -15443,7 +15446,8 @@ function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user
     const r = dailyReports.find(x => x.id === id);
     const n = countReportPhotos(r).total;
     if (!window.confirm(`Delete the daily report${r?.date ? ` for ${r.date}` : ''}${n ? ` and its ${n} photo${n === 1 ? '' : 's'}` : ''}? This removes it for everyone and cannot be undone.`)) return;
-    cloudDelete(drKey(id), { tombstone: true }); setDailyReports(prev => prev.filter(r => r.id !== id)); showAlert("success", "Report deleted"); };
+    cloudDelete(drKey(id), { tombstone: true }).then(ok => { if (!ok) showAlert("error", "Removed here, but the server didn't record the delete, so it may come back on other devices. Try deleting it again, or tell IT."); });
+    setDailyReports(prev => prev.filter(r => r.id !== id)); showAlert("success", "Report deleted"); };
 
   const updateWeather = (idx, field, val) => {
     setRForm(f => ({ ...f, weather: f.weather.map((w,i) => i === idx ? { ...w, [field]: val } : w) }));
@@ -32972,7 +32976,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.25";
+const APP_VERSION = "v23.26";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -56632,10 +56636,12 @@ function PCGPortal() {
   useEffect(() => {
     (async () => {
       try {
-        const [index, legacy] = await Promise.all([
+        const [index, legacy, delRec] = await Promise.all([
           cloudLoad(DR_INDEX_KEY),
           cloudLoad('pcg_daily_reports_v1'),
+          cloudLoad(REPORT_DELETED_KEY).catch(() => null),
         ]);
+        const gone = deletedIds(delRec); // v23.26: never revive a report someone deleted
         cloudDailyReportsLoaded.current = true;
 
         const loadedMap = new Map();
@@ -56655,7 +56661,7 @@ function PCGPortal() {
         //    so we only use it for IDs we couldn't get from per-report storage.
         if (legacy && Array.isArray(legacy) && legacy.length > 0) {
           for (const r of legacy) {
-            if (r && r.id != null && !loadedMap.has(r.id)) {
+            if (r && r.id != null && !loadedMap.has(r.id) && !gone.has(String(r.id))) {
               loadedMap.set(r.id, r);
               console.warn('[daily-reports] recovered report', r.id, 'from legacy backup');
             }

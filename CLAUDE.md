@@ -267,7 +267,8 @@ npx netlify status           # Check auth + site link
 | `minor-timecard-detect-cron-background` | `0 10 * * 0` | Sun 6am ET; log-only until `MINOR_TIMECARD_LIVE` is set; PA under-18 break violations for the closed week |
 | `minor-timecard-followup-cron` | `30 11 * * *` | 7:30am ET daily re-check/escalation; **90 min after detect on purpose** — both write `pcg_minor_timecard_issues_v1` |
 | `reports-backup` | `59 4 * * *` | nightly rolling 7-day backup |
-| `pay-increase-reminder-cron` | `*/15 * * * *` | Pay Increase forms still pending approval: re-email + re-text the approver (Admin · Notifications · Pay Increase approval) every 3 h, 8am–9pm ET only |
+| `pay-increase-reminder-cron` | `*/15 * * * *` | 3-hour reminders, 8am–9pm ET, for anything waiting on an approver: Pay Rate Change (approval + office step), Violation Notice, Missing Hours, Transfer Notice and Time Off Request (v23.22) |
+| `pay-rate-queue-cron` | `*/15 * * * *` (inline `config`, 7am–9pm ET) | Pay Rate Change → Paycor: on a raise's effective date reads Paycor (read-only) and tells Admin · Notifications · Pay Increase Paycor update "starts today" / "check Paycor"; also sends anything left `queued`. Writes to Paycor only through `pushPayRate`, and only while exec/IT's "Update Paycor" switch (`pcg_payrate_write_v1`) is on |
 | `joy-cron-background` | `7 * * * *` | Joy in Childhood leaderboard: pulls each store's $1 donations (Pulse service charge #1010, `getServiceChargeDailyTotals`) for today + yesterday + missing days of a rolling 100-day window into `pcg_joy_daily_v1`; read by `joy.mjs` (scoped by role) for the dashboard / phone cards |
 | `kb-sync-background` | `0 10 * * 1` | Mon weekly Drive KB sync |
 | `reconciliation-cron` | `1 4 * * 0,2` | Sun snapshot / Tue compare |

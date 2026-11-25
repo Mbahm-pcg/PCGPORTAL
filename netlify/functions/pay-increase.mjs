@@ -24,6 +24,8 @@ import { getStore } from '@netlify/blobs';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { cleanRates, currentRate, compareToForm, buildNewRate, canMoveEffective, isDueNow, paycorNoticeText, alreadyScheduled, payOf } from '../../src/pay-rate-paycor.mjs';
 import { callPaycor } from './paycor.mjs';
+// v23.26 (review): the shared helpers instead of copies (escaping, dates, the bell).
+import { esc, usDay, etNow, bell as sharedBell } from './_shared/form-approval.mjs';
 import { createHash } from 'node:crypto';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
@@ -66,13 +68,7 @@ async function approvers(db) {
 }
 
 async function bell(b, ids, message, tag) {
-  if (!ids.length) return;
-  try {
-    const cur = await b.get('pcg_notifications_v1', { type: 'json' });
-    const arr = Array.isArray(cur) ? cur : (cur?.data || []);
-    const entry = { id: `payinc_${tag}_${Date.now()}`, type: 'pay_increase', message, onlyFor: ids.map(String), read: false, createdAt: new Date().toISOString() };
-    await b.setJSON('pcg_notifications_v1', { savedAt: new Date().toISOString(), data: [entry, ...arr].slice(0, 500) });
-  } catch (e) { console.warn('[pay-increase] bell write failed', e.message); }
+  return sharedBell(ids, message, tag, 'pay_increase');
 }
 
 // v23.1: the people who do the office step: named on the "Pay Rate Change office step" list; nobody
@@ -82,7 +78,8 @@ async function officeDoers() {
   const l = await readList(OFFICE_STEP_KEY);
   if (l.ids.length) return l;
   const o = await readList(OFFICE_KEY);
-  return { ids: o.ids, emails: [], phones: [], fallback: true };
+  // v23.26 (review): with their emails / numbers, or the 3-hour reminders reached nobody.
+  return { ids: o.ids, emails: o.emails, phones: o.phones, fallback: true };
 }
 
 // Email + text (no link) + push + bell to the office-step people about one approved form; every 3
@@ -97,6 +94,13 @@ export async function notifyOfficeStep(db, row, { reminder = false } = {}) {
   const line = reminder ? `The pay rate change for ${who} approved by ${row.decided_by_name || 'Mike'} is still waiting for the effective date (${waited} h).`
     : `${row.decided_by_name || 'Mike'} approved the pay rate change for ${who}. It needs the effective date, paycheck date and your signature.`;
   const b = blobs();
+  // v23.26 (review): nobody named on the office-step list → the office list does it. Its people
+  // already got the approval email / text / push / bell (alertOffice), so the FIRST notice isn't
+  // repeated to them — only the 3-hour reminders go out.
+  if (d.fallback && !reminder) {
+    await db`UPDATE pay_increase_forms SET office_reminded_at = now() WHERE id = ${row.id}`;
+    return new Set([...d.ids, ...d.emails, ...d.phones]).size;
+  }
   await Promise.all([
     d.emails.length ? sendHtmlEmail(d.emails, title, `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>${esc(line)}</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Open it</a></p>
@@ -158,9 +162,8 @@ export async function notifyApprovers(db, row, { reminder = false } = {}) {
   return new Set([...appr.ids, ...appr.emails, ...appr.phones]).size;
 }
 
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const usDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || ''); };
-const usDateTime = (d) => d.toLocaleString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(',', '') + ' ET';
+const usDate = usDay;
+const usDateTime = etNow;
 
 // v23.0: the office's entries in the "For Office Use Only" box — the template's right-hand cells
 // (src/pay-increase-pdf.mjs: centred at x 423.5; baselines 564.7 / 584.2; signature resting on 608).
@@ -189,6 +192,12 @@ async function payrateSwitchOn() {
 }
 const todayET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 const formOf = (r) => ({ payBasis: r.pay_basis || 'hour', currentRate: Number(r.current_rate), newRate: Number(r.new_rate), effectiveDate: r.effective_date });
+// The rate this form put in Paycor: starts on the form's effective date with the form's new pay.
+function scheduledRateId(records, r) {
+  const eff = String(r.effective_date || '').slice(0, 10);
+  const hit = cleanRates(records).find(x => x.effectiveStartDate === eff && Math.abs(Number(payOf(x, r.pay_basis || 'hour')) - Number(r.new_rate)) <= 0.004);
+  return hit?.id || null;
+}
 async function pushPayRate(db, r) {
   const set = async (status, error, rateId) => {
     await db`UPDATE pay_increase_forms SET paycor_rate_status = ${status}, paycor_rate_error = ${error ? String(error).slice(0, 500) : null},
@@ -201,16 +210,23 @@ async function pushPayRate(db, r) {
     if (res.status !== 200) return await set('failed', `Paycor pay rates ${res.status}`);
     const records = res.data?.records || res.data || [];
     // v23.11: the new rate already waiting in Paycor on the effective date → never write it twice.
-    if (alreadyScheduled(records, formOf(r))) return await set('sent', null, cleanRates(records).find(x => x.effectiveStartDate === String(r.effective_date).slice(0, 10))?.id);
+    if (alreadyScheduled(records, formOf(r))) return await set('sent', null, scheduledRateId(records, r));
     const cur = currentRate(records, todayET());
     const state = compareToForm(cur, formOf(r));
-    if (state === 'already') return await set('sent', null, cur?.id);
+    // v23.26 (review): NOT cur.id — that's the rate in force today (entered by hand), and a later
+    // effective-date move would have pushed IT into the future.
+    if (state === 'already') return await set('sent', null, null);
     if (state === 'none') return await set('failed', 'Paycor has no pay rate for this employee');
     if (state === 'mismatch') return await set('mismatch', `Paycor shows ${cur?.payRate ?? cur?.annualPayRate} now, not the form's ${r.current_rate}; check it in Paycor`);
     const payload = buildNewRate(cur, formOf(r), { formId: r.id, approvedBy: r.decided_by_name });
     const post = await callPaycor(`/employees/${r.employee_id}/payrates`, 'POST', payload);
     if (post.status < 200 || post.status >= 300) return await set('failed', post.data?.Detail || post.data?.detail || post.data?.title || `Paycor said ${post.status}`);
-    return await set('sent', null, post.data?.id || post.data?.payRateId || null);
+    let newId = post.data?.id || post.data?.payRateId || null;
+    if (!newId) { // Paycor didn't say — look it up, so a later date move can find it
+      const again = await callPaycor(`/employees/${r.employee_id}/payrates`).catch(() => null);
+      if (again?.status === 200) newId = scheduledRateId(again.data?.records || again.data || [], r);
+    }
+    return await set('sent', null, newId);
   } catch (e) {
     console.error('[pay-increase] paycor pay rate', r.id, e.message);
     return await set('failed', e.message);
@@ -333,28 +349,12 @@ export async function restampDates(pdfBuf, effectiveDate, paycheckDate, note) {
 const rowValues = (r) => ({ payBasis: r.pay_basis || 'hour', employeeName: r.employee_name, position: r.position, pc: r.pc, currentRate: Number(r.current_rate), newRate: Number(r.new_rate), reason: r.reason, date: r.form_date, signer: r.signer,
   smName: r.sm_name || '', dmName: r.dm_name || '', secondLabel: r.second_label || '' });
 
-export default async (request) => {
-  const db = sql();
-  const authed = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db);
-  if (!authed) return json(401, { error: 'unauthorized' });
-  const realType = authed.realUserType || authed.userType;
-  // v23.3: permanently closed stores (Locations) are left out of every list here — Willits' Paycor
-  // company is shut, and asking it for a roster returned 403 (2026-11-23).
-  await refreshStoreList(STORES, ALL_STORES);
-  const me = (await db`SELECT id, name, username, store_pc FROM users WHERE id = ${authed.sub}`)[0] || {};
-  const myName = me.name || authed.name || authed.username || '';
-
-  // Stores this person may make a form for (null = all).
-  let allowed;
-  if (realType === 'executive' || realType === 'it') allowed = null;
-  else if (realType === 'dm' || realType === 'director') {
-    await syncDistricts(STORES, ALL_STORES);
-    const ds = claimDistricts(authed);
-    allowed = new Set(STORES.filter(s => ds.includes(String(s.district))).map(s => String(s.pc)));
-  } else if (realType === 'manager') allowed = new Set(me.store_pc ? [String(me.store_pc)] : []);
-  else allowed = new Set();
-  const inScope = (pc) => !!storeOf(pc) && (!allowed || allowed.has(String(pc)));
-
+// v23.26 (review): once per function instance, not on every request (~16 DDL statements each time before).
+let payFormsReady = null;
+function ensurePayForms(db) {
+  return (payFormsReady ||= createPayForms(db).catch(e => { payFormsReady = null; throw e; }));
+}
+async function createPayForms(db) {
   await db`CREATE TABLE IF NOT EXISTS pay_increase_forms (
     id serial PRIMARY KEY, form_key text UNIQUE NOT NULL, pc text, employee_id text, employee_name text, position text,
     current_rate numeric, new_rate numeric, reason text, form_date text, submitted_by integer, submitted_by_name text,
@@ -388,6 +388,31 @@ export default async (request) => {
   // v23.9 the raise into Paycor: 'sent' | 'failed' | 'mismatch' | NULL (not tried), + effective-date moves.
   await ensurePayRateColumns(db); // + v23.10 queue columns
   await db`ALTER TABLE pay_increase_forms ADD COLUMN IF NOT EXISTS effective_changes jsonb`;
+}
+
+export default async (request) => {
+  const db = sql();
+  const authed = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db);
+  if (!authed) return json(401, { error: 'unauthorized' });
+  const realType = authed.realUserType || authed.userType;
+  // v23.3: permanently closed stores (Locations) are left out of every list here — Willits' Paycor
+  // company is shut, and asking it for a roster returned 403 (2026-11-23).
+  await refreshStoreList(STORES, ALL_STORES);
+  const me = (await db`SELECT id, name, username, store_pc FROM users WHERE id = ${authed.sub}`)[0] || {};
+  const myName = me.name || authed.name || authed.username || '';
+
+  // Stores this person may make a form for (null = all).
+  let allowed;
+  if (realType === 'executive' || realType === 'it') allowed = null;
+  else if (realType === 'dm' || realType === 'director') {
+    await syncDistricts(STORES, ALL_STORES);
+    const ds = claimDistricts(authed);
+    allowed = new Set(STORES.filter(s => ds.includes(String(s.district))).map(s => String(s.pc)));
+  } else if (realType === 'manager') allowed = new Set(me.store_pc ? [String(me.store_pc)] : []);
+  else allowed = new Set();
+  const inScope = (pc) => !!storeOf(pc) && (!allowed || allowed.has(String(pc)));
+
+  await ensurePayForms(db); // v23.26 (review): the table set-up runs once per function instance
 
   const appr = await approvers(db);
   const canApprove = appr.ids.includes(String(authed.sub));
@@ -579,24 +604,39 @@ export default async (request) => {
       if (r.paycor_rate_status === 'sending') return json(409, { error: 'It is being sent to Paycor right now. Try again in a minute.' });
       if (!canMoveEffective(r.effective_date, todayET())) return json(409, { error: `This pay rate change already took effect on ${usDate(r.effective_date)}. Paycor may already have paid at the new rate, so change it in Paycor directly.` });
       if (body.effectiveDate <= todayET()) return json(400, { error: 'The new effective date has to be after today.' });
-      // Paycor first (if the raise was already written there): move that rate's start date.
+      // v23.26 (review): claim the row first ('sending'), so "Update pay in Paycor" or the queue can't
+      // send it at the old date while this moves it; the status is put back when this is done.
+      const before = r.paycor_rate_status || null;
+      const claimed = (await db`UPDATE pay_increase_forms SET paycor_rate_status = 'sending', paycor_rate_at = now()
+        WHERE id = ${r.id} AND effective_date = ${r.effective_date} AND paycor_rate_status IS NOT DISTINCT FROM ${before} RETURNING id`)[0];
+      if (!claimed) return json(409, { error: 'Someone else just changed this. Reload and try again.' });
+      const release = () => db`UPDATE pay_increase_forms SET paycor_rate_status = ${before} WHERE id = ${r.id} AND paycor_rate_status = 'sending'`;
+      // Paycor first (if the new pay was already written there): move THAT rate's start date — the
+      // one starting on the old effective date with the new pay, never the rate in force today.
       let paycor = null;
-      if (r.paycor_rate_status === 'sent' && r.paycor_rate_id) {
+      if (before === 'sent') {
         try {
           const res = await callPaycor(`/employees/${r.employee_id}/payrates`);
-          const rec = (res.data?.records || res.data || []).find(x => String(x.id || x.payRateId) === String(r.paycor_rate_id));
-          if (!rec) paycor = { status: 'failed', error: 'The rate written earlier is no longer in Paycor' };
+          const records = res.status === 200 ? (res.data?.records || res.data || []) : null;
+          if (!records) paycor = { status: 'failed', error: `Paycor pay rates ${res.status}` };
           else {
-            const put = await callPaycor(`/employees/${r.employee_id}/payrates/${r.paycor_rate_id}`, 'PUT', { ...rec, effectiveStartDate: `${body.effectiveDate}T00:00:00` });
-            paycor = put.status >= 200 && put.status < 300 ? { status: 'sent' } : { status: 'failed', error: put.data?.Detail || put.data?.title || `Paycor said ${put.status}` };
+            const id = scheduledRateId(records, r) || null;
+            const rec = id && records.find(x => String(x.id || x.payRateId) === String(id));
+            if (!rec) paycor = { status: 'failed', error: `there's no rate in Paycor starting ${usDate(r.effective_date)} at the new pay (it may have been entered or changed by hand)` };
+            else {
+              const put = await callPaycor(`/employees/${r.employee_id}/payrates/${id}`, 'PUT', { ...rec, effectiveStartDate: `${body.effectiveDate}T00:00:00` });
+              paycor = put.status >= 200 && put.status < 300 ? { status: 'sent', id } : { status: 'failed', error: put.data?.Detail || put.data?.title || `Paycor said ${put.status}` };
+            }
           }
         } catch (e) { paycor = { status: 'failed', error: e.message }; }
-        if (paycor.status !== 'sent') return json(502, { error: `Paycor did not accept the new date (${paycor.error}). Nothing was changed.` });
+        if (paycor.status !== 'sent') { await release(); return json(502, { error: `Paycor did not take the new date: ${paycor.error}. Nothing was changed; change it in Paycor directly.` }); }
+        await db`UPDATE pay_increase_forms SET paycor_rate_id = ${paycor.id} WHERE id = ${r.id}`;
       }
       const change = { from: r.effective_date, to: body.effectiveDate, paycheckFrom: r.paycheck_date, paycheckTo: body.paycheckDate, by: myName, at: new Date().toISOString(), reason };
       const pdf = await restampDates(Buffer.from(r.pdf), body.effectiveDate, body.paycheckDate,
         `Effective date changed from ${usDate(r.effective_date)} to ${usDate(body.effectiveDate)} by ${myName} on ${usDateTime(new Date())}: ${reason}`);
       const upd = (await db`UPDATE pay_increase_forms SET pdf = ${pdf}, effective_date = ${body.effectiveDate}, paycheck_date = ${body.paycheckDate},
+          paycor_rate_status = ${before},
           effective_changes = COALESCE(effective_changes, '[]'::jsonb) || ${JSON.stringify([change])}::jsonb WHERE id = ${r.id} RETURNING *`)[0];
       const store = storeOf(upd.pc);
       const fileName = payFileName(rowValues(upd), store?.name).replace(/\.pdf$/, ` (revised ${usDate(body.effectiveDate).replace(/\//g, '-')}).pdf`);

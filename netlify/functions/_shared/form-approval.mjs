@@ -13,6 +13,7 @@ export const PORTAL = 'https://uop.peoplecapitalgroup.com';
 const PAY_APPROVERS_KEY = 'pcg_pay_increase_approvers_v1';
 const blobs = () => getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
 export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+export const usDay = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || ''); };
 export const etNow = (d = new Date()) => d.toLocaleString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(',', '') + ' ET';
 
 async function readList(key) {
@@ -31,6 +32,29 @@ export async function formApprovers(db, key) {
   if (pay.ids.length) return { ...pay, source: 'pay' };
   const execs = await db`SELECT id, email, phone FROM users WHERE active IS NOT FALSE AND user_type = 'executive'`;
   return { ids: execs.map(e => String(e.id)), emails: execs.map(e => e.email).filter(Boolean), phones: execs.map(e => e.phone).filter(Boolean), source: 'exec' };
+}
+
+// v23.26 (review): nobody approves their own request. For one sent by `submitterId`, they're left
+// out; if that leaves no one, the OTHER executives approve it. Their own email / number are dropped too.
+const digits = (x) => String(x || '').replace(/\D/g, '').slice(-10);
+export async function approversFor(db, key, submitterId) {
+  const appr = await formApprovers(db, key);
+  const me = String(submitterId ?? '');
+  if (!me) return appr;
+  const self = (await db`SELECT email, phone FROM users WHERE id = ${Number(me) || -1}`.catch(() => []))[0] || {};
+  const notMe = (x) => ({ ...x, ids: x.ids.filter(id => id !== me), emails: x.emails.filter(e => !self.email || String(e).toLowerCase() !== String(self.email).toLowerCase()), phones: x.phones.filter(ph => !self.phone || digits(ph) !== digits(self.phone)) });
+  const rest = notMe(appr);
+  if (rest.ids.length) return rest;
+  const execs = await db`SELECT id, email, phone FROM users WHERE active IS NOT FALSE AND user_type = 'executive' AND id <> ${Number(me) || -1}`;
+  return { ids: execs.map(e => String(e.id)), emails: execs.map(e => e.email).filter(Boolean), phones: execs.map(e => e.phone).filter(Boolean), source: 'other-exec' };
+}
+// May this person decide this request? (cheap: the list + who sent it, the executives only if needed)
+export async function mayDecide(db, appr, submitterId, userId) {
+  const me = String(userId ?? ''), sub = String(submitterId ?? '');
+  if (!me || me === sub) return false;
+  if (appr.ids.includes(me)) return true;
+  if (appr.ids.some(id => id !== sub)) return false;
+  return (await db`SELECT 1 FROM users WHERE id = ${Number(me) || -1} AND user_type = 'executive' AND active IS NOT FALSE`).length > 0;
 }
 
 export async function approverNames(db, appr) {
@@ -53,8 +77,8 @@ export async function bell(ids, message, tag, type) {
 const button = (link, label) => `<p><a href="${esc(link)}" style="display:inline-block;background:#FF671F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">${esc(label)}</a></p>`;
 
 // The approvers: a new one waiting (or a reminder). Returns how many people/addresses were reached.
-export async function notifyFormApprovers(db, key, { title, line, link, pushTag, type, where, reminder = false, waitedHours = 0 }) {
-  const appr = await formApprovers(db, key);
+export async function notifyFormApprovers(db, key, { title, line, link, pushTag, type, where, reminder = false, waitedHours = 0, submitterId = null }) {
+  const appr = await approversFor(db, key, submitterId);
   const t = reminder ? `Reminder: ${title} (waiting ${waitedHours} h)` : title;
   const l = reminder ? `Still waiting for your approval (${waitedHours} h): ${line}` : line;
   const b = blobs();

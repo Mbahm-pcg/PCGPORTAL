@@ -25,7 +25,7 @@ import { callPaycor } from './paycor.mjs';
 import { pickCurrentPayRate, readEmploymentType, missingTransferFields, letterFingerprint, transferFileName, transferAlertText, transferEmailHtml } from '../../src/transfer-notice.mjs';
 import { buildFolderFindQuery, buildFolderCreateParams, buildTaggedUploadParams, buildTaggedFileQuery } from '../../src/incident-report-drive.mjs';
 import { sendSms, sendPush } from './_shared/channels.mjs';
-import { PORTAL, formApprovers, approverNames, notifyFormApprovers, tellPerson, stampApproval, approverTitle, etNow } from './_shared/form-approval.mjs';
+import { PORTAL, formApprovers, approversFor, mayDecide, approverNames, notifyFormApprovers, tellPerson, stampApproval, approverTitle, etNow, usDay } from './_shared/form-approval.mjs';
 import { google } from 'googleapis';
 import { Readable } from 'node:stream';
 import { createHash } from 'node:crypto';
@@ -171,7 +171,12 @@ async function sendAlerts(v, fromName, toName, submittedBy, driveLink, fileName,
 // Change approver) is told. Approving stamps the PDF, files it in Drive and alerts the Transfer
 // Notice list exactly as before. status NULL = filed before the approval step existed.
 const APPROVERS_KEY = 'pcg_transfer_approvers_v1';
-async function ensureTable(db) {
+// v23.26 (review): once per function instance, not on every request (each employee search paid for 9 DDL statements).
+let tableReady = null;
+function ensureTable(db) {
+  return (tableReady ||= createTable(db).catch(e => { tableReady = null; throw e; }));
+}
+async function createTable(db) {
   await db`CREATE TABLE IF NOT EXISTS transfer_notices (
     id serial PRIMARY KEY, notice_key text UNIQUE NOT NULL, employee_name text, employee_id text,
     from_pc text, to_pc text, from_title text, to_title text, employment_type text, effective_date text,
@@ -187,12 +192,12 @@ async function ensureTable(db) {
   await db`ALTER TABLE transfer_notices ADD COLUMN IF NOT EXISTS reminded_at timestamptz`;
 }
 const storeName = (pc) => STORES.find(s => String(s.pc) === String(pc))?.name || `PC ${pc}`;
-const usDay = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || ''); };
 const summary = (r) => `${r.employee_name}: ${storeName(r.from_pc)} to ${storeName(r.to_pc)}${r.to_title ? ` as ${r.to_title}` : ''}, effective ${usDay(r.effective_date)}`;
 
 export async function notifyTransferApprovers(db, row, { reminder = false } = {}) {
   const waited = Math.max(1, Math.round((Date.now() - Date.parse(row.created_at)) / 3600e3));
   const n = await notifyFormApprovers(db, APPROVERS_KEY, {
+    submitterId: row.submitted_by,
     title: `Transfer notice to approve: ${row.employee_name}`,
     line: `${row.submitted_by_name || 'A manager'} sent a transfer notice for approval. ${summary(row)}.`,
     link: `${PORTAL}/?transfer=${row.id}`, pushTag: `transfer-${row.id}`, type: 'transfer_notice', where: 'Tools > Transfer Notice', reminder, waitedHours: waited,
@@ -219,8 +224,7 @@ async function submitNotice(body, db, authed, allowed) {
     VALUES (${key}, 'pending', ${pdf}, ${JSON.stringify(v)}, ${v.employeeName}, ${body.employeeId || null}, ${String(from.pc)}, ${String(to.pc)}, ${v.fromTitle}, ${v.toTitle}, ${v.employmentType}, ${v.effectiveDate}, ${Number(v.hourlyWage) || null}, ${v.dmName}, ${Number(authed.sub) || null}, ${submittedBy})
     ON CONFLICT (notice_key) DO NOTHING RETURNING id`;
   const row = (await db`SELECT * FROM transfer_notices WHERE notice_key = ${key}`)[0];
-  const appr = await formApprovers(db, APPROVERS_KEY);
-  const names = await approverNames(db, appr);
+  const names = await approverNames(db, await approversFor(db, APPROVERS_KEY, authed.sub));
   // The same signed letter sent twice never asks twice; one sent back can be sent again.
   const resent = row.status === 'rejected' && (await db`UPDATE transfer_notices SET status = 'pending', decided_by = NULL, decided_by_name = NULL, decided_at = NULL, decision_note = NULL, created_at = now()
     WHERE id = ${row.id} AND status = 'rejected' RETURNING id`).length > 0;
@@ -231,10 +235,11 @@ async function submitNotice(body, db, authed, allowed) {
 }
 
 // Approve → stamp, Drive, the Transfer Notice alert list, the maker told. Reject → the maker told why.
-async function decideNotice(body, db, authed, me) {
+async function decideNotice(body, db, authed, me, appr) {
   const real = authed.realUserType || authed.userType;
   const r = (await db`SELECT * FROM transfer_notices WHERE id = ${Number(body.id)}`)[0];
   if (!r) return json(404, { error: 'Not found' });
+  if (!(await mayDecide(db, appr, r.submitted_by, authed.sub))) return json(403, { error: String(r.submitted_by) === String(authed.sub) ? 'You sent this one, so someone else has to approve it.' : 'Only the transfer notice approver can do this.' });
   const myName = me.name || authed.name || authed.username || '';
   if (body.action === 'reject') {
     const note = String(body.note || '').trim().slice(0, 400);
@@ -245,21 +250,25 @@ async function decideNotice(body, db, authed, me) {
     await tellPerson(db, upd.submitted_by, { title: `Transfer notice sent back: ${upd.employee_name}`, line: `${myName} sent back the transfer notice for ${summary(upd)}. Why: ${note}. Fix it and send it again in Tools > Transfer Notice.`, pushTag: `transfer-${upd.id}`, type: 'transfer_notice', path: `/?transfer=${upd.id}` });
     return json(200, { ok: true });
   }
-  const upd = (await db`UPDATE transfer_notices SET status = 'approved', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
+  // v23.26 (review): an approved notice whose Drive save / office alert failed can be filed again.
+  const refile = r.status === 'approved' && (!r.drive_file_id || !r.alerted_at);
+  const upd = refile ? r : (await db`UPDATE transfer_notices SET status = 'approved', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
     WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
   if (!upd) return json(409, { error: 'This one was already decided — reload.' });
-  const title = approverTitle(real, me.username || authed.username);
   let pdf = Buffer.from(upd.pdf);
-  try {
-    pdf = await stampApproval(pdf, `Approved by ${myName}${title ? `, ${title}` : ''}, on ${etNow()} in the PCG Portal.`);
-    await db`UPDATE transfer_notices SET pdf = ${pdf} WHERE id = ${upd.id}`;
-  } catch (e) { console.error('[transfer-notice] stamp', e.message); }
+  if (!refile) {
+    const title = approverTitle(real, me.username || authed.username);
+    try {
+      pdf = await stampApproval(pdf, `Approved by ${myName}${title ? `, ${title}` : ''}, on ${etNow()} in the PCG Portal.`);
+      await db`UPDATE transfer_notices SET pdf = ${pdf} WHERE id = ${upd.id}`;
+    } catch (e) { console.error('[transfer-notice] stamp', e.message); }
+  }
   const v = upd.form_values || {};
   const from = STORES.find(s => String(s.pc) === String(upd.from_pc)) || { name: storeName(upd.from_pc) };
   const to = STORES.find(s => String(s.pc) === String(upd.to_pc)) || { name: storeName(upd.to_pc) };
   const fileName = transferFileName(v, from.name, to.name);
-  let drive = { saved: false, link: '', error: null };
-  try {
+  let drive = { saved: !!upd.drive_file_id, link: upd.drive_link || '', error: null };
+  if (!drive.saved) try {
     const f = await saveToDrive(pdf, [to.name, upd.employee_name], fileName, `transfer:${upd.notice_key}`);
     drive = { saved: true, link: f.webViewLink || '', error: null };
     await db`UPDATE transfer_notices SET drive_file_id = ${f.id}, drive_link = ${f.webViewLink || null}, drive_error = NULL WHERE id = ${upd.id}`;
@@ -280,7 +289,9 @@ async function decideNotice(body, db, authed, me) {
       alert = { error: e.message };
     }
   }
-  await tellPerson(db, upd.submitted_by, { title: `Transfer notice approved: ${upd.employee_name}`, line: `${myName} approved the transfer notice for ${summary(upd)}. It's filed in Google Drive and the office has it.`, pushTag: `transfer-${upd.id}`, type: 'transfer_notice', link: drive.link || '', linkLabel: 'Open it in Google Drive', path: `/?transfer=${upd.id}` });
+  const filedOk = drive.saved && !alert?.error;
+  if (!refile || filedOk) await tellPerson(db, upd.submitted_by, { title: `Transfer notice approved: ${upd.employee_name}`,
+    line: `${upd.decided_by_name || myName} approved the transfer notice for ${summary(upd)}. ${filedOk ? "It's filed in Google Drive and the office has it." : "Filing it didn't fully go through yet (Google Drive or the office alert); the approver was shown the error and can file it again."}`, pushTag: `transfer-${upd.id}`, type: 'transfer_notice', link: drive.link || '', linkLabel: 'Open it in Google Drive', path: `/?transfer=${upd.id}` });
   return json(200, { ok: drive.saved && !alert?.error, drive, alert });
 }
 
@@ -289,11 +300,11 @@ async function queue(db, authed, canView) {
   const mine = Number(authed.sub) || -1;
   const item = (r) => ({ id: r.id, title: r.employee_name, sub: `${storeName(r.from_pc)} to ${storeName(r.to_pc)}${r.to_title ? ` as ${r.to_title}` : ''}, effective ${usDay(r.effective_date)}`,
     by: r.submitted_by_name, at: r.created_at, status: r.status || 'approved', note: r.decision_note || null, decidedBy: r.decided_by_name || null, decidedAt: r.decided_at || null,
-    driveLink: r.drive_link || null, hasPdf: !!r.has_pdf });
-  const out = { canView, mine: (await db`SELECT id, employee_name, from_pc, to_pc, to_title, effective_date, submitted_by_name, created_at, status, decision_note, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf FROM transfer_notices WHERE submitted_by = ${mine} AND status IS NOT NULL ORDER BY created_at DESC LIMIT 8`).map(item) };
+    driveLink: r.drive_link || null, hasPdf: !!r.has_pdf, submittedById: r.submitted_by, mine: String(r.submitted_by) === String(authed.sub), filed: !!r.drive_link && !!r.alerted_at });
+  const out = { canView, mine: (await db`SELECT id, employee_name, from_pc, to_pc, to_title, effective_date, submitted_by_name, created_at, status, decision_note, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf, submitted_by, alerted_at FROM transfer_notices WHERE submitted_by = ${mine} AND status IS NOT NULL ORDER BY created_at DESC LIMIT 8`).map(item) };
   if (canView) {
-    out.pending = (await db`SELECT id, employee_name, from_pc, to_pc, to_title, effective_date, submitted_by_name, created_at, status, decision_note, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf FROM transfer_notices WHERE status = 'pending' ORDER BY created_at`).map(item);
-    out.done = (await db`SELECT id, employee_name, from_pc, to_pc, to_title, effective_date, submitted_by_name, created_at, status, decision_note, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf FROM transfer_notices WHERE status IN ('approved', 'rejected') ORDER BY decided_at DESC LIMIT 60`).map(item);
+    out.pending = (await db`SELECT id, employee_name, from_pc, to_pc, to_title, effective_date, submitted_by_name, created_at, status, decision_note, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf, submitted_by, alerted_at FROM transfer_notices WHERE status = 'pending' ORDER BY created_at`).map(item);
+    out.done = (await db`SELECT id, employee_name, from_pc, to_pc, to_title, effective_date, submitted_by_name, created_at, status, decision_note, decided_by_name, decided_at, drive_link, (pdf IS NOT NULL) AS has_pdf, submitted_by, alerted_at FROM transfer_notices WHERE status IN ('approved', 'rejected') ORDER BY decided_at DESC LIMIT 60`).map(item);
   }
   return out;
 }
@@ -316,22 +327,28 @@ export default async (request) => {
   await ensureTable(db);
   const real = authed.realUserType || authed.userType;
   const meFull = (await db`SELECT id, name, username FROM users WHERE id = ${authed.sub}`)[0] || {};
-  const appr = await formApprovers(db, APPROVERS_KEY);
-  const canApprove = appr.ids.includes(String(authed.sub));
-  const canView = canApprove || real === 'executive' || real === 'it';
+  // v23.26 (review): the approver list is only read when it matters (not on every employee search).
+  let apprP = null;
+  const getAppr = () => (apprP ||= formApprovers(db, APPROVERS_KEY));
+  const isStaff = real === 'executive' || real === 'it';
   if (request.method === 'POST') {
     let body;
     try { body = await request.json(); } catch { return json(400, { error: 'Invalid request' }); }
-    if (body?.action === 'approve' || body?.action === 'reject') {
-      if (!canApprove) return json(403, { error: 'Only the transfer notice approver can do this.' });
-      return decideNotice(body, db, authed, meFull);
-    }
+    if (body?.action === 'approve' || body?.action === 'reject') return decideNotice(body, db, authed, meFull, await getAppr());
     return submitNotice(body, db, authed, allowed);
   }
 
   const url = new URL(request.url);
-  if (url.searchParams.get('queue')) return json(200, { ...(await queue(db, authed, canView)), canApprove });
+  if (url.searchParams.get('queue')) {
+    const appr = await getAppr();
+    const canApprove = appr.ids.includes(String(authed.sub));
+    const out = await queue(db, authed, canApprove || isStaff);
+    for (const x of out.pending || []) x.canDecide = await mayDecide(db, appr, x.submittedById, authed.sub);
+    for (const x of out.done || []) x.canRefile = x.status === 'approved' && !x.filed && await mayDecide(db, appr, x.submittedById, authed.sub);
+    return json(200, { ...out, canApprove: canApprove || (out.pending || []).some(x => x.canDecide) });
+  }
   const pdfId = url.searchParams.get('pdf');
+  const canView = isStaff || (pdfId ? (await getAppr()).ids.includes(String(authed.sub)) : false);
   if (pdfId) {
     const r = (await db`SELECT pdf, submitted_by FROM transfer_notices WHERE id = ${Number(pdfId)}`)[0];
     if (!r?.pdf || !(canView || String(r.submitted_by) === String(authed.sub))) return json(404, { error: 'Not found' });

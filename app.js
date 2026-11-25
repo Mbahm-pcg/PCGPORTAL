@@ -2669,7 +2669,7 @@
         autoFocus: true,
         style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body }
       }
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, "Only the ", noun.toLowerCase(), " approver can approve this."), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending..." : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back...")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving..." : "Approve & file it")));
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, item.mine ? "You sent this one, so someone else approves it." : `Only the ${noun.toLowerCase()} approver can approve this.`), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending..." : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back...")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving..." : "Approve & file it")));
   }
   function ApprovalQueue({ th, isMobile, fn, noun, openKey, refresh }) {
     const S = finStyles(th);
@@ -2678,6 +2678,19 @@
     const [open, setOpen] = useState3(null);
     const [viewing, setViewing] = useState3(null);
     const [msg, setMsg] = useState3(null);
+    const [refiling, setRefiling] = useState3(null);
+    const refile = async (x) => {
+      setRefiling(x.id);
+      try {
+        const b = await call2(fn, "", { action: "approve", id: x.id });
+        const d = b.drive || {}, a = b.alert || {};
+        setMsg(d.saved && !a.error ? `Filed: ${x.title}.` : `Still not filed (${d.error || a.error || "error"}). Tell IT.`);
+      } catch (e) {
+        setMsg(`Still not filed: ${e.message}. Tell IT.`);
+      }
+      setRefiling(null);
+      load();
+    };
     const openRef = useRef3(open);
     openRef.current = open;
     const load = () => call2(fn, "?queue=1").then((b) => {
@@ -2723,13 +2736,13 @@
         onKeyDown: onClick ? ((e) => {
           if (e.key === "Enter") onClick();
         }) : void 0,
-        style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.7rem 0.9rem", borderRadius: 12, border: `1px solid ${onClick && data.canApprove ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: onClick ? "pointer" : "default", fontFamily: FONTS.body }
+        style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.7rem 0.9rem", borderRadius: 12, border: `1px solid ${onClick && x.canDecide ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: onClick ? "pointer" : "default", fontFamily: FONTS.body }
       },
       /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, x.title), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, x.sub), /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontSize: "0.8rem", marginTop: 2, color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { color: STATUS[x.status]?.color || th.muted, fontWeight: 700 } }, STATUS[x.status]?.label || x.status), x.status === "pending" ? `, sent by ${x.by} ${shortDate(x.at)}` : x.decidedBy ? ` by ${x.decidedBy} ${shortDate(x.decidedAt)}` : "", x.status === "rejected" && x.note ? `: ${x.note}` : "")),
       /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 }, onClick: onClick ? void 0 : ((e) => e.stopPropagation()) }, right)
     );
     const links = (x) => /* @__PURE__ */ React.createElement(React.Fragment, null, x.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(x), style: { ...S.link, color: O } }, "View form"), x.driveLink && /* @__PURE__ */ React.createElement("a", { href: x.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"));
-    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.4rem" } }, msg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success", style: { marginBottom: "0.8rem" } }, msg), data.canView && (open ? /* @__PURE__ */ React.createElement(Review2, { th, isMobile, fn, noun, item: open, canApprove: data.canApprove, onClose: (m) => {
+    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.4rem" } }, msg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success", style: { marginBottom: "0.8rem" } }, msg), data.canView && (open ? /* @__PURE__ */ React.createElement(Review2, { th, isMobile, fn, noun, item: open, canApprove: open.canDecide ?? data.canApprove, onClose: (m) => {
       setOpen(null);
       if (m) setMsg(m);
       load();
@@ -2745,7 +2758,7 @@
         style: { ...S.ghost, minHeight: 34, padding: "0.3rem 0.85rem", background: tab === k ? O : th.card3, color: tab === k ? "#fff" : th.text, borderColor: tab === k ? O : th.cardBorder }
       },
       l
-    )))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, tab === "pending" && (pending.length ? pending.map((x) => row(
+    )))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, tab === "pending" && (pending.length ? pending.map((x) => ({ ...x, canDecide: x.canDecide ?? data.canApprove })).map((x) => row(
       x,
       () => setOpen(x),
       /* @__PURE__ */ React.createElement(
@@ -2757,11 +2770,11 @@
             e.stopPropagation();
             setOpen(x);
           },
-          style: { ...S.ghost, minHeight: 34, padding: "0.3rem 0.9rem", color: data.canApprove ? "#fff" : th.text, background: data.canApprove ? O : th.card3, borderColor: data.canApprove ? O : th.cardBorder, userSelect: "none" }
+          style: { ...S.ghost, minHeight: 34, padding: "0.3rem 0.9rem", color: x.canDecide ? "#fff" : th.text, background: x.canDecide ? O : th.card3, borderColor: x.canDecide ? O : th.cardBorder, userSelect: "none" }
         },
-        data.canApprove ? "Review" : "View"
+        x.canDecide ? "Review" : "View"
       )
-    )) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem", margin: 0 } }, "Nothing waiting for approval.")), tab === "done" && (done.length ? done.slice(0, 20).map((x) => row(x, null, links(x))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem", margin: 0 } }, "Nothing decided yet."))))), !data.canView && mine.length > 0 && /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1rem", marginBottom: "0.6rem" } }, "Your recent ", noun.toLowerCase(), "s"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, mine.slice(0, 5).map((x) => row(x, null, links(x))))), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/${fn}?pdf=${viewing.id}`, title: `${noun} for ${viewing.title}`, onClose: () => setViewing(null) }));
+    )) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem", margin: 0 } }, "Nothing waiting for approval.")), tab === "done" && (done.length ? done.slice(0, 20).map((x) => row(x, null, /* @__PURE__ */ React.createElement(React.Fragment, null, links(x), x.canRefile && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: refiling === x.id, onClick: () => refile(x), style: { ...S.link, color: "#dc2626" } }, refiling === x.id ? "Filing..." : "Not filed: file it again")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem", margin: 0 } }, "Nothing decided yet."))))), !data.canView && mine.length > 0 && /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1rem", marginBottom: "0.6rem" } }, "Your recent ", noun.toLowerCase(), "s"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, mine.slice(0, 5).map((x) => row(x, null, links(x))))), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/${fn}?pdf=${viewing.id}`, title: `${noun} for ${viewing.title}`, onClose: () => setViewing(null) }));
   }
 
   // src/transfer-notice-pdf.mjs
@@ -14485,14 +14498,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   async function cloudDelete(key, { tombstone = false } = {}) {
     try {
-      await fetch("/.netlify/functions/storage", {
+      const res = await fetch("/.netlify/functions/storage", {
         method: "POST",
         // the sign-in is only sent (and only needed) when recording a report as deleted
         ...tombstone ? { credentials: "include" } : {},
         headers: { "Content-Type": "application/json", ...tombstone ? authHeader() : {} },
         body: JSON.stringify({ action: "delete", key, ...tombstone ? { tombstone: true } : {} })
       });
+      const b = await res.json().catch(() => ({}));
+      return res.ok && (!tombstone || b.tombstoned !== false);
     } catch {
+      return false;
     }
   }
   function SyncStatus({ dark }) {
@@ -19796,7 +19812,9 @@ ${t2.slice(0, 300)}`);
       const r = dailyReports.find((x) => x.id === id);
       const n = countReportPhotos(r).total;
       if (!window.confirm(`Delete the daily report${r?.date ? ` for ${r.date}` : ""}${n ? ` and its ${n} photo${n === 1 ? "" : "s"}` : ""}? This removes it for everyone and cannot be undone.`)) return;
-      cloudDelete(drKey(id), { tombstone: true });
+      cloudDelete(drKey(id), { tombstone: true }).then((ok) => {
+        if (!ok) showAlert2("error", "Removed here, but the server didn't record the delete, so it may come back on other devices. Try deleting it again, or tell IT.");
+      });
       setDailyReports((prev) => prev.filter((r2) => r2.id !== id));
       showAlert2("success", "Report deleted");
     };
@@ -32149,7 +32167,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.25";
+  var APP_VERSION = "v23.26";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -47562,10 +47580,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     useEffect11(() => {
       (async () => {
         try {
-          const [index, legacy] = await Promise.all([
+          const [index, legacy, delRec] = await Promise.all([
             cloudLoad(DR_INDEX_KEY),
-            cloudLoad("pcg_daily_reports_v1")
+            cloudLoad("pcg_daily_reports_v1"),
+            cloudLoad(REPORT_DELETED_KEY).catch(() => null)
           ]);
+          const gone = deletedIds(delRec);
           cloudDailyReportsLoaded.current = true;
           const loadedMap = /* @__PURE__ */ new Map();
           if (index && Array.isArray(index) && index.length > 0) {
@@ -47582,7 +47602,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           }
           if (legacy && Array.isArray(legacy) && legacy.length > 0) {
             for (const r of legacy) {
-              if (r && r.id != null && !loadedMap.has(r.id)) {
+              if (r && r.id != null && !loadedMap.has(r.id) && !gone.has(String(r.id))) {
                 loadedMap.set(r.id, r);
                 console.warn("[daily-reports] recovered report", r.id, "from legacy backup");
               }

@@ -108,12 +108,19 @@ export default async (request) => {
     if (action === 'delete') {
       // v23.19: a user deleting a report records it, so no other device's copy revives it
       // Only for a signed-in user who can edit reports, and only for a report that exists.
-      if (payload.tombstone === true && isDailyReportKey(safeKey) && await canTombstone(request) && await store.getMetadata(safeKey).then(m => m !== null, () => false)) {
+      // v23.26 (review): also when the report's own blob is already gone but a list still has it —
+      // a report revived from the legacy backup list has no blob, so deleting it never stuck and it
+      // kept coming back on every device.
+      const drId = safeKey.slice('pcg_dr_'.length);
+      const reportKnown = async () => (await store.getMetadata(safeKey).then(m => m !== null, () => false))
+        || (await Promise.all([store.get(REPORT_INDEX_KEY, { type: 'json' }), store.get(REPORT_LEGACY_KEY, { type: 'json' })])
+          .then(lists => lists.some(l => Array.isArray(l?.data) && l.data.some(r => r && String(r.id) === drId)), () => false));
+      if (payload.tombstone === true && isDailyReportKey(safeKey) && await canTombstone(request) && await reportKnown()) {
         const rec = await store.get(REPORT_DELETED_KEY, { type: 'json' }).catch(() => null);
         await store.setJSON(REPORT_DELETED_KEY, { savedAt: new Date().toISOString(), data: addDeleted(rec?.data, safeKey.slice('pcg_dr_'.length), new Date().toISOString()) });
       }
       await store.delete(safeKey);
-      return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+      return new Response(JSON.stringify({ ok: true, tombstoned: payload.tombstone === true && isDailyReportKey(safeKey) ? await store.get(REPORT_DELETED_KEY, { type: 'json' }).then(r => deletedIds(r?.data).has(drId), () => false) : undefined }), { status: 200, headers });
     }
 
     return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), { status: 400, headers });

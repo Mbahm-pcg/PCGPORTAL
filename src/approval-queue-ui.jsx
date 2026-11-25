@@ -84,7 +84,7 @@ function Review({ th, isMobile, fn, noun, item, canApprove, onClose }) {
       )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.9rem' }}>
         <button type="button" className="fin-btn" style={S.ghost} onClick={() => onClose(null)} disabled={busy}>Back</button>
-        {!canApprove && <span style={{ color: th.muted, fontSize: '0.85rem', alignSelf: 'center' }}>Only the {noun.toLowerCase()} approver can approve this.</span>}
+        {!canApprove && <span style={{ color: th.muted, fontSize: '0.85rem', alignSelf: 'center' }}>{item.mine ? 'You sent this one, so someone else approves it.' : `Only the ${noun.toLowerCase()} approver can approve this.`}</span>}
         {canApprove && (backing
           ? <button type="button" className="fin-btn" style={{ ...S.primary, background: '#b91c1c', opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }} disabled={note.trim().length < 3 || busy} onClick={() => decide('reject')}>{busy ? 'Sending...' : 'Send back'}</button>
           : <button type="button" className="fin-btn" style={S.ghost} onClick={() => setBacking(true)} disabled={busy}>Send back...</button>)}
@@ -101,6 +101,17 @@ export function ApprovalQueue({ th, isMobile, fn, noun, openKey, refresh }) {
   const [open, setOpen] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [refiling, setRefiling] = useState(null);
+  // v23.26 (review): an approved one whose Drive save / office alert failed — file it again.
+  const refile = async (x) => {
+    setRefiling(x.id);
+    try {
+      const b = await call(fn, '', { action: 'approve', id: x.id });
+      const d = b.drive || {}, a = b.alert || {};
+      setMsg(d.saved && !a.error ? `Filed: ${x.title}.` : `Still not filed (${d.error || a.error || 'error'}). Tell IT.`);
+    } catch (e) { setMsg(`Still not filed: ${e.message}. Tell IT.`); }
+    setRefiling(null); load();
+  };
   const openRef = useRef(open);
   openRef.current = open;
 
@@ -124,7 +135,7 @@ export function ApprovalQueue({ th, isMobile, fn, noun, openKey, refresh }) {
   const pending = data.pending || [], done = data.done || [], mine = data.mine || [];
   const row = (x, onClick, right) => (
     <div key={x.id} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined} onClick={onClick} onKeyDown={onClick ? (e => { if (e.key === 'Enter') onClick(); }) : undefined}
-      style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', padding: '0.7rem 0.9rem', borderRadius: 12, border: `1px solid ${onClick && data.canApprove ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: onClick ? 'pointer' : 'default', fontFamily: FONTS.body }}>
+      style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', flexWrap: 'wrap', padding: '0.7rem 0.9rem', borderRadius: 12, border: `1px solid ${onClick && x.canDecide ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: onClick ? 'pointer' : 'default', fontFamily: FONTS.body }}>
       <span style={{ minWidth: 0 }}><strong>{x.title}</strong> <span style={{ color: th.muted }}>{x.sub}</span>
         <span style={{ display: 'block', fontSize: '0.8rem', marginTop: 2, color: th.muted }}>
           <span style={{ color: STATUS[x.status]?.color || th.muted, fontWeight: 700 }}>{STATUS[x.status]?.label || x.status}</span>
@@ -143,7 +154,7 @@ export function ApprovalQueue({ th, isMobile, fn, noun, openKey, refresh }) {
     <div style={{ marginBottom: '1.4rem' }}>
       {msg && <FinBanner th={th} tone="success" style={{ marginBottom: '0.8rem' }}>{msg}</FinBanner>}
       {data.canView && (open
-        ? <Review th={th} isMobile={isMobile} fn={fn} noun={noun} item={open} canApprove={data.canApprove} onClose={(m) => { setOpen(null); if (m) setMsg(m); load(); }} />
+        ? <Review th={th} isMobile={isMobile} fn={fn} noun={noun} item={open} canApprove={open.canDecide ?? data.canApprove} onClose={(m) => { setOpen(null); if (m) setMsg(m); load(); }} />
         : (
         <section style={{ ...S.panel, padding: '0.9rem 1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.7rem' }}>
@@ -156,11 +167,11 @@ export function ApprovalQueue({ th, isMobile, fn, noun, openKey, refresh }) {
             </div>
           </div>
           <div style={{ display: 'grid', gap: '0.45rem' }}>
-            {tab === 'pending' && (pending.length ? pending.map(x => row(x, () => setOpen(x),
+            {tab === 'pending' && (pending.length ? pending.map(x => ({ ...x, canDecide: x.canDecide ?? data.canApprove })).map(x => row(x, () => setOpen(x),
               <button type="button" className="fin-btn" onClick={(e) => { e.stopPropagation(); setOpen(x); }}
-                style={{ ...S.ghost, minHeight: 34, padding: '0.3rem 0.9rem', color: data.canApprove ? '#fff' : th.text, background: data.canApprove ? O : th.card3, borderColor: data.canApprove ? O : th.cardBorder, userSelect: 'none' }}>{data.canApprove ? 'Review' : 'View'}</button>))
+                style={{ ...S.ghost, minHeight: 34, padding: '0.3rem 0.9rem', color: x.canDecide ? '#fff' : th.text, background: x.canDecide ? O : th.card3, borderColor: x.canDecide ? O : th.cardBorder, userSelect: 'none' }}>{x.canDecide ? 'Review' : 'View'}</button>))
               : <p style={{ color: th.muted, fontSize: '0.9rem', margin: 0 }}>Nothing waiting for approval.</p>)}
-            {tab === 'done' && (done.length ? done.slice(0, 20).map(x => row(x, null, links(x)))
+            {tab === 'done' && (done.length ? done.slice(0, 20).map(x => row(x, null, <>{links(x)}{x.canRefile && <button type="button" className="fin-btn" disabled={refiling === x.id} onClick={() => refile(x)} style={{ ...S.link, color: '#dc2626' }}>{refiling === x.id ? 'Filing...' : 'Not filed: file it again'}</button>}</>))
               : <p style={{ color: th.muted, fontSize: '0.9rem', margin: 0 }}>Nothing decided yet.</p>)}
           </div>
         </section>

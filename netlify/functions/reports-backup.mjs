@@ -83,12 +83,17 @@ export default async (request) => {
     }
 
     // 2. Hydrate each report: load metadata blob + photos blob in parallel
+    // v23.26 (review): a report whose blob is simply GONE uses no photos, so it must not stop the
+    // photo purge; only a read that FAILED (unknown contents) does. Before, either one switched the
+    // purge off for good, silently.
+    let readErrors = 0;
+    const failedRead = () => { readErrors++; return null; };
     const reports = await Promise.all(index.map(async (meta) => {
       try {
         const id = meta.id;
         const [reportRaw, photosRaw] = await Promise.all([
-          store.get(`${DR_KEY_PREFIX}${id}`, { type: 'json' }).catch(() => null),
-          store.get(`${DR_KEY_PREFIX}${id}${DR_PHOTOS_SUFFIX}`, { type: 'json' }).catch(() => null),
+          store.get(`${DR_KEY_PREFIX}${id}`, { type: 'json' }).catch(failedRead),
+          store.get(`${DR_KEY_PREFIX}${id}${DR_PHOTOS_SUFFIX}`, { type: 'json' }).catch(failedRead),
         ]);
         const report = reportRaw?.data || reportRaw;
         const photoMap = photosRaw?.data || photosRaw;
@@ -98,6 +103,7 @@ export default async (request) => {
         return mergeLoadedReport(report, photoMap);
       } catch (e) {
         console.warn(`[reports-backup] Failed to load report ${meta.id}:`, e.message);
+        readErrors++;
         return null;
       }
     }));
@@ -143,7 +149,9 @@ export default async (request) => {
       if (age > PURGE_AFTER_DAYS && age < PURGE_AFTER_DAYS + 14) await store.delete(`pcg_drbak_${r.id}_photos`).catch(() => {});
     }
 
-    const photos = await purgeDeletedPhotos(store, referencedPhotoIds(valid), valid.length === index.length);
+    if (readErrors) console.warn(`[reports-backup] photo purge held tonight: ${readErrors} report read(s) failed, so not every photo reference is known`);
+    else if (valid.length < index.length) console.log(`[reports-backup] ${index.length - valid.length} listed report(s) no longer exist; purge goes ahead`);
+    const photos = await purgeDeletedPhotos(store, referencedPhotoIds(valid), readErrors === 0);
 
     return new Response(
       JSON.stringify({ ok: true, backed: valid.length, key: backupKey, photos, savedAt: new Date().toISOString() }),
