@@ -7,7 +7,9 @@ import webpush from 'web-push';
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export async function sendSms(numbers, message) {
+// v23.27: opts { replyWebhookUrl, webhookData } — Textbelt posts the person's reply to that address
+// (textbelt-reply.mjs), with webhookData (max 100 chars) to tell which question it answers.
+export async function sendSms(numbers, message, opts = {}) {
   const KEY = process.env.TEXTBELT_API_KEY;
   const list = (Array.isArray(numbers) ? numbers : [numbers]).filter(Boolean);
   if (!KEY || !list.length) return { sent: 0, results: [] };
@@ -16,12 +18,15 @@ export async function sendSms(numbers, message) {
     let cleaned = String(number).replace(/\D/g, '');
     if (cleaned.length === 10) cleaned = '1' + cleaned;
     const phone = '+' + cleaned;
-    const postData = new URLSearchParams({ phone, message, key: KEY }).toString();
+    const params = { phone, message, key: KEY };
+    if (opts.replyWebhookUrl) params.replyWebhookUrl = opts.replyWebhookUrl;
+    if (opts.webhookData) params.webhookData = String(opts.webhookData).slice(0, 100);
+    const postData = new URLSearchParams(params).toString();
     const r = await new Promise((resolve) => {
       const req = https.request(
         { hostname: 'textbelt.com', port: 443, path: '/text', method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(postData) } },
-        (res) => { let raw = ''; res.on('data', d => raw += d); res.on('end', () => { let j = {}; try { j = JSON.parse(raw); } catch {} resolve({ number: phone, success: !!j.success, error: j.error }); }); });
+        (res) => { let raw = ''; res.on('data', d => raw += d); res.on('end', () => { let j = {}; try { j = JSON.parse(raw); } catch {} resolve({ number: phone, success: !!j.success, error: j.error, textId: j.textId || null }); }); });
       req.on('error', (e) => resolve({ number: phone, success: false, error: e.message }));
       req.write(postData); req.end();
     });
