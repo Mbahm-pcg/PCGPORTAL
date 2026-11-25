@@ -102,6 +102,8 @@ const ICONS = {
   missingHours: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="12" r="8"/><path d="M11 8v4l2.5 1.5"/><path d="M19.5 3.5v5M17 6h5"/></svg>,
   // v23.27: a person with a padlock — their accounts get locked
   leaderTerminations: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h4"/><rect x="14.5" y="13.5" width="7" height="7.5" rx="1.5"/><path d="M16 13.5V12a2 2 0 0 1 4 0v1.5"/></svg>,
+  // v23.30: a person + a small calendar (crew time off)
+  crewTimeOff: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="7" r="3.2"/><path d="M2.5 19a5.5 5.5 0 0 1 9.5-3.8"/><rect x="13" y="12" width="8.5" height="8.5" rx="1.5"/><path d="M13 15.5h8.5M15.5 10.5v3M19 10.5v3"/></svg>,
   terminations: (c) => <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6"/><path d="M16 18h6"/><path d="M19 15l3 3-3 3"/></svg>,
 };
 

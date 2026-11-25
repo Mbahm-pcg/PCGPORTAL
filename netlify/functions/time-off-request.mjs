@@ -40,7 +40,7 @@ const MAX_DOCS = 5, MAX_DOC_BYTES = 3.6 * 1024 * 1024; // all documents together
 
 const storeLabel = (s) => `${s.name} (PC ${s.pc})`;
 
-function emailWithFiles(to, subject, html, files) {
+export function emailWithFiles(to, subject, html, files) { // v23.30: also used by crew-time-off
   return new Promise((resolve) => {
     const key = process.env.RESEND_API_KEY;
     if (!key || !to.length) return resolve(false);
@@ -54,7 +54,7 @@ function emailWithFiles(to, subject, html, files) {
 }
 
 // Supporting documents go in the same location folder as the PDF, tagged so a resend never doubles them.
-async function saveDocToDrive(buf, name, mimeType, folderName, pcgKey, root) {
+export async function saveDocToDrive(buf, name, mimeType, folderName, pcgKey, root) {
   const auth = new google.auth.GoogleAuth({ credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY), scopes: ['https://www.googleapis.com/auth/drive.file'] });
   const drive = google.drive({ version: 'v3', auth });
   let folderId = root; // v22.86: folderName may be a path (location → employee), like saveToDrive

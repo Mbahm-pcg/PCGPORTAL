@@ -11,6 +11,7 @@ import { notifyMissingHoursApprovers, ensureMissingHoursTable } from './missing-
 import { runSignFollowups } from './violation-sign.mjs';
 import { notifyTransferApprovers } from './transfer-notice.mjs';
 import { notifyTimeOffApprovers } from './time-off-request.mjs';
+import { notifyManagers as notifyCrewManagers, notifyOffice as notifyCrewOffice, ensureTable as ensureCrewTable } from './_shared/crew-time-off-lib.mjs';
 
 export const config = { schedule: '*/15 * * * *' };
 
@@ -83,6 +84,17 @@ export default async () => {
       if (due.length) console.log(`[${tag}-reminder] ${due.length} reminder(s)`);
     } catch (e) { console.log(`[${tag}-reminder] not ready yet:`, e.message); }
   }
+  // v23.30: Crew Time Off waiting on the store manager or the office — same 3-hour reminders.
+  try {
+    await ensureCrewTable(db);
+    const cDue = await db`SELECT * FROM crew_time_off WHERE status IN ('manager', 'office')
+      AND COALESCE(reminded_at, submitted_at, created_at) <= now() - make_interval(hours => ${EVERY_HOURS}) ORDER BY submitted_at`;
+    for (const row of cDue) {
+      try { await (row.status === 'office' ? notifyCrewOffice : notifyCrewManagers)(db, row, { reminder: true }); sent++; }
+      catch (e) { console.error('[crew-time-off-reminder]', row.id, e.message); }
+    }
+    if (cDue.length) console.log(`[crew-time-off-reminder] ${cDue.length} reminder(s)`);
+  } catch (e) { console.log('[crew-time-off-reminder] not ready yet:', e.message); }
   // v22.91: signing links opened 24h+ ago but not signed → one reminder; links running out → tell the sender.
   try { const f = await runSignFollowups(db); if (f.reminded || f.warned) console.log('[sign-followups]', JSON.stringify(f)); }
   catch (e) { console.error('[sign-followups]', e.message); }

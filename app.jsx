@@ -7,6 +7,8 @@ import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } f
 import { ExecutiveView } from './src/executive-view.jsx';
 import { TerminationsReport } from './src/terminations-ui.jsx';
 import { LeaderTerminations } from './src/leader-terminations-ui.jsx';
+import { CrewTimeOff } from './src/crew-time-off-ui.jsx';
+import { CrewTimeOffForm } from './src/crew-time-off-form-ui.jsx';
 import { TransferNotice } from './src/transfer-notice-ui.jsx';
 import { PayIncrease } from './src/pay-increase-ui.jsx';
 import { ViolationNotice } from './src/violation-notice-ui.jsx';
@@ -20652,6 +20654,7 @@ const NOTIFY_ICONS = {
   transferNotice: <><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/></>,
   violationNotice: <><path d="M12 3 2.5 20h19Z"/><path d="M12 10v4M12 17h.01"/></>,
   missingHoursApprovers: <><circle cx="11" cy="12" r="8"/><path d="M11 8v4l2.5 1.5"/><path d="M19.5 3.5v5M17 6h5"/></>,
+  crewTimeOffOffice: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="2.2"/></>,
   leaderTermAsk: <><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3"/><path d="M14 13h7v5h-4l-3 2.5Z"/></>,
   leaderTermIt: <><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 14.5v3"/></>,
   transferApprovers: <><path d="M3 7h11M10 3.5 14 7l-4 3.5"/><path d="M21 15.5 16.5 20l-2.5-2.5"/><path d="M14 13H3"/></>,
@@ -20682,7 +20685,7 @@ const NOTIFY_TAGS = {
   project: 'Project notifications', ticket: 'Ticket notifications', fleet: 'Vehicle due-date alerts',
   foodLicense: 'Food license reminders', systemHealth: 'System health alerts',
   minorTimecard: 'Minor timecard escalations', weeklyHoursSchedule: 'Weekly hours report',
-  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay rate changes', payIncreaseApprovers: 'Pay rate change approvals', payIncreaseOffice: 'Pay rate change office step', payIncreasePaycor: 'Pay rate change Paycor updates', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters', missingHoursApprovers: 'Missing hours approvals', transferApprovers: 'Transfer notice approvals', leaderTermAsk: 'Leader termination (asked)', leaderTermIt: 'Leader termination (IT)', timeOffApprovers: 'Time off approvals',
+  transferNotice: 'Transfer notices', violationNotice: 'Violation notices', payIncrease: 'Pay rate changes', payIncreaseApprovers: 'Pay rate change approvals', payIncreaseOffice: 'Pay rate change office step', payIncreasePaycor: 'Pay rate change Paycor updates', timeOffRequest: 'Time off requests', violationApprovers: 'Violation notice approvals', resignationLetter: 'Resignation letters', missingHoursApprovers: 'Missing hours approvals', transferApprovers: 'Transfer notice approvals', leaderTermAsk: 'Leader termination (asked)', crewTimeOffOffice: 'Crew time off (office)', leaderTermIt: 'Leader termination (IT)', timeOffApprovers: 'Time off approvals',
 };
 const nIco = (k, c, s = 16) => <HubIcon d={NOTIFY_ICONS[k]} color={c} size={s} />;
 // Initials from the Portal user who owns the address (e.g. "MB" for Mike Bahm),
@@ -21027,7 +21030,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
   const [nfOpen, setNfOpen] = useState({ ops: true });
   // v22.2: recipient counts for every pill, not just Project/Ticket. Loaded once
   // here, then kept live by each ManualNotifyListPanel's onCountChange.
-  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1', resignationLetter: 'pcg_resignation_notify_v1', missingHoursApprovers: 'pcg_missing_hours_approvers_v1', payIncreaseOffice: 'pcg_pay_increase_office_step_v1', payIncreasePaycor: 'pcg_pay_increase_paycor_notify_v1', transferApprovers: 'pcg_transfer_approvers_v1', leaderTermAsk: 'pcg_leader_termination_notify_v1', leaderTermIt: 'pcg_leader_termination_it_v1', timeOffApprovers: 'pcg_time_off_approvers_v1' };
+  const NOTIFY_BLOB_KEYS = { fleet: 'pcg_fleet_notify_v1', foodLicense: 'pcg_food_license_notify_v1', systemHealth: 'pcg_system_health_notify_v1', minorTimecard: 'pcg_minor_timecard_notify_v1', weeklyHoursSchedule: 'pcg_weekly_hours_schedule_notify_v1', transferNotice: 'pcg_transfer_notice_notify_v1', payIncrease: 'pcg_pay_increase_notify_v1', payIncreaseApprovers: 'pcg_pay_increase_approvers_v1', violationNotice: 'pcg_violation_notice_notify_v1', timeOffRequest: 'pcg_time_off_notify_v1', violationApprovers: 'pcg_violation_approvers_v1', resignationLetter: 'pcg_resignation_notify_v1', missingHoursApprovers: 'pcg_missing_hours_approvers_v1', payIncreaseOffice: 'pcg_pay_increase_office_step_v1', payIncreasePaycor: 'pcg_pay_increase_paycor_notify_v1', transferApprovers: 'pcg_transfer_approvers_v1', leaderTermAsk: 'pcg_leader_termination_notify_v1', crewTimeOffOffice: 'pcg_crew_time_off_office_v1', leaderTermIt: 'pcg_leader_termination_it_v1', timeOffApprovers: 'pcg_time_off_approvers_v1' };
   const [notifCounts, setNotifCounts] = useState({});
   useEffect(() => {
     Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
@@ -21275,6 +21278,7 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
                 { id: 'timeOffRequest', label: 'Time Off Request', count: notifCounts.timeOffRequest },
                 { id: 'transferNotice', label: 'Transfer Notice', count: notifCounts.transferNotice },
                 { id: 'resignationLetter', label: 'Resignation Letter', count: notifCounts.resignationLetter },
+                { id: 'crewTimeOffOffice', label: 'Crew time off (office)', count: notifCounts.crewTimeOffOffice },
                 { id: 'leaderTermAsk', label: 'Leader termination', count: notifCounts.leaderTermAsk },
                 { id: 'leaderTermIt', label: 'Leader termination (IT)', count: notifCounts.leaderTermIt },
                 { id: 'interviewReminders', label: 'Interview Reminders' },
@@ -21594,6 +21598,12 @@ function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotify
       {/* v23.27 Leader termination — full admins only. A Store Manager / DM / Director terminated in
           Paycor texts these people; the first YES (reply to the text) turns off their portal login and
           tells the (IT) list. Tools · Leader Terminations shows it all. */}
+      {/* v23.30 Crew time off (office) — the office step of Tools · Crew Time Off (Roxy). */}
+      {notifSubTab === 'crewTimeOffOffice' && isFullAdmin(user) && (
+        <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_crew_time_off_office_v1" tagKey="crewTimeOffOffice" onCountChange={setNotifCount('crewTimeOffOffice')}
+          description="The office step of Tools · Crew Time Off (e.g. Roxy). After a crew member's manager approves their time off, these people get an email, a text and a push, and a reminder every 3 hours; approving files it in Google Drive and alerts the Time Off Request list (HR). Add them by name (that's what lets them approve). While no one is here, the people on Pay Rate Change office step do it."
+          smsLabel="Crew time off (office) SMS Numbers" />
+      )}
       {notifSubTab === 'leaderTermAsk' && isFullAdmin(user) && (
         <ManualNotifyListPanel th={th} user={user} users={users} showAlert={showAlert} blobKey="pcg_leader_termination_notify_v1" tagKey="leaderTermAsk" onCountChange={setNotifCount('leaderTermAsk')}
           description="Who is asked when a Store Manager, DM or Director is terminated in Paycor (e.g. Mike, Sam, Krunal). They get a text (reply YES or NO) and an email; the first YES turns off that person's portal login and sends IT the deactivation checklist, a NO skips it. Their mobile numbers below are what the text goes to, and a reply only counts from one of them. Add them by name too to answer in Tools · Leader Terminations. While this list is empty, the executives are asked."
@@ -25611,6 +25621,7 @@ const HUB_SUBITEMS = {
     { id: 'resignation-letter', label: 'Resignation Letter' },
     { id: 'missing-hours', label: 'Missing Hours' },
     { id: 'time-off-request', label: 'Time Off Request' },
+    { id: 'crew-time-off', label: 'Crew Time Off' },
     { id: 'pay-increase', label: 'Pay Rate Change' },
   ],
   finance: [
@@ -25671,6 +25682,8 @@ const TRANSFER_NOTICE_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 
 const VIOLATION_NOTICE_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
 // v22.80: Store Managers, DMs, Directors and exec request their OWN time off (user, 2026-11-11).
 const TIME_OFF_REQUEST_ROLES = new Set(['executive', 'it', 'dm', 'director', 'manager']);
+// v23.30 Crew Time Off: managers / DMs / Directors for their crew, exec / IT / office staff for everyone.
+const CREW_TIME_OFF_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
 // v22.87 Resignation Letter: same people as Violation Notice; who they can pick is scoped server-side.
 const RESIGNATION_LETTER_ROLES = new Set(['executive', 'it', 'office_staff', 'dm', 'director', 'manager']);
 // v22.89 Missing Hours: manager (their store), DM / Director (their districts), exec / IT; scoped server-side.
@@ -31486,6 +31499,7 @@ const computeRoleTabs = (user) => {
     { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
     { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
+    { id: "crew-time-off", label: "Crew Time Off", icon: (c) => ICONS.crewTimeOff(c) },
     { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "Locations",    icon: (c) => ICONS.locations(c) },
@@ -31560,6 +31574,7 @@ const computeRoleTabs = (user) => {
     { id: "ops-hub",    label: "Operations",   icon: (c) => ICONS.schedule(c), noPinToggle: true },
     { id: "team-hub",   label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
     { id: "system-hub", label: "System",       icon: (c) => ICONS.folder(c), noPinToggle: true },
+    { id: "crew-time-off", label: "Crew Time Off", icon: (c) => ICONS.crewTimeOff(c) },
   ];
   // Field Operations Auditor → base workspace + audits (conduct/review) + pulse/map. Tickets is in BASE_TABS.
   if (ut === "auditor") return [
@@ -31584,6 +31599,7 @@ const computeRoleTabs = (user) => {
     { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
     { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
+    { id: "crew-time-off", label: "Crew Time Off", icon: (c) => ICONS.crewTimeOff(c) },
     { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -31615,6 +31631,7 @@ const computeRoleTabs = (user) => {
     { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
     { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
     { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
+    { id: "crew-time-off", label: "Crew Time Off", icon: (c) => ICONS.crewTimeOff(c) },
     { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
     { id: "tasks",     label: "Tasks",        icon: (c) => ICONS.todos(c) },
     { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -32996,7 +33013,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.29";
+const APP_VERSION = "v23.30";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -58996,6 +59013,7 @@ function PCGPortal() {
               { id: 'hours-report', name: 'Hours Report', sub: 'Any store, any date range — per-employee hours broken into weekly columns + total, exportable.', show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'hours-report'), icon: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></> },
               // v22.33: on for every role by default; switch it off per role in Admin · Access.
               // What each person sees inside is scoped server-side (DM → district, manager → store).
+              { id: 'crew-time-off', name: 'Crew Time Off', sub: 'Crew members request time off on their phone, no login: send them their form or print a store QR poster. Manager approves, then the office.', show: CREW_TIME_OFF_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'crew-time-off'), icon: <><circle cx="8" cy="7" r="3.2"/><path d="M2.5 19a5.5 5.5 0 0 1 9.5-3.8"/><rect x="13" y="12" width="8.5" height="8.5" rx="1.5"/><path d="M13 15.5h8.5M15.5 10.5v3M19 10.5v3"/></> },
               { id: 'leader-terminations', name: 'Leader Terminations', sub: 'A Store Manager, DM or Director terminated in Paycor: Mike, Sam and Krunal reply YES by text, their portal login goes off and IT gets the checklist.', show: (user?.userType === 'executive' || user?.userType === 'it') && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'leader-terminations'), icon: <><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h4"/><rect x="14.5" y="13.5" width="7" height="7.5" rx="1.5"/><path d="M16 13.5V12a2 2 0 0 1 4 0v1.5"/></> },
               { id: 'terminations', name: 'Terminations', sub: 'Who left, by store — quarter and half-year views from Paycor.', show: accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations'), icon: <><circle cx="9" cy="7" r="4"/><path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6"/><path d="M16 18h6"/><path d="M19 15l3 3-3 3"/></> },
               // v22.49: HR's Employee Transfer letter, filled from Paycor (name, position, PC#, wage locked).
@@ -59019,6 +59037,7 @@ function PCGPortal() {
           })()}
           {tab === "district-alignment" && <DistrictAlignmentTool user={user} th={th} stores={openStores} users={users} onBack={() => setTab('tools-hub')} setStores={setStores} districts={districts} setDistricts={setDistricts} setUsers={setUsers} />}
           {tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && <EmployeeHoursReport th={th} stores={openStores} user={user} />}
+          {tab === "crew-time-off" && CREW_TIME_OFF_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'crew-time-off') && <CrewTimeOff th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "leader-terminations" && (user?.userType === 'executive' || user?.userType === 'it') && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'leader-terminations') && <LeaderTerminations th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "terminations" && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'terminations') && <TerminationsReport th={th} user={user} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
           {tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, 'tools-hub', 'transfer-notice') && <TransferNotice th={th} isMobile={isMobile} onBack={() => setTab('tools-hub')} />}
@@ -59066,4 +59085,8 @@ function PCGPortal() {
 // v22.81: a Violation Notice signing link (?sign=<code>) opens only the public signing page — no
 // login, no portal. Everything else is the portal as before.
 const SIGN_TOKEN = new URLSearchParams(window.location.search).get('sign');
-ReactDOM.createRoot(document.getElementById("root")).render(SIGN_TOKEN ? <RemoteSignPage token={SIGN_TOKEN} /> : <PCGPortal />);
+// v23.30: a crew member's time off form — no sign-in (private link ?crew=, or a store poster ?crewStore=)
+const CREW_TOKEN = new URLSearchParams(window.location.search).get('crew');
+const CREW_STORE = new URLSearchParams(window.location.search).get('crewStore');
+ReactDOM.createRoot(document.getElementById("root")).render(SIGN_TOKEN ? <RemoteSignPage token={SIGN_TOKEN} />
+  : (CREW_TOKEN || CREW_STORE) ? <CrewTimeOffForm token={CREW_TOKEN} store={CREW_STORE} /> : <PCGPortal />);

@@ -31,13 +31,14 @@ const call = async (body) => {
 
 let assetsPromise = null;
 const fetchB64 = (path) => fetch(path).then(r => { if (!r.ok) throw new Error('load ' + path); return r.arrayBuffer(); }).then(toB64);
-const loadAssets = () => assetsPromise || (assetsPromise = Promise.all([fetchB64('/fonts/' + TOR_FONT.regular), fetchB64('/fonts/' + TOR_FONT.bold), fetchB64('/' + TOR_CHROME.logo.src), fetchB64('/' + TOR_CHROME.watermark.src)])
+export const loadAssets = () => // v23.30: also the Crew Time Off form
+  assetsPromise || (assetsPromise = Promise.all([fetchB64('/fonts/' + TOR_FONT.regular), fetchB64('/fonts/' + TOR_FONT.bold), fetchB64('/' + TOR_CHROME.logo.src), fetchB64('/' + TOR_CHROME.watermark.src)])
   .then(([regular, bold, logo, seal]) => ({ fonts: { regular, bold }, logo: 'data:image/jpeg;base64,' + logo, watermark: 'data:image/png;base64,' + seal }))
   .catch(e => { assetsPromise = null; throw e; }));
 
 const readDataUrl = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = () => reject(new Error(`Couldn't read ${file.name}`)); r.readAsDataURL(file); });
 // Phone photos are 3–6 MB; shrink them to a readable 1600 px JPEG so five fit in one send.
-async function prepareDoc(file) {
+export async function prepareDoc(file) {
   if (/^image\/(jpeg|png|webp)$/.test(file.type)) {
     try {
       const url = await readDataUrl(file);

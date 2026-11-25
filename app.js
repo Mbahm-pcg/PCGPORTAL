@@ -89,6 +89,8 @@
     missingHours: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "12", r: "8" }), /* @__PURE__ */ React.createElement("path", { d: "M11 8v4l2.5 1.5" }), /* @__PURE__ */ React.createElement("path", { d: "M19.5 3.5v5M17 6h5" })),
     // v23.27: a person with a padlock — their accounts get locked
     leaderTerminations: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h4" }), /* @__PURE__ */ React.createElement("rect", { x: "14.5", y: "13.5", width: "7", height: "7.5", rx: "1.5" }), /* @__PURE__ */ React.createElement("path", { d: "M16 13.5V12a2 2 0 0 1 4 0v1.5" })),
+    // v23.30: a person + a small calendar (crew time off)
+    crewTimeOff: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("circle", { cx: "8", cy: "7", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 19a5.5 5.5 0 0 1 9.5-3.8" }), /* @__PURE__ */ React.createElement("rect", { x: "13", y: "12", width: "8.5", height: "8.5", rx: "1.5" }), /* @__PURE__ */ React.createElement("path", { d: "M13 15.5h8.5M15.5 10.5v3M19 10.5v3" })),
     terminations: (c) => /* @__PURE__ */ React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6" }), /* @__PURE__ */ React.createElement("path", { d: "M16 18h6" }), /* @__PURE__ */ React.createElement("path", { d: "M19 15l3 3-3 3" }))
   };
   var BTN = {
@@ -1853,6 +1855,916 @@
     ), data.textbelt && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: data.textbelt.error ? "#dc2626" : th.text } }, data.textbelt.error ? `Textbelt: ${data.textbelt.error}` : `Textbelt credits left: ${data.textbelt.left ?? "?"}`), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, data.live ? "Texts go out." : "OFF: terminations are only recorded here, nobody is texted.", !data.askListSize ? " Nobody is on the Leader termination list yet, so the executives are asked." : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.7rem" } }, open.length ? open.map(card2) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Nothing open.")), closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, margin: "1.4rem 0 0.6rem" } }, "Finished"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.7rem" } }, closed.slice(0, 30).map(card2)))));
   }
 
+  // src/approval-queue-ui.jsx
+  var { useState: useState3, useEffect: useEffect3, useRef: useRef2 } = React;
+  var shortDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+  async function call2(fn, qs, body) {
+    const res = await fetch(`/.netlify/functions/${fn}${qs || ""}`, {
+      method: body ? "POST" : "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() },
+      body: body ? JSON.stringify(body) : void 0
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+    return b;
+  }
+  var STATUS2 = {
+    pending: { label: "Waiting for approval", color: "#d97706" },
+    approved: { label: "Approved", color: "#16a34a" },
+    rejected: { label: "Sent back", color: "#dc2626" }
+  };
+  function Review({ th, isMobile, fn, noun, item, canApprove, onClose }) {
+    const S = finStyles(th);
+    const [busy, setBusy] = useState3(false);
+    const [err, setErr] = useState3(null);
+    const [backing, setBacking] = useState3(false);
+    const [note, setNote] = useState3("");
+    const decide = async (action) => {
+      setBusy(true);
+      setErr(null);
+      try {
+        const b = await call2(fn, "", { action, id: item.id, note: note.trim() });
+        if (action === "reject") return onClose(`Sent back to ${item.by}. They were told why.`);
+        const d = b.drive || {}, a = b.alert || {};
+        onClose(`Approved. ${d.saved ? "Filed in Google Drive" : `NOT saved to Drive (${d.error || "error"}), tell IT`}${a.error ? `; office alert failed: ${a.error}` : a.recipients ? `; ${a.recipients} on the office list alerted` : ""}. ${item.by} was told.`);
+      } catch (e) {
+        setErr(e.message);
+        setBusy(false);
+      }
+    };
+    const pdf = `/.netlify/functions/${fn}?pdf=${item.id}`;
+    return /* @__PURE__ */ React.createElement("div", { className: "pcg-stagger", style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, item.title), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "sent by ", item.by, ", ", shortDate(item.at))), /* @__PURE__ */ React.createElement("p", { style: { color: th.text, fontSize: "0.92rem", margin: "0.35rem 0 0.8rem" } }, item.sub), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: pdf, title: `${noun} for ${item.title}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: pdf, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), (item.docs || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, marginBottom: "0.45rem" } }, "Attached ", item.docs.length === 1 ? "document" : `documents (${item.docs.length})`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.7rem", flexWrap: "wrap" } }, item.docs.map((d, i) => /* @__PURE__ */ React.createElement(
+      "a",
+      {
+        key: i,
+        href: d.url,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        title: `Open ${d.name} in a new tab`,
+        style: { display: "flex", flexDirection: "column", gap: "0.35rem", width: 150, padding: "0.45rem", borderRadius: 10, border: `1px solid ${th.cardBorder}`, background: th.card3, color: th.text, textDecoration: "none", fontSize: "0.8rem" }
+      },
+      /^image\/(jpeg|png|gif|webp)$/.test(d.type) ? /* @__PURE__ */ React.createElement("img", { src: d.url, alt: d.name, loading: "lazy", style: { width: "100%", height: 96, objectFit: "cover", borderRadius: 6, background: "#fff" } }) : /* @__PURE__ */ React.createElement("span", { style: { height: 96, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, background: "#fff", color: "#6b6158", fontWeight: 700 } }, /pdf/.test(d.type) ? "PDF" : (String(d.name).split(".").pop() || "FILE").toUpperCase()),
+      /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, d.name),
+      /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 700 } }, "Open in a new tab")
+    ))), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.78rem", margin: "0.4rem 0 0" } }, "Each link works for 2 hours; reopen this request for a fresh one.")), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: `aq-note-${item.id}`, style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement(
+      "textarea",
+      {
+        id: `aq-note-${item.id}`,
+        value: note,
+        maxLength: 400,
+        rows: 3,
+        onChange: (e) => setNote(e.target.value),
+        autoFocus: true,
+        style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body }
+      }
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, item.mine ? "You sent this one, so someone else approves it." : `Only the ${noun.toLowerCase()} approver can approve this.`), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending..." : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back...")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving..." : "Approve & file it")));
+  }
+  function ApprovalQueue({ th, isMobile, fn, noun, openKey, refresh }) {
+    const S = finStyles(th);
+    const [data, setData] = useState3(null);
+    const [tab, setTab] = useState3("pending");
+    const [open, setOpen] = useState3(null);
+    const [viewing, setViewing] = useState3(null);
+    const [msg, setMsg] = useState3(null);
+    const [refiling, setRefiling] = useState3(null);
+    const refile = async (x) => {
+      setRefiling(x.id);
+      try {
+        const b = await call2(fn, "", { action: "approve", id: x.id });
+        const d = b.drive || {}, a = b.alert || {};
+        setMsg(d.saved && !a.error ? `Filed: ${x.title}.` : `Still not filed (${d.error || a.error || "error"}). Tell IT.`);
+      } catch (e) {
+        setMsg(`Still not filed: ${e.message}. Tell IT.`);
+      }
+      setRefiling(null);
+      load();
+    };
+    const openRef = useRef2(open);
+    openRef.current = open;
+    const load = () => call2(fn, "?queue=1").then((b) => {
+      setData(b);
+      let want = null;
+      try {
+        want = sessionStorage.getItem(openKey);
+        sessionStorage.removeItem(openKey);
+      } catch {
+      }
+      const hit = want && (b.pending || []).find((x) => String(x.id) === String(want));
+      if (hit) {
+        setTab("pending");
+        setOpen(hit);
+      } else if (want && (b.done || []).some((x) => String(x.id) === String(want))) setTab("done");
+    }).catch(() => {
+    });
+    useEffect3(() => {
+      load();
+    }, [refresh]);
+    useEffect3(() => {
+      const again = () => {
+        if (!openRef.current && document.visibilityState === "visible") load();
+      };
+      const t = setInterval(again, 6e4);
+      window.addEventListener("focus", again);
+      document.addEventListener("visibilitychange", again);
+      return () => {
+        clearInterval(t);
+        window.removeEventListener("focus", again);
+        document.removeEventListener("visibilitychange", again);
+      };
+    }, []);
+    if (!data) return null;
+    const pending = data.pending || [], done = data.done || [], mine = data.mine || [];
+    const row = (x, onClick, right) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: x.id,
+        role: onClick ? "button" : void 0,
+        tabIndex: onClick ? 0 : void 0,
+        onClick,
+        onKeyDown: onClick ? ((e) => {
+          if (e.key === "Enter") onClick();
+        }) : void 0,
+        style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.7rem 0.9rem", borderRadius: 12, border: `1px solid ${onClick && x.canDecide ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: onClick ? "pointer" : "default", fontFamily: FONTS.body }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, x.title), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, x.sub), /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontSize: "0.8rem", marginTop: 2, color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { color: STATUS2[x.status]?.color || th.muted, fontWeight: 700 } }, STATUS2[x.status]?.label || x.status), x.status === "pending" ? `, sent by ${x.by} ${shortDate(x.at)}` : x.decidedBy ? ` by ${x.decidedBy} ${shortDate(x.decidedAt)}` : "", x.status === "rejected" && x.note ? `: ${x.note}` : "")),
+      /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 }, onClick: onClick ? void 0 : ((e) => e.stopPropagation()) }, right)
+    );
+    const links = (x) => /* @__PURE__ */ React.createElement(React.Fragment, null, x.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(x), style: { ...S.link, color: O } }, "View form"), x.driveLink && /* @__PURE__ */ React.createElement("a", { href: x.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"));
+    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.4rem" } }, msg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success", style: { marginBottom: "0.8rem" } }, msg), data.canView && (open ? /* @__PURE__ */ React.createElement(Review, { th, isMobile, fn, noun, item: open, canApprove: open.canDecide ?? data.canApprove, onClose: (m) => {
+      setOpen(null);
+      if (m) setMsg(m);
+      load();
+    } }) : /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1rem" } }, data.canApprove ? "For your approval" : "Approvals"), /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": `${noun} approvals`, style: { display: "flex", gap: "0.35rem" } }, [["pending", `Waiting${pending.length ? ` (${pending.length})` : ""}`], ["done", "Done"]].map(([k, l]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: k,
+        type: "button",
+        role: "tab",
+        "aria-selected": tab === k,
+        className: "fin-btn",
+        onClick: () => setTab(k),
+        style: { ...S.ghost, minHeight: 34, padding: "0.3rem 0.85rem", background: tab === k ? O : th.card3, color: tab === k ? "#fff" : th.text, borderColor: tab === k ? O : th.cardBorder }
+      },
+      l
+    )))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, tab === "pending" && (pending.length ? pending.map((x) => ({ ...x, canDecide: x.canDecide ?? data.canApprove })).map((x) => row(
+      x,
+      () => setOpen(x),
+      /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          className: "fin-btn",
+          onClick: (e) => {
+            e.stopPropagation();
+            setOpen(x);
+          },
+          style: { ...S.ghost, minHeight: 34, padding: "0.3rem 0.9rem", color: x.canDecide ? "#fff" : th.text, background: x.canDecide ? O : th.card3, borderColor: x.canDecide ? O : th.cardBorder, userSelect: "none" }
+        },
+        x.canDecide ? "Review" : "View"
+      )
+    )) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem", margin: 0 } }, "Nothing waiting for approval.")), tab === "done" && (done.length ? done.slice(0, 20).map((x) => row(x, null, /* @__PURE__ */ React.createElement(React.Fragment, null, links(x), x.canRefile && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: refiling === x.id, onClick: () => refile(x), style: { ...S.link, color: "#dc2626" } }, refiling === x.id ? "Filing..." : "Not filed: file it again")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem", margin: 0 } }, "Nothing decided yet."))))), !data.canView && mine.length > 0 && /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1rem", marginBottom: "0.6rem" } }, "Your recent ", noun.toLowerCase(), "s"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, mine.slice(0, 5).map((x) => row(x, null, links(x))))), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/${fn}?pdf=${viewing.id}`, title: `${noun} for ${viewing.title}`, onClose: () => setViewing(null) }));
+  }
+
+  // src/transfer-notice-pdf.mjs
+  var TRANSFER_LAYOUT = [
+    [83.4, [[72, "Date:"], [101.41, "_______________________"]]],
+    [115.76, [[72, "People"], [109.24, "Capital"], [147.68, "Group"], [182.11, "LLC"]]],
+    [131.94, [[72, "ATTN:"], [106.97, "Human"], [147.02, "Resources"], [202, "Department"]]],
+    [148.12, [[72, "Subject:"], [115.35, "Employee"], [168.53, "Transfer"]]],
+    [196.65, [[72, "I,"], [83.99, "________________________________________("], [266.47, "Employee", 1], [320.44, "Name", 1], [349.88, "),"], [361.81, "am"], [382.55, "requesting"], [442.3, "to"], [457.52, "resign"], [494.17, "from"], [523.83, "my"]]],
+    [217.76, [[72, "current"], [112.92, "position"], [157.56, "as"], [171.22, "a"], [179.72, "________________________("], [291.04, "position", 1], [333.81, "title", 1], [353.94, "),"], [363.63, "located"], [403.51, "at"], [416.07, "PC#"], [439.71, "____________,"], [498.18, "in"], [510.86, "order"]]],
+    [238.86, [[72, "to"], [86.47, "voluntaril"], [136.46, "y"], [146.65, "transfer"], [191.63, "to"], [205.35, "a"], [214.6, "better"], [249.25, "opportunity"], [314.51, "within"], [351.25, "the"], [371.17, "compan"], [411.81, "y"], [421.25, "located"], [461.89, "at"], [475.2, "PC#"], [499.59, "_________"]]],
+    [259.96, [[72, "as"], [90.16, "a"], [103.16, "________________________("], [214.48, "position", 1], [261.76, "title", 1], [281.88, ")."], [296.07, "I"], [307.1, "request"], [353.14, "that"], [380.89, "my"], [403.08, "___________"], [458.39, "("], [462.97, "full/part", 1], [512.95, "time", 1], [535.41, ")"]]],
+    [281.06, [[72, "employment"], [139.25, "is"], [150.38, "effective"], [195.96, "starting"], [238.66, "___________________("], [327.74, "effective", 1], [371.84, "date", 1], [393.98, ")."]]],
+    [323.27, [[72, "I"], [87.53, "acknowledge"], [165.6, "that"], [197.1, "I"], [211.88, "will"], [241.92, "now"], [275.11, "report"], [318.71, "to"], [339.93, "_____________________("], [437.9, "supervisor", 1], [500.99, "name", 1], [528.79, ")/"]]],
+    [344.37, [[72, "_____________________("], [169.97, "supervisor", 1], [227.06, "title", 1], [247.19, ")."], [259.13, "I"], [267.91, "also"], [293.44, "acknowledge"], [365.51, "that"], [391.01, "I"], [399.79, "will"], [423.83, "be"], [440.39, "compensat"], [496.23, "ed"], [512.88, "at"], [526.95, "an"]]],
+    [365.47, [[72, "hourly"], [108.23, "wage"], [137.58, "of"], [150.23, "___________"], [201.79, "per"], [221.92, "hour"], [249.15, "and"], [271, "paid"], [296.17, "on"], [311.88, "a"], [320.38, "biweekly"], [368.92, "basis."]]],
+    [402.75, [[72, "I"], [80.03, "ACCEPT"], [125.72, "THE"], [152.12, "ABOVE"], [192.86, "CONDITIONS"], [264.49, "AND"], [292.21, "AM"], [313.62, "INDICATING"], [381.67, "MY"], [402.45, "ACCEPTANCE"], [476.48, "BY"], [494.59, "SIGNING"]]],
+    [418.93, [[72, "THIS"], [99.84, "LETTER"], [144.4, "AND"], [170.63, "RETURNING"], [237.53, "IT"], [251.17, "VIA"], [272.43, "EMAIL"], [309.56, "TO"], [326.99, "THE"], [351.89, "HUMAN"], [395.98, "RESOUR"], [439.12, "CES"], [461.37, "DEPARTMENT."]]],
+    [451.29, [[72, "Employee"], [125.17, "Name:"], [160.85, "_____________________________________"]]],
+    [483.65, [[72, "Employee"], [125.17, "Signatur"], [168.42, "e:"], [180.08, "____________________________________"]]],
+    [516, [[72, "Date:"], [101.41, "________________________"]]],
+    [564.54, [[72, "ACCEPTED"], [131.03, "AND"], [157.25, "APPROVED"], [217.95, "BY:"]]],
+    [596.9, [[72, "District"], [112.78, "Manager"], [160.37, "Name:"], [196.04, "_____________________________________"]]],
+    [629.25, [[72, "District"], [112.78, "Manager"], [160.37, "Signatur"], [203.62, "e:"], [215.28, "_____________________________________"]]],
+    [661.61, [[72, "Date:"], [101.41, "________________________"]]]
+  ];
+  var TRANSFER_BLANK_FIELDS = [
+    "date",
+    "employeeName",
+    "fromTitle",
+    "fromPC",
+    "toPC",
+    "toTitle",
+    "employmentType",
+    "effectiveDate",
+    "supervisorName",
+    "supervisorTitle",
+    "hourlyWage",
+    "employeeName",
+    "employeeSignature",
+    "employeeSignedDate",
+    "dmName",
+    "dmSignature",
+    "dmSignedDate"
+  ];
+  function transferBlanks(layout = TRANSFER_LAYOUT) {
+    const out = [];
+    for (const [y, words] of layout) for (const [x, raw] of words) {
+      if (/_{3,}/.test(raw)) out.push({ field: TRANSFER_BLANK_FIELDS[out.length], y, x, raw });
+    }
+    return out;
+  }
+  var BODY_OFFSET = 40;
+  var INK = [17, 17, 17];
+  var TRANSFER_CHROME = {
+    header: [
+      { text: "PEOPLE CAPITAL GROUP LLC", x: 201.574, y: 62, font: "bold", size: 14, color: INK },
+      { text: "CONFIDENTIAL \u2014 INTERNAL USE ONLY", x: 216.545, y: 76, font: "italic", size: 10, color: [107, 114, 128] }
+    ],
+    rule: { x1: 64, x2: 548, y: 90, width: 0.8, color: [154, 165, 177] },
+    footer: ["People Capital Group LLC", "Human Resources Department", String((/* @__PURE__ */ new Date()).getFullYear()), "Page 1 of 1"].map((text, i) => ({ text, right: 548, y: 734 + i * 11, size: 9 })),
+    // The PCG seal, 470pt square, behind the body (its transparency is in the PNG).
+    watermark: { x: 71, y: 171, size: 470, src: "pcg-watermark.png" }
+  };
+  var SIGNATURE_FIELDS = /* @__PURE__ */ new Set(["employeeSignature", "dmSignature"]);
+  var TRANSFER_FONT = { family: "Caladea", regular: "Caladea-Regular.ttf", italic: "Caladea-Italic.ttf" };
+  function formatWage(v) {
+    const n = Number(String(v ?? "").replace(/[^0-9.]/g, ""));
+    return String(v ?? "").trim() === "" || !Number.isFinite(n) ? "" : "$" + n.toFixed(2);
+  }
+  function formatLetterDate(v) {
+    const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : String(v || "");
+  }
+  function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
+    const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
+    doc.addFileToVFS(TRANSFER_FONT.regular, fonts.regular);
+    doc.addFont(TRANSFER_FONT.regular, TRANSFER_FONT.family, "normal");
+    doc.addFileToVFS(TRANSFER_FONT.italic, fonts.italic);
+    doc.addFont(TRANSFER_FONT.italic, TRANSFER_FONT.family, "italic");
+    doc.setProperties({ title: "Employee Transfer", creator: "PCG Portal" });
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(12);
+    const title = String(values.approverTitle || "District Manager").trim();
+    let layout = TRANSFER_LAYOUT;
+    if (title !== "District Manager") {
+      doc.setFont(TRANSFER_FONT.family, "normal");
+      const relabel = (row, label) => {
+        const [y, words] = row;
+        const run = words[words.length - 1][1];
+        const x = 72 + doc.getTextWidth(label + " ") + 2;
+        let r = run;
+        while (r.length > 12 && x + doc.getTextWidth(r) > 470) r = r.slice(1);
+        return [y, [[72, label], [x, r]]];
+      };
+      layout = TRANSFER_LAYOUT.map((row) => row[0] === 596.9 ? relabel(row, `${title} Name:`) : row[0] === 629.25 ? relabel(row, `${title} Signature:`) : row);
+    }
+    for (const [y, words] of layout) {
+      for (const [x, text, italic] of words) {
+        doc.setFont(TRANSFER_FONT.family, italic ? "italic" : "normal");
+        doc.text(text, x, y + BODY_OFFSET);
+      }
+    }
+    const C = TRANSFER_CHROME;
+    if (opts.watermark) doc.addImage(opts.watermark, "PNG", C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size, "seal", "FAST");
+    for (const h of C.header) {
+      doc.setFont("times", h.font);
+      doc.setFontSize(h.size);
+      doc.setTextColor(...h.color);
+      doc.text(h.text, h.x, h.y);
+    }
+    doc.setDrawColor(...C.rule.color);
+    doc.setLineWidth(C.rule.width);
+    doc.line(C.rule.x1, C.rule.y, C.rule.x2, C.rule.y);
+    doc.setFont("times", "normal");
+    doc.setTextColor(...INK);
+    for (const f of C.footer) {
+      doc.setFontSize(f.size);
+      doc.text(f.text, f.right, f.y, { align: "right" });
+    }
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(12);
+    const v = {
+      ...values,
+      date: formatLetterDate(values.date),
+      effectiveDate: formatLetterDate(values.effectiveDate),
+      hourlyWage: formatWage(values.hourlyWage),
+      employeeSignedDate: formatLetterDate(values.employeeSignedDate),
+      dmSignedDate: formatLetterDate(values.dmSignedDate)
+    };
+    doc.setFont(TRANSFER_FONT.family, "normal");
+    for (const { field, y: y0, x, raw } of transferBlanks(layout)) {
+      const y = y0 + BODY_OFFSET;
+      const text = field ? String(v[field] ?? "").trim() : "";
+      if (!text) continue;
+      const lead = raw.indexOf("_");
+      const run = raw.match(/_+/)[0];
+      doc.setFontSize(12);
+      const x0 = x + doc.getTextWidth(raw.slice(0, lead));
+      const width = doc.getTextWidth(run);
+      if (SIGNATURE_FIELDS.has(field)) {
+        const props = doc.getImageProperties(text);
+        const scale = Math.min((width - 4) / props.width, 28 / props.height);
+        const w = props.width * scale, h = props.height * scale;
+        doc.addImage(text, "PNG", x0 + 4, y + 1 - h, w, h, void 0, "FAST");
+        continue;
+      }
+      let size = 12;
+      while (size > 7 && (doc.setFontSize(size), doc.getTextWidth(text)) > width - 2) size -= 0.5;
+      doc.setFontSize(size);
+      doc.text(text, x0 + width / 2, y - 1.5, { align: "center" });
+    }
+    doc.setFontSize(12);
+    return doc;
+  }
+
+  // src/transfer-notice.mjs
+  function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig, approverTitle }) {
+    return {
+      date,
+      employeeName: employee?.name || "",
+      fromTitle: employee?.jobTitle || (employee ? String(fromTitle || "").trim() : ""),
+      fromPC: fromPC || "",
+      toPC: toPC || "",
+      toTitle: toTitle || "",
+      employmentType: employmentType || "",
+      effectiveDate: effectiveDate || "",
+      supervisorName: supervisorName || "",
+      supervisorTitle: supervisorTitle || "",
+      hourlyWage: employee?.payRate ?? "",
+      dmName: dmName || "",
+      // v22.96: the approval line's title — 'District Manager' unless someone else approves (their own title).
+      approverTitle: approverTitle || "District Manager",
+      employeeSignature: employeeSig?.image || "",
+      employeeSignedDate: employeeSig?.date || "",
+      dmSignature: dmSig?.image || "",
+      dmSignedDate: dmSig?.date || ""
+    };
+  }
+  function letterFingerprint(v) {
+    return [
+      "date",
+      "employeeName",
+      "fromTitle",
+      "fromPC",
+      "toPC",
+      "toTitle",
+      "employmentType",
+      "effectiveDate",
+      "supervisorName",
+      "supervisorTitle",
+      "hourlyWage",
+      "dmName",
+      "approverTitle"
+    ].map((k) => String(v?.[k] ?? "").trim()).join("|");
+  }
+  function missingTransferFields(v) {
+    const need = [
+      ["employeeName", "Employee"],
+      ["fromTitle", "Current position"],
+      ["fromPC", "Current store"],
+      ["toPC", "New store"],
+      ["toTitle", "New position"],
+      ["employmentType", "Full/part time"],
+      ["effectiveDate", "Effective date"],
+      ["supervisorName", "Supervisor name"],
+      ["supervisorTitle", "Supervisor title"],
+      ["dmName", v?.approverTitle || "District Manager"],
+      ["employeeSignature", "Employee signature"],
+      ["dmSignature", `${v?.approverTitle || "District Manager"} signature`]
+    ];
+    return need.filter(([k]) => !String(v?.[k] ?? "").trim()).map(([, label]) => label);
+  }
+
+  // src/transfer-notice-ui.jsx
+  var { useState: useState4, useEffect: useEffect4, useRef: useRef3 } = React;
+  var todayIso2 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  var POSITIONS = ["Crew Member", "Shift Leader", "Assistant Manager", "Store Manager"];
+  var api = async (qs = "") => {
+    const res = await fetch("/.netlify/functions/transfer-notice" + qs, { credentials: "include", headers: { ...authHeader() } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    return body;
+  };
+  var fontsPromise = null;
+  var isPhoneLike = () => {
+    try {
+      return window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent);
+    } catch {
+      return false;
+    }
+  };
+  function deliverPdf(doc, fileName) {
+    if (!isPhoneLike()) {
+      doc.save(fileName);
+      return null;
+    }
+    return URL.createObjectURL(doc.output("blob"));
+  }
+  function PdfOpenButton({ url, style }) {
+    if (!url) return null;
+    return /* @__PURE__ */ React.createElement("a", { href: url, target: "_blank", rel: "noopener", className: "fin-btn", style: { display: "inline-block", textDecoration: "none", ...style } }, "Open the signed PDF");
+  }
+  var toB64 = (buf) => {
+    let s = "";
+    const b = new Uint8Array(buf);
+    for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
+    return btoa(s);
+  };
+  var loadFonts = () => fontsPromise || (fontsPromise = Promise.all([TRANSFER_FONT.regular, TRANSFER_FONT.italic].map((f) => fetch("/fonts/" + f).then((r) => {
+    if (!r.ok) throw new Error("font " + f);
+    return r.arrayBuffer();
+  }).then(toB64))).then(([regular, italic]) => ({ regular, italic })).catch((e) => {
+    fontsPromise = null;
+    throw e;
+  }));
+  var sealPromise = null;
+  var loadSeal = () => sealPromise || (sealPromise = fetch("/" + TRANSFER_CHROME.watermark.src).then((r) => {
+    if (!r.ok) throw new Error("watermark");
+    return r.arrayBuffer();
+  }).then((b) => "data:image/png;base64," + toB64(b)).catch((e) => {
+    sealPromise = null;
+    throw e;
+  }));
+  var INK2 = "#111";
+  var FILL = "#fdf3ea";
+  var LETTER_CSS = `
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Regular.ttf') format('truetype'); font-style: normal; font-display: swap; }
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Italic.ttf') format('truetype'); font-style: italic; font-display: swap; }
+.tn-paper { font-family: 'Caladea', Cambria, Georgia, serif; color: ${INK2}; background: #fff; }
+.tn-paper p { margin: 0; }
+.tn-blank { font: inherit; color: ${INK2}; border: none; border-bottom: 1px solid ${INK2}; border-radius: 0; background: ${FILL}; padding: 0 0.25em; margin: 0 0.1em; min-height: 1.35em; line-height: 1.35; vertical-align: baseline; text-align: center; -webkit-appearance: none; appearance: none; }
+.tn-blank:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
+.tn-blank::placeholder { color: #9a8f86; font-style: italic; }
+.tn-locked { display: inline-block; border-bottom: 1px solid ${INK2}; padding: 0 0.3em; margin: 0 0.1em; text-align: center; line-height: 1.35; }
+.tn-locked.tn-empty { color: #9a8f86; font-style: italic; }
+select.tn-blank { cursor: pointer; text-align-last: center; }
+.tn-sigline { display: inline-flex; align-items: flex-end; justify-content: flex-start; border-bottom: 1px solid ${INK2}; height: 3.2em; vertical-align: bottom; margin-left: 0.3em; }
+.tn-sigbtn { font: inherit; font-family: ${FONTS.body}; font-size: 0.85rem; color: ${O}; font-weight: 700; background: ${FILL}; border: 1px dashed ${O}; border-radius: 6px; padding: 0.35rem 0.8rem; margin: 0 0 0.3rem 0.2rem; cursor: pointer; }
+.tn-sigbtn:focus-visible, .tn-sigimg:focus-visible { outline: 2px solid ${O}; outline-offset: 2px; }
+.tn-sigimg { background: none; border: none; padding: 0; cursor: pointer; height: 100%; display: flex; align-items: flex-end; }
+@media (prefers-reduced-motion: reduce) { .tn-blank, .tn-sigbtn { transition: none; } }`;
+  var SIG_FONT = '"Dancing Script", "Segoe Script", "Snell Roundhand", "Lucida Handwriting", "Brush Script MT", cursive';
+  function cropInk(c) {
+    const g = c.getContext("2d");
+    const { data, width, height } = g.getImageData(0, 0, c.width, c.height);
+    let x0 = width, y0 = height, x1 = -1, y1 = -1;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (data[(y * width + x) * 4 + 3] > 10) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    if (x1 < 0) return null;
+    const pad = 6, out = document.createElement("canvas");
+    x0 = Math.max(0, x0 - pad);
+    y0 = Math.max(0, y0 - pad);
+    x1 = Math.min(width - 1, x1 + pad);
+    y1 = Math.min(height - 1, y1 + pad);
+    out.width = x1 - x0 + 1;
+    out.height = y1 - y0 + 1;
+    out.getContext("2d").drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+    return out.toDataURL("image/png");
+  }
+  async function typedSignaturePng(name) {
+    const text = String(name || "").trim();
+    try {
+      await document.fonts?.load(`600 72px "Dancing Script"`, text);
+    } catch {
+    }
+    const c = document.createElement("canvas");
+    c.width = 1e3;
+    c.height = 220;
+    const x = c.getContext("2d");
+    let size = 92;
+    const f = (n) => `600 ${n}px ${SIG_FONT}`;
+    x.font = f(size);
+    while (size > 30 && x.measureText(text).width > 950) {
+      size -= 2;
+      x.font = f(size);
+    }
+    x.fillStyle = INK2;
+    x.textBaseline = "middle";
+    x.fillText(text, 24, 112);
+    return cropInk(c);
+  }
+  function SignatureModal({ th, title, onDone, onCancel, name = "", defaultMode = "type" }) {
+    const S = finStyles(th);
+    const ref = useRef3(null);
+    const drawing = useRef3(false);
+    const last = useRef3(null);
+    const [mode, setMode] = useState4(defaultMode === "draw" ? "draw" : "type");
+    const [typed, setTyped] = useState4(name || "");
+    const [inked, setInked] = useState4(false);
+    const [busy, setBusy] = useState4(false);
+    const typedOk = typed.trim().length >= 2;
+    useEffect4(() => {
+      const onKey = (e) => {
+        if (e.key === "Escape") onCancel();
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, []);
+    useEffect4(() => {
+      if (mode !== "draw") return;
+      const c = ref.current;
+      if (!c) return;
+      const dpr = window.devicePixelRatio || 1;
+      const r = c.getBoundingClientRect();
+      c.width = Math.round(r.width * dpr);
+      c.height = Math.round(r.height * dpr);
+      const g = c.getContext("2d");
+      g.scale(dpr, dpr);
+      g.lineCap = "round";
+      g.lineJoin = "round";
+      g.strokeStyle = INK2;
+      g.lineWidth = 2.4;
+      setInked(false);
+    }, [mode]);
+    const pt = (e) => {
+      const r = ref.current.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    const down = (e) => {
+      ref.current.setPointerCapture(e.pointerId);
+      drawing.current = true;
+      last.current = pt(e);
+      const g = ref.current.getContext("2d");
+      g.beginPath();
+      g.arc(last.current.x, last.current.y, 1.1, 0, Math.PI * 2);
+      g.fillStyle = INK2;
+      g.fill();
+      setInked(true);
+    };
+    const move = (e) => {
+      if (!drawing.current) return;
+      const g = ref.current.getContext("2d");
+      const p = pt(e);
+      g.beginPath();
+      g.moveTo(last.current.x, last.current.y);
+      g.lineTo(p.x, p.y);
+      g.stroke();
+      last.current = p;
+    };
+    const up = () => {
+      drawing.current = false;
+    };
+    const clear = () => {
+      const c = ref.current;
+      c.getContext("2d").clearRect(0, 0, c.width, c.height);
+      setInked(false);
+    };
+    const ready = mode === "type" ? typedOk : inked;
+    const done = async () => {
+      if (!ready || busy) return;
+      if (mode === "draw") {
+        const png2 = cropInk(ref.current);
+        if (png2) onDone(png2);
+        return;
+      }
+      setBusy(true);
+      const png = await typedSignaturePng(typed);
+      setBusy(false);
+      if (png) onDone(png);
+    };
+    const tab = (k, label) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        role: "tab",
+        "aria-selected": mode === k,
+        className: "fin-btn",
+        onClick: () => setMode(k),
+        style: { ...S.ghost, minHeight: 36, padding: "0.35rem 1rem", background: mode === k ? O : th.card3, color: mode === k ? "#fff" : th.text, borderColor: mode === k ? O : th.cardBorder }
+      },
+      label
+    );
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": title,
+        onClick: (e) => {
+          if (e.target === e.currentTarget) onCancel();
+        },
+        style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(20,16,12,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "pcg-pop", style: { ...S.panel, width: "min(640px, 100%)", padding: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: S.panelTitle }, title), /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "How to sign", style: { display: "flex", gap: "0.35rem" } }, tab("type", "Type"), tab("draw", "Draw"))), mode === "type" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "0.6rem" } }, "Type your full name. It's turned into your signature."), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          className: "fin-input",
+          autoFocus: true,
+          value: typed,
+          onChange: (e) => setTyped(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              done();
+            }
+          },
+          placeholder: "Your full name",
+          "aria-label": "Type your full name to sign",
+          maxLength: 60,
+          autoComplete: "name",
+          style: { ...S.input, fontSize: "1rem" }
+        }
+      ), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
+        height: 120,
+        marginTop: "0.7rem",
+        background: "#fff",
+        border: `1px solid ${th.cardBorder}`,
+        borderRadius: 10,
+        display: "flex",
+        alignItems: "center",
+        padding: "0 1rem",
+        overflow: "hidden",
+        backgroundImage: "linear-gradient(transparent 88px, #d9d2cb 88px, #d9d2cb 89px, transparent 89px)"
+      } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: SIG_FONT, fontWeight: 600, fontSize: "clamp(1.8rem, 7vw, 2.8rem)", color: INK2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, typed.trim() || " "))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "0.6rem" } }, "Sign in the box with your finger, a stylus or the mouse."), /* @__PURE__ */ React.createElement(
+        "canvas",
+        {
+          ref,
+          onPointerDown: down,
+          onPointerMove: move,
+          onPointerUp: up,
+          onPointerCancel: up,
+          style: { width: "100%", height: 200, display: "block", background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 10, touchAction: "none", cursor: "crosshair", backgroundImage: `linear-gradient(transparent 150px, #d9d2cb 150px, #d9d2cb 151px, transparent 151px)` }
+        }
+      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.9rem", flexWrap: "wrap" } }, mode === "draw" ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: clear, disabled: !inked }, "Clear") : /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: onCancel }, "Cancel"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready && !busy ? 1 : 0.5 }, onClick: done, disabled: !ready || busy }, "Use this signature"))))
+    );
+  }
+  var INLINE_SIGN_CSS = `
+.pcg-sign { display: inline-flex; flex-wrap: wrap; align-items: flex-end; gap: 0.3em 0.5em; padding: 0 0 0.15em 0.2em; }
+.pcg-sign-in { font-family: ${SIG_FONT}; font-weight: 600; font-size: 1.35rem; line-height: 1.2; color: ${INK2}; width: 10em; max-width: 62vw; min-width: 0; background: ${FILL}; border: none; border-bottom: 1px dashed ${O}; border-radius: 4px 4px 0 0; padding: 0.05em 0.35em; }
+.pcg-sign-in::placeholder { font-family: ${FONTS.body}; font-weight: 600; font-size: 0.8rem; color: #b07a5c; }
+.pcg-sign-in:focus-visible, .pcg-sign-btn:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
+.pcg-sign-btn { font: inherit; font-family: ${FONTS.body}; font-size: 0.78rem; font-weight: 700; border-radius: 6px; padding: 0.25rem 0.6rem; cursor: pointer; white-space: nowrap; }
+.pcg-sign-off { font-family: ${FONTS.body}; font-size: 0.8rem; font-weight: 700; color: ${O}; opacity: 0.5; padding: 0 0 0.25em 0.3em; white-space: nowrap; }`;
+  function InlineSign({ th, can, blockedText = "Fill in the form first", label = "", onSign, name = "" }) {
+    const [typed, setTyped] = useState4(name);
+    const [drawing, setDrawing] = useState4(false);
+    const [busy, setBusy] = useState4(false);
+    const ok = typed.trim().length >= 2;
+    const sign = async () => {
+      if (!ok || busy) return;
+      setBusy(true);
+      const png = await typedSignaturePng(typed);
+      setBusy(false);
+      if (png) onSign(png);
+    };
+    return /* @__PURE__ */ React.createElement("span", { className: "pcg-sign" }, /* @__PURE__ */ React.createElement("style", null, INLINE_SIGN_CSS), !can ? /* @__PURE__ */ React.createElement("span", { className: "pcg-sign-off" }, blockedText) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "pcg-sign-in",
+        value: typed,
+        maxLength: 60,
+        autoComplete: "name",
+        onChange: (e) => setTyped(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            sign();
+          }
+        },
+        placeholder: "Type your name to sign",
+        "aria-label": `Type your full name to sign${label ? ` (${label})` : ""}`
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "pcg-sign-btn",
+        onClick: sign,
+        disabled: !ok || busy,
+        style: { background: O, color: "#fff", border: `1px solid ${O}`, opacity: ok && !busy ? 1 : 0.45, cursor: ok && !busy ? "pointer" : "not-allowed" }
+      },
+      "Sign"
+    ), /* @__PURE__ */ React.createElement("button", { type: "button", className: "pcg-sign-btn", onClick: () => setDrawing(true), style: { background: "none", color: O, border: `1px dashed ${O}` } }, "Draw instead")), drawing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: `${label || "Your"} signature`, defaultMode: "draw", name: typed, onCancel: () => setDrawing(false), onDone: (png) => {
+      setDrawing(false);
+      onSign(png);
+    } }));
+  }
+  function TransferNotice({ th, isMobile, onBack }) {
+    const S = finStyles(th);
+    const [stores, setStores] = useState4([]);
+    const [employees, setEmployees] = useState4(null);
+    const [error, setError] = useState4(null);
+    const [query, setQuery] = useState4("");
+    const [listOpen, setListOpen] = useState4(false);
+    const [picked, setPicked] = useState4(null);
+    const [employee, setEmployee] = useState4(null);
+    const [loadingEmp, setLoadingEmp] = useState4(false);
+    const [toPC, setToPC] = useState4("");
+    const [toTitle, setToTitle] = useState4("");
+    const [employmentType, setEmploymentType] = useState4("");
+    const [fromTitle, setFromTitle] = useState4("");
+    const [effectiveDate, setEffectiveDate] = useState4("");
+    const [supervisorName, setSupervisorName] = useState4("");
+    const [supervisorTitle, setSupervisorTitle] = useState4("Store Manager");
+    const [dmName, setDmName] = useState4("");
+    const [me, setMe] = useState4(null);
+    const [date, setDate] = useState4(todayIso2());
+    const [employeeSig, setEmployeeSig] = useState4(null);
+    const [dmSig, setDmSig] = useState4(null);
+    const [signing, setSigning] = useState4(null);
+    const [busy, setBusy] = useState4(false);
+    const [saved, setSaved] = useState4(null);
+    useEffect4(() => {
+      api().then((b) => {
+        setStores(b.stores || []);
+        setEmployees(b.employees || []);
+        if (b.me) {
+          setMe(b.me);
+          if (b.me.approverTitle) setDmName((n) => n || b.me.name || "");
+        }
+      }).catch((e) => {
+        setError(e.message);
+        setEmployees([]);
+      });
+    }, []);
+    useEffect4(() => {
+      setEmployee(null);
+      if (!picked) return;
+      let live = true;
+      setLoadingEmp(true);
+      setError(null);
+      api(`?pc=${encodeURIComponent(picked.pc)}&employeeId=${encodeURIComponent(picked.id)}`).then((b) => {
+        if (!live) return;
+        setEmployee(b.employee);
+        setEmploymentType(b.employee?.employmentType || "");
+      }).catch((e) => live && setError(e.message)).finally(() => live && setLoadingEmp(false));
+      return () => {
+        live = false;
+      };
+    }, [picked]);
+    useEffect4(() => {
+      if (!toPC) return;
+      let live = true;
+      api(`?dest=${encodeURIComponent(toPC)}`).then((b) => {
+        if (!live) return;
+        setSupervisorName(b.manager || "");
+        if (!me?.approverTitle) setDmName(b.dm || "");
+      }).catch(() => {
+      });
+      return () => {
+        live = false;
+      };
+    }, [toPC]);
+    const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
+    const approverTitle = me?.approverTitle || "District Manager";
+    const fromPC = picked?.pc || "";
+    const hourly = employee && /hour/i.test(employee.payType || "Hourly") && employee.payRate > 0;
+    const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, approverTitle });
+    const fp = letterFingerprint(base);
+    useEffect4(() => {
+      setSaved(null);
+    }, [fp]);
+    const empSigOk = employeeSig && employeeSig.fp === fp ? employeeSig : null;
+    const dmSigOk = dmSig && dmSig.fp === fp ? dmSig : null;
+    const voided = employeeSig && !empSigOk || dmSig && !dmSigOk;
+    const values = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, approverTitle, employeeSig: empSigOk, dmSig: dmSigOk });
+    const missing = missingTransferFields(values);
+    const sameStore = fromPC && toPC && fromPC === toPC;
+    const letterMissing = missingTransferFields(base).filter((m) => !/signature/i.test(m));
+    const canSign = !letterMissing.length && hourly && !sameStore && !loadingEmp;
+    const ready = !missing.length && hourly && !sameStore && !busy && !loadingEmp;
+    const q = query.trim().toLowerCase();
+    const matches = q && employees ? employees.filter((e) => e.name.toLowerCase().includes(q) || storeName(e.pc).toLowerCase().includes(q) || e.pc.includes(q)).slice(0, 40) : [];
+    const pick = (e) => {
+      setPicked(e);
+      setFromTitle("");
+      setQuery(e.name);
+      setListOpen(false);
+      if (toPC === e.pc) setToPC("");
+    };
+    const download = async () => {
+      if (!ready) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const JsPDF = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
+        if (!JsPDF) throw new Error("PDF library did not load \u2014 refresh the page.");
+        const [fonts, watermark] = await Promise.all([loadFonts(), loadSeal()]);
+        const doc = buildTransferNoticePdf(JsPDF, fonts, values, { watermark });
+        const fileName = `Transfer-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
+        setSaved({ state: "saving" });
+        try {
+          const res = await fetch("/.netlify/functions/transfer-notice", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ values, employeeId: employee?.id, pdf: doc.output("datauristring") })
+          });
+          const b = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+          setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
+        } catch (e) {
+          setSaved({ state: "failed", error: e.message, pdfUrl: deliverPdf(doc, fileName) });
+        }
+      } catch (e) {
+        setError(e.message);
+      }
+      setBusy(false);
+    };
+    const savedLine = () => {
+      if (!saved) return null;
+      if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Sending for approval\u2026");
+      if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Not sent: ", saved.error, ". Press the button again to retry.");
+      const who = (saved.approvers || []).length ? saved.approvers.join(" / ") : "the approver";
+      if (saved.already) return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "Already sent", saved.status === "pending" ? `, waiting for ${who}` : saved.status === "approved" ? " and approved" : "", ".");
+      return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "Sent to ", who, " for approval", saved.notified ? "" : " (no approver could be reached, tell IT)", ". You'll get an email when it's approved; then it's filed in Google Drive.");
+    };
+    const w = (ch) => ({ width: `${ch}ch`, maxWidth: "100%" });
+    const locked = (value, placeholder, ch) => /* @__PURE__ */ React.createElement("span", { className: `tn-locked${value ? "" : " tn-empty"}`, style: { minWidth: `${ch}ch` }, title: "From Paycor \u2014 can't be changed here" }, value || (loadingEmp ? "\u2026" : placeholder));
+    const text = (value, set, ch, placeholder, extra = {}) => /* @__PURE__ */ React.createElement("input", { className: "tn-blank", style: w(ch), value, onChange: (e) => set(e.target.value), placeholder, "aria-label": placeholder, ...extra });
+    const dateBlank = (value, set, label) => /* @__PURE__ */ React.createElement("input", { type: "date", className: "tn-blank", style: { width: isMobile ? "14ch" : "13.5ch" }, value, onChange: (e) => set(e.target.value), "aria-label": label });
+    const sigLine = (who, sig, label) => /* @__PURE__ */ React.createElement("span", { className: "tn-sigline", style: { width: isMobile ? "60%" : "22em" } }, sig ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "tn-sigimg", onClick: () => setSigning(who), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: sig.image, alt: `${label} signature`, style: { maxHeight: "2.9em", maxWidth: "100%", objectFit: "contain" } })) : /* @__PURE__ */ React.createElement(
+      InlineSign,
+      {
+        th,
+        can: canSign,
+        blockedText: "Fill in the letter first",
+        label,
+        onSign: (image) => {
+          const sig2 = { image, date: todayIso2(), fp };
+          (who === "employee" ? setEmployeeSig : setDmSig)(sig2);
+        }
+      }
+    ));
+    const signedDate = (sig) => /* @__PURE__ */ React.createElement("span", { className: `tn-locked${sig ? "" : " tn-empty"}`, style: { minWidth: "10ch" } }, sig ? formatLetterDate(sig.date) : "on signing");
+    const row = { marginTop: "1.15em" };
+    const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "tn-blank",
+        style: w(isMobile ? 18 : 26),
+        value: query,
+        role: "combobox",
+        "aria-expanded": listOpen && matches.length > 0,
+        "aria-controls": "tn-emp-list",
+        autoComplete: "off",
+        "aria-label": "Employee name",
+        placeholder: employees ? "Search employee name" : "Loading from Paycor\u2026",
+        disabled: !employees,
+        onChange: (e) => {
+          setQuery(e.target.value);
+          setListOpen(true);
+          if (picked) setPicked(null);
+        },
+        onFocus: () => setListOpen(true),
+        onBlur: () => setTimeout(() => setListOpen(false), 150),
+        onKeyDown: (e) => {
+          if (e.key === "Enter" && matches[0]) {
+            e.preventDefault();
+            pick(matches[0]);
+          }
+          if (e.key === "Escape") setListOpen(false);
+        }
+      }
+    ), listOpen && matches.length > 0 && /* @__PURE__ */ React.createElement("span", { id: "tn-emp-list", role: "listbox", style: { position: "absolute", zIndex: 30, left: 0, top: "100%", marginTop: 4, width: "min(420px, 82vw)", maxHeight: 300, overflowY: "auto", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.15)", textAlign: "left" } }, matches.map((e) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: e.pc + e.id,
+        type: "button",
+        role: "option",
+        "aria-selected": "false",
+        className: "fin-btn",
+        onMouseDown: (ev) => ev.preventDefault(),
+        onClick: () => pick(e),
+        style: { display: "flex", width: "100%", justifyContent: "space-between", gap: "0.8rem", padding: "0.6rem 0.9rem", background: "none", border: "none", borderBottom: `1px solid ${th.cardBorder}`, color: th.text, textAlign: "left", cursor: "pointer", fontFamily: FONTS.body, fontSize: "0.88rem" }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, e.name, e.jobTitle && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \u2014 ", e.jobTitle)),
+      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, whiteSpace: "nowrap" } }, storeName(e.pc), " \xB7 ", e.pc)
+    ))));
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + LETTER_CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Transfer Notice"), /* @__PURE__ */ React.createElement(ApprovalQueue, { th, isMobile, fn: "transfer-notice", noun: "Transfer notice", openKey: "tn_open", refresh: saved && saved.state === "done" ? saved.id : 0 }), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the letter with the employee. The tinted blanks are yours; the employee's name, current position, store and hourly wage come straight from Paycor. Then the employee and the DM each sign on their line. It goes to Mike for approval, then it's filed in Google Drive and the office is told."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no hourly rate for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this letter can't be made. Fix the rate in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The letter changed after it was signed, so that signature no longer counts. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "tn-paper", style: {
+      borderRadius: 6,
+      boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
+      padding: isMobile ? "1.4rem 1.1rem" : "2.6rem 4.5rem 2rem",
+      fontSize: isMobile ? "15px" : "16.5px",
+      lineHeight: 1.85,
+      marginBottom: "1.2rem",
+      backgroundImage: `url('/${TRANSFER_CHROME.watermark.src}')`,
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "center 58%",
+      backgroundSize: "77%"
+    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: "Times New Roman, Times, serif", lineHeight: 1.25 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1.17em", color: "#111" } }, "PEOPLE CAPITAL GROUP LLC"), /* @__PURE__ */ React.createElement("div", { style: { fontStyle: "italic", fontSize: "0.83em", color: "#6b7280" } }, "CONFIDENTIAL \u2014 INTERNAL USE ONLY")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #9aa5b1", margin: "0.9em -0.6em 2em" } }), /* @__PURE__ */ React.createElement("p", null, "Date: ", dateBlank(date, setDate, "Letter date")), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "People Capital Group LLC", /* @__PURE__ */ React.createElement("br", null), "ATTN: Human Resources Department", /* @__PURE__ */ React.createElement("br", null), "Subject: Employee Transfer"), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.4em", textAlign: isMobile ? "left" : "justify" } }, "I, ", empSearch, "(", /* @__PURE__ */ React.createElement("i", null, "Employee Name"), "), am requesting to resign from my current position as a ", employee && !employee.jobTitle ? text(fromTitle, setFromTitle, 14, "current position", { list: "tn-positions", title: "Paycor has no job title for this employee \u2014 fill it in" }) : locked(employee?.jobTitle, "from Paycor", 14), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "), located at PC# ", locked(employee ? fromPC : "", "from Paycor", 8), ", in order to voluntarily transfer to a better opportunity within the company located at PC#", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: isMobile ? "14ch" : "9.5ch" }, value: toPC, onChange: (e) => setToPC(e.target.value), "aria-label": "New store PC#", title: toPC ? storeName(toPC) : "New store" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), stores.filter((s) => s.pc !== fromPC).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.pc, " \xB7 ", s.name))), " ", "as a ", text(toTitle, setToTitle, 14, "new position", { list: "tn-positions" }), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "). I request that my", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: "10ch" }, value: employmentType, onChange: (e) => setEmploymentType(e.target.value), "aria-label": "Full or part time" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), /* @__PURE__ */ React.createElement("option", null, "Full time"), /* @__PURE__ */ React.createElement("option", null, "Part time")), " ", "(", /* @__PURE__ */ React.createElement("i", null, "full/part time"), ") employment is effective starting ", dateBlank(effectiveDate, setEffectiveDate, "Effective date"), "(", /* @__PURE__ */ React.createElement("i", null, "effective date"), ")."), /* @__PURE__ */ React.createElement("datalist", { id: "tn-positions" }, POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", textAlign: isMobile ? "left" : "justify" } }, "I acknowledge that I will now report to ", text(supervisorName, setSupervisorName, 16, "supervisor name"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor name"), ")/ ", text(supervisorTitle, setSupervisorTitle, 14, "supervisor title"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor title"), "). I also acknowledge that I will be compensated at an hourly wage of ", locked(hourly ? finMoney.format(employee.payRate) : "", "from Paycor", 8), " per hour and paid on a biweekly basis."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "I ACCEPT THE ABOVE CONDITIONS AND AM INDICATING MY ACCEPTANCE BY SIGNING THIS LETTER AND RETURNING IT VIA EMAIL TO THE HUMAN RESOURCES DEPARTMENT."), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Name: ", locked(employee?.name, "from Paycor", 22)), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Signature:", sigLine("employee", empSigOk, "employee")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(empSigOk)), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.2em" } }, "ACCEPTED AND APPROVED BY:"), /* @__PURE__ */ React.createElement("p", { style: row }, approverTitle, " Name: ", text(dmName, setDmName, 22, `${approverTitle} name`)), /* @__PURE__ */ React.createElement("p", { style: row }, approverTitle, " Signature:", sigLine("dm", dmSigOk, approverTitle)), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(dmSigOk)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontFamily: "Times New Roman, Times, serif", fontSize: "0.75em", lineHeight: 1.3, color: "#111", marginTop: "2.4em" } }, TRANSFER_CHROME.footer.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.text }, f.text)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "2rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, sameStore ? "The new store must be different." : missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: download }, busy ? "Sending\u2026" : "Send for approval & download")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginTop: "-1.4rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
+      SignatureModal,
+      {
+        th,
+        title: signing === "employee" ? `Employee signature \u2014 ${employee?.name || ""}` : `${approverTitle} signature \u2014 ${dmName}`,
+        onCancel: () => setSigning(null),
+        onDone: (image) => {
+          const sig = { image, date: todayIso2(), fp };
+          (signing === "employee" ? setEmployeeSig : setDmSig)(sig);
+          setSigning(null);
+        }
+      }
+    ));
+  }
+
   // src/pay-increase-pdf.mjs
   var PAY_LAYOUT = [
     [111.2, 12, [[72, "PAY RATE CHANGE FORM", "b"]]],
@@ -2103,10 +3015,10 @@
   }
 
   // src/pay-increase-ui.jsx
-  var { useState: useState3, useEffect: useEffect3, useRef: useRef2 } = React;
-  var todayIso2 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  var POSITIONS = ["Crew Member", "Shift Leader", "Assistant Manager", "Store Manager"];
-  var call2 = async (qs = "", body) => {
+  var { useState: useState5, useEffect: useEffect5, useRef: useRef4 } = React;
+  var todayIso3 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  var POSITIONS2 = ["Crew Member", "Shift Leader", "Assistant Manager", "Store Manager"];
+  var call3 = async (qs = "", body) => {
     const res = await fetch("/.netlify/functions/pay-increase" + qs, {
       method: body ? "POST" : "GET",
       credentials: "include",
@@ -2132,27 +3044,27 @@
     assetsPromise = null;
     throw e;
   }));
-  var INK = "#111";
-  var FILL = "#fdf3ea";
+  var INK3 = "#111";
+  var FILL2 = "#fdf3ea";
   var PAPER_CSS = `
 @font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
 @font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
-.pi-paper { font-family: 'Caladea', Cambria, Georgia, serif; color: ${INK}; background: #fff; }
+.pi-paper { font-family: 'Caladea', Cambria, Georgia, serif; color: ${INK3}; background: #fff; }
 .pi-paper p { margin: 0; }
 .pi-row { display: flex; align-items: flex-end; gap: 0.6em; margin-top: 0.85em; flex-wrap: wrap; }
 .pi-label { min-width: 9.2em; }
-.pi-blank { font: inherit; color: ${INK}; border: none; border-bottom: 1px solid ${INK}; border-radius: 0; background: ${FILL}; padding: 0 0.3em; min-height: 1.4em; line-height: 1.4; text-align: center; -webkit-appearance: none; appearance: none; }
+.pi-blank { font: inherit; color: ${INK3}; border: none; border-bottom: 1px solid ${INK3}; border-radius: 0; background: ${FILL2}; padding: 0 0.3em; min-height: 1.4em; line-height: 1.4; text-align: center; -webkit-appearance: none; appearance: none; }
 .pi-blank:focus-visible, .pi-sigbtn:focus-visible, .pi-reason:focus-visible, .pi-sigimg:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
 .pi-blank::placeholder, .pi-reason::placeholder { color: #9a8f86; font-style: italic; }
-.pi-locked { display: inline-block; border-bottom: 1px solid ${INK}; padding: 0 0.3em; text-align: center; line-height: 1.4; min-width: 11em; }
+.pi-locked { display: inline-block; border-bottom: 1px solid ${INK3}; padding: 0 0.3em; text-align: center; line-height: 1.4; min-width: 11em; }
 .pi-locked.pi-empty { color: #9a8f86; font-style: italic; }
-.pi-box { border: 1px solid ${INK}; }
+.pi-box { border: 1px solid ${INK3}; }
 .pi-boxhead { text-align: center; font-weight: 700; font-size: 0.82em; padding: 0.25em; border-bottom: 1px solid #ccc; }
-.pi-reason { font: inherit; font-size: 0.9em; width: 100%; box-sizing: border-box; border: none; resize: vertical; min-height: 4.8em; padding: 0.3em 0.5em; color: ${INK}; line-height: 1.6;
-  background-color: ${FILL}; background-image: repeating-linear-gradient(transparent 0, transparent calc(1.6em - 1px), #ccc calc(1.6em - 1px), #ccc 1.6em); background-attachment: local; }
-.pi-sigline { display: inline-flex; align-items: flex-end; border-bottom: 1px solid ${INK}; height: 2.7em; min-width: 13em; }
-.pi-sigbtn { font: inherit; font-family: ${FONTS.body}; font-size: 0.82rem; color: ${O}; font-weight: 700; background: ${FILL}; border: 1px dashed ${O}; border-radius: 6px; padding: 0.3rem 0.75rem; margin: 0 0 0.25rem 0.2rem; cursor: pointer; }
+.pi-reason { font: inherit; font-size: 0.9em; width: 100%; box-sizing: border-box; border: none; resize: vertical; min-height: 4.8em; padding: 0.3em 0.5em; color: ${INK3}; line-height: 1.6;
+  background-color: ${FILL2}; background-image: repeating-linear-gradient(transparent 0, transparent calc(1.6em - 1px), #ccc calc(1.6em - 1px), #ccc 1.6em); background-attachment: local; }
+.pi-sigline { display: inline-flex; align-items: flex-end; border-bottom: 1px solid ${INK3}; height: 2.7em; min-width: 13em; }
+.pi-sigbtn { font: inherit; font-family: ${FONTS.body}; font-size: 0.82rem; color: ${O}; font-weight: 700; background: ${FILL2}; border: 1px dashed ${O}; border-radius: 6px; padding: 0.3rem 0.75rem; margin: 0 0 0.25rem 0.2rem; cursor: pointer; }
 .pi-sigimg { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: flex-end; }
 .pi-office { width: 100%; border-collapse: collapse; font-size: 0.82em; }
 .pi-office td { border-top: 1px solid #b7b7b7; padding: 0.3em 0.5em; text-align: center; height: 1.9em; }
@@ -2181,8 +3093,8 @@
     return pdfCache.get(id);
   }
   function PdfPage({ id, width, onError }) {
-    const ref = useRef2(null);
-    useEffect3(() => {
+    const ref = useRef4(null);
+    useEffect5(() => {
       let live = true;
       loadPayPdf(id).then((page) => {
         if (!live || !ref.current) return;
@@ -2203,9 +3115,9 @@
     return /* @__PURE__ */ React.createElement("canvas", { ref, style: { display: "block", background: "#fff" } });
   }
   function FormModal({ th, id, title, onClose }) {
-    const [err, setErr] = useState3(null);
+    const [err, setErr] = useState5(null);
     const bigWidth = Math.min(860, (typeof window !== "undefined" ? window.innerWidth : 900) - 48);
-    useEffect3(() => {
+    useEffect5(() => {
       const onKey = (e) => {
         if (e.key === "Escape") onClose();
       };
@@ -2238,8 +3150,8 @@
     );
   }
   function FormPreview({ th, id, title, thumbWidth = 230 }) {
-    const [open, setOpen] = useState3(false);
-    const [err, setErr] = useState3(null);
+    const [open, setOpen] = useState5(false);
+    const [err, setErr] = useState5(null);
     if (err) return /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem" } }, err, " ", /* @__PURE__ */ React.createElement("a", { href: pdfUrl(id), target: "_blank", rel: "noreferrer", style: { color: O } }, "Open the PDF"));
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "button",
@@ -2254,17 +3166,17 @@
       /* @__PURE__ */ React.createElement(PdfPage, { id, width: thumbWidth, onError: setErr })
     ), open && /* @__PURE__ */ React.createElement(FormModal, { th, id, title, onClose: () => setOpen(false) }));
   }
-  function Review({ th, isMobile, form, onClose, canApprove = true }) {
+  function Review2({ th, isMobile, form, onClose, canApprove = true }) {
     const S = finStyles(th);
-    const [busy, setBusy] = useState3(false);
-    const [err, setErr] = useState3(null);
-    const [backing, setBacking] = useState3(false);
-    const [note, setNote] = useState3("");
+    const [busy, setBusy] = useState5(false);
+    const [err, setErr] = useState5(null);
+    const [backing, setBacking] = useState5(false);
+    const [note, setNote] = useState5("");
     const decide = async (action) => {
       setBusy(true);
       setErr(null);
       try {
-        const b = await call2("", { action, id: form.id, note: note.trim() });
+        const b = await call3("", { action, id: form.id, note: note.trim() });
         if (action === "reject") return onClose(`Sent back to ${form.submittedBy}.`);
         const a = b.alert || {};
         onClose(`Approved. It's with the office now to set the effective date (${a.error ? `office alert failed: ${a.error}` : a.recipients ? `${a.recipients} alerted` : "no one is on the office list yet"}). ${form.submittedBy} was emailed.`);
@@ -2277,23 +3189,23 @@
   }
   function OfficeComplete({ th, isMobile, form, onClose, payrateWrite, notifyCount }) {
     const S = finStyles(th);
-    const [eff, setEff] = useState3("");
-    const [pay, setPay] = useState3("");
-    const [sig, setSig] = useState3(null);
-    const [signing, setSigning] = useState3(false);
-    const [mode, setMode] = useState3("type");
-    const [typed, setTyped] = useState3("");
-    const [busy, setBusy] = useState3(false);
-    const [err, setErr] = useState3(null);
-    const [after, setAfter] = useState3(null);
-    const [confirming, setConfirming] = useState3(false);
+    const [eff, setEff] = useState5("");
+    const [pay, setPay] = useState5("");
+    const [sig, setSig] = useState5(null);
+    const [signing, setSigning] = useState5(false);
+    const [mode, setMode] = useState5("type");
+    const [typed, setTyped] = useState5("");
+    const [busy, setBusy] = useState5(false);
+    const [err, setErr] = useState5(null);
+    const [after, setAfter] = useState5(null);
+    const [confirming, setConfirming] = useState5(false);
     const typedOk = typed.trim().length >= 2;
     const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && (mode === "type" ? typedOk : !!sig);
     const done = async () => {
       setBusy(true);
       setErr(null);
       try {
-        const b = await call2("", { action: "complete", id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === "type" ? await typedSignaturePng(typed) : sig });
+        const b = await call3("", { action: "complete", id: form.id, effectiveDate: eff, paycheckDate: pay, payrollSignature: mode === "type" ? await typedSignaturePng(typed) : sig });
         const msg = `Completed: ${b.drive?.saved ? "filed in Google Drive" : `NOT saved to Drive (${b.drive?.error || "error"}), tell IT`}. ${form.submittedBy} was emailed the effective date.`;
         if (b.paycorReady) {
           setAfter({ msg });
@@ -2313,14 +3225,14 @@
   var usLong = (iso) => iso ? (/* @__PURE__ */ new Date(iso + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
   function PaycorConfirm({ th, form, effectiveDate, notifyCount, onCancel, onDone }) {
     const S = finStyles(th);
-    const [busy, setBusy] = useState3(false);
-    const [err, setErr] = useState3(null);
-    const now = !!effectiveDate && effectiveDate <= todayIso2();
+    const [busy, setBusy] = useState5(false);
+    const [err, setErr] = useState5(null);
+    const now = !!effectiveDate && effectiveDate <= todayIso3();
     const go = async () => {
       setBusy(true);
       setErr(null);
       try {
-        const b = await call2("", { action: "queuePayRate", id: form.id });
+        const b = await call3("", { action: "queuePayRate", id: form.id });
         const told = b.notified ? `; ${b.notified} ${b.notified === 1 ? "person was" : "people were"} notified` : "";
         onDone(b.paycor?.status === "sent" ? b.paycor.future ? `Entered in Paycor: ${form.employeeName}'s new pay takes effect ${usLong(b.effectiveDate || effectiveDate)}${told}.` : `Pay updated in Paycor for ${form.employeeName}${told}.` : `Paycor NOT updated for ${form.employeeName}: ${b.paycor?.error || "error"}.`);
       } catch (e) {
@@ -2334,10 +3246,10 @@
   }
   function PaycorRatesModal({ th, form, onClose }) {
     const S = finStyles(th);
-    const [data, setData] = useState3(null);
-    const [err, setErr] = useState3(null);
-    useEffect3(() => {
-      call2("", { action: "paycorRates", id: form.id }).then(setData).catch((e) => setErr(e.message));
+    const [data, setData] = useState5(null);
+    const [err, setErr] = useState5(null);
+    useEffect5(() => {
+      call3("", { action: "paycorRates", id: form.id }).then(setData).catch((e) => setErr(e.message));
     }, []);
     const d = (x) => x ? (/* @__PURE__ */ new Date(x + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
     const STATE = { ready: "Paycor still shows the form\u2019s current pay, so the new pay can be written.", already: "Paycor already shows the new pay. Nothing to send.", mismatch: "Paycor shows a different pay than the form. Nothing will be written; check it in Paycor.", none: "Paycor has no pay rate for this employee." };
@@ -2345,17 +3257,17 @@
   }
   function ChangeEffective({ th, form, onDone, onCancel }) {
     const S = finStyles(th);
-    const [eff, setEff] = useState3(form.effectiveDate || "");
-    const [pay, setPay] = useState3(form.paycheckDate || "");
-    const [reason, setReason] = useState3("");
-    const [busy, setBusy] = useState3(false);
-    const [err, setErr] = useState3(null);
+    const [eff, setEff] = useState5(form.effectiveDate || "");
+    const [pay, setPay] = useState5(form.paycheckDate || "");
+    const [reason, setReason] = useState5("");
+    const [busy, setBusy] = useState5(false);
+    const [err, setErr] = useState5(null);
     const ok = /^\d{4}-\d{2}-\d{2}$/.test(eff) && /^\d{4}-\d{2}-\d{2}$/.test(pay) && reason.trim().length >= 3 && eff !== form.effectiveDate;
     const save = async () => {
       setBusy(true);
       setErr(null);
       try {
-        const b = await call2("", { action: "changeEffective", id: form.id, effectiveDate: eff, paycheckDate: pay, reason: reason.trim() });
+        const b = await call3("", { action: "changeEffective", id: form.id, effectiveDate: eff, paycheckDate: pay, reason: reason.trim() });
         onDone(`Effective date changed to ${(/* @__PURE__ */ new Date(eff + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${b.paycor?.status === "sent" ? " (Paycor updated too)" : b.queued ? "; the Paycor update moves with it" : ""}. ${form.submittedBy} was emailed.`);
       } catch (e) {
         setErr(e.message);
@@ -2367,54 +3279,54 @@
   var Locked = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `pi-locked${value ? "" : " pi-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function PayIncrease({ th, isMobile, onBack }) {
     const S = finStyles(th);
-    const [stores, setStores] = useState3([]);
-    const [employees, setEmployees] = useState3(null);
-    const [error, setError] = useState3(null);
-    const [query, setQuery] = useState3("");
-    const [listOpen, setListOpen] = useState3(false);
-    const [picked, setPicked] = useState3(null);
-    const [employee, setEmployee] = useState3(null);
-    const [loadingEmp, setLoadingEmp] = useState3(false);
-    const [position, setPosition] = useState3("");
-    const [newRate, setNewRate] = useState3("");
-    const [reason, setReason] = useState3("");
-    const [reasonTouched, setReasonTouched] = useState3(false);
-    const [date, setDate] = useState3(todayIso2());
-    const [sigs, setSigs] = useState3({});
-    const [secondLabel, setSecondLabel] = useState3("District Manager");
-    const [smNa, setSmNa] = useState3(false);
-    const [smName, setSmName] = useState3("");
-    const [dmName, setDmName] = useState3("");
-    const [signing, setSigning] = useState3(null);
-    const [busy, setBusy] = useState3(false);
-    const [saved, setSaved] = useState3(null);
-    const [role, setRole] = useState3(null);
-    const [pending, setPending] = useState3(null);
-    const [reviewing, setReviewing] = useState3(null);
-    const [listView, setListView] = useState3(false);
-    const [canApprove, setCanApprove] = useState3(false);
-    const [canOffice, setCanOffice] = useState3(false);
-    const [office, setOffice] = useState3([]);
-    const [completing, setCompleting] = useState3(null);
-    const [payrateWrite, setPayrateWrite] = useState3(false);
-    const [canAdmin, setCanAdmin] = useState3(false);
-    const [today, setToday] = useState3("");
-    const [ratesFor, setRatesFor] = useState3(null);
-    const [moving, setMoving] = useState3(null);
-    const [rowBusy, setRowBusy] = useState3(null);
-    const [queueFor, setQueueFor] = useState3(null);
-    const [notifyCount, setNotifyCount] = useState3(0);
-    const [complete, setComplete] = useState3([]);
-    const [view, setView] = useState3("list");
-    const [listTab, setListTab] = useState3("pending");
-    const [viewing, setViewing] = useState3(null);
-    const [cq, setCq] = useState3("");
-    const [cStatus, setCStatus] = useState3("all");
-    const [cStore, setCStore] = useState3("all");
-    const [cWhen, setCWhen] = useState3("any");
-    const [cPage, setCPage] = useState3(0);
-    const [loaded, setLoaded] = useState3(false);
-    const loadMain = () => call2().then((b) => {
+    const [stores, setStores] = useState5([]);
+    const [employees, setEmployees] = useState5(null);
+    const [error, setError] = useState5(null);
+    const [query, setQuery] = useState5("");
+    const [listOpen, setListOpen] = useState5(false);
+    const [picked, setPicked] = useState5(null);
+    const [employee, setEmployee] = useState5(null);
+    const [loadingEmp, setLoadingEmp] = useState5(false);
+    const [position, setPosition] = useState5("");
+    const [newRate, setNewRate] = useState5("");
+    const [reason, setReason] = useState5("");
+    const [reasonTouched, setReasonTouched] = useState5(false);
+    const [date, setDate] = useState5(todayIso3());
+    const [sigs, setSigs] = useState5({});
+    const [secondLabel, setSecondLabel] = useState5("District Manager");
+    const [smNa, setSmNa] = useState5(false);
+    const [smName, setSmName] = useState5("");
+    const [dmName, setDmName] = useState5("");
+    const [signing, setSigning] = useState5(null);
+    const [busy, setBusy] = useState5(false);
+    const [saved, setSaved] = useState5(null);
+    const [role, setRole] = useState5(null);
+    const [pending, setPending] = useState5(null);
+    const [reviewing, setReviewing] = useState5(null);
+    const [listView, setListView] = useState5(false);
+    const [canApprove, setCanApprove] = useState5(false);
+    const [canOffice, setCanOffice] = useState5(false);
+    const [office, setOffice] = useState5([]);
+    const [completing, setCompleting] = useState5(null);
+    const [payrateWrite, setPayrateWrite] = useState5(false);
+    const [canAdmin, setCanAdmin] = useState5(false);
+    const [today, setToday] = useState5("");
+    const [ratesFor, setRatesFor] = useState5(null);
+    const [moving, setMoving] = useState5(null);
+    const [rowBusy, setRowBusy] = useState5(null);
+    const [queueFor, setQueueFor] = useState5(null);
+    const [notifyCount, setNotifyCount] = useState5(0);
+    const [complete, setComplete] = useState5([]);
+    const [view, setView] = useState5("list");
+    const [listTab, setListTab] = useState5("pending");
+    const [viewing, setViewing] = useState5(null);
+    const [cq, setCq] = useState5("");
+    const [cStatus, setCStatus] = useState5("all");
+    const [cStore, setCStore] = useState5("all");
+    const [cWhen, setCWhen] = useState5("any");
+    const [cPage, setCPage] = useState5(0);
+    const [loaded, setLoaded] = useState5(false);
+    const loadMain = () => call3().then((b) => {
       setStores(b.stores || []);
       setEmployees(b.employees || []);
       setRole(b.role || null);
@@ -2461,14 +3373,14 @@
       setError(e.message);
       setEmployees([]);
     }).finally(() => setLoaded(true));
-    useEffect3(() => {
+    useEffect5(() => {
       loadMain();
     }, []);
     const viewRef = React.useRef(view);
     viewRef.current = view;
     const busyRef = React.useRef(false);
     busyRef.current = !!(reviewing || completing);
-    useEffect3(() => {
+    useEffect5(() => {
       const tick = () => {
         if (!document.hidden && viewRef.current === "list" && !busyRef.current) loadMain();
       };
@@ -2484,13 +3396,13 @@
         clearInterval(t);
       };
     }, []);
-    useEffect3(() => {
+    useEffect5(() => {
       setEmployee(null);
       if (!picked) return;
       let live = true;
       setLoadingEmp(true);
       setError(null);
-      call2(`?pc=${encodeURIComponent(picked.pc)}&employeeId=${encodeURIComponent(picked.id)}`).then((b) => live && setEmployee(b.employee)).catch((e) => live && setError(e.message)).finally(() => live && setLoadingEmp(false));
+      call3(`?pc=${encodeURIComponent(picked.pc)}&employeeId=${encodeURIComponent(picked.id)}`).then((b) => live && setEmployee(b.employee)).catch((e) => live && setError(e.message)).finally(() => live && setLoadingEmp(false));
       return () => {
         live = false;
       };
@@ -2508,7 +3420,7 @@
     const canSign = hourly && !rateErr && !formMissing.length && !loadingEmp;
     const missing = missingPayFields(values, role || "dm");
     const ready = canSign && !missing.length && !busy;
-    useEffect3(() => {
+    useEffect5(() => {
       setSaved(null);
     }, [fp]);
     const q = query.trim().toLowerCase();
@@ -2531,7 +3443,7 @@
         const fileName = `Pay-Increase-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
         setSaved({ state: "saving" });
         try {
-          const b = await call2("", { values, employeeId: employee.id, pdf: doc.output("datauristring") });
+          const b = await call3("", { values, employeeId: employee.id, pdf: doc.output("datauristring") });
           setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
           if (pending) loadMain();
         } catch (e) {
@@ -2608,7 +3520,7 @@
     return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + PAPER_CSS), listView && view === "form" ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => {
       setView("list");
       loadMain();
-    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Pay Rate Changes") : onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Pay Rate Change"), !loaded ? /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026") : listView && view === "list" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Pay rate changes from Store Managers, DMs and Directors. Pending ones wait for Mike's approval; approved ones go to the office (Office tab) for the effective date and payroll signature, then they're filed in Google Drive and show under Complete."), saved && saved.state === "decided" && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, saved.msg), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), reviewing ? /* @__PURE__ */ React.createElement(Review, { th, isMobile, form: reviewing, canApprove, onClose: (msg) => {
+    }, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Pay Rate Changes") : onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Pay Rate Change"), !loaded ? /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026") : listView && view === "list" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Pay rate changes from Store Managers, DMs and Directors. Pending ones wait for Mike's approval; approved ones go to the office (Office tab) for the effective date and payroll signature, then they're filed in Google Drive and show under Complete."), saved && saved.state === "decided" && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, saved.msg), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), reviewing ? /* @__PURE__ */ React.createElement(Review2, { th, isMobile, form: reviewing, canApprove, onClose: (msg) => {
       setReviewing(null);
       loadMain();
       if (msg) setSaved({ state: "decided", msg });
@@ -2637,7 +3549,7 @@
           const on = !payrateWrite;
           if (on && !window.confirm('Switch ON updating pay in Paycor? The office then gets an "Update pay in Paycor" button after completing a pay rate change, and queued ones are sent on their effective date.')) return;
           try {
-            await call2("", { action: "payrateSwitch", enabled: on });
+            await call3("", { action: "payrateSwitch", enabled: on });
             setPayrateWrite(on);
             setSaved({ state: "decided", msg: `Updating pay in Paycor is now ${on ? "ON" : "OFF"}.` });
           } catch (e) {
@@ -2707,7 +3619,7 @@
             if (!window.confirm(`Cancel the Paycor update for ${f.employeeName}? Paycor will not be changed on ${usLong(f.effectiveDate)}.`)) return;
             setRowBusy(f.id);
             try {
-              await call2("", { action: "cancelPayRate", id: f.id });
+              await call3("", { action: "cancelPayRate", id: f.id });
               setSaved({ state: "decided", msg: `Paycor update cancelled for ${f.employeeName}.` });
               loadMain();
             } catch (e) {
@@ -2747,7 +3659,7 @@
       backgroundRepeat: "no-repeat",
       backgroundPosition: "center 62%",
       backgroundSize: "77%"
-    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("img", { src: "/" + PAY_CHROME.logo.src, alt: "People Capital Group", style: { width: isMobile ? 110 : 144, height: "auto" } })), /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, fontSize: "1.09em", marginTop: "1.3em" } }, "PAY RATE CHANGE FORM"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: isMobile ? "0.4em 1.5em" : "0 4.5em", flexWrap: "wrap", marginTop: "0.5em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", null, "Date:"), /* @__PURE__ */ React.createElement("input", { type: "date", className: "pi-blank", style: { width: "9.5em" }, value: date, onChange: (e) => setDate(e.target.value), "aria-label": "Form date" })), /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", null, "PC #:"), /* @__PURE__ */ React.createElement(Locked, { value: employee ? picked.pc : "", placeholder: loadingEmp ? "\u2026" : "from Paycor", w: "8em" }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.4em" } }, row("Employee Name:", empSearch), row("Employee Position:", employee && !employee.jobTitle ? /* @__PURE__ */ React.createElement("input", { className: "pi-blank", style: { width: "11em" }, list: "pi-positions", value: position, onChange: (e) => setPosition(e.target.value), placeholder: "position", "aria-label": "Employee position", title: "Paycor has no job title for this employee \u2014 fill it in" }) : /* @__PURE__ */ React.createElement(Locked, { value: employee?.jobTitle || "", placeholder: loadingEmp ? "\u2026" : "from Paycor" })), row("Current Pay Rate:", /* @__PURE__ */ React.createElement(Locked, { value: hourly ? fmtPay(currentPayOf(employee), basis) : "", placeholder: loadingEmp ? "\u2026" : "from Paycor" })), row("New Pay Rate:", /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "flex-end", gap: "0.3em" } }, "$", /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: basis === "year" ? "100" : "0.05", min: "0", className: "pi-blank", style: { width: basis === "year" ? "8.5em" : "6.5em" }, value: newRate, onChange: (e) => setNewRate(e.target.value), placeholder: basis === "year" ? "00,000" : "0.00", "aria-label": basis === "year" ? "New yearly salary" : "New pay rate per hour" }), employee && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.9em" } }, basis === "year" ? "/ year" : "/ hour")))), /* @__PURE__ */ React.createElement("datalist", { id: "pi-positions" }, POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("div", { className: "pi-box", style: { marginTop: "1.6em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-boxhead" }, "Reason for Pay Change / Evaluation:"), /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("img", { src: "/" + PAY_CHROME.logo.src, alt: "People Capital Group", style: { width: isMobile ? 110 : 144, height: "auto" } })), /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, fontSize: "1.09em", marginTop: "1.3em" } }, "PAY RATE CHANGE FORM"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: isMobile ? "0.4em 1.5em" : "0 4.5em", flexWrap: "wrap", marginTop: "0.5em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", null, "Date:"), /* @__PURE__ */ React.createElement("input", { type: "date", className: "pi-blank", style: { width: "9.5em" }, value: date, onChange: (e) => setDate(e.target.value), "aria-label": "Form date" })), /* @__PURE__ */ React.createElement("div", { className: "pi-row" }, /* @__PURE__ */ React.createElement("span", null, "PC #:"), /* @__PURE__ */ React.createElement(Locked, { value: employee ? picked.pc : "", placeholder: loadingEmp ? "\u2026" : "from Paycor", w: "8em" }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.4em" } }, row("Employee Name:", empSearch), row("Employee Position:", employee && !employee.jobTitle ? /* @__PURE__ */ React.createElement("input", { className: "pi-blank", style: { width: "11em" }, list: "pi-positions", value: position, onChange: (e) => setPosition(e.target.value), placeholder: "position", "aria-label": "Employee position", title: "Paycor has no job title for this employee \u2014 fill it in" }) : /* @__PURE__ */ React.createElement(Locked, { value: employee?.jobTitle || "", placeholder: loadingEmp ? "\u2026" : "from Paycor" })), row("Current Pay Rate:", /* @__PURE__ */ React.createElement(Locked, { value: hourly ? fmtPay(currentPayOf(employee), basis) : "", placeholder: loadingEmp ? "\u2026" : "from Paycor" })), row("New Pay Rate:", /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "flex-end", gap: "0.3em" } }, "$", /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: basis === "year" ? "100" : "0.05", min: "0", className: "pi-blank", style: { width: basis === "year" ? "8.5em" : "6.5em" }, value: newRate, onChange: (e) => setNewRate(e.target.value), placeholder: basis === "year" ? "00,000" : "0.00", "aria-label": basis === "year" ? "New yearly salary" : "New pay rate per hour" }), employee && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.9em" } }, basis === "year" ? "/ year" : "/ hour")))), /* @__PURE__ */ React.createElement("datalist", { id: "pi-positions" }, POSITIONS2.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("div", { className: "pi-box", style: { marginTop: "1.6em" } }, /* @__PURE__ */ React.createElement("div", { className: "pi-boxhead" }, "Reason for Pay Change / Evaluation:"), /* @__PURE__ */ React.createElement(
       "textarea",
       {
         className: "pi-reason",
@@ -2777,11 +3689,12 @@
     ));
   }
 
-  // src/approval-queue-ui.jsx
-  var { useState: useState4, useEffect: useEffect4, useRef: useRef3 } = React;
-  var shortDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-  async function call3(fn, qs, body) {
-    const res = await fetch(`/.netlify/functions/${fn}${qs || ""}`, {
+  // src/crew-time-off-ui.jsx
+  var { useState: useState6, useEffect: useEffect6, useRef: useRef5 } = React;
+  var when2 = (ts) => ts ? new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+  var FN3 = "/.netlify/functions/crew-time-off";
+  async function call4(qs, body) {
+    const res = await fetch(FN3 + (qs || ""), {
       method: body ? "POST" : "GET",
       credentials: "include",
       cache: "no-store",
@@ -2792,133 +3705,121 @@
     if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
     return b;
   }
-  var STATUS2 = {
-    pending: { label: "Waiting for approval", color: "#d97706" },
-    approved: { label: "Approved", color: "#16a34a" },
-    rejected: { label: "Sent back", color: "#dc2626" }
+  function qrSvg(text, cellSize = 6) {
+    if (!window.qrcode) return null;
+    const q = window.qrcode(0, "M");
+    q.addData(String(text));
+    q.make();
+    return q.createSvgTag({ cellSize, margin: 2, scalable: true });
+  }
+  var Qr = ({ text, size = 220 }) => {
+    const svg = qrSvg(text);
+    return svg ? /* @__PURE__ */ React.createElement("div", { style: { width: size, height: size, background: "#fff", padding: 6, borderRadius: 10 }, dangerouslySetInnerHTML: { __html: svg } }) : /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.8rem" } }, "QR code didn't load. Refresh the page.");
   };
-  function Review2({ th, isMobile, fn, noun, item, canApprove, onClose }) {
+  function printPoster(storeName, url) {
+    const store = String(storeName || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const svg = qrSvg(url, 10) || "";
+    const w = window.open("", "_blank");
+    if (!w) return alert("Allow pop-ups to print the poster.");
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Time Off Request - ${store}</title>
+<style>body{font-family:Arial,sans-serif;text-align:center;margin:0;padding:48px 32px;color:#111}h1{font-size:44px;margin:16px 0 6px}h2{font-size:26px;font-weight:normal;margin:0 0 28px;color:#444}
+.qr{width:420px;height:420px;margin:0 auto}.qr svg{width:100%;height:100%}ol{display:inline-block;text-align:left;font-size:22px;line-height:1.6;margin:28px auto 0}small{display:block;margin-top:28px;color:#666;font-size:15px}
+@media print{@page{size:letter;margin:0.5in}}</style></head><body>
+<img src="${location.origin}/pcg-logo-form.jpg" style="height:90px" alt=""><h1>Need time off?</h1><h2>${store} crew: scan to request it</h2>
+<div class="qr">${svg}</div><ol><li>Scan this code with your phone camera</li><li>Pick your name and fill in the form</li><li>Sign it and send it to your manager</li></ol>
+<small>You'll get a text when it's approved. Questions? Ask your manager.</small><script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
+    w.document.close();
+  }
+  function Review3({ th, isMobile, item, step, canAct, onClose }) {
     const S = finStyles(th);
-    const [busy, setBusy] = useState4(false);
-    const [err, setErr] = useState4(null);
-    const [backing, setBacking] = useState4(false);
-    const [note, setNote] = useState4("");
-    const decide = async (action) => {
+    const [busy, setBusy] = useState6(false);
+    const [err, setErr] = useState6(null);
+    const [backing, setBacking] = useState6(false);
+    const [note, setNote] = useState6("");
+    const decide = async (decision) => {
       setBusy(true);
       setErr(null);
       try {
-        const b = await call3(fn, "", { action, id: item.id, note: note.trim() });
-        if (action === "reject") return onClose(`Sent back to ${item.by}. They were told why.`);
+        const b = await call4("", { action: step, id: item.id, decision, note: note.trim() });
+        if (decision === "reject") return onClose(`Sent back. ${item.name} was told why.`);
+        if (step === "manager") return onClose(`Approved. It's with the office now; ${item.name} was told.`);
         const d = b.drive || {}, a = b.alert || {};
-        onClose(`Approved. ${d.saved ? "Filed in Google Drive" : `NOT saved to Drive (${d.error || "error"}), tell IT`}${a.error ? `; office alert failed: ${a.error}` : a.recipients ? `; ${a.recipients} on the office list alerted` : ""}. ${item.by} was told.`);
+        onClose(`Approved. ${d.saved ? "Filed in Google Drive" : `NOT saved to Drive (${d.error || "error"}), tell IT`}${a.error ? `; HR alert failed: ${a.error}` : ""}. ${item.name} was told.`);
       } catch (e) {
         setErr(e.message);
         setBusy(false);
       }
     };
-    const pdf = `/.netlify/functions/${fn}?pdf=${item.id}`;
-    return /* @__PURE__ */ React.createElement("div", { className: "pcg-stagger", style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, item.title), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "sent by ", item.by, ", ", shortDate(item.at))), /* @__PURE__ */ React.createElement("p", { style: { color: th.text, fontSize: "0.92rem", margin: "0.35rem 0 0.8rem" } }, item.sub), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: pdf, title: `${noun} for ${item.title}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: pdf, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), (item.docs || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text, marginBottom: "0.45rem" } }, "Attached ", item.docs.length === 1 ? "document" : `documents (${item.docs.length})`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.7rem", flexWrap: "wrap" } }, item.docs.map((d, i) => /* @__PURE__ */ React.createElement(
-      "a",
-      {
-        key: i,
-        href: d.url,
-        target: "_blank",
-        rel: "noopener noreferrer",
-        title: `Open ${d.name} in a new tab`,
-        style: { display: "flex", flexDirection: "column", gap: "0.35rem", width: 150, padding: "0.45rem", borderRadius: 10, border: `1px solid ${th.cardBorder}`, background: th.card3, color: th.text, textDecoration: "none", fontSize: "0.8rem" }
-      },
-      /^image\/(jpeg|png|gif|webp)$/.test(d.type) ? /* @__PURE__ */ React.createElement("img", { src: d.url, alt: d.name, loading: "lazy", style: { width: "100%", height: 96, objectFit: "cover", borderRadius: 6, background: "#fff" } }) : /* @__PURE__ */ React.createElement("span", { style: { height: 96, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, background: "#fff", color: "#6b6158", fontWeight: 700 } }, /pdf/.test(d.type) ? "PDF" : (String(d.name).split(".").pop() || "FILE").toUpperCase()),
-      /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, d.name),
-      /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 700 } }, "Open in a new tab")
-    ))), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.78rem", margin: "0.4rem 0 0" } }, "Each link works for 2 hours; reopen this request for a fresh one.")), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { htmlFor: `aq-note-${item.id}`, style: { display: "block", fontWeight: 700, marginBottom: "0.3rem", color: th.text } }, "Why is it being sent back?"), /* @__PURE__ */ React.createElement(
+    const pdf = `${FN3}?pdf=${item.id}`;
+    return /* @__PURE__ */ React.createElement("div", { className: "pcg-stagger", style: { ...S.panel, padding: "1rem 1.1rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1.05rem" } }, item.name, ", ", item.store), /* @__PURE__ */ React.createElement("p", { style: { margin: "0.3rem 0 0.8rem" } }, item.summary, item.values?.phone ? ` \xB7 ${item.values.phone}` : "", item.via === "poster" ? " \xB7 started from the store QR poster" : ""), item.managerBy && /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.85rem", marginTop: 0 } }, "Manager: approved by ", item.managerBy, ", ", when2(item.managerAt)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(FormPreview, { th, id: pdf, title: `Time off for ${item.name}`, thumbWidth: isMobile ? 200 : 260 }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "0.82rem", color: th.muted, margin: 0, maxWidth: "22em" } }, "Click the form to see it full size. ", /* @__PURE__ */ React.createElement("a", { href: pdf, target: "_blank", rel: "noreferrer", style: { color: O } }, "Download the PDF"))), (item.docs || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.8rem" } }, item.docs.map((d, i) => /* @__PURE__ */ React.createElement("a", { key: i, href: d.url, target: "_blank", rel: "noopener noreferrer", style: { ...S.ghost, textDecoration: "none", color: O, fontWeight: 700, fontSize: "0.85rem" } }, "Open ", d.name))), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error", style: { marginTop: "0.8rem" } }, err), backing && /* @__PURE__ */ React.createElement(
       "textarea",
       {
-        id: `aq-note-${item.id}`,
         value: note,
+        onChange: (e) => setNote(e.target.value),
         maxLength: 400,
         rows: 3,
-        onChange: (e) => setNote(e.target.value),
         autoFocus: true,
-        style: { width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body }
+        placeholder: "Why is it being sent back?",
+        style: { width: "100%", boxSizing: "border-box", marginTop: "0.8rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card, color: th.text, padding: "0.5rem", fontFamily: FONTS.body }
       }
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canApprove && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, item.mine ? "You sent this one, so someone else approves it." : `Only the ${noun.toLowerCase()} approver can approve this.`), canApprove && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 }, disabled: note.trim().length < 3 || busy, onClick: () => decide("reject") }, busy ? "Sending..." : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back...")), canApprove && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving..." : "Approve & file it")));
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.9rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => onClose(null), disabled: busy }, "Back"), !canAct && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem", alignSelf: "center" } }, step === "office" ? "Only the office can approve this step." : "Only their manager can approve this."), canAct && (backing ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: note.trim().length < 3 || busy, onClick: () => decide("reject"), style: { ...S.primary, background: "#b91c1c", opacity: note.trim().length >= 3 && !busy ? 1 : 0.5 } }, busy ? "Sending\u2026" : "Send back") : /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => setBacking(true), disabled: busy }, "Send back\u2026")), canAct && !backing && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, disabled: busy, onClick: () => decide("approve") }, busy ? "Approving\u2026" : step === "office" ? "Approve & file it" : "Approve")));
   }
-  function ApprovalQueue({ th, isMobile, fn, noun, openKey, refresh }) {
+  function CrewTimeOff({ th, isMobile, onBack }) {
     const S = finStyles(th);
-    const [data, setData] = useState4(null);
-    const [tab, setTab] = useState4("pending");
-    const [open, setOpen] = useState4(null);
-    const [viewing, setViewing] = useState4(null);
-    const [msg, setMsg] = useState4(null);
-    const [refiling, setRefiling] = useState4(null);
-    const refile = async (x) => {
-      setRefiling(x.id);
-      try {
-        const b = await call3(fn, "", { action: "approve", id: x.id });
-        const d = b.drive || {}, a = b.alert || {};
-        setMsg(d.saved && !a.error ? `Filed: ${x.title}.` : `Still not filed (${d.error || a.error || "error"}). Tell IT.`);
-      } catch (e) {
-        setMsg(`Still not filed: ${e.message}. Tell IT.`);
-      }
-      setRefiling(null);
-      load();
-    };
-    const openRef = useRef3(open);
+    const [data, setData] = useState6(null);
+    const [err, setErr] = useState6(null);
+    const [msg, setMsg] = useState6(null);
+    const [tab, setTab] = useState6("send");
+    const [open, setOpen] = useState6(null);
+    const [viewing, setViewing] = useState6(null);
+    const [pc, setPc] = useState6("");
+    const [q, setQ] = useState6("");
+    const [emp, setEmp] = useState6(null);
+    const [phone, setPhone] = useState6("");
+    const [email, setEmail] = useState6("");
+    const [busy, setBusy] = useState6(false);
+    const [sent, setSent] = useState6(null);
+    const [poster, setPoster] = useState6(null);
+    const [bd, setBd] = useState6({ q: "", emp: null, badge: "", out: null });
+    const openRef = useRef5(open);
     openRef.current = open;
-    const load = () => call3(fn, "?queue=1").then((b) => {
+    const load = () => call4().then((b) => {
       setData(b);
-      let want = null;
-      try {
-        want = sessionStorage.getItem(openKey);
-        sessionStorage.removeItem(openKey);
-      } catch {
-      }
-      const hit = want && (b.pending || []).find((x) => String(x.id) === String(want));
-      if (hit) {
-        setTab("pending");
-        setOpen(hit);
-      } else if (want && (b.done || []).some((x) => String(x.id) === String(want))) setTab("done");
-    }).catch(() => {
-    });
-    useEffect4(() => {
+      setErr(null);
+      if (!pc && b.stores?.length === 1) setPc(b.stores[0].pc);
+    }).catch((e) => setErr(e.message));
+    useEffect6(() => {
       load();
-    }, [refresh]);
-    useEffect4(() => {
-      const again = () => {
+      const t = setInterval(() => {
         if (!openRef.current && document.visibilityState === "visible") load();
-      };
-      const t = setInterval(again, 6e4);
-      window.addEventListener("focus", again);
-      document.addEventListener("visibilitychange", again);
-      return () => {
-        clearInterval(t);
-        window.removeEventListener("focus", again);
-        document.removeEventListener("visibilitychange", again);
-      };
+      }, 6e4);
+      return () => clearInterval(t);
     }, []);
-    if (!data) return null;
-    const pending = data.pending || [], done = data.done || [], mine = data.mine || [];
-    const row = (x, onClick, right) => /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        key: x.id,
-        role: onClick ? "button" : void 0,
-        tabIndex: onClick ? 0 : void 0,
-        onClick,
-        onKeyDown: onClick ? ((e) => {
-          if (e.key === "Enter") onClick();
-        }) : void 0,
-        style: { display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", padding: "0.7rem 0.9rem", borderRadius: 12, border: `1px solid ${onClick && x.canDecide ? O : th.cardBorder}`, background: th.card, color: th.text, cursor: onClick ? "pointer" : "default", fontFamily: FONTS.body }
-      },
-      /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", null, x.title), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, x.sub), /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontSize: "0.8rem", marginTop: 2, color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { color: STATUS2[x.status]?.color || th.muted, fontWeight: 700 } }, STATUS2[x.status]?.label || x.status), x.status === "pending" ? `, sent by ${x.by} ${shortDate(x.at)}` : x.decidedBy ? ` by ${x.decidedBy} ${shortDate(x.decidedAt)}` : "", x.status === "rejected" && x.note ? `: ${x.note}` : "")),
-      /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 }, onClick: onClick ? void 0 : ((e) => e.stopPropagation()) }, right)
-    );
-    const links = (x) => /* @__PURE__ */ React.createElement(React.Fragment, null, x.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(x), style: { ...S.link, color: O } }, "View form"), x.driveLink && /* @__PURE__ */ React.createElement("a", { href: x.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"));
-    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.4rem" } }, msg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success", style: { marginBottom: "0.8rem" } }, msg), data.canView && (open ? /* @__PURE__ */ React.createElement(Review2, { th, isMobile, fn, noun, item: open, canApprove: open.canDecide ?? data.canApprove, onClose: (m) => {
-      setOpen(null);
-      if (m) setMsg(m);
-      load();
-    } }) : /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.7rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1rem" } }, data.canApprove ? "For your approval" : "Approvals"), /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": `${noun} approvals`, style: { display: "flex", gap: "0.35rem" } }, [["pending", `Waiting${pending.length ? ` (${pending.length})` : ""}`], ["done", "Done"]].map(([k, l]) => /* @__PURE__ */ React.createElement(
+    if (!data) return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 920, margin: "0 auto" } }, err ? /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, err) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026"));
+    const L3 = data.lists || {};
+    const tabs = [
+      ["send", "Send a form"],
+      ["manager", `For approval${L3.manager?.length ? ` (${L3.manager.length})` : ""}`],
+      ["office", `Office${L3.office?.length ? ` (${L3.office.length})` : ""}`],
+      ["invited", `Links sent${L3.invited?.length ? ` (${L3.invited.length})` : ""}`],
+      ["done", "Done"],
+      ["posters", "QR posters"]
+    ];
+    const employees = (data.employees || []).filter((e) => (!pc || e.pc === pc) && (!q.trim() || e.name.toLowerCase().includes(q.trim().toLowerCase()))).slice(0, 30);
+    const send = async () => {
+      setBusy(true);
+      setErr(null);
+      try {
+        const b = await call4("", { action: "invite", pc: emp.pc, employeeId: emp.id, phone, email });
+        setSent({ ...b, name: emp.name });
+        load();
+      } catch (e) {
+        setErr(e.message);
+      }
+      setBusy(false);
+    };
+    const row = (x, right, onClick) => /* @__PURE__ */ React.createElement("div", { key: x.id, onClick, role: onClick ? "button" : void 0, style: { ...S.panel, padding: "0.75rem 0.95rem", display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", cursor: onClick ? "pointer" : "default" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("b", null, x.name), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, x.store), /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontSize: "0.82rem", color: th.muted, marginTop: 2 } }, x.summary || (x.status === "invited" ? `Link sent by ${x.invitedBy}, ${when2(x.createdAt)}${x.invitePhone ? ` to ${x.invitePhone}` : ""}${x.inviteEmail ? ` \xB7 ${x.inviteEmail}` : ""}` : ""), x.status === "approved" && ` \xB7 approved by ${x.managerBy} and ${x.officeBy}`, x.status === "rejected" && /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, " \xB7 sent back by ", x.rejectedBy, ": ", x.note))), /* @__PURE__ */ React.createElement("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex", gap: "0.8rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, right));
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 920, margin: "0 auto", fontFamily: FONTS.body } }, onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Crew Time Off"), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Crew members request time off on their own phone, no login: send them their private form, or put up the store's QR poster. Their manager approves, then the office, then it's filed in Google Drive and HR has it."), msg && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, msg), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, err), /* @__PURE__ */ React.createElement("div", { role: "tablist", style: { display: "flex", gap: "0.35rem", flexWrap: "wrap", margin: "0.6rem 0 1rem" } }, tabs.map(([k, l]) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: k,
@@ -2926,662 +3827,466 @@
         role: "tab",
         "aria-selected": tab === k,
         className: "fin-btn",
-        onClick: () => setTab(k),
-        style: { ...S.ghost, minHeight: 34, padding: "0.3rem 0.85rem", background: tab === k ? O : th.card3, color: tab === k ? "#fff" : th.text, borderColor: tab === k ? O : th.cardBorder }
+        onClick: () => {
+          setTab(k);
+          setOpen(null);
+        },
+        style: { ...S.ghost, minHeight: 36, padding: "0.35rem 0.9rem", background: tab === k ? O : th.card3, color: tab === k ? "#fff" : th.text, borderColor: tab === k ? O : th.cardBorder }
       },
       l
-    )))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, tab === "pending" && (pending.length ? pending.map((x) => ({ ...x, canDecide: x.canDecide ?? data.canApprove })).map((x) => row(
-      x,
-      () => setOpen(x),
-      /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          type: "button",
-          className: "fin-btn",
-          onClick: (e) => {
-            e.stopPropagation();
-            setOpen(x);
-          },
-          style: { ...S.ghost, minHeight: 34, padding: "0.3rem 0.9rem", color: x.canDecide ? "#fff" : th.text, background: x.canDecide ? O : th.card3, borderColor: x.canDecide ? O : th.cardBorder, userSelect: "none" }
-        },
-        x.canDecide ? "Review" : "View"
-      )
-    )) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem", margin: 0 } }, "Nothing waiting for approval.")), tab === "done" && (done.length ? done.slice(0, 20).map((x) => row(x, null, /* @__PURE__ */ React.createElement(React.Fragment, null, links(x), x.canRefile && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: refiling === x.id, onClick: () => refile(x), style: { ...S.link, color: "#dc2626" } }, refiling === x.id ? "Filing..." : "Not filed: file it again")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem", margin: 0 } }, "Nothing decided yet."))))), !data.canView && mine.length > 0 && /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, padding: "0.9rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...S.panelTitle, fontSize: "1rem", marginBottom: "0.6rem" } }, "Your recent ", noun.toLowerCase(), "s"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.45rem" } }, mine.slice(0, 5).map((x) => row(x, null, links(x))))), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `/.netlify/functions/${fn}?pdf=${viewing.id}`, title: `${noun} for ${viewing.title}`, onClose: () => setViewing(null) }));
-  }
-
-  // src/transfer-notice-pdf.mjs
-  var TRANSFER_LAYOUT = [
-    [83.4, [[72, "Date:"], [101.41, "_______________________"]]],
-    [115.76, [[72, "People"], [109.24, "Capital"], [147.68, "Group"], [182.11, "LLC"]]],
-    [131.94, [[72, "ATTN:"], [106.97, "Human"], [147.02, "Resources"], [202, "Department"]]],
-    [148.12, [[72, "Subject:"], [115.35, "Employee"], [168.53, "Transfer"]]],
-    [196.65, [[72, "I,"], [83.99, "________________________________________("], [266.47, "Employee", 1], [320.44, "Name", 1], [349.88, "),"], [361.81, "am"], [382.55, "requesting"], [442.3, "to"], [457.52, "resign"], [494.17, "from"], [523.83, "my"]]],
-    [217.76, [[72, "current"], [112.92, "position"], [157.56, "as"], [171.22, "a"], [179.72, "________________________("], [291.04, "position", 1], [333.81, "title", 1], [353.94, "),"], [363.63, "located"], [403.51, "at"], [416.07, "PC#"], [439.71, "____________,"], [498.18, "in"], [510.86, "order"]]],
-    [238.86, [[72, "to"], [86.47, "voluntaril"], [136.46, "y"], [146.65, "transfer"], [191.63, "to"], [205.35, "a"], [214.6, "better"], [249.25, "opportunity"], [314.51, "within"], [351.25, "the"], [371.17, "compan"], [411.81, "y"], [421.25, "located"], [461.89, "at"], [475.2, "PC#"], [499.59, "_________"]]],
-    [259.96, [[72, "as"], [90.16, "a"], [103.16, "________________________("], [214.48, "position", 1], [261.76, "title", 1], [281.88, ")."], [296.07, "I"], [307.1, "request"], [353.14, "that"], [380.89, "my"], [403.08, "___________"], [458.39, "("], [462.97, "full/part", 1], [512.95, "time", 1], [535.41, ")"]]],
-    [281.06, [[72, "employment"], [139.25, "is"], [150.38, "effective"], [195.96, "starting"], [238.66, "___________________("], [327.74, "effective", 1], [371.84, "date", 1], [393.98, ")."]]],
-    [323.27, [[72, "I"], [87.53, "acknowledge"], [165.6, "that"], [197.1, "I"], [211.88, "will"], [241.92, "now"], [275.11, "report"], [318.71, "to"], [339.93, "_____________________("], [437.9, "supervisor", 1], [500.99, "name", 1], [528.79, ")/"]]],
-    [344.37, [[72, "_____________________("], [169.97, "supervisor", 1], [227.06, "title", 1], [247.19, ")."], [259.13, "I"], [267.91, "also"], [293.44, "acknowledge"], [365.51, "that"], [391.01, "I"], [399.79, "will"], [423.83, "be"], [440.39, "compensat"], [496.23, "ed"], [512.88, "at"], [526.95, "an"]]],
-    [365.47, [[72, "hourly"], [108.23, "wage"], [137.58, "of"], [150.23, "___________"], [201.79, "per"], [221.92, "hour"], [249.15, "and"], [271, "paid"], [296.17, "on"], [311.88, "a"], [320.38, "biweekly"], [368.92, "basis."]]],
-    [402.75, [[72, "I"], [80.03, "ACCEPT"], [125.72, "THE"], [152.12, "ABOVE"], [192.86, "CONDITIONS"], [264.49, "AND"], [292.21, "AM"], [313.62, "INDICATING"], [381.67, "MY"], [402.45, "ACCEPTANCE"], [476.48, "BY"], [494.59, "SIGNING"]]],
-    [418.93, [[72, "THIS"], [99.84, "LETTER"], [144.4, "AND"], [170.63, "RETURNING"], [237.53, "IT"], [251.17, "VIA"], [272.43, "EMAIL"], [309.56, "TO"], [326.99, "THE"], [351.89, "HUMAN"], [395.98, "RESOUR"], [439.12, "CES"], [461.37, "DEPARTMENT."]]],
-    [451.29, [[72, "Employee"], [125.17, "Name:"], [160.85, "_____________________________________"]]],
-    [483.65, [[72, "Employee"], [125.17, "Signatur"], [168.42, "e:"], [180.08, "____________________________________"]]],
-    [516, [[72, "Date:"], [101.41, "________________________"]]],
-    [564.54, [[72, "ACCEPTED"], [131.03, "AND"], [157.25, "APPROVED"], [217.95, "BY:"]]],
-    [596.9, [[72, "District"], [112.78, "Manager"], [160.37, "Name:"], [196.04, "_____________________________________"]]],
-    [629.25, [[72, "District"], [112.78, "Manager"], [160.37, "Signatur"], [203.62, "e:"], [215.28, "_____________________________________"]]],
-    [661.61, [[72, "Date:"], [101.41, "________________________"]]]
-  ];
-  var TRANSFER_BLANK_FIELDS = [
-    "date",
-    "employeeName",
-    "fromTitle",
-    "fromPC",
-    "toPC",
-    "toTitle",
-    "employmentType",
-    "effectiveDate",
-    "supervisorName",
-    "supervisorTitle",
-    "hourlyWage",
-    "employeeName",
-    "employeeSignature",
-    "employeeSignedDate",
-    "dmName",
-    "dmSignature",
-    "dmSignedDate"
-  ];
-  function transferBlanks(layout = TRANSFER_LAYOUT) {
-    const out = [];
-    for (const [y, words] of layout) for (const [x, raw] of words) {
-      if (/_{3,}/.test(raw)) out.push({ field: TRANSFER_BLANK_FIELDS[out.length], y, x, raw });
-    }
-    return out;
-  }
-  var BODY_OFFSET = 40;
-  var INK2 = [17, 17, 17];
-  var TRANSFER_CHROME = {
-    header: [
-      { text: "PEOPLE CAPITAL GROUP LLC", x: 201.574, y: 62, font: "bold", size: 14, color: INK2 },
-      { text: "CONFIDENTIAL \u2014 INTERNAL USE ONLY", x: 216.545, y: 76, font: "italic", size: 10, color: [107, 114, 128] }
-    ],
-    rule: { x1: 64, x2: 548, y: 90, width: 0.8, color: [154, 165, 177] },
-    footer: ["People Capital Group LLC", "Human Resources Department", String((/* @__PURE__ */ new Date()).getFullYear()), "Page 1 of 1"].map((text, i) => ({ text, right: 548, y: 734 + i * 11, size: 9 })),
-    // The PCG seal, 470pt square, behind the body (its transparency is in the PNG).
-    watermark: { x: 71, y: 171, size: 470, src: "pcg-watermark.png" }
-  };
-  var SIGNATURE_FIELDS = /* @__PURE__ */ new Set(["employeeSignature", "dmSignature"]);
-  var TRANSFER_FONT = { family: "Caladea", regular: "Caladea-Regular.ttf", italic: "Caladea-Italic.ttf" };
-  function formatWage(v) {
-    const n = Number(String(v ?? "").replace(/[^0-9.]/g, ""));
-    return String(v ?? "").trim() === "" || !Number.isFinite(n) ? "" : "$" + n.toFixed(2);
-  }
-  function formatLetterDate(v) {
-    const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? `${m[2]}/${m[3]}/${m[1]}` : String(v || "");
-  }
-  function buildTransferNoticePdf(jsPDF, fonts, values = {}, opts = {}) {
-    const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
-    doc.addFileToVFS(TRANSFER_FONT.regular, fonts.regular);
-    doc.addFont(TRANSFER_FONT.regular, TRANSFER_FONT.family, "normal");
-    doc.addFileToVFS(TRANSFER_FONT.italic, fonts.italic);
-    doc.addFont(TRANSFER_FONT.italic, TRANSFER_FONT.family, "italic");
-    doc.setProperties({ title: "Employee Transfer", creator: "PCG Portal" });
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(12);
-    const title = String(values.approverTitle || "District Manager").trim();
-    let layout = TRANSFER_LAYOUT;
-    if (title !== "District Manager") {
-      doc.setFont(TRANSFER_FONT.family, "normal");
-      const relabel = (row, label) => {
-        const [y, words] = row;
-        const run = words[words.length - 1][1];
-        const x = 72 + doc.getTextWidth(label + " ") + 2;
-        let r = run;
-        while (r.length > 12 && x + doc.getTextWidth(r) > 470) r = r.slice(1);
-        return [y, [[72, label], [x, r]]];
-      };
-      layout = TRANSFER_LAYOUT.map((row) => row[0] === 596.9 ? relabel(row, `${title} Name:`) : row[0] === 629.25 ? relabel(row, `${title} Signature:`) : row);
-    }
-    for (const [y, words] of layout) {
-      for (const [x, text, italic] of words) {
-        doc.setFont(TRANSFER_FONT.family, italic ? "italic" : "normal");
-        doc.text(text, x, y + BODY_OFFSET);
-      }
-    }
-    const C = TRANSFER_CHROME;
-    if (opts.watermark) doc.addImage(opts.watermark, "PNG", C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size, "seal", "FAST");
-    for (const h of C.header) {
-      doc.setFont("times", h.font);
-      doc.setFontSize(h.size);
-      doc.setTextColor(...h.color);
-      doc.text(h.text, h.x, h.y);
-    }
-    doc.setDrawColor(...C.rule.color);
-    doc.setLineWidth(C.rule.width);
-    doc.line(C.rule.x1, C.rule.y, C.rule.x2, C.rule.y);
-    doc.setFont("times", "normal");
-    doc.setTextColor(...INK2);
-    for (const f of C.footer) {
-      doc.setFontSize(f.size);
-      doc.text(f.text, f.right, f.y, { align: "right" });
-    }
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(12);
-    const v = {
-      ...values,
-      date: formatLetterDate(values.date),
-      effectiveDate: formatLetterDate(values.effectiveDate),
-      hourlyWage: formatWage(values.hourlyWage),
-      employeeSignedDate: formatLetterDate(values.employeeSignedDate),
-      dmSignedDate: formatLetterDate(values.dmSignedDate)
-    };
-    doc.setFont(TRANSFER_FONT.family, "normal");
-    for (const { field, y: y0, x, raw } of transferBlanks(layout)) {
-      const y = y0 + BODY_OFFSET;
-      const text = field ? String(v[field] ?? "").trim() : "";
-      if (!text) continue;
-      const lead = raw.indexOf("_");
-      const run = raw.match(/_+/)[0];
-      doc.setFontSize(12);
-      const x0 = x + doc.getTextWidth(raw.slice(0, lead));
-      const width = doc.getTextWidth(run);
-      if (SIGNATURE_FIELDS.has(field)) {
-        const props = doc.getImageProperties(text);
-        const scale = Math.min((width - 4) / props.width, 28 / props.height);
-        const w = props.width * scale, h = props.height * scale;
-        doc.addImage(text, "PNG", x0 + 4, y + 1 - h, w, h, void 0, "FAST");
-        continue;
-      }
-      let size = 12;
-      while (size > 7 && (doc.setFontSize(size), doc.getTextWidth(text)) > width - 2) size -= 0.5;
-      doc.setFontSize(size);
-      doc.text(text, x0 + width / 2, y - 1.5, { align: "center" });
-    }
-    doc.setFontSize(12);
-    return doc;
-  }
-
-  // src/transfer-notice.mjs
-  function transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, employeeSig, dmSig, approverTitle }) {
-    return {
-      date,
-      employeeName: employee?.name || "",
-      fromTitle: employee?.jobTitle || (employee ? String(fromTitle || "").trim() : ""),
-      fromPC: fromPC || "",
-      toPC: toPC || "",
-      toTitle: toTitle || "",
-      employmentType: employmentType || "",
-      effectiveDate: effectiveDate || "",
-      supervisorName: supervisorName || "",
-      supervisorTitle: supervisorTitle || "",
-      hourlyWage: employee?.payRate ?? "",
-      dmName: dmName || "",
-      // v22.96: the approval line's title — 'District Manager' unless someone else approves (their own title).
-      approverTitle: approverTitle || "District Manager",
-      employeeSignature: employeeSig?.image || "",
-      employeeSignedDate: employeeSig?.date || "",
-      dmSignature: dmSig?.image || "",
-      dmSignedDate: dmSig?.date || ""
-    };
-  }
-  function letterFingerprint(v) {
-    return [
-      "date",
-      "employeeName",
-      "fromTitle",
-      "fromPC",
-      "toPC",
-      "toTitle",
-      "employmentType",
-      "effectiveDate",
-      "supervisorName",
-      "supervisorTitle",
-      "hourlyWage",
-      "dmName",
-      "approverTitle"
-    ].map((k) => String(v?.[k] ?? "").trim()).join("|");
-  }
-  function missingTransferFields(v) {
-    const need = [
-      ["employeeName", "Employee"],
-      ["fromTitle", "Current position"],
-      ["fromPC", "Current store"],
-      ["toPC", "New store"],
-      ["toTitle", "New position"],
-      ["employmentType", "Full/part time"],
-      ["effectiveDate", "Effective date"],
-      ["supervisorName", "Supervisor name"],
-      ["supervisorTitle", "Supervisor title"],
-      ["dmName", v?.approverTitle || "District Manager"],
-      ["employeeSignature", "Employee signature"],
-      ["dmSignature", `${v?.approverTitle || "District Manager"} signature`]
-    ];
-    return need.filter(([k]) => !String(v?.[k] ?? "").trim()).map(([, label]) => label);
-  }
-
-  // src/transfer-notice-ui.jsx
-  var { useState: useState5, useEffect: useEffect5, useRef: useRef4 } = React;
-  var todayIso3 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  var POSITIONS2 = ["Crew Member", "Shift Leader", "Assistant Manager", "Store Manager"];
-  var api = async (qs = "") => {
-    const res = await fetch("/.netlify/functions/transfer-notice" + qs, { credentials: "include", headers: { ...authHeader() } });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-    return body;
-  };
-  var fontsPromise = null;
-  var isPhoneLike = () => {
-    try {
-      return window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent);
-    } catch {
-      return false;
-    }
-  };
-  function deliverPdf(doc, fileName) {
-    if (!isPhoneLike()) {
-      doc.save(fileName);
-      return null;
-    }
-    return URL.createObjectURL(doc.output("blob"));
-  }
-  function PdfOpenButton({ url, style }) {
-    if (!url) return null;
-    return /* @__PURE__ */ React.createElement("a", { href: url, target: "_blank", rel: "noopener", className: "fin-btn", style: { display: "inline-block", textDecoration: "none", ...style } }, "Open the signed PDF");
-  }
-  var toB64 = (buf) => {
-    let s = "";
-    const b = new Uint8Array(buf);
-    for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
-    return btoa(s);
-  };
-  var loadFonts = () => fontsPromise || (fontsPromise = Promise.all([TRANSFER_FONT.regular, TRANSFER_FONT.italic].map((f) => fetch("/fonts/" + f).then((r) => {
-    if (!r.ok) throw new Error("font " + f);
-    return r.arrayBuffer();
-  }).then(toB64))).then(([regular, italic]) => ({ regular, italic })).catch((e) => {
-    fontsPromise = null;
-    throw e;
-  }));
-  var sealPromise = null;
-  var loadSeal = () => sealPromise || (sealPromise = fetch("/" + TRANSFER_CHROME.watermark.src).then((r) => {
-    if (!r.ok) throw new Error("watermark");
-    return r.arrayBuffer();
-  }).then((b) => "data:image/png;base64," + toB64(b)).catch((e) => {
-    sealPromise = null;
-    throw e;
-  }));
-  var INK3 = "#111";
-  var FILL2 = "#fdf3ea";
-  var LETTER_CSS = `
-@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Regular.ttf') format('truetype'); font-style: normal; font-display: swap; }
-@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Italic.ttf') format('truetype'); font-style: italic; font-display: swap; }
-.tn-paper { font-family: 'Caladea', Cambria, Georgia, serif; color: ${INK3}; background: #fff; }
-.tn-paper p { margin: 0; }
-.tn-blank { font: inherit; color: ${INK3}; border: none; border-bottom: 1px solid ${INK3}; border-radius: 0; background: ${FILL2}; padding: 0 0.25em; margin: 0 0.1em; min-height: 1.35em; line-height: 1.35; vertical-align: baseline; text-align: center; -webkit-appearance: none; appearance: none; }
-.tn-blank:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
-.tn-blank::placeholder { color: #9a8f86; font-style: italic; }
-.tn-locked { display: inline-block; border-bottom: 1px solid ${INK3}; padding: 0 0.3em; margin: 0 0.1em; text-align: center; line-height: 1.35; }
-.tn-locked.tn-empty { color: #9a8f86; font-style: italic; }
-select.tn-blank { cursor: pointer; text-align-last: center; }
-.tn-sigline { display: inline-flex; align-items: flex-end; justify-content: flex-start; border-bottom: 1px solid ${INK3}; height: 3.2em; vertical-align: bottom; margin-left: 0.3em; }
-.tn-sigbtn { font: inherit; font-family: ${FONTS.body}; font-size: 0.85rem; color: ${O}; font-weight: 700; background: ${FILL2}; border: 1px dashed ${O}; border-radius: 6px; padding: 0.35rem 0.8rem; margin: 0 0 0.3rem 0.2rem; cursor: pointer; }
-.tn-sigbtn:focus-visible, .tn-sigimg:focus-visible { outline: 2px solid ${O}; outline-offset: 2px; }
-.tn-sigimg { background: none; border: none; padding: 0; cursor: pointer; height: 100%; display: flex; align-items: flex-end; }
-@media (prefers-reduced-motion: reduce) { .tn-blank, .tn-sigbtn { transition: none; } }`;
-  var SIG_FONT = '"Dancing Script", "Segoe Script", "Snell Roundhand", "Lucida Handwriting", "Brush Script MT", cursive';
-  function cropInk(c) {
-    const g = c.getContext("2d");
-    const { data, width, height } = g.getImageData(0, 0, c.width, c.height);
-    let x0 = width, y0 = height, x1 = -1, y1 = -1;
-    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (data[(y * width + x) * 4 + 3] > 10) {
-      if (x < x0) x0 = x;
-      if (x > x1) x1 = x;
-      if (y < y0) y0 = y;
-      if (y > y1) y1 = y;
-    }
-    if (x1 < 0) return null;
-    const pad = 6, out = document.createElement("canvas");
-    x0 = Math.max(0, x0 - pad);
-    y0 = Math.max(0, y0 - pad);
-    x1 = Math.min(width - 1, x1 + pad);
-    y1 = Math.min(height - 1, y1 + pad);
-    out.width = x1 - x0 + 1;
-    out.height = y1 - y0 + 1;
-    out.getContext("2d").drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
-    return out.toDataURL("image/png");
-  }
-  async function typedSignaturePng(name) {
-    const text = String(name || "").trim();
-    try {
-      await document.fonts?.load(`600 72px "Dancing Script"`, text);
-    } catch {
-    }
-    const c = document.createElement("canvas");
-    c.width = 1e3;
-    c.height = 220;
-    const x = c.getContext("2d");
-    let size = 92;
-    const f = (n) => `600 ${n}px ${SIG_FONT}`;
-    x.font = f(size);
-    while (size > 30 && x.measureText(text).width > 950) {
-      size -= 2;
-      x.font = f(size);
-    }
-    x.fillStyle = INK3;
-    x.textBaseline = "middle";
-    x.fillText(text, 24, 112);
-    return cropInk(c);
-  }
-  function SignatureModal({ th, title, onDone, onCancel, name = "", defaultMode = "type" }) {
-    const S = finStyles(th);
-    const ref = useRef4(null);
-    const drawing = useRef4(false);
-    const last = useRef4(null);
-    const [mode, setMode] = useState5(defaultMode === "draw" ? "draw" : "type");
-    const [typed, setTyped] = useState5(name || "");
-    const [inked, setInked] = useState5(false);
-    const [busy, setBusy] = useState5(false);
-    const typedOk = typed.trim().length >= 2;
-    useEffect5(() => {
-      const onKey = (e) => {
-        if (e.key === "Escape") onCancel();
-      };
-      window.addEventListener("keydown", onKey);
-      return () => window.removeEventListener("keydown", onKey);
-    }, []);
-    useEffect5(() => {
-      if (mode !== "draw") return;
-      const c = ref.current;
-      if (!c) return;
-      const dpr = window.devicePixelRatio || 1;
-      const r = c.getBoundingClientRect();
-      c.width = Math.round(r.width * dpr);
-      c.height = Math.round(r.height * dpr);
-      const g = c.getContext("2d");
-      g.scale(dpr, dpr);
-      g.lineCap = "round";
-      g.lineJoin = "round";
-      g.strokeStyle = INK3;
-      g.lineWidth = 2.4;
-      setInked(false);
-    }, [mode]);
-    const pt = (e) => {
-      const r = ref.current.getBoundingClientRect();
-      return { x: e.clientX - r.left, y: e.clientY - r.top };
-    };
-    const down = (e) => {
-      ref.current.setPointerCapture(e.pointerId);
-      drawing.current = true;
-      last.current = pt(e);
-      const g = ref.current.getContext("2d");
-      g.beginPath();
-      g.arc(last.current.x, last.current.y, 1.1, 0, Math.PI * 2);
-      g.fillStyle = INK3;
-      g.fill();
-      setInked(true);
-    };
-    const move = (e) => {
-      if (!drawing.current) return;
-      const g = ref.current.getContext("2d");
-      const p = pt(e);
-      g.beginPath();
-      g.moveTo(last.current.x, last.current.y);
-      g.lineTo(p.x, p.y);
-      g.stroke();
-      last.current = p;
-    };
-    const up = () => {
-      drawing.current = false;
-    };
-    const clear = () => {
-      const c = ref.current;
-      c.getContext("2d").clearRect(0, 0, c.width, c.height);
-      setInked(false);
-    };
-    const ready = mode === "type" ? typedOk : inked;
-    const done = async () => {
-      if (!ready || busy) return;
-      if (mode === "draw") {
-        const png2 = cropInk(ref.current);
-        if (png2) onDone(png2);
-        return;
-      }
-      setBusy(true);
-      const png = await typedSignaturePng(typed);
-      setBusy(false);
-      if (png) onDone(png);
-    };
-    const tab = (k, label) => /* @__PURE__ */ React.createElement(
+    ))), tab === "send" && (sent ? /* @__PURE__ */ React.createElement("div", { className: "pcg-pop", style: { ...S.panel, padding: "1.1rem", display: "grid", gap: "0.8rem", justifyItems: "center", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.1rem" } }, "Form sent to ", sent.name), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.9rem" } }, sent.emailed ? "Emailed the link. " : "", sent.texted ? "Texted them. " : "", "If they're with you, they can scan this with their phone camera:"), /* @__PURE__ */ React.createElement(Qr, { text: sent.link }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: () => {
+      navigator.clipboard?.writeText(sent.link);
+      setMsg("Link copied.");
+    } }, "Copy the link"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => {
+      setSent(null);
+      setEmp(null);
+      setQ("");
+      setPhone("");
+      setEmail("");
+    } }, "Send another")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, "The link is only for ", sent.name, " and works for 14 days.")) : /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.8rem" } }, data.stores.length > 1 && /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Store", /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: pc, onChange: (e) => {
+      setPc(e.target.value);
+      setEmp(null);
+    }, style: S.input }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All my stores"), data.stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Crew member", /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: emp ? emp.name : q, onChange: (e) => {
+      setEmp(null);
+      setQ(e.target.value);
+    }, placeholder: "Type a name", style: S.input })), !emp && q.trim() && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.3rem", maxHeight: 260, overflowY: "auto" } }, employees.map((e) => /* @__PURE__ */ React.createElement("button", { key: e.pc + e.id, type: "button", className: "fin-btn", onClick: () => setEmp(e), style: { ...S.ghost, justifyContent: "space-between", display: "flex", textAlign: "left" } }, /* @__PURE__ */ React.createElement("span", null, e.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, e.jobTitle)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (data.stores.find((s) => s.pc === e.pc) || {}).name))), !employees.length && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "No one by that name.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their cell number", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "tel", value: phone, onChange: (e) => setPhone(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their email (optional)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "email", value: email, onChange: (e) => setEmail(e.target.value), style: S.input }))), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "The link goes by email. Texts can't carry links yet, so the text tells them to check their email, or you show them the QR code after you press Send."), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
-        role: "tab",
-        "aria-selected": mode === k,
         className: "fin-btn",
-        onClick: () => setMode(k),
-        style: { ...S.ghost, minHeight: 36, padding: "0.35rem 1rem", background: mode === k ? O : th.card3, color: mode === k ? "#fff" : th.text, borderColor: mode === k ? O : th.cardBorder }
+        disabled: !emp || !phone.trim() && !email.trim() || busy,
+        onClick: send,
+        style: { ...S.primary, justifySelf: "end", opacity: emp && (phone.trim() || email.trim()) && !busy ? 1 : 0.5 }
       },
-      label
-    );
-    return /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        role: "dialog",
-        "aria-modal": "true",
-        "aria-label": title,
-        onClick: (e) => {
-          if (e.target === e.currentTarget) onCancel();
-        },
-        style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(20,16,12,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }
-      },
-      /* @__PURE__ */ React.createElement("div", { className: "pcg-pop", style: { ...S.panel, width: "min(640px, 100%)", padding: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: S.panelTitle }, title), /* @__PURE__ */ React.createElement("div", { role: "tablist", "aria-label": "How to sign", style: { display: "flex", gap: "0.35rem" } }, tab("type", "Type"), tab("draw", "Draw"))), mode === "type" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "0.6rem" } }, "Type your full name. It's turned into your signature."), /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          className: "fin-input",
-          autoFocus: true,
-          value: typed,
-          onChange: (e) => setTyped(e.target.value),
-          onKeyDown: (e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              done();
-            }
-          },
-          placeholder: "Your full name",
-          "aria-label": "Type your full name to sign",
-          maxLength: 60,
-          autoComplete: "name",
-          style: { ...S.input, fontSize: "1rem" }
+      busy ? "Sending\u2026" : "Send the form"
+    ))), (tab === "manager" || tab === "office") && (open ? /* @__PURE__ */ React.createElement(Review3, { th, isMobile, item: open, step: tab, canAct: tab === "manager" || data.canOffice, onClose: (m) => {
+      setOpen(null);
+      if (m) setMsg(m);
+      load();
+    } }) : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, (L3[tab] || []).length ? L3[tab].map((x) => row(x, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setOpen(x), style: { ...S.ghost, minHeight: 34, color: "#fff", background: O, borderColor: O } }, "Review"), () => setOpen(x))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, tab === "office" ? "Nothing waiting on the office." : "Nothing waiting for your approval."))), tab === "invited" && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, (L3.invited || []).length ? L3.invited.map((x) => row(
+      x,
+      /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.link, color: "#dc2626" }, onClick: async () => {
+        if (!window.confirm(`Withdraw ${x.name}'s link?`)) return;
+        try {
+          await call4("", { action: "cancel", id: x.id });
+          load();
+        } catch (e) {
+          setErr(e.message);
         }
-      ), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
-        height: 120,
-        marginTop: "0.7rem",
-        background: "#fff",
-        border: `1px solid ${th.cardBorder}`,
-        borderRadius: 10,
-        display: "flex",
-        alignItems: "center",
-        padding: "0 1rem",
-        overflow: "hidden",
-        backgroundImage: "linear-gradient(transparent 88px, #d9d2cb 88px, #d9d2cb 89px, transparent 89px)"
-      } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: SIG_FONT, fontWeight: 600, fontSize: "clamp(1.8rem, 7vw, 2.8rem)", color: INK3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, typed.trim() || " "))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginBottom: "0.6rem" } }, "Sign in the box with your finger, a stylus or the mouse."), /* @__PURE__ */ React.createElement(
-        "canvas",
-        {
-          ref,
-          onPointerDown: down,
-          onPointerMove: move,
-          onPointerUp: up,
-          onPointerCancel: up,
-          style: { width: "100%", height: 200, display: "block", background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 10, touchAction: "none", cursor: "crosshair", backgroundImage: `linear-gradient(transparent 150px, #d9d2cb 150px, #d9d2cb 151px, transparent 151px)` }
-        }
-      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.9rem", flexWrap: "wrap" } }, mode === "draw" ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: clear, disabled: !inked }, "Clear") : /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.ghost, onClick: onCancel }, "Cancel"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready && !busy ? 1 : 0.5 }, onClick: done, disabled: !ready || busy }, "Use this signature"))))
-    );
-  }
-  var INLINE_SIGN_CSS = `
-.pcg-sign { display: inline-flex; flex-wrap: wrap; align-items: flex-end; gap: 0.3em 0.5em; padding: 0 0 0.15em 0.2em; }
-.pcg-sign-in { font-family: ${SIG_FONT}; font-weight: 600; font-size: 1.35rem; line-height: 1.2; color: ${INK3}; width: 10em; max-width: 62vw; min-width: 0; background: ${FILL2}; border: none; border-bottom: 1px dashed ${O}; border-radius: 4px 4px 0 0; padding: 0.05em 0.35em; }
-.pcg-sign-in::placeholder { font-family: ${FONTS.body}; font-weight: 600; font-size: 0.8rem; color: #b07a5c; }
-.pcg-sign-in:focus-visible, .pcg-sign-btn:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }
-.pcg-sign-btn { font: inherit; font-family: ${FONTS.body}; font-size: 0.78rem; font-weight: 700; border-radius: 6px; padding: 0.25rem 0.6rem; cursor: pointer; white-space: nowrap; }
-.pcg-sign-off { font-family: ${FONTS.body}; font-size: 0.8rem; font-weight: 700; color: ${O}; opacity: 0.5; padding: 0 0 0.25em 0.3em; white-space: nowrap; }`;
-  function InlineSign({ th, can, blockedText = "Fill in the form first", label = "", onSign, name = "" }) {
-    const [typed, setTyped] = useState5(name);
-    const [drawing, setDrawing] = useState5(false);
-    const [busy, setBusy] = useState5(false);
-    const ok = typed.trim().length >= 2;
-    const sign = async () => {
-      if (!ok || busy) return;
-      setBusy(true);
-      const png = await typedSignaturePng(typed);
-      setBusy(false);
-      if (png) onSign(png);
-    };
-    return /* @__PURE__ */ React.createElement("span", { className: "pcg-sign" }, /* @__PURE__ */ React.createElement("style", null, INLINE_SIGN_CSS), !can ? /* @__PURE__ */ React.createElement("span", { className: "pcg-sign-off" }, blockedText) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        className: "pcg-sign-in",
-        value: typed,
-        maxLength: 60,
-        autoComplete: "name",
-        onChange: (e) => setTyped(e.target.value),
-        onKeyDown: (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            sign();
-          }
-        },
-        placeholder: "Type your name to sign",
-        "aria-label": `Type your full name to sign${label ? ` (${label})` : ""}`
+      } }, "Withdraw")
+    )) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "No unused links.")), tab === "done" && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, (L3.done || []).length ? L3.done.map((x) => row(x, /* @__PURE__ */ React.createElement(React.Fragment, null, x.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(x), style: { ...S.link, color: O } }, "View form"), x.driveLink && /* @__PURE__ */ React.createElement("a", { href: x.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"), x.status === "approved" && !x.driveLink && data.canOffice && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.link, color: "#dc2626" }, onClick: async () => {
+      try {
+        const b = await call4("", { action: "office", id: x.id, decision: "approve" });
+        setMsg(b.drive?.saved ? `Filed: ${x.name}.` : `Still not filed: ${b.drive?.error || "error"}.`);
+        load();
+      } catch (e) {
+        setErr(e.message);
       }
+    } }, "Not filed: file it again")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Nothing yet.")), tab === "posters" && /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: th.muted, fontSize: "0.88rem" } }, "Print a poster for the crew room. Scanning it opens the form for that store; they pick their name and fill it in. It shows names only, never anyone's balance, and their manager approves every request."), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Store", /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: poster?.pc || "", onChange: async (e) => {
+      const p = e.target.value;
+      if (!p) return setPoster(null);
+      try {
+        const b = await call4(`?poster=${p}`);
+        setPoster({ pc: p, ...b });
+      } catch (er) {
+        setErr(er.message);
+      }
+    }, style: S.input }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick a store"), data.stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), poster && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", justifyItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement(Qr, { text: poster.url, size: 240 }), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => printPoster(poster.store, poster.url) }, "Print the poster"))), tab === "posters" && (data.role === "executive" || data.role === "it") && /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("b", null, "IT: check a badge ID"), /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: bd.emp ? bd.emp.name : bd.q, onChange: (e) => setBd({ q: e.target.value, emp: null, badge: bd.badge, out: null }), placeholder: "Crew member's name", style: S.input }), !bd.emp && bd.q.trim().length > 1 && (data.employees || []).filter((e) => e.name.toLowerCase().includes(bd.q.trim().toLowerCase())).slice(0, 8).map((e) => /* @__PURE__ */ React.createElement("button", { key: e.pc + e.id, type: "button", className: "fin-btn", onClick: () => setBd((x) => ({ ...x, emp: e })), style: { ...S.ghost, textAlign: "left" } }, e.name, " \xB7 ", (data.stores.find((s2) => s2.pc === e.pc) || {}).name)), /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: bd.badge, onChange: (e) => setBd((x) => ({ ...x, badge: e.target.value })), placeholder: "The badge ID you tried", style: S.input }), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "fin-btn",
+        disabled: !bd.emp,
+        style: { ...S.ghost, justifySelf: "start" },
+        onClick: async () => {
+          try {
+            setBd((x) => ({ ...x, out: null }));
+            const b = await call4("", { action: "badgeCheck", pc: bd.emp.pc, employeeId: bd.emp.id, badge: bd.badge });
+            setBd((x) => ({ ...x, out: b }));
+          } catch (e) {
+            setErr(e.message);
+          }
+        }
+      },
+      "Check"
     ), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
-        className: "pcg-sign-btn",
-        onClick: sign,
-        disabled: !ok || busy,
-        style: { background: O, color: "#fff", border: `1px solid ${O}`, opacity: ok && !busy ? 1 : 0.45, cursor: ok && !busy ? "pointer" : "not-allowed" }
-      },
-      "Sign"
-    ), /* @__PURE__ */ React.createElement("button", { type: "button", className: "pcg-sign-btn", onClick: () => setDrawing(true), style: { background: "none", color: O, border: `1px dashed ${O}` } }, "Draw instead")), drawing && /* @__PURE__ */ React.createElement(SignatureModal, { th, title: `${label || "Your"} signature`, defaultMode: "draw", name: typed, onCancel: () => setDrawing(false), onDone: (png) => {
-      setDrawing(false);
-      onSign(png);
-    } }));
-  }
-  function TransferNotice({ th, isMobile, onBack }) {
-    const S = finStyles(th);
-    const [stores, setStores] = useState5([]);
-    const [employees, setEmployees] = useState5(null);
-    const [error, setError] = useState5(null);
-    const [query, setQuery] = useState5("");
-    const [listOpen, setListOpen] = useState5(false);
-    const [picked, setPicked] = useState5(null);
-    const [employee, setEmployee] = useState5(null);
-    const [loadingEmp, setLoadingEmp] = useState5(false);
-    const [toPC, setToPC] = useState5("");
-    const [toTitle, setToTitle] = useState5("");
-    const [employmentType, setEmploymentType] = useState5("");
-    const [fromTitle, setFromTitle] = useState5("");
-    const [effectiveDate, setEffectiveDate] = useState5("");
-    const [supervisorName, setSupervisorName] = useState5("");
-    const [supervisorTitle, setSupervisorTitle] = useState5("Store Manager");
-    const [dmName, setDmName] = useState5("");
-    const [me, setMe] = useState5(null);
-    const [date, setDate] = useState5(todayIso3());
-    const [employeeSig, setEmployeeSig] = useState5(null);
-    const [dmSig, setDmSig] = useState5(null);
-    const [signing, setSigning] = useState5(null);
-    const [busy, setBusy] = useState5(false);
-    const [saved, setSaved] = useState5(null);
-    useEffect5(() => {
-      api().then((b) => {
-        setStores(b.stores || []);
-        setEmployees(b.employees || []);
-        if (b.me) {
-          setMe(b.me);
-          if (b.me.approverTitle) setDmName((n) => n || b.me.name || "");
+        className: "fin-btn",
+        disabled: !bd.emp,
+        style: { ...S.ghost, justifySelf: "start" },
+        onClick: async () => {
+          try {
+            const b = await call4("", { action: "unlockBadge", pc: bd.emp.pc, employeeId: bd.emp.id });
+            setMsg(b.unlocked ? `Unlocked ${bd.emp.name}: they can try their badge ID again.` : `${bd.emp.name} wasn't locked.`);
+          } catch (e) {
+            setErr(e.message);
+          }
         }
+      },
+      "Unlock their badge ID"
+    ), bd.out && /* @__PURE__ */ React.createElement("pre", { style: { background: th.card3, padding: "0.6rem", borderRadius: 8, fontSize: "0.75rem", overflowX: "auto", margin: 0 } }, JSON.stringify(bd.out, null, 2))), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `${FN3}?pdf=${viewing.id}`, title: `Time off for ${viewing.name}`, onClose: () => setViewing(null) }));
+  }
+
+  // src/time-off-request.mjs
+  var POSITIONS3 = ["Store Manager & Asst Manager", "Shift Leader", "Crew Member", "Office Staff & Admin"];
+  var LEAVE_TYPES = [
+    "(FFCRA) Families First Coronavirus Response Act",
+    "(FMLA) Family & Medical Leave Act",
+    "Sick Leave",
+    "Vacation Time",
+    "Military Leave",
+    "Jury Duty",
+    "Religious Observance",
+    "Other"
+  ];
+  var clean = (s, n = 200) => String(s ?? "").trim().slice(0, n);
+  var has2 = (v, k) => !!String(v?.[k] ?? "").trim();
+  var isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
+  var digits = (s) => String(s || "").replace(/\D/g, "");
+  var isPhone = (s) => {
+    const d = digits(s);
+    return d.length === 10 || d.length === 11 && d[0] === "1";
+  };
+  var isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ""));
+  var isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+  function timeOffValues(f = {}) {
+    const leaveType = LEAVE_TYPES.includes(f.leaveType) ? f.leaveType : "";
+    return {
+      email: clean(f.email, 120),
+      employeeName: clean(f.employeeName, 80),
+      address: clean(f.address, 200),
+      phone: clean(f.phone, 30),
+      ecName: clean(f.ecName, 120),
+      ecPhone: clean(f.ecPhone, 30),
+      ecEmail: clean(f.ecEmail, 120),
+      ecAuthorized: f.ecAuthorized === true ? true : f.ecAuthorized === false ? false : null,
+      position: POSITIONS3.includes(f.position) ? f.position : "",
+      location: clean(f.location, 120),
+      startDate: clean(f.startDate, 10),
+      startTime: clean(f.startTime, 5),
+      returnDate: clean(f.returnDate, 10),
+      returnTime: clean(f.returnTime, 5),
+      totalHours: f.totalHours === "" || f.totalHours == null ? "" : Number(f.totalHours),
+      leaveType,
+      leaveOther: leaveType === "Other" ? clean(f.leaveOther, 120) : "",
+      lastWorked: clean(f.lastWorked, 10),
+      date: clean(f.date, 10),
+      signature: f.sig?.image || "",
+      signedDate: f.sig?.date || "",
+      documents: (f.documents || []).map((d) => clean(d.name, 120)).filter(Boolean)
+    };
+  }
+  function timeOffFingerprint(v) {
+    return [
+      "email",
+      "employeeName",
+      "address",
+      "phone",
+      "ecName",
+      "ecPhone",
+      "ecEmail",
+      "ecAuthorized",
+      "position",
+      "location",
+      "startDate",
+      "startTime",
+      "returnDate",
+      "returnTime",
+      "totalHours",
+      "leaveType",
+      "leaveOther",
+      "lastWorked"
+    ].map((k) => String(v?.[k] ?? "").trim()).concat((v?.documents || []).join(",")).join("|");
+  }
+  function missingTimeOffFields(v) {
+    const out = [];
+    if (!isEmail(v?.email)) out.push("Your email");
+    if (!has2(v, "employeeName")) out.push("Your name");
+    if (!has2(v, "address")) out.push("Your address");
+    if (!isPhone(v?.phone)) out.push("Your phone number");
+    if (!has2(v, "ecName")) out.push("Emergency contact name and relation");
+    if (!isPhone(v?.ecPhone)) out.push("Emergency contact phone");
+    if (!isEmail(v?.ecEmail)) out.push("Emergency contact email");
+    if (v?.ecAuthorized !== true && v?.ecAuthorized !== false) out.push("Emergency contact authorization");
+    if (!v?.position) out.push("Job position");
+    if (!has2(v, "location")) out.push("Location");
+    if (!isDate(v?.startDate)) out.push("Start date");
+    if (!isTime(v?.startTime)) out.push("Start time");
+    if (!isDate(v?.returnDate)) out.push("Back to work date");
+    if (!isTime(v?.returnTime)) out.push("Back to work start time");
+    if (!(Number(v?.totalHours) > 0)) out.push("Total hours requested");
+    if (!v?.leaveType) out.push("Type of leave");
+    if (v?.leaveType === "Other" && !has2(v, "leaveOther")) out.push("Type of leave (other)");
+    if (!isDate(v?.lastWorked)) out.push("Last date worked");
+    if (!has2(v, "signature")) out.push("Your signature");
+    return out;
+  }
+  function timeOffProblem(v) {
+    if (isDate(v?.startDate) && isDate(v?.returnDate) && v.returnDate < v.startDate) return "The back-to-work date has to be on or after the start date.";
+    if (isDate(v?.lastWorked) && isDate(v?.startDate) && v.lastWorked > v.startDate) return "The last date worked has to be on or before the start date.";
+    if (Number(v?.totalHours) > 2e3) return "Check the total hours requested.";
+    return null;
+  }
+  var usDate = (iso) => {
+    const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || "");
+  };
+  var usTime = (t) => {
+    const m = String(t || "").match(/^(\d{2}):(\d{2})$/);
+    if (!m) return String(t || "");
+    const h = Number(m[1]);
+    return `${(h + 11) % 12 + 1}:${m[2]} ${h < 12 ? "AM" : "PM"}`;
+  };
+  var leaveLabel = (v) => v.leaveType === "Other" ? `Other: ${v.leaveOther}` : v.leaveType;
+  function timeOffFileName(v) {
+    return `Time Off Request - ${v.employeeName} - ${usDate(v.startDate).replace(/\//g, "-")} to ${usDate(v.returnDate).replace(/\//g, "-")}.pdf`.replace(/[\\/:*?"<>|]+/g, "-");
+  }
+
+  // src/time-off-request-pdf.mjs
+  var TOR_FONT = { family: "Caladea", regular: "Caladea-Regular.ttf", bold: "Caladea-Bold.ttf" };
+  var TOR_CHROME = { logo: { x: 252, y: 30, w: 108, h: 56.25, src: "pcg-logo-form.jpg" }, watermark: { x: 71, y: 200, size: 470, src: "pcg-watermark.png" } };
+  var L = 54;
+  var R = 558;
+  var LABEL_W = 178;
+  function buildTimeOffPdf(jsPDF, fonts, v = {}, images = {}) {
+    const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
+    const F = TOR_FONT.family;
+    doc.addFileToVFS(TOR_FONT.regular, fonts.regular);
+    doc.addFont(TOR_FONT.regular, F, "normal");
+    doc.addFileToVFS(TOR_FONT.bold, fonts.bold);
+    doc.addFont(TOR_FONT.bold, F, "bold");
+    doc.setProperties({ title: "Time Off Request Form", creator: "PCG Portal" });
+    const C = TOR_CHROME;
+    if (images.watermark) doc.addImage(images.watermark, "PNG", C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size, "seal", "FAST");
+    if (images.logo) doc.addImage(images.logo, "JPEG", C.logo.x, C.logo.y, C.logo.w, C.logo.h);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(F, "bold");
+    doc.setFontSize(16);
+    doc.text("TIME OFF REQUEST FORM", 306, 112, { align: "center" });
+    doc.setFont(F, "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(70, 70, 70);
+    doc.text(`Submitted ${usDate(v.date)}`, 306, 126, { align: "center" });
+    doc.setTextColor(0, 0, 0);
+    let y = 152;
+    const section = (title) => {
+      y += 8;
+      doc.setFont(F, "bold");
+      doc.setFontSize(11);
+      doc.text(title, L, y);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(1);
+      doc.line(L, y + 3, L + doc.getTextWidth(title), y + 3);
+      y += 20;
+    };
+    const row = (label, value) => {
+      doc.setFont(F, "bold");
+      doc.setFontSize(10);
+      doc.text(label, L, y);
+      doc.setFont(F, "normal");
+      const x0 = L + LABEL_W, w = R - x0;
+      let text = String(value ?? ""), sz = 10;
+      while (sz > 7 && (doc.setFontSize(sz), doc.getTextWidth(text)) > w - 4) sz -= 0.5;
+      doc.setFontSize(sz);
+      doc.text(text, x0 + 3, y - 1);
+      doc.setDrawColor(150, 150, 150);
+      doc.setLineWidth(0.6);
+      doc.line(x0, y + 2.5, R, y + 2.5);
+      y += 20;
+    };
+    section("Employee Information");
+    row("Employee Name:", v.employeeName);
+    row("Email:", v.email);
+    row("Phone Number:", v.phone);
+    row("Address:", v.address);
+    row("Job Position:", v.position);
+    row("Location:", v.location);
+    section("Emergency Contact");
+    row("Name and Relation:", v.ecName);
+    row("Phone Number:", v.ecPhone);
+    row("Email Address:", v.ecEmail);
+    row("Authorization:", v.ecAuthorized ? "Yes, I authorize my emergency contact to be contacted via phone, text, or email" : "No, I do not authorize my emergency contact to be contacted");
+    section("Time Off Request");
+    row("Start:", `${usDate(v.startDate)}  ${usTime(v.startTime)}`);
+    row("Back to Work:", `${usDate(v.returnDate)}  ${usTime(v.returnTime)}`);
+    row("Total Hours Requested:", String(v.totalHours ?? ""));
+    row("Type of Leave:", leaveLabel(v));
+    row("Last Date Worked:", usDate(v.lastWorked));
+    if ((v.balances || []).length) row("Paycor Balance (hours):", v.balances.map((b) => `${b.type}: ${b.current ?? "\u2014"}`).join("   "));
+    if ((v.documents || []).length) row("Supporting Documents:", v.documents.join(", "));
+    section("Signature");
+    doc.setFont(F, "bold");
+    doc.setFontSize(10);
+    doc.text("Employee Signature:", L, y + 14);
+    const sx = L + LABEL_W;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.8);
+    doc.line(sx, y + 17, sx + 200, y + 17);
+    if (v.signature) {
+      const p = doc.getImageProperties(v.signature);
+      const s = Math.min(196 / p.width, 30 / p.height);
+      doc.addImage(v.signature, "PNG", sx + 3, y + 16 - p.height * s, p.width * s, p.height * s, void 0, "FAST");
+    }
+    doc.text("Date:", sx + 220, y + 14);
+    doc.setFont(F, "normal");
+    doc.text(usDate(v.signedDate), sx + 252, y + 13);
+    doc.line(sx + 248, y + 17, R, y + 17);
+    doc.setFontSize(8.5);
+    doc.setTextColor(90, 90, 90);
+    doc.text("Please allow 24\u201348 hours for Human Resources to confirm your request.", 306, 752, { align: "center" });
+    doc.setTextColor(0, 0, 0);
+    return doc;
+  }
+
+  // src/time-off-request-ui.jsx
+  var { useState: useState7, useEffect: useEffect7 } = React;
+  var todayIso4 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  var MAX_DOCS = 5;
+  var MAX_DOC_BYTES = 3.5 * 1024 * 1024;
+  var call5 = async (body) => {
+    const res = await fetch("/.netlify/functions/time-off-request", {
+      method: body ? "POST" : "GET",
+      credentials: "include",
+      headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() },
+      body: body ? JSON.stringify(body) : void 0
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+    return b;
+  };
+  var assetsPromise2 = null;
+  var fetchB642 = (path) => fetch(path).then((r) => {
+    if (!r.ok) throw new Error("load " + path);
+    return r.arrayBuffer();
+  }).then(toB64);
+  var loadAssets2 = () => (
+    // v23.30: also the Crew Time Off form
+    assetsPromise2 || (assetsPromise2 = Promise.all([fetchB642("/fonts/" + TOR_FONT.regular), fetchB642("/fonts/" + TOR_FONT.bold), fetchB642("/" + TOR_CHROME.logo.src), fetchB642("/" + TOR_CHROME.watermark.src)]).then(([regular, bold, logo, seal]) => ({ fonts: { regular, bold }, logo: "data:image/jpeg;base64," + logo, watermark: "data:image/png;base64," + seal })).catch((e) => {
+      assetsPromise2 = null;
+      throw e;
+    }))
+  );
+  var readDataUrl = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error(`Couldn't read ${file.name}`));
+    r.readAsDataURL(file);
+  });
+  async function prepareDoc(file) {
+    if (/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      try {
+        const url = await readDataUrl(file);
+        const img = await new Promise((res, rej) => {
+          const i = new Image();
+          i.onload = () => res(i);
+          i.onerror = rej;
+          i.src = url;
+        });
+        const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * k);
+        c.height = Math.round(img.height * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        const data2 = c.toDataURL("image/jpeg", 0.82);
+        return { name: file.name.replace(/\.(png|webp)$/i, ".jpg"), type: "image/jpeg", data: data2, size: Math.round((data2.length - data2.indexOf(",") - 1) * 0.75) };
+      } catch {
+      }
+    }
+    const data = await readDataUrl(file);
+    return { name: file.name, type: file.type || "application/octet-stream", data, size: file.size };
+  }
+  var fmtSize = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+  var fmtHrs = (n) => n == null || n === "" ? "\u2014" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  function TimeOffRequest({ th, isMobile, onBack }) {
+    const S = finStyles(th);
+    const [info, setInfo] = useState7(null);
+    const [error, setError] = useState7(null);
+    const [f, setF] = useState7({
+      email: "",
+      employeeName: "",
+      address: "",
+      phone: "",
+      ecName: "",
+      ecPhone: "",
+      ecEmail: "",
+      ecAuthorized: null,
+      position: "",
+      location: "",
+      locationOther: "",
+      startDate: "",
+      startTime: "",
+      returnDate: "",
+      returnTime: "",
+      totalHours: "",
+      leaveType: "",
+      leaveOther: "",
+      lastWorked: ""
+    });
+    const [docs, setDocs] = useState7([]);
+    const [sig, setSig] = useState7(null);
+    const [signing, setSigning] = useState7(false);
+    const [busy, setBusy] = useState7(false);
+    const [saved, setSaved] = useState7(null);
+    const [touched, setTouched] = useState7(false);
+    const set = (k) => (e) => {
+      const val = e && e.target ? e.target.value : e;
+      setF((x) => ({ ...x, [k]: val }));
+    };
+    useEffect7(() => {
+      call5().then((b) => {
+        setInfo(b);
+        setF((x) => ({ ...x, employeeName: b.me.name, email: x.email || b.me.email, phone: x.phone || b.me.phone, position: x.position || b.me.position, location: x.location || b.me.location }));
       }).catch((e) => {
         setError(e.message);
-        setEmployees([]);
+        setInfo({ me: null, balances: [], linked: false });
       });
     }, []);
-    useEffect5(() => {
-      setEmployee(null);
-      if (!picked) return;
-      let live = true;
-      setLoadingEmp(true);
-      setError(null);
-      api(`?pc=${encodeURIComponent(picked.pc)}&employeeId=${encodeURIComponent(picked.id)}`).then((b) => {
-        if (!live) return;
-        setEmployee(b.employee);
-        setEmploymentType(b.employee?.employmentType || "");
-      }).catch((e) => live && setError(e.message)).finally(() => live && setLoadingEmp(false));
-      return () => {
-        live = false;
-      };
-    }, [picked]);
-    useEffect5(() => {
-      if (!toPC) return;
-      let live = true;
-      api(`?dest=${encodeURIComponent(toPC)}`).then((b) => {
-        if (!live) return;
-        setSupervisorName(b.manager || "");
-        if (!me?.approverTitle) setDmName(b.dm || "");
-      }).catch(() => {
-      });
-      return () => {
-        live = false;
-      };
-    }, [toPC]);
-    const storeName = (pc) => stores.find((s) => s.pc === String(pc))?.name || "";
-    const approverTitle = me?.approverTitle || "District Manager";
-    const fromPC = picked?.pc || "";
-    const hourly = employee && /hour/i.test(employee.payType || "Hourly") && employee.payRate > 0;
-    const base = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, approverTitle });
-    const fp = letterFingerprint(base);
-    useEffect5(() => {
+    const location2 = f.location === "Other" ? f.locationOther.trim() ? `Other: ${f.locationOther.trim()}` : "" : f.location;
+    const form = { ...f, location: location2, date: todayIso4(), documents: docs };
+    const base = timeOffValues(form);
+    const fp = timeOffFingerprint(base);
+    const sigOk = sig && sig.fp === fp ? sig : null;
+    const values = { ...timeOffValues({ ...form, sig: sigOk }), balances: (info?.balances || []).map((b) => ({ type: b.type, current: b.current })) };
+    const formMissing = missingTimeOffFields({ ...base, signature: "x" });
+    const problem = timeOffProblem(base);
+    const canSign = !formMissing.length && !problem;
+    const missing = missingTimeOffFields(values);
+    const ready = !missing.length && !problem && !busy && !!info?.me;
+    useEffect7(() => {
       setSaved(null);
     }, [fp]);
-    const empSigOk = employeeSig && employeeSig.fp === fp ? employeeSig : null;
-    const dmSigOk = dmSig && dmSig.fp === fp ? dmSig : null;
-    const voided = employeeSig && !empSigOk || dmSig && !dmSigOk;
-    const values = transferLetterValues({ employee, fromTitle, fromPC, toPC, toTitle, employmentType, effectiveDate, supervisorName, supervisorTitle, dmName, date, approverTitle, employeeSig: empSigOk, dmSig: dmSigOk });
-    const missing = missingTransferFields(values);
-    const sameStore = fromPC && toPC && fromPC === toPC;
-    const letterMissing = missingTransferFields(base).filter((m) => !/signature/i.test(m));
-    const canSign = !letterMissing.length && hourly && !sameStore && !loadingEmp;
-    const ready = !missing.length && hourly && !sameStore && !busy && !loadingEmp;
-    const q = query.trim().toLowerCase();
-    const matches = q && employees ? employees.filter((e) => e.name.toLowerCase().includes(q) || storeName(e.pc).toLowerCase().includes(q) || e.pc.includes(q)).slice(0, 40) : [];
-    const pick = (e) => {
-      setPicked(e);
-      setFromTitle("");
-      setQuery(e.name);
-      setListOpen(false);
-      if (toPC === e.pc) setToPC("");
+    const docBytes = docs.reduce((n, d) => n + d.size, 0);
+    const addFiles = async (list) => {
+      const files = [...list].slice(0, MAX_DOCS - docs.length);
+      if (!files.length) return;
+      try {
+        const prepared = await Promise.all(files.map(prepareDoc));
+        const next = [...docs, ...prepared];
+        if (next.reduce((n, d) => n + d.size, 0) > MAX_DOC_BYTES) {
+          setError("Those documents are too large together (3.5 MB max). Send fewer or smaller files.");
+          return;
+        }
+        setError(null);
+        setDocs(next);
+      } catch (e) {
+        setError(e.message);
+      }
     };
-    const download = async () => {
+    const send = async () => {
       if (!ready) return;
       setBusy(true);
       setError(null);
       try {
         const JsPDF = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
         if (!JsPDF) throw new Error("PDF library did not load \u2014 refresh the page.");
-        const [fonts, watermark] = await Promise.all([loadFonts(), loadSeal()]);
-        const doc = buildTransferNoticePdf(JsPDF, fonts, values, { watermark });
-        const fileName = `Transfer-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
+        const { fonts, logo, watermark } = await loadAssets2();
+        const doc = buildTimeOffPdf(JsPDF, fonts, values, { logo, watermark });
+        const fileName = timeOffFileName(values);
         setSaved({ state: "saving" });
         try {
-          const res = await fetch("/.netlify/functions/transfer-notice", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json", ...authHeader() },
-            body: JSON.stringify({ values, employeeId: employee?.id, pdf: doc.output("datauristring") })
-          });
-          const b = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+          const b = await call5({ values, pdf: doc.output("datauristring"), documents: docs.map((d) => ({ name: d.name, type: d.type, data: d.data })) });
           setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
         } catch (e) {
           setSaved({ state: "failed", error: e.message, pdfUrl: deliverPdf(doc, fileName) });
@@ -3597,106 +4302,329 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Not sent: ", saved.error, ". Press the button again to retry.");
       const who = (saved.approvers || []).length ? saved.approvers.join(" / ") : "the approver";
       if (saved.already) return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "Already sent", saved.status === "pending" ? `, waiting for ${who}` : saved.status === "approved" ? " and approved" : "", ".");
-      return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "Sent to ", who, " for approval", saved.notified ? "" : " (no approver could be reached, tell IT)", ". You'll get an email when it's approved; then it's filed in Google Drive.");
+      return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "Sent to ", who, " for approval", saved.notified ? "" : " (no approver could be reached, tell IT)", ". You'll get an email when it's approved; then it goes to HR and Google Drive.");
     };
-    const w = (ch) => ({ width: `${ch}ch`, maxWidth: "100%" });
-    const locked = (value, placeholder, ch) => /* @__PURE__ */ React.createElement("span", { className: `tn-locked${value ? "" : " tn-empty"}`, style: { minWidth: `${ch}ch` }, title: "From Paycor \u2014 can't be changed here" }, value || (loadingEmp ? "\u2026" : placeholder));
-    const text = (value, set, ch, placeholder, extra = {}) => /* @__PURE__ */ React.createElement("input", { className: "tn-blank", style: w(ch), value, onChange: (e) => set(e.target.value), placeholder, "aria-label": placeholder, ...extra });
-    const dateBlank = (value, set, label) => /* @__PURE__ */ React.createElement("input", { type: "date", className: "tn-blank", style: { width: isMobile ? "14ch" : "13.5ch" }, value, onChange: (e) => set(e.target.value), "aria-label": label });
-    const sigLine = (who, sig, label) => /* @__PURE__ */ React.createElement("span", { className: "tn-sigline", style: { width: isMobile ? "60%" : "22em" } }, sig ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "tn-sigimg", onClick: () => setSigning(who), title: "Sign again" }, /* @__PURE__ */ React.createElement("img", { src: sig.image, alt: `${label} signature`, style: { maxHeight: "2.9em", maxWidth: "100%", objectFit: "contain" } })) : /* @__PURE__ */ React.createElement(
-      InlineSign,
-      {
-        th,
-        can: canSign,
-        blockedText: "Fill in the letter first",
-        label,
-        onSign: (image) => {
-          const sig2 = { image, date: todayIso3(), fp };
-          (who === "employee" ? setEmployeeSig : setDmSig)(sig2);
-        }
-      }
-    ));
-    const signedDate = (sig) => /* @__PURE__ */ React.createElement("span", { className: `tn-locked${sig ? "" : " tn-empty"}`, style: { minWidth: "10ch" } }, sig ? formatLetterDate(sig.date) : "on signing");
-    const row = { marginTop: "1.15em" };
-    const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        className: "tn-blank",
-        style: w(isMobile ? 18 : 26),
-        value: query,
-        role: "combobox",
-        "aria-expanded": listOpen && matches.length > 0,
-        "aria-controls": "tn-emp-list",
-        autoComplete: "off",
-        "aria-label": "Employee name",
-        placeholder: employees ? "Search employee name" : "Loading from Paycor\u2026",
-        disabled: !employees,
-        onChange: (e) => {
-          setQuery(e.target.value);
-          setListOpen(true);
-          if (picked) setPicked(null);
-        },
-        onFocus: () => setListOpen(true),
-        onBlur: () => setTimeout(() => setListOpen(false), 150),
-        onKeyDown: (e) => {
-          if (e.key === "Enter" && matches[0]) {
-            e.preventDefault();
-            pick(matches[0]);
-          }
-          if (e.key === "Escape") setListOpen(false);
-        }
-      }
-    ), listOpen && matches.length > 0 && /* @__PURE__ */ React.createElement("span", { id: "tn-emp-list", role: "listbox", style: { position: "absolute", zIndex: 30, left: 0, top: "100%", marginTop: 4, width: "min(420px, 82vw)", maxHeight: 300, overflowY: "auto", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.15)", textAlign: "left" } }, matches.map((e) => /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        key: e.pc + e.id,
-        type: "button",
-        role: "option",
-        "aria-selected": "false",
-        className: "fin-btn",
-        onMouseDown: (ev) => ev.preventDefault(),
-        onClick: () => pick(e),
-        style: { display: "flex", width: "100%", justifyContent: "space-between", gap: "0.8rem", padding: "0.6rem 0.9rem", background: "none", border: "none", borderBottom: `1px solid ${th.cardBorder}`, color: th.text, textAlign: "left", cursor: "pointer", fontFamily: FONTS.body, fontSize: "0.88rem" }
-      },
-      /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, e.name, e.jobTitle && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \u2014 ", e.jobTitle)),
-      /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, whiteSpace: "nowrap" } }, storeName(e.pc), " \xB7 ", e.pc)
-    ))));
-    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 900, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th) + LETTER_CSS), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Transfer Notice"), /* @__PURE__ */ React.createElement(ApprovalQueue, { th, isMobile, fn: "transfer-notice", noun: "Transfer notice", openKey: "tn_open", refresh: saved && saved.state === "done" ? saved.id : 0 }), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Fill in the letter with the employee. The tinted blanks are yours; the employee's name, current position, store and hourly wage come straight from Paycor. Then the employee and the DM each sign on their line. It goes to Mike for approval, then it's filed in Google Drive and the office is told."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), employee && !hourly && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "Paycor has no hourly rate for ", employee.name, employee.payType ? ` (pay type: ${employee.payType})` : "", ", so this letter can't be made. Fix the rate in Paycor first."), voided && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The letter changed after it was signed, so that signature no longer counts. Sign again."), /* @__PURE__ */ React.createElement("div", { className: "tn-paper", style: {
-      borderRadius: 6,
-      boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.08)",
-      padding: isMobile ? "1.4rem 1.1rem" : "2.6rem 4.5rem 2rem",
-      fontSize: isMobile ? "15px" : "16.5px",
-      lineHeight: 1.85,
-      marginBottom: "1.2rem",
-      backgroundImage: `url('/${TRANSFER_CHROME.watermark.src}')`,
-      backgroundRepeat: "no-repeat",
-      backgroundPosition: "center 58%",
-      backgroundSize: "77%"
-    } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: "Times New Roman, Times, serif", lineHeight: 1.25 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "1.17em", color: "#111" } }, "PEOPLE CAPITAL GROUP LLC"), /* @__PURE__ */ React.createElement("div", { style: { fontStyle: "italic", fontSize: "0.83em", color: "#6b7280" } }, "CONFIDENTIAL \u2014 INTERNAL USE ONLY")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #9aa5b1", margin: "0.9em -0.6em 2em" } }), /* @__PURE__ */ React.createElement("p", null, "Date: ", dateBlank(date, setDate, "Letter date")), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "People Capital Group LLC", /* @__PURE__ */ React.createElement("br", null), "ATTN: Human Resources Department", /* @__PURE__ */ React.createElement("br", null), "Subject: Employee Transfer"), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.4em", textAlign: isMobile ? "left" : "justify" } }, "I, ", empSearch, "(", /* @__PURE__ */ React.createElement("i", null, "Employee Name"), "), am requesting to resign from my current position as a ", employee && !employee.jobTitle ? text(fromTitle, setFromTitle, 14, "current position", { list: "tn-positions", title: "Paycor has no job title for this employee \u2014 fill it in" }) : locked(employee?.jobTitle, "from Paycor", 14), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "), located at PC# ", locked(employee ? fromPC : "", "from Paycor", 8), ", in order to voluntarily transfer to a better opportunity within the company located at PC#", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: isMobile ? "14ch" : "9.5ch" }, value: toPC, onChange: (e) => setToPC(e.target.value), "aria-label": "New store PC#", title: toPC ? storeName(toPC) : "New store" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), stores.filter((s) => s.pc !== fromPC).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.pc, " \xB7 ", s.name))), " ", "as a ", text(toTitle, setToTitle, 14, "new position", { list: "tn-positions" }), "(", /* @__PURE__ */ React.createElement("i", null, "position title"), "). I request that my", " ", /* @__PURE__ */ React.createElement("select", { className: "tn-blank", style: { width: "10ch" }, value: employmentType, onChange: (e) => setEmploymentType(e.target.value), "aria-label": "Full or part time" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "choose"), /* @__PURE__ */ React.createElement("option", null, "Full time"), /* @__PURE__ */ React.createElement("option", null, "Part time")), " ", "(", /* @__PURE__ */ React.createElement("i", null, "full/part time"), ") employment is effective starting ", dateBlank(effectiveDate, setEffectiveDate, "Effective date"), "(", /* @__PURE__ */ React.createElement("i", null, "effective date"), ")."), /* @__PURE__ */ React.createElement("datalist", { id: "tn-positions" }, POSITIONS2.map((p) => /* @__PURE__ */ React.createElement("option", { key: p, value: p }))), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", textAlign: isMobile ? "left" : "justify" } }, "I acknowledge that I will now report to ", text(supervisorName, setSupervisorName, 16, "supervisor name"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor name"), ")/ ", text(supervisorTitle, setSupervisorTitle, 14, "supervisor title"), "(", /* @__PURE__ */ React.createElement("i", null, "supervisor title"), "). I also acknowledge that I will be compensated at an hourly wage of ", locked(hourly ? finMoney.format(employee.payRate) : "", "from Paycor", 8), " per hour and paid on a biweekly basis."), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "1.6em", lineHeight: 1.4 } }, "I ACCEPT THE ABOVE CONDITIONS AND AM INDICATING MY ACCEPTANCE BY SIGNING THIS LETTER AND RETURNING IT VIA EMAIL TO THE HUMAN RESOURCES DEPARTMENT."), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Name: ", locked(employee?.name, "from Paycor", 22)), /* @__PURE__ */ React.createElement("p", { style: row }, "Employee Signature:", sigLine("employee", empSigOk, "employee")), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(empSigOk)), /* @__PURE__ */ React.createElement("p", { style: { marginTop: "2.2em" } }, "ACCEPTED AND APPROVED BY:"), /* @__PURE__ */ React.createElement("p", { style: row }, approverTitle, " Name: ", text(dmName, setDmName, 22, `${approverTitle} name`)), /* @__PURE__ */ React.createElement("p", { style: row }, approverTitle, " Signature:", sigLine("dm", dmSigOk, approverTitle)), /* @__PURE__ */ React.createElement("p", { style: row }, "Date: ", signedDate(dmSigOk)), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontFamily: "Times New Roman, Times, serif", fontSize: "0.75em", lineHeight: 1.3, color: "#111", marginTop: "2.4em" } }, TRANSFER_CHROME.footer.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.text }, f.text)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "2rem" } }, !ready && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, sameStore ? "The new store must be different." : missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: download }, busy ? "Sending\u2026" : "Send for approval & download")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginTop: "-1.4rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
+    const bad = (cond) => touched && cond ? { boxShadow: "inset 0 0 0 2px #dc2626" } : {};
+    const field = (label, control, wide) => /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, gridColumn: wide && !isMobile ? "1 / -1" : void 0, minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", null, label, " ", /* @__PURE__ */ React.createElement("span", { style: { color: O }, "aria-hidden": "true" }, "*")), control);
+    const text = (k, opts = {}) => /* @__PURE__ */ React.createElement("input", { style: { ...S.input, ...bad(!String(f[k]).trim()) }, value: f[k], onChange: set(k), maxLength: opts.max || 120, type: opts.type || "text", inputMode: opts.inputMode, autoComplete: opts.ac || "off", placeholder: opts.ph, "aria-required": "true", onBlur: () => setTouched(true) });
+    const sel = (k, options, ph) => /* @__PURE__ */ React.createElement("select", { style: { ...S.input, ...bad(!f[k]) }, value: f[k], onChange: set(k), "aria-required": "true" }, /* @__PURE__ */ React.createElement("option", { value: "" }, ph), options.map((o) => /* @__PURE__ */ React.createElement("option", { key: o, value: o }, o)));
+    const grid2 = { display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))", gap: "0.9rem 1rem", padding: "1rem 1.1rem 1.2rem" };
+    const section = (title, children, extra) => /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem 0", display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "0.8rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("h3", { style: { ...S.panelTitle, margin: 0 } }, title), extra), /* @__PURE__ */ React.createElement("div", { style: grid2 }, children));
+    const radio = (checked, onChange, label) => /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "flex-start", gap: "0.5rem", color: th.text, fontSize: "0.9rem", cursor: "pointer", lineHeight: 1.4 } }, /* @__PURE__ */ React.createElement("input", { type: "radio", checked, onChange, style: { accentColor: O, marginTop: "0.2rem", width: 16, height: 16 } }), " ", label);
+    if (!info) return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 860, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading your details\u2026"));
+    const balances = info.balances || [];
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 860, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Time Off Request"), /* @__PURE__ */ React.createElement(ApprovalQueue, { th, isMobile, fn: "time-off-request", noun: "Time off request", openKey: "to_open", refresh: saved && saved.state === "done" ? saved.id : 0 }), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Request your own time off. Your name, contact details, position and location are filled in from your account. Every field is required; supporting documents are optional. It goes to Mike for approval, then to HR. Please allow 24\u201348 hours for HR to confirm your request."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), sig && !sigOk && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The request changed after you signed it, so the signature no longer counts. Sign again."), section("Your information", /* @__PURE__ */ React.createElement(React.Fragment, null, field("Employee name", /* @__PURE__ */ React.createElement("div", { style: { ...S.input, background: th.card2, color: th.text }, title: "From your account" }, f.employeeName || "\u2014")), field("Email", text("email", { type: "email", ac: "email", inputMode: "email" })), field("Phone number", text("phone", { type: "tel", ac: "tel", inputMode: "tel", max: 30 })), field("Job position", sel("position", POSITIONS3, "Pick your position")), field("Address", text("address", { ac: "street-address", max: 200, ph: "Street, city, state, ZIP" }), true), field("Location", sel("location", [...info.me?.locations || [], "Other"], "Pick your location")), f.location === "Other" && field("Other location", text("locationOther")))), section("Emergency contact", /* @__PURE__ */ React.createElement(React.Fragment, null, field("Name and relation", text("ecName", { ph: "e.g. Jane Doe, spouse" })), field("Phone number", text("ecPhone", { type: "tel", inputMode: "tel", max: 30 })), field("Email address", text("ecEmail", { type: "email", inputMode: "email" })), /* @__PURE__ */ React.createElement("div", { style: { gridColumn: isMobile ? void 0 : "1 / -1", display: "grid", gap: "0.45rem" }, role: "radiogroup", "aria-label": "Emergency contact authorization" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "May HR contact your emergency contact? ", /* @__PURE__ */ React.createElement("span", { style: { color: O }, "aria-hidden": "true" }, "*")), radio(f.ecAuthorized === true, () => set("ecAuthorized")(true), "Yes, I authorize my emergency contact to be contacted via phone, text, or email"), radio(f.ecAuthorized === false, () => set("ecAuthorized")(false), "No, I do not authorize my emergency contact to be contacted")))), section("Time off", /* @__PURE__ */ React.createElement(React.Fragment, null, field("Start date", /* @__PURE__ */ React.createElement("input", { type: "date", style: { ...S.input, ...bad(!f.startDate) }, value: f.startDate, onChange: set("startDate"), "aria-required": "true" })), field("Start time", /* @__PURE__ */ React.createElement("input", { type: "time", style: { ...S.input, ...bad(!f.startTime) }, value: f.startTime, onChange: set("startTime"), "aria-required": "true" })), field("Back to work date", /* @__PURE__ */ React.createElement("input", { type: "date", style: { ...S.input, ...bad(!f.returnDate) }, value: f.returnDate, min: f.startDate || void 0, onChange: set("returnDate"), "aria-required": "true" })), field("Back to work start time", /* @__PURE__ */ React.createElement("input", { type: "time", style: { ...S.input, ...bad(!f.returnTime) }, value: f.returnTime, onChange: set("returnTime"), "aria-required": "true" })), field("Total hours requested", /* @__PURE__ */ React.createElement("input", { type: "number", min: "0.25", max: "2000", step: "0.25", inputMode: "decimal", style: { ...S.input, ...bad(!(Number(f.totalHours) > 0)) }, value: f.totalHours, onChange: set("totalHours"), "aria-required": "true" })), field("Last date worked", /* @__PURE__ */ React.createElement("input", { type: "date", style: { ...S.input, ...bad(!f.lastWorked) }, value: f.lastWorked, max: f.startDate || void 0, onChange: set("lastWorked"), "aria-required": "true" })), field("Type of leave", sel("leaveType", LEAVE_TYPES, "Pick the type of leave"), !isMobile && f.leaveType !== "Other"), f.leaveType === "Other" && field("Other type of leave", text("leaveOther"))), balances.length ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, fontVariantNumeric: "lining-nums tabular-nums" } }, "Paycor balance: ", balances.map((b, i) => /* @__PURE__ */ React.createElement("span", { key: b.type + i, style: { marginLeft: i ? "0.8rem" : "0.3rem", color: th.text } }, /* @__PURE__ */ React.createElement("b", null, fmtHrs(b.current), " h"), " ", b.type))) : info.linked === false ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "Your account isn't linked to Paycor, so your balance can't be shown.") : null), problem && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, problem), /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem 0" } }, /* @__PURE__ */ React.createElement("h3", { style: { ...S.panelTitle, margin: 0 } }, "Supporting documents ", /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONTS.body, fontWeight: 400, fontSize: "0.82rem", color: th.muted } }, "optional, up to 5"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.8rem 1.1rem 1.1rem", display: "grid", gap: "0.5rem" } }, docs.map((d, i) => /* @__PURE__ */ React.createElement("div", { key: d.name + i, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.8rem", fontSize: "0.88rem", color: th.text, padding: "0.45rem 0.7rem", background: th.card2, borderRadius: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, d.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", fmtSize(d.size), ")")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.link, color: th.muted }, onClick: () => setDocs((x) => x.filter((_, j) => j !== i)), "aria-label": `Remove ${d.name}` }, "Remove"))), docs.length < MAX_DOCS && /* @__PURE__ */ React.createElement("label", { className: "fin-btn", style: { ...S.ghost, display: "inline-flex", alignItems: "center", justifySelf: "start", cursor: "pointer" } }, "Add a document", /* @__PURE__ */ React.createElement("input", { type: "file", multiple: true, accept: "application/pdf,image/*,.doc,.docx,.txt", style: S.srOnly, onChange: (e) => {
+      addFiles(e.target.files);
+      e.target.value = "";
+    } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "PDFs, photos, Word or text files. ", docs.length ? `${fmtSize(docBytes)} of 3.5 MB used.` : ""))), /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.1rem", display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, fontSize: "0.92rem" } }, "Your signature ", /* @__PURE__ */ React.createElement("span", { style: { color: O }, "aria-hidden": "true" }, "*")), sigOk ? /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSigning(true), title: "Sign again", style: { background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.2rem 0.6rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("img", { src: sigOk.image, alt: "Your signature", style: { maxHeight: 44, maxWidth: 220, objectFit: "contain", display: "block" } })) : /* @__PURE__ */ React.createElement(InlineSign, { th, can: canSign, onSign: (image) => setSig({ image, date: todayIso4(), fp }) }), sigOk && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.muted } }, "Signed ", usDate(sigOk.date)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && !busy && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send, onMouseEnter: () => setTouched(true) }, busy ? "Sending\u2026" : "Send for approval")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
       SignatureModal,
       {
         th,
-        title: signing === "employee" ? `Employee signature \u2014 ${employee?.name || ""}` : `${approverTitle} signature \u2014 ${dmName}`,
-        onCancel: () => setSigning(null),
+        title: `Your signature \u2014 ${f.employeeName}`,
+        onCancel: () => setSigning(false),
         onDone: (image) => {
-          const sig = { image, date: todayIso3(), fp };
-          (signing === "employee" ? setEmployeeSig : setDmSig)(sig);
-          setSigning(null);
+          setSig({ image, date: todayIso4(), fp });
+          setSigning(false);
         }
       }
     ));
   }
 
+  // src/crew-time-off.mjs
+  var CREW_LEAVE_TYPES = [
+    "Sick Leave",
+    "Vacation Time",
+    "Unpaid Leave",
+    "Religious Observance",
+    "Jury Duty",
+    "Military Leave",
+    "(FMLA) Family & Medical Leave Act",
+    "Other"
+  ];
+  var CREW_POSITIONS = ["Crew Member", "Shift Leader", "Store Manager & Asst Manager"];
+  var clean2 = (s, n = 200) => String(s ?? "").trim().slice(0, n);
+  var has3 = (v, k) => !!String(v?.[k] ?? "").trim();
+  var digits2 = (s) => String(s || "").replace(/\D/g, "");
+  var isEmail2 = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
+  var isPhone2 = (s) => {
+    const d = digits2(s);
+    return d.length === 10 || d.length === 11 && d[0] === "1";
+  };
+  var isTime2 = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ""));
+  var isDate2 = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+  function balanceFor(leaveType, balances) {
+    const rx = leaveType === "Sick Leave" ? /sick/i : leaveType === "Vacation Time" ? /vac|pto|paid time/i : null;
+    if (!rx) return null;
+    return (Array.isArray(balances) ? balances : []).find((b) => rx.test(String(b?.type || ""))) || null;
+  }
+  function crewValues(f = {}) {
+    const leaveType = CREW_LEAVE_TYPES.includes(f.leaveType) ? f.leaveType : "";
+    return {
+      employeeName: clean2(f.employeeName, 80),
+      position: CREW_POSITIONS.includes(f.position) ? f.position : "",
+      location: clean2(f.location, 120),
+      email: clean2(f.email, 120),
+      phone: clean2(f.phone, 30),
+      address: clean2(f.address, 200),
+      ecName: clean2(f.ecName, 120),
+      ecPhone: clean2(f.ecPhone, 30),
+      ecEmail: clean2(f.ecEmail, 120),
+      ecAuthorized: f.ecAuthorized === true ? true : f.ecAuthorized === false ? false : null,
+      startDate: clean2(f.startDate, 10),
+      startTime: clean2(f.startTime, 5),
+      returnDate: clean2(f.returnDate, 10),
+      returnTime: clean2(f.returnTime, 5),
+      totalHours: f.totalHours === "" || f.totalHours == null ? "" : Number(f.totalHours),
+      leaveType,
+      leaveOther: leaveType === "Other" ? clean2(f.leaveOther, 120) : "",
+      lastWorked: clean2(f.lastWorked, 10),
+      date: clean2(f.date, 10),
+      signature: f.sig?.image || f.signature || "",
+      signedDate: f.sig?.date || f.signedDate || "",
+      documents: (f.documents || []).map((d) => clean2(typeof d === "string" ? d : d.name, 120)).filter(Boolean)
+    };
+  }
+  function missingCrewFields(v) {
+    const out = [];
+    if (!has3(v, "employeeName")) out.push("Your name");
+    if (!isPhone2(v?.phone)) out.push("Your phone number");
+    if (has3(v, "email") && !isEmail2(v.email)) out.push("Your email (or leave it empty)");
+    if (!has3(v, "ecName")) out.push("Emergency contact name and relation");
+    if (!isPhone2(v?.ecPhone)) out.push("Emergency contact phone");
+    if (has3(v, "ecEmail") && !isEmail2(v.ecEmail)) out.push("Emergency contact email (or leave it empty)");
+    if (v?.ecAuthorized !== true && v?.ecAuthorized !== false) out.push("Emergency contact authorization");
+    if (!v?.position) out.push("Job position");
+    if (!has3(v, "location")) out.push("Location");
+    if (!isDate2(v?.startDate)) out.push("Start date");
+    if (!isTime2(v?.startTime)) out.push("Start time");
+    if (!isDate2(v?.returnDate)) out.push("Back to work date");
+    if (!isTime2(v?.returnTime)) out.push("Back to work start time");
+    if (!(Number(v?.totalHours) > 0)) out.push("Total hours requested");
+    if (!v?.leaveType) out.push("Type of leave");
+    if (v?.leaveType === "Other" && !has3(v, "leaveOther")) out.push("Type of leave (other)");
+    if (!isDate2(v?.lastWorked)) out.push("Last date worked");
+    if (!has3(v, "signature")) out.push("Your signature");
+    return out;
+  }
+  function crewProblem(v, todayIso8) {
+    if (isDate2(v?.startDate) && isDate2(v?.returnDate) && v.returnDate < v.startDate) return "The back-to-work date has to be on or after the start date.";
+    if (isDate2(v?.lastWorked) && isDate2(v?.startDate) && v.lastWorked > v.startDate) return "The last date worked has to be on or before the start date.";
+    if (Number(v?.totalHours) > 400) return "Check the total hours requested.";
+    if (todayIso8 && isDate2(v?.startDate) && v.startDate < addDays(todayIso8, -60)) return "The start date is more than 60 days ago \u2014 check it.";
+    return null;
+  }
+  var addDays = (iso, n) => new Date(Date.parse(iso + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+  function crewFingerprint(v) {
+    return [
+      "employeeName",
+      "position",
+      "location",
+      "email",
+      "phone",
+      "address",
+      "ecName",
+      "ecPhone",
+      "ecEmail",
+      "ecAuthorized",
+      "startDate",
+      "startTime",
+      "returnDate",
+      "returnTime",
+      "totalHours",
+      "leaveType",
+      "leaveOther",
+      "lastWorked"
+    ].map((k) => String(v?.[k] ?? "").trim()).concat((v?.documents || []).join(",")).join("|");
+  }
+
+  // src/crew-time-off-form-ui.jsx
+  var { useState: useState8, useEffect: useEffect8 } = React;
+  var MAX_DOCS2 = 3;
+  var MAX_DOC_BYTES2 = 3.5 * 1024 * 1024;
+  var api2 = async (qs, body) => {
+    const res = await fetch("/.netlify/functions/crew-time-off-form" + (qs || ""), {
+      method: body ? "POST" : "GET",
+      cache: "no-store",
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : void 0
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
+    return b;
+  };
+  var fmtH = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  function CrewTimeOffForm({ token, store }) {
+    const th = getTheme(false);
+    const S = finStyles(th);
+    const [info, setInfo] = useState8(null);
+    const [err, setErr] = useState8(null);
+    const [f, setF] = useState8({ ecAuthorized: null });
+    const [empId, setEmpId] = useState8("");
+    const [sig, setSig] = useState8(null);
+    const [docs, setDocs] = useState8([]);
+    const [consent, setConsent] = useState8(false);
+    const [busy, setBusy] = useState8(false);
+    const [sent, setSent] = useState8(false);
+    const [pc, key] = String(store || "").split(".");
+    const [who, setWho] = useState8({ q: "", pick: null, badge: "", pass: null, busy: false, err: null });
+    useEffect8(() => {
+      api2(token ? `?t=${encodeURIComponent(token)}` : `?s=${encodeURIComponent(pc)}&k=${encodeURIComponent(key || "")}`).then((b) => {
+        setInfo(b);
+        if (b.mode) setF((x) => ({ ...x, phone: b.phone || "", email: b.email || "", position: b.position || "Crew Member", employeeName: b.employee || "" }));
+      }).catch((e) => setErr(e.message));
+    }, []);
+    const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+    const today = info?.today || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const values = crewValues({ ...f, location: info?.location || "", date: today, documents: docs, sig: null });
+    const fp = crewFingerprint(values);
+    const sigOk = sig && sig.fp === fp ? sig : null;
+    const full = crewValues({ ...f, location: info?.location || "", date: today, documents: docs, sig: sigOk ? { image: sigOk.image, date: today } : null });
+    const missing = missingCrewFields(full);
+    const problem = crewProblem(full, today);
+    const canSign = !missingCrewFields({ ...full, signature: "x" }).length && !problem && consent;
+    const bal = info?.mode === "link" || who.pass ? balanceFor(full.leaveType, info.balances) : null;
+    const over = bal && Number(full.totalHours) > Number(bal.current || 0);
+    const addDocs = async (files) => {
+      try {
+        const prepared = await Promise.all([...files].slice(0, MAX_DOCS2 - docs.length).map(prepareDoc));
+        const next = [...docs, ...prepared];
+        if (next.reduce((n, d) => n + d.size, 0) > MAX_DOC_BYTES2) return setErr("Those files are too large together. Take smaller photos or send fewer.");
+        setErr(null);
+        setDocs(next);
+      } catch (e) {
+        setErr(e.message);
+      }
+    };
+    const send = async () => {
+      if (missing.length || problem || busy) return;
+      setBusy(true);
+      setErr(null);
+      try {
+        const JsPDF = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
+        if (!JsPDF) throw new Error("The page did not load fully \u2014 refresh it.");
+        const { fonts, logo, watermark } = await loadAssets2();
+        const doc = buildTimeOffPdf(JsPDF, fonts, full, { logo, watermark });
+        await api2("", {
+          t: token || void 0,
+          s: token ? void 0 : pc,
+          k: token ? void 0 : key,
+          employeeId: token ? void 0 : empId,
+          pass: token ? void 0 : who.pass,
+          values: { ...full, sig: { image: sigOk.image, date: today } },
+          pdf: doc.output("datauristring"),
+          documents: docs.map((d) => ({ name: d.name, type: d.type, data: d.data }))
+        });
+        setSent(true);
+      } catch (e) {
+        setErr(e.message);
+      }
+      setBusy(false);
+    };
+    const field = (label, input, hint) => /* @__PURE__ */ React.createElement("label", { style: { display: "grid", gap: "0.3rem", fontWeight: 700, fontSize: "0.92rem", color: th.text } }, label, input, hint && /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: th.muted, fontSize: "0.8rem" } }, hint));
+    const inp2 = { ...S.input, fontSize: "1rem", minHeight: 44 };
+    const shell = (children) => /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", background: "#f7f2ec", fontFamily: FONTS.body, color: th.text } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, margin: "0 auto", padding: "1.2rem 1rem 3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("img", { src: "/pcg-logo-form.jpg", alt: "People Capital Group", style: { height: 56 } })), children, /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", marginTop: "2rem", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("a", { href: "/terms.html", target: "_blank", rel: "noreferrer", style: { color: th.muted } }, "Terms of Use"), "  \xB7  ", /* @__PURE__ */ React.createElement("a", { href: "/privacy-policy.html", target: "_blank", rel: "noreferrer", style: { color: th.muted } }, "Privacy Policy"))));
+    if (err && !info) return shell(/* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, err));
+    if (!info) return shell(/* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", color: th.muted } }, "Loading\u2026"));
+    if (info.state === "sent") return shell(/* @__PURE__ */ React.createElement(FinBanner, { th, tone: "success" }, "This form was already sent", info.employee ? ` for ${info.employee}` : "", ". Your manager has it."));
+    if (info.state === "expired") return shell(/* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "This link has expired. Ask your manager to send you a new one."));
+    if (info.state === "unknown" || !info.mode) return shell(/* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, "This link isn't valid. Ask your manager for a new one."));
+    if (sent) return shell(/* @__PURE__ */ React.createElement("div", { className: "pcg-pop", style: { ...S.panel, padding: "1.4rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.3rem", fontWeight: 800 } }, "Sent to your manager"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "You'll get a text", full.email ? " and an email" : "", " when it's approved, or if anything needs changing.")));
+    if (info.mode === "poster" && !who.pass) {
+      const q = who.q.trim().toLowerCase();
+      const matches = q.length >= 2 ? info.employees.filter((e) => e.name.toLowerCase().includes(q)).slice(0, 8) : [];
+      const verify = async () => {
+        setWho((w) => ({ ...w, busy: true, err: null }));
+        try {
+          const b = await api2("", { action: "verify", s: pc, k: key, employeeId: who.pick.id, badge: who.badge });
+          setEmpId(who.pick.id);
+          setInfo((x) => ({ ...x, balances: b.balances || [] }));
+          setF((x) => ({ ...x, employeeName: b.employee, position: b.position || x.position || "Crew Member" }));
+          setWho((w) => ({ ...w, busy: false, pass: b.pass }));
+        } catch (e) {
+          setWho((w) => ({ ...w, busy: false, err: e.message }));
+        }
+      };
+      return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, textAlign: "center", marginBottom: "0.2rem" } }, "Time Off Request"), /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", color: th.muted, marginTop: 0 } }, info.store), /* @__PURE__ */ React.createElement("div", { className: "pcg-pop", style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.9rem" } }, !who.pick ? /* @__PURE__ */ React.createElement(React.Fragment, null, field(
+        "Your name",
+        /* @__PURE__ */ React.createElement("input", { className: "fin-input", autoFocus: true, autoComplete: "off", value: who.q, onChange: (e) => setWho((w) => ({ ...w, q: e.target.value, err: null })), placeholder: "Start typing your name", style: inp2 }),
+        who.q.trim().length < 2 ? "Type at least 2 letters." : !matches.length ? "No one by that name at this store. Ask your manager." : null
+      ), matches.map((e) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: e.id,
+          type: "button",
+          className: "fin-btn",
+          onClick: () => setWho((w) => ({ ...w, pick: e, badge: "", err: null })),
+          style: { ...S.ghost, minHeight: 46, justifyContent: "flex-start", textAlign: "left", fontSize: "1rem" }
+        },
+        e.name
+      ))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "1.05rem" } }, who.pick.name), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setWho((w) => ({ ...w, pick: null, badge: "", err: null })), style: { ...S.link, color: O } }, "Not you?")), field("Your badge ID", /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          className: "fin-input",
+          autoFocus: true,
+          inputMode: "numeric",
+          autoComplete: "off",
+          value: who.badge,
+          onChange: (e) => setWho((w) => ({ ...w, badge: e.target.value, err: null })),
+          onKeyDown: (e) => {
+            if (e.key === "Enter" && who.badge.trim()) verify();
+          },
+          placeholder: "The number you clock in with",
+          style: inp2
+        }
+      ), "The number you clock in with. It is only checked, never shown."), who.err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, who.err), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          className: "fin-btn",
+          disabled: !who.badge.trim() || who.busy,
+          onClick: verify,
+          style: { ...S.primary, minHeight: 48, opacity: who.badge.trim() && !who.busy ? 1 : 0.5 }
+        },
+        who.busy ? "Checking\u2026" : "Continue"
+      )))));
+    }
+    return shell(/* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h1", { style: { ...S.title, textAlign: "center", marginBottom: "0.2rem" } }, "Time Off Request"), /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", color: th.muted, marginTop: 0 } }, "For ", /* @__PURE__ */ React.createElement("b", { style: { color: th.text } }, info.mode === "link" ? info.employee : f.employeeName), ", ", info.store), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.9rem" } }, field("Job position", /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: f.position || "", onChange: set("position"), style: inp2 }, CREW_POSITIONS.map((p) => /* @__PURE__ */ React.createElement("option", { key: p }, p)))), field("Your cell number", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "tel", autoComplete: "tel", value: f.phone || "", onChange: set("phone"), style: inp2 }), "We'll text you when it's approved."), field("Your email (optional)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "email", autoComplete: "email", value: f.email || "", onChange: set("email"), style: inp2 })), field("Your address (optional)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", autoComplete: "street-address", value: f.address || "", onChange: set("address"), style: inp2 })), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginTop: "0.4rem" } }, "Time off"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.7rem" } }, field("Start date", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "date", value: f.startDate || "", onChange: set("startDate"), style: inp2 })), field("Start time", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "time", value: f.startTime || "", onChange: set("startTime"), style: inp2 })), field("Back to work", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "date", value: f.returnDate || "", onChange: set("returnDate"), style: inp2 })), field("Back at (time)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "time", value: f.returnTime || "", onChange: set("returnTime"), style: inp2 })), field("Total hours", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "number", inputMode: "decimal", min: "0", step: "0.25", value: f.totalHours ?? "", onChange: set("totalHours"), style: inp2 })), field("Last day worked", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "date", value: f.lastWorked || "", onChange: set("lastWorked"), style: inp2 }))), field(
+      "Type of leave",
+      /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: f.leaveType || "", onChange: set("leaveType"), style: inp2 }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick one"), CREW_LEAVE_TYPES.map((t) => /* @__PURE__ */ React.createElement("option", { key: t }, t))),
+      bal ? /* @__PURE__ */ React.createElement("span", { style: { color: over ? "#dc2626" : "#16a34a", fontWeight: 700 } }, bal.type, ": ", fmtH(bal.current), " h available in Paycor", over ? ` (you asked for ${fmtH(full.totalHours)} h)` : "") : null
+    ), f.leaveType === "Other" && field("What kind?", /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: f.leaveOther || "", onChange: set("leaveOther"), style: inp2 })), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginTop: "0.4rem" } }, "Emergency contact"), field("Name and relation", /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: f.ecName || "", onChange: set("ecName"), placeholder: "e.g. Maria Doe, mother", style: inp2 })), field("Their phone", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "tel", value: f.ecPhone || "", onChange: set("ecPhone"), style: inp2 })), field("Their email (optional)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "email", value: f.ecEmail || "", onChange: set("ecEmail"), style: inp2 })), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.35rem", fontSize: "0.92rem" } }, /* @__PURE__ */ React.createElement("b", null, "May PCG talk to them about your leave if needed?"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, [["Yes", true], ["No", false]].map(([l, val]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: l,
+        type: "button",
+        className: "fin-btn",
+        onClick: () => setF((x) => ({ ...x, ecAuthorized: val })),
+        style: { ...S.ghost, minHeight: 42, flex: 1, background: f.ecAuthorized === val ? O : th.card3, color: f.ecAuthorized === val ? "#fff" : th.text, borderColor: f.ecAuthorized === val ? O : th.cardBorder }
+      },
+      l
+    )))), /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginTop: "0.4rem" } }, "Documents (optional)"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*,application/pdf", multiple: true, disabled: docs.length >= MAX_DOCS2, onChange: (e) => {
+      addDocs(e.target.files);
+      e.target.value = "";
+    } }), docs.map((d, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { fontSize: "0.85rem" } }, d.name, " ", /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setDocs((x) => x.filter((_, j) => j !== i)), style: { ...S.link, color: "#dc2626" } }, "remove"))), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: "0.55rem", alignItems: "flex-start", fontSize: "0.88rem", marginTop: "0.4rem" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: consent, onChange: (e) => setConsent(e.target.checked), style: { accentColor: O, width: 20, height: 20, marginTop: 2, flexShrink: 0 } }), "I agree to sign this request electronically, and that what I wrote is true."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "0.92rem" } }, "Your signature"), /* @__PURE__ */ React.createElement("span", { style: { borderBottom: "1px solid #111", minHeight: "2.6em", display: "flex", alignItems: "flex-end" } }, sigOk ? /* @__PURE__ */ React.createElement("img", { src: sigOk.image, alt: "Your signature", onClick: () => setSig(null), style: { maxHeight: "2.5em", maxWidth: "100%", cursor: "pointer" } }) : /* @__PURE__ */ React.createElement(InlineSign, { th, can: canSign, blockedText: !consent && !missingCrewFields({ ...full, signature: "x" }).length ? "Tick the box above first" : "Fill in the form first", label: "Your", onSign: (image) => setSig({ image, fp }) })), sigOk && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, "Tap your signature to sign again.")), problem && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, problem), err && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, err), !sigOk && missing.length > 0 && missing.length < 6 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", missing.join(", ")), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: "fin-btn",
+        disabled: !!missing.length || !!problem || busy,
+        onClick: send,
+        style: { ...S.primary, minHeight: 50, fontSize: "1.05rem", opacity: !missing.length && !problem && !busy ? 1 : 0.5 }
+      },
+      busy ? "Sending\u2026" : "Send to my manager"
+    ))));
+  }
+
   // src/sign-progress-ui.jsx
-  var { useState: useState6 } = React;
-  var when2 = (d) => d ? new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+  var { useState: useState9 } = React;
+  var when3 = (d) => d ? new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
   function Step({ th, label, at, state, title }) {
     const color = state === "done" ? "#16a34a" : state === "bad" ? "#dc2626" : state === "hint" ? "#0369a1" : th.muted;
-    return /* @__PURE__ */ React.createElement("span", { title, style: { display: "inline-flex", alignItems: "center", gap: "0.3em", color, fontWeight: state === "todo" ? 500 : 700, whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { width: 8, height: 8, borderRadius: "50%", background: state === "todo" ? "transparent" : color, border: `1.5px solid ${color}`, flexShrink: 0 } }), label, at ? /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 500, color: th.muted } }, when2(at)) : null);
+    return /* @__PURE__ */ React.createElement("span", { title, style: { display: "inline-flex", alignItems: "center", gap: "0.3em", color, fontWeight: state === "todo" ? 500 : 700, whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { width: 8, height: 8, borderRadius: "50%", background: state === "todo" ? "transparent" : color, border: `1.5px solid ${color}`, flexShrink: 0 } }), label, at ? /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 500, color: th.muted } }, when3(at)) : null);
   }
   function SignerRow({ th, s, showRole, onFix, busy }) {
-    const [fixing, setFixing] = useState6(false);
-    const [email, setEmail] = useState6("");
+    const [fixing, setFixing] = useState9(false);
+    const [email, setEmail] = useState9("");
     const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
     const arrow = /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { color: th.muted } }, "\u203A");
     const steps = [];
@@ -3737,27 +4665,27 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/violation-collect-ui.jsx
-  var { useState: useState7 } = React;
+  var { useState: useState10 } = React;
   var emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || "").trim());
   var phoneOk = (p) => {
     const d = String(p || "").replace(/\D/g, "");
     return !d || d.length === 10 || d.length === 11 && d[0] === "1";
   };
-  function VnCollect({ th, item, call: call9, onDone }) {
+  function VnCollect({ th, item, call: call10, onDone }) {
     const S = finStyles(th);
-    const [busy, setBusy] = useState7(false);
-    const [msg, setMsg] = useState7(null);
-    const [signing, setSigning] = useState7(null);
-    const [linkFor, setLinkFor] = useState7(null);
-    const [email, setEmail] = useState7("");
-    const [phone, setPhone] = useState7("");
-    const [witnessName, setWitnessName] = useState7(item.witnessName || "");
+    const [busy, setBusy] = useState10(false);
+    const [msg, setMsg] = useState10(null);
+    const [signing, setSigning] = useState10(null);
+    const [linkFor, setLinkFor] = useState10(null);
+    const [email, setEmail] = useState10("");
+    const [phone, setPhone] = useState10("");
+    const [witnessName, setWitnessName] = useState10(item.witnessName || "");
     const empDone = item.employeeSigned || item.employeeRefused;
     const run = async (body, okText) => {
       setBusy(true);
       setMsg(null);
       try {
-        const b = await call9({ id: item.id, ...body });
+        const b = await call10({ id: item.id, ...body });
         if (body.action === "sendLink") {
           const s = b.sign || {};
           setMsg({ tone: s.sent ? "success" : "error", text: s.sent ? `Link emailed${s.texted ? ", with a reminder text" : s.phone ? "" : " (no cell number, so no reminder text)"}. It expires ${new Date(s.expiresAt).toLocaleDateString("en-US")}.` : "The email did not go through. Check the address." });
@@ -4023,27 +4951,27 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   ];
   var ACTIONS = [["verbal", "Verbal Warning"], ["written", "Written Warning"], ["termination", "Termination"], ["suspension", "Suspension"]];
   var DESCRIPTION_MIN = 10;
-  var clean = (s, n = 600) => String(s ?? "").trim().slice(0, n);
-  var has2 = (v, k) => !!String(v?.[k] ?? "").trim();
+  var clean3 = (s, n = 600) => String(s ?? "").trim().slice(0, n);
+  var has4 = (v, k) => !!String(v?.[k] ?? "").trim();
   function violationValues(f = {}) {
     const action = ACTIONS.some(([k]) => k === f.action) ? f.action : "";
     return {
-      employeeName: clean(f.employee?.name, 80),
-      jobTitle: clean(f.employee?.jobTitle || f.jobTitle, 80),
-      pc: clean(f.employee ? f.pc : "", 10),
-      supervisor: clean(f.supervisor, 80),
-      date: clean(f.date, 10),
+      employeeName: clean3(f.employee?.name, 80),
+      jobTitle: clean3(f.employee?.jobTitle || f.jobTitle, 80),
+      pc: clean3(f.employee ? f.pc : "", 10),
+      supervisor: clean3(f.supervisor, 80),
+      date: clean3(f.date, 10),
       notice: NOTICE_TYPES.some(([k]) => k === f.notice) ? f.notice : "",
       types: [...new Set((f.types || []).filter((t) => VIOLATION_TYPES.some(([k]) => k === t)))],
       action,
-      suspensionStart: action === "suspension" ? clean(f.suspensionStart, 10) : "",
-      suspensionReturn: action === "suspension" ? clean(f.suspensionReturn, 10) : "",
-      violationDate: clean(f.violationDate, 10),
-      description: clean(f.description, 900),
-      improvement: clean(f.improvement, 400),
-      consequences: clean(f.consequences, 200),
-      supervisorName: clean(f.supervisorName, 80),
-      witnessName: clean(f.witnessName, 80),
+      suspensionStart: action === "suspension" ? clean3(f.suspensionStart, 10) : "",
+      suspensionReturn: action === "suspension" ? clean3(f.suspensionReturn, 10) : "",
+      violationDate: clean3(f.violationDate, 10),
+      description: clean3(f.description, 900),
+      improvement: clean3(f.improvement, 400),
+      consequences: clean3(f.consequences, 200),
+      supervisorName: clean3(f.supervisorName, 80),
+      witnessName: clean3(f.witnessName, 80),
       employeeRefused: !f.employeeSig?.image && !!f.employeeRefused,
       employeeSignature: f.employeeSig?.image || "",
       employeeSignedDate: f.employeeSig?.date || "",
@@ -4074,24 +5002,24 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function missingViolationFields(v) {
     const out = [];
-    if (!has2(v, "employeeName")) out.push("Employee");
-    if (!has2(v, "supervisor")) out.push("Supervisor");
+    if (!has4(v, "employeeName")) out.push("Employee");
+    if (!has4(v, "supervisor")) out.push("Supervisor");
     if (!v?.notice) out.push("Type of violation notice");
     if (!(v?.types || []).length) out.push("Type of violation");
-    if (!has2(v, "violationDate")) out.push("Date of violation");
+    if (!has4(v, "violationDate")) out.push("Date of violation");
     if (String(v?.description ?? "").trim().length < DESCRIPTION_MIN) out.push("Description of violation (at least a sentence)");
     if (!v?.action) out.push("Disciplinary action");
-    if (v?.action === "suspension" && (!has2(v, "suspensionStart") || !has2(v, "suspensionReturn"))) out.push("Suspension start and return dates");
-    if (!has2(v, "supervisorName")) out.push("Supervisor name");
-    if (!has2(v, "supervisorSignature")) out.push("Supervisor signature");
-    if (has2(v, "witnessSignature") && !has2(v, "witnessName")) out.push("Witness name");
+    if (v?.action === "suspension" && (!has4(v, "suspensionStart") || !has4(v, "suspensionReturn"))) out.push("Suspension start and return dates");
+    if (!has4(v, "supervisorName")) out.push("Supervisor name");
+    if (!has4(v, "supervisorSignature")) out.push("Supervisor signature");
+    if (has4(v, "witnessSignature") && !has4(v, "witnessName")) out.push("Witness name");
     return out;
   }
 
   // src/violation-notice-ui.jsx
-  var { useState: useState8, useEffect: useEffect6 } = React;
-  var todayIso4 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  var call4 = async (body) => {
+  var { useState: useState11, useEffect: useEffect9 } = React;
+  var todayIso5 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  var call6 = async (body) => {
     const res = await fetch("/.netlify/functions/violation-notice", {
       method: body ? "POST" : "GET",
       credentials: "include",
@@ -4102,13 +5030,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
     return b;
   };
-  var assetsPromise2 = null;
-  var fetchB642 = (path) => fetch(path).then((r) => {
+  var assetsPromise3 = null;
+  var fetchB643 = (path) => fetch(path).then((r) => {
     if (!r.ok) throw new Error("load " + path);
     return r.arrayBuffer();
   }).then(toB64);
-  var loadAssets2 = () => assetsPromise2 || (assetsPromise2 = Promise.all([fetchB642("/fonts/" + VIO_FONT.regular), fetchB642("/fonts/" + VIO_FONT.bold), fetchB642("/" + VIO_CHROME.watermark.src)]).then(([regular, bold, seal]) => ({ fonts: { regular, bold }, watermark: "data:image/png;base64," + seal })).catch((e) => {
-    assetsPromise2 = null;
+  var loadAssets3 = () => assetsPromise3 || (assetsPromise3 = Promise.all([fetchB643("/fonts/" + VIO_FONT.regular), fetchB643("/fonts/" + VIO_FONT.bold), fetchB643("/" + VIO_CHROME.watermark.src)]).then(([regular, bold, seal]) => ({ fonts: { regular, bold }, watermark: "data:image/png;base64," + seal })).catch((e) => {
+    assetsPromise3 = null;
     throw e;
   }));
   var INK4 = "#111";
@@ -4137,13 +5065,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 @media (prefers-reduced-motion: reduce) { .vn-blank, .vn-sigbtn { transition: none; } }`;
   function VnReview({ th, isMobile, form, onClose, canApprove, onEdit }) {
     const S = finStyles(th);
-    const [busy, setBusy] = useState8(false);
-    const [err, setErr] = useState8(null);
-    const [backing, setBacking] = useState8(false);
-    const [note, setNote] = useState8("");
+    const [busy, setBusy] = useState11(false);
+    const [err, setErr] = useState11(null);
+    const [backing, setBacking] = useState11(false);
+    const [note, setNote] = useState11("");
     const isNew = form.flow === "v2";
-    const [sendTo, setSendTo] = useState8({ on: false, email: "", phone: "" });
-    const [hrSigning, setHrSigning] = useState8(false);
+    const [sendTo, setSendTo] = useState11({ on: false, email: "", phone: "" });
+    const [hrSigning, setHrSigning] = useState11(false);
     const toOk = !sendTo.on || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sendTo.email.trim()) && (() => {
       const d = sendTo.phone.replace(/\D/g, "");
       return !d || d.length === 10 || d.length === 11 && d[0] === "1";
@@ -4153,7 +5081,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBusy(true);
       setErr(null);
       try {
-        const b = await call4({ action, id: form.id, note: note.trim(), hrSignature, sendTo: isNew && sendTo.on ? { email: sendTo.email.trim(), phone: sendTo.phone } : null });
+        const b = await call6({ action, id: form.id, note: note.trim(), hrSignature, sendTo: isNew && sendTo.on ? { email: sendTo.email.trim(), phone: sendTo.phone } : null });
         if (action === "reject") return onClose(`Sent back to ${form.submittedBy}.`);
         if (isNew) return onClose(`Approved. ${b.sign?.sent ? `${form.employeeName} was emailed a link to sign.` : b.sign?.error ? b.sign.error : `It's under Waiting on signatures until ${form.employeeName} signs (in person or by link).`}`);
         const d = b.drive || {}, a = b.alert || {};
@@ -4171,53 +5099,53 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var Locked2 = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `vn-locked${value ? "" : " vn-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function ViolationNotice({ th, isMobile, onBack }) {
     const S = finStyles(th);
-    const [stores, setStores] = useState8([]);
-    const [employees, setEmployees] = useState8(null);
-    const [error, setError] = useState8(null);
-    const [query, setQuery] = useState8("");
-    const [listOpen, setListOpen] = useState8(false);
-    const [picked, setPicked] = useState8(null);
-    const [supervisor, setSupervisor] = useState8("");
-    const [supervisorName, setSupervisorName] = useState8("");
-    const [date] = useState8(todayIso4());
-    const [notice, setNotice] = useState8("");
-    const [types, setTypes] = useState8([]);
-    const [action, setAction] = useState8("");
-    const [suspensionStart, setSuspensionStart] = useState8("");
-    const [suspensionReturn, setSuspensionReturn] = useState8("");
-    const [violationDate, setViolationDate] = useState8("");
-    const [description, setDescription] = useState8("");
-    const [descTouched, setDescTouched] = useState8(false);
-    const [improvement, setImprovement] = useState8("");
-    const [consequences, setConsequences] = useState8("");
-    const [witnessName, setWitnessName] = useState8("");
-    const [employeeRefused, setEmployeeRefused] = useState8(false);
-    const [remote, setRemoteState] = useState8({ employee: { on: false, phone: "", email: "" }, witness: { on: false, phone: "", email: "" } });
+    const [stores, setStores] = useState11([]);
+    const [employees, setEmployees] = useState11(null);
+    const [error, setError] = useState11(null);
+    const [query, setQuery] = useState11("");
+    const [listOpen, setListOpen] = useState11(false);
+    const [picked, setPicked] = useState11(null);
+    const [supervisor, setSupervisor] = useState11("");
+    const [supervisorName, setSupervisorName] = useState11("");
+    const [date] = useState11(todayIso5());
+    const [notice, setNotice] = useState11("");
+    const [types, setTypes] = useState11([]);
+    const [action, setAction] = useState11("");
+    const [suspensionStart, setSuspensionStart] = useState11("");
+    const [suspensionReturn, setSuspensionReturn] = useState11("");
+    const [violationDate, setViolationDate] = useState11("");
+    const [description, setDescription] = useState11("");
+    const [descTouched, setDescTouched] = useState11(false);
+    const [improvement, setImprovement] = useState11("");
+    const [consequences, setConsequences] = useState11("");
+    const [witnessName, setWitnessName] = useState11("");
+    const [employeeRefused, setEmployeeRefused] = useState11(false);
+    const [remote, setRemoteState] = useState11({ employee: { on: false, phone: "", email: "" }, witness: { on: false, phone: "", email: "" } });
     const setRemote = (role, patch) => setRemoteState((r) => ({ ...r, [role]: { ...r[role], ...patch } }));
-    const [sigs, setSigs] = useState8({});
-    const [signing, setSigning] = useState8(null);
-    const [busy, setBusy] = useState8(false);
-    const [saved, setSaved] = useState8(null);
-    const [listView, setListView] = useState8(false);
-    const [canApprove, setCanApprove] = useState8(false);
-    const [lists, setLists] = useState8({ pending: [], waiting: [], complete: [] });
-    const [view, setView] = useState8("list");
-    const [listTab, setListTab] = useState8("pending");
-    const [reviewing, setReviewing] = useState8(null);
-    const [viewing, setViewing] = useState8(null);
-    const [decided, setDecided] = useState8(null);
-    const [sentBack, setSentBack] = useState8([]);
-    const [myWaiting, setMyWaiting] = useState8([]);
-    const [fixing, setFixing] = useState8(null);
-    const [editing, setEditing] = useState8(null);
-    const [approveTo, setApproveTo] = useState8({ on: false, email: "", phone: "" });
-    const [collecting, setCollecting] = useState8(null);
-    const [hrSig, setHrSig] = useState8(null);
-    const [backMsg, setBackMsg] = useState8(null);
-    const [backBusy, setBackBusy] = useState8(null);
-    const LETTER0 = () => ({ file: null, date: todayIso4(), email: "", phone: "", busy: false, error: null, result: null, drag: false });
-    const [letter, setLetter] = useState8(LETTER0);
-    const loadMain = () => call4().then((b) => {
+    const [sigs, setSigs] = useState11({});
+    const [signing, setSigning] = useState11(null);
+    const [busy, setBusy] = useState11(false);
+    const [saved, setSaved] = useState11(null);
+    const [listView, setListView] = useState11(false);
+    const [canApprove, setCanApprove] = useState11(false);
+    const [lists, setLists] = useState11({ pending: [], waiting: [], complete: [] });
+    const [view, setView] = useState11("list");
+    const [listTab, setListTab] = useState11("pending");
+    const [reviewing, setReviewing] = useState11(null);
+    const [viewing, setViewing] = useState11(null);
+    const [decided, setDecided] = useState11(null);
+    const [sentBack, setSentBack] = useState11([]);
+    const [myWaiting, setMyWaiting] = useState11([]);
+    const [fixing, setFixing] = useState11(null);
+    const [editing, setEditing] = useState11(null);
+    const [approveTo, setApproveTo] = useState11({ on: false, email: "", phone: "" });
+    const [collecting, setCollecting] = useState11(null);
+    const [hrSig, setHrSig] = useState11(null);
+    const [backMsg, setBackMsg] = useState11(null);
+    const [backBusy, setBackBusy] = useState11(null);
+    const LETTER0 = () => ({ file: null, date: todayIso5(), email: "", phone: "", busy: false, error: null, result: null, drag: false });
+    const [letter, setLetter] = useState11(LETTER0);
+    const loadMain = () => call6().then((b) => {
       setStores(b.stores || []);
       setEmployees(b.employees || []);
       setSupervisor((s) => s || b.myName || "");
@@ -4244,12 +5172,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setError(e.message);
       setEmployees([]);
     });
-    useEffect6(() => {
+    useEffect9(() => {
       loadMain();
     }, []);
     const viewRef = React.useRef(view);
     viewRef.current = view;
-    useEffect6(() => {
+    useEffect9(() => {
       const tick = () => {
         if (!document.hidden && viewRef.current === "list") loadMain();
       };
@@ -4286,7 +5214,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     });
     const missing = [...missingViolationFields(values), ...remoteMissing];
     const ready = !missing.length && !busy;
-    useEffect6(() => {
+    useEffect9(() => {
       setSaved(null);
     }, [fp]);
     const q = query.trim().toLowerCase();
@@ -4304,12 +5232,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       try {
         const JsPDF = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
         if (!JsPDF) throw new Error("PDF library did not load \u2014 refresh the page.");
-        const { fonts, watermark } = await loadAssets2();
+        const { fonts, watermark } = await loadAssets3();
         const doc = buildViolationPdf(JsPDF, fonts, values, { watermark });
         const fileName = `Violation-Notice-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
         setSaved({ state: "saving" });
         if (editing) {
-          const b = await call4({ action: "approve", id: editing.id, values, pdf: doc.output("datauristring"), hrSignature: hrSigArg || hrSig, sendTo: approveTo.on ? { email: approveTo.email.trim(), phone: approveTo.phone } : null });
+          const b = await call6({ action: "approve", id: editing.id, values, pdf: doc.output("datauristring"), hrSignature: hrSigArg || hrSig, sendTo: approveTo.on ? { email: approveTo.email.trim(), phone: approveTo.phone } : null });
           setSaved(null);
           const who = editing.employeeName;
           setEditing(null);
@@ -4320,7 +5248,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           return;
         }
         try {
-          const b = await call4({ flow: "v2", values, employeeId: picked.id, pdf: doc.output("datauristring"), replaces: fixing?.id });
+          const b = await call6({ flow: "v2", values, employeeId: picked.id, pdf: doc.output("datauristring"), replaces: fixing?.id });
           setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
           if (fixing) {
             setFixing(null);
@@ -4387,7 +5315,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, whiteSpace: "nowrap" } }, storeName(e.pc), " \xB7 ", e.pc)
     ))));
     const check = (checked, onChange, labelText, key) => /* @__PURE__ */ React.createElement("label", { key, className: "vn-check" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked, onChange }), " ", labelText);
-    const dateIn = (value, set, label, opts = {}) => /* @__PURE__ */ React.createElement("input", { type: "date", className: "vn-blank", style: { width: "9.5em" }, value, min: opts.min, max: opts.notFuture ? todayIso4() : void 0, onChange: (e) => set(e.target.value), "aria-label": label });
+    const dateIn = (value, set, label, opts = {}) => /* @__PURE__ */ React.createElement("input", { type: "date", className: "vn-blank", style: { width: "9.5em" }, value, min: opts.min, max: opts.notFuture ? todayIso5() : void 0, onChange: (e) => set(e.target.value), "aria-label": label });
     const sigBlock = (key, label, name) => {
       const s = sigOk(key);
       const refused = key === "employee" && !s && employeeRefused;
@@ -4400,7 +5328,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           blockedText: canSign ? "Type the witness name first" : "Fill in the form first",
           label,
           onSign: (image) => {
-            setSigs((x) => ({ ...x, [key]: { image, date: todayIso4(), fp } }));
+            setSigs((x) => ({ ...x, [key]: { image, date: todayIso5(), fp } }));
             if (key === "employee") setEmployeeRefused(false);
           }
         }
@@ -4429,7 +5357,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setConsequences(fv.consequences || "");
       setWitnessName(fv.witnessName || "");
       setEmployeeRefused(false);
-      setSigs(fv.supervisorSignature ? { supervisor: { image: fv.supervisorSignature, date: fv.supervisorSignedDate || todayIso4(), fp: "" } } : {});
+      setSigs(fv.supervisorSignature ? { supervisor: { image: fv.supervisorSignature, date: fv.supervisorSignedDate || todayIso5(), fp: "" } } : {});
       setRemoteState({ employee: { on: false, phone: "", email: "" }, witness: { on: false, phone: "", email: "" } });
       setSaved(null);
       setBackMsg(null);
@@ -4451,7 +5379,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBackBusy(item.id);
       setBackMsg(null);
       try {
-        const b = await call4({ action: "resend", id: item.id });
+        const b = await call6({ action: "resend", id: item.id });
         setBackMsg({ tone: "success", text: `Resent as is: every signature still stands, and it's back with the approver${b.notified ? "" : " (no approver is set up yet \u2014 ask IT)"}.` });
         loadMain();
       } catch (e) {
@@ -4464,7 +5392,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBackBusy(item.id);
       setBackMsg(null);
       try {
-        await call4({ action: "delete", id: item.id });
+        await call6({ action: "delete", id: item.id });
         setBackMsg({ tone: "success", text: `Deleted the sent-back notice for ${item.employeeName}.` });
         if (fixing?.id === item.id) setFixing(null);
         loadMain();
@@ -4480,7 +5408,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBackBusy(item.id);
       setBackMsg(null);
       try {
-        const b = await call4({ action: "resendLink", id: item.id, role, email });
+        const b = await call6({ action: "resendLink", id: item.id, role, email });
         const r = (b.resent || [])[0] || {};
         setBackMsg({ tone: r.sent ? "success" : "error", text: r.sent ? `New signing link emailed to ${email}. The old link no longer works.` : "The signing email did not go through. Check the address." });
         loadMain();
@@ -4489,12 +5417,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setBackBusy(null);
     };
-    const waitingRow = (f, rowStyle, day2, who, showMaker) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0, flex: "1 1 20em" } }, kindTag(f), who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, showMaker ? `From ${f.submittedBy}, ` : "Sent ", day2(f.createdAt), ": ", f.kind === "letter" ? "waiting on the employee to acknowledge it from their email link" : f.status === "awaiting_employee" ? `approved by ${f.decidedBy || "HR"}${f.editedBy ? " (with changes)" : ""}; waiting on the employee's signature` : "waiting on a signature from an email link"), /* @__PURE__ */ React.createElement(SignProgress, { th, signing: f.signing, busy: backBusy === f.id, onFix: (role, email) => fixEmail(f, role, email) })), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View"), f.status === "awaiting_employee" && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setCollecting(collecting === f.id ? null : f.id), style: { ...S.link, color: O } }, collecting === f.id ? "Close" : "Get signatures"), (f.status !== "awaiting_employee" || (f.signing || []).some((x) => !x.signedAt)) && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: backBusy === f.id, onClick: () => resendLink(f), style: { ...S.link, color: O } }, backBusy === f.id ? "Sending\u2026" : "Resend link")), collecting === f.id && /* @__PURE__ */ React.createElement("div", { style: { flexBasis: "100%" } }, /* @__PURE__ */ React.createElement(VnCollect, { th, item: f, call: call4, onDone: loadMain })));
+    const waitingRow = (f, rowStyle, day2, who, showMaker) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0, flex: "1 1 20em" } }, kindTag(f), who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, showMaker ? `From ${f.submittedBy}, ` : "Sent ", day2(f.createdAt), ": ", f.kind === "letter" ? "waiting on the employee to acknowledge it from their email link" : f.status === "awaiting_employee" ? `approved by ${f.decidedBy || "HR"}${f.editedBy ? " (with changes)" : ""}; waiting on the employee's signature` : "waiting on a signature from an email link"), /* @__PURE__ */ React.createElement(SignProgress, { th, signing: f.signing, busy: backBusy === f.id, onFix: (role, email) => fixEmail(f, role, email) })), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View"), f.status === "awaiting_employee" && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setCollecting(collecting === f.id ? null : f.id), style: { ...S.link, color: O } }, collecting === f.id ? "Close" : "Get signatures"), (f.status !== "awaiting_employee" || (f.signing || []).some((x) => !x.signedAt)) && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: backBusy === f.id, onClick: () => resendLink(f), style: { ...S.link, color: O } }, backBusy === f.id ? "Sending\u2026" : "Resend link")), collecting === f.id && /* @__PURE__ */ React.createElement("div", { style: { flexBasis: "100%" } }, /* @__PURE__ */ React.createElement(VnCollect, { th, item: f, call: call6, onDone: loadMain })));
     const resendLink = async (item) => {
       setBackBusy(item.id);
       setBackMsg(null);
       try {
-        const b = await call4({ action: "resendLink", id: item.id });
+        const b = await call6({ action: "resendLink", id: item.id });
         const r = (b.resent || [])[0] || {};
         setBackMsg({ tone: r.sent ? "success" : "error", text: r.sent ? `New signing link emailed to ${item.employeeName}${(b.resent || []).length > 1 ? " and the witness" : ""}${r.texted ? ", with a reminder text" : ""}. The old link no longer works.` : "The signing email did not go through." });
         loadMain();
@@ -4532,7 +5460,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         if (need.length || L3.busy) return;
         set({ busy: true, error: null, result: null });
         try {
-          const b = await call4({ action: "uploadLetter", employeeId: picked.id, pc: picked.pc, letterDate: L3.date, email: L3.email.trim(), phone: L3.phone, file: { name: L3.file.name, type: L3.file.type, data: L3.file.data } });
+          const b = await call6({ action: "uploadLetter", employeeId: picked.id, pc: picked.pc, letterDate: L3.date, email: L3.email.trim(), phone: L3.phone, file: { name: L3.file.name, type: L3.file.type, data: L3.file.data } });
           const s = b.sign || {};
           set({ busy: false, result: b.already ? "This letter was already sent." : s.sent ? `Sent. ${picked.name} was emailed the letter with a link to acknowledge it${s.texted ? ", plus a reminder text" : ""}${s.textNote ? ` (${s.textNote.toLowerCase()})` : ""}. Once they sign, it's filed in Google Drive and you'll be told. It's under Waiting on signatures until then.` : "Saved, but the email to the employee did not go through. Use Resend link under Waiting on signatures." });
           loadMain();
@@ -4564,7 +5492,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           e.target.value = "";
         } }),
         L3.file ? /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", null, L3.file.name), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", fmtSize2(L3.file.size), ")"), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: O, fontSize: "0.85rem", marginTop: 4, fontWeight: 700 } }, "Drop or click to use a different file")) : /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: "1.05rem" } }, "Drag and drop the letter here"), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.88rem", marginTop: 4 } }, "or click to choose it. PDF, or a JPG / PNG photo, up to 4 MB"))
-      ), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", display: "grid", gap: "0.9rem", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(2, minmax(0,1fr))", overflow: "visible" } }, /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, gridColumn: isMobile ? void 0 : "1 / -1" } }, "Employee (from Paycor)", /* @__PURE__ */ React.createElement("span", { className: "vn-paper", style: { background: "transparent", fontSize: "0.95rem" } }, empSearch), picked && /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, picked.name, picked.jobTitle ? `, ${picked.jobTitle}` : "", " at ", storeName(picked.pc), " (PC ", picked.pc, ")", picked.terminated && /* @__PURE__ */ React.createElement("b", { style: { color: "#dc2626" } }, " \xB7 Terminated ", (/* @__PURE__ */ new Date(picked.terminationDate + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })))), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Date on the letter", /* @__PURE__ */ React.createElement("input", { type: "date", style: S.input, value: L3.date, max: todayIso4(), onChange: (e) => set({ date: e.target.value }) })), /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's email (the letter goes here)", /* @__PURE__ */ React.createElement("input", { type: "email", inputMode: "email", autoComplete: "off", style: S.input, value: L3.email, maxLength: 120, onChange: (e) => set({ email: e.target.value }) })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's cell (reminder text + sign-in check)", /* @__PURE__ */ React.createElement("input", { type: "tel", inputMode: "tel", autoComplete: "off", style: S.input, value: L3.phone, maxLength: 20, placeholder: "(215) 555-0100", onChange: (e) => set({ phone: e.target.value }) }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", margin: "1rem 0 2rem" } }, need.length > 0 && !L3.busy && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", need.join(", ")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: !!need.length || L3.busy, onClick: sendLetter, style: { ...S.primary, opacity: need.length || L3.busy ? 0.5 : 1, cursor: need.length || L3.busy ? "not-allowed" : "pointer" } }, L3.busy ? "Sending\u2026" : "Send to the employee")));
+      ), /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem 1.1rem", display: "grid", gap: "0.9rem", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "repeat(2, minmax(0,1fr))", overflow: "visible" } }, /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, gridColumn: isMobile ? void 0 : "1 / -1" } }, "Employee (from Paycor)", /* @__PURE__ */ React.createElement("span", { className: "vn-paper", style: { background: "transparent", fontSize: "0.95rem" } }, empSearch), picked && /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, picked.name, picked.jobTitle ? `, ${picked.jobTitle}` : "", " at ", storeName(picked.pc), " (PC ", picked.pc, ")", picked.terminated && /* @__PURE__ */ React.createElement("b", { style: { color: "#dc2626" } }, " \xB7 Terminated ", (/* @__PURE__ */ new Date(picked.terminationDate + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })))), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Date on the letter", /* @__PURE__ */ React.createElement("input", { type: "date", style: S.input, value: L3.date, max: todayIso5(), onChange: (e) => set({ date: e.target.value }) })), /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's email (the letter goes here)", /* @__PURE__ */ React.createElement("input", { type: "email", inputMode: "email", autoComplete: "off", style: S.input, value: L3.email, maxLength: 120, onChange: (e) => set({ email: e.target.value }) })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Employee's cell (reminder text + sign-in check)", /* @__PURE__ */ React.createElement("input", { type: "tel", inputMode: "tel", autoComplete: "off", style: S.input, value: L3.phone, maxLength: 20, placeholder: "(215) 555-0100", onChange: (e) => set({ phone: e.target.value }) }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", margin: "1rem 0 2rem" } }, need.length > 0 && !L3.busy && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, "Still needed: ", need.join(", ")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: !!need.length || L3.busy, onClick: sendLetter, style: { ...S.primary, opacity: need.length || L3.busy ? 0.5 : 1, cursor: need.length || L3.busy ? "not-allowed" : "pointer" } }, L3.busy ? "Sending\u2026" : "Send to the employee")));
     }
     if (employees === null && !error) return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 940, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Violation Notice"), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading\u2026"));
     if (listView && view === "list") {
@@ -4651,7 +5579,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
             send(image);
             return;
           }
-          setSigs((x) => ({ ...x, [signing]: { image, date: todayIso4(), fp } }));
+          setSigs((x) => ({ ...x, [signing]: { image, date: todayIso5(), fp } }));
           if (signing === "employee") setEmployeeRefused(false);
           setSigning(null);
         }
@@ -4659,417 +5587,19 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
 
-  // src/time-off-request.mjs
-  var POSITIONS3 = ["Store Manager & Asst Manager", "Shift Leader", "Crew Member", "Office Staff & Admin"];
-  var LEAVE_TYPES = [
-    "(FFCRA) Families First Coronavirus Response Act",
-    "(FMLA) Family & Medical Leave Act",
-    "Sick Leave",
-    "Vacation Time",
-    "Military Leave",
-    "Jury Duty",
-    "Religious Observance",
-    "Other"
-  ];
-  var clean2 = (s, n = 200) => String(s ?? "").trim().slice(0, n);
-  var has3 = (v, k) => !!String(v?.[k] ?? "").trim();
-  var isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
-  var digits = (s) => String(s || "").replace(/\D/g, "");
-  var isPhone = (s) => {
-    const d = digits(s);
-    return d.length === 10 || d.length === 11 && d[0] === "1";
-  };
-  var isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ""));
-  var isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
-  function timeOffValues(f = {}) {
-    const leaveType = LEAVE_TYPES.includes(f.leaveType) ? f.leaveType : "";
-    return {
-      email: clean2(f.email, 120),
-      employeeName: clean2(f.employeeName, 80),
-      address: clean2(f.address, 200),
-      phone: clean2(f.phone, 30),
-      ecName: clean2(f.ecName, 120),
-      ecPhone: clean2(f.ecPhone, 30),
-      ecEmail: clean2(f.ecEmail, 120),
-      ecAuthorized: f.ecAuthorized === true ? true : f.ecAuthorized === false ? false : null,
-      position: POSITIONS3.includes(f.position) ? f.position : "",
-      location: clean2(f.location, 120),
-      startDate: clean2(f.startDate, 10),
-      startTime: clean2(f.startTime, 5),
-      returnDate: clean2(f.returnDate, 10),
-      returnTime: clean2(f.returnTime, 5),
-      totalHours: f.totalHours === "" || f.totalHours == null ? "" : Number(f.totalHours),
-      leaveType,
-      leaveOther: leaveType === "Other" ? clean2(f.leaveOther, 120) : "",
-      lastWorked: clean2(f.lastWorked, 10),
-      date: clean2(f.date, 10),
-      signature: f.sig?.image || "",
-      signedDate: f.sig?.date || "",
-      documents: (f.documents || []).map((d) => clean2(d.name, 120)).filter(Boolean)
-    };
-  }
-  function timeOffFingerprint(v) {
-    return [
-      "email",
-      "employeeName",
-      "address",
-      "phone",
-      "ecName",
-      "ecPhone",
-      "ecEmail",
-      "ecAuthorized",
-      "position",
-      "location",
-      "startDate",
-      "startTime",
-      "returnDate",
-      "returnTime",
-      "totalHours",
-      "leaveType",
-      "leaveOther",
-      "lastWorked"
-    ].map((k) => String(v?.[k] ?? "").trim()).concat((v?.documents || []).join(",")).join("|");
-  }
-  function missingTimeOffFields(v) {
-    const out = [];
-    if (!isEmail(v?.email)) out.push("Your email");
-    if (!has3(v, "employeeName")) out.push("Your name");
-    if (!has3(v, "address")) out.push("Your address");
-    if (!isPhone(v?.phone)) out.push("Your phone number");
-    if (!has3(v, "ecName")) out.push("Emergency contact name and relation");
-    if (!isPhone(v?.ecPhone)) out.push("Emergency contact phone");
-    if (!isEmail(v?.ecEmail)) out.push("Emergency contact email");
-    if (v?.ecAuthorized !== true && v?.ecAuthorized !== false) out.push("Emergency contact authorization");
-    if (!v?.position) out.push("Job position");
-    if (!has3(v, "location")) out.push("Location");
-    if (!isDate(v?.startDate)) out.push("Start date");
-    if (!isTime(v?.startTime)) out.push("Start time");
-    if (!isDate(v?.returnDate)) out.push("Back to work date");
-    if (!isTime(v?.returnTime)) out.push("Back to work start time");
-    if (!(Number(v?.totalHours) > 0)) out.push("Total hours requested");
-    if (!v?.leaveType) out.push("Type of leave");
-    if (v?.leaveType === "Other" && !has3(v, "leaveOther")) out.push("Type of leave (other)");
-    if (!isDate(v?.lastWorked)) out.push("Last date worked");
-    if (!has3(v, "signature")) out.push("Your signature");
-    return out;
-  }
-  function timeOffProblem(v) {
-    if (isDate(v?.startDate) && isDate(v?.returnDate) && v.returnDate < v.startDate) return "The back-to-work date has to be on or after the start date.";
-    if (isDate(v?.lastWorked) && isDate(v?.startDate) && v.lastWorked > v.startDate) return "The last date worked has to be on or before the start date.";
-    if (Number(v?.totalHours) > 2e3) return "Check the total hours requested.";
-    return null;
-  }
-  var usDate = (iso) => {
-    const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-    return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || "");
-  };
-  var usTime = (t) => {
-    const m = String(t || "").match(/^(\d{2}):(\d{2})$/);
-    if (!m) return String(t || "");
-    const h = Number(m[1]);
-    return `${(h + 11) % 12 + 1}:${m[2]} ${h < 12 ? "AM" : "PM"}`;
-  };
-  var leaveLabel = (v) => v.leaveType === "Other" ? `Other: ${v.leaveOther}` : v.leaveType;
-  function timeOffFileName(v) {
-    return `Time Off Request - ${v.employeeName} - ${usDate(v.startDate).replace(/\//g, "-")} to ${usDate(v.returnDate).replace(/\//g, "-")}.pdf`.replace(/[\\/:*?"<>|]+/g, "-");
-  }
-
-  // src/time-off-request-pdf.mjs
-  var TOR_FONT = { family: "Caladea", regular: "Caladea-Regular.ttf", bold: "Caladea-Bold.ttf" };
-  var TOR_CHROME = { logo: { x: 252, y: 30, w: 108, h: 56.25, src: "pcg-logo-form.jpg" }, watermark: { x: 71, y: 200, size: 470, src: "pcg-watermark.png" } };
-  var L = 54;
-  var R = 558;
-  var LABEL_W = 178;
-  function buildTimeOffPdf(jsPDF, fonts, v = {}, images = {}) {
-    const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
-    const F = TOR_FONT.family;
-    doc.addFileToVFS(TOR_FONT.regular, fonts.regular);
-    doc.addFont(TOR_FONT.regular, F, "normal");
-    doc.addFileToVFS(TOR_FONT.bold, fonts.bold);
-    doc.addFont(TOR_FONT.bold, F, "bold");
-    doc.setProperties({ title: "Time Off Request Form", creator: "PCG Portal" });
-    const C = TOR_CHROME;
-    if (images.watermark) doc.addImage(images.watermark, "PNG", C.watermark.x, C.watermark.y, C.watermark.size, C.watermark.size, "seal", "FAST");
-    if (images.logo) doc.addImage(images.logo, "JPEG", C.logo.x, C.logo.y, C.logo.w, C.logo.h);
-    doc.setTextColor(0, 0, 0);
-    doc.setFont(F, "bold");
-    doc.setFontSize(16);
-    doc.text("TIME OFF REQUEST FORM", 306, 112, { align: "center" });
-    doc.setFont(F, "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(70, 70, 70);
-    doc.text(`Submitted ${usDate(v.date)}`, 306, 126, { align: "center" });
-    doc.setTextColor(0, 0, 0);
-    let y = 152;
-    const section = (title) => {
-      y += 8;
-      doc.setFont(F, "bold");
-      doc.setFontSize(11);
-      doc.text(title, L, y);
-      doc.setDrawColor(0, 0, 0);
-      doc.setLineWidth(1);
-      doc.line(L, y + 3, L + doc.getTextWidth(title), y + 3);
-      y += 20;
-    };
-    const row = (label, value) => {
-      doc.setFont(F, "bold");
-      doc.setFontSize(10);
-      doc.text(label, L, y);
-      doc.setFont(F, "normal");
-      const x0 = L + LABEL_W, w = R - x0;
-      let text = String(value ?? ""), sz = 10;
-      while (sz > 7 && (doc.setFontSize(sz), doc.getTextWidth(text)) > w - 4) sz -= 0.5;
-      doc.setFontSize(sz);
-      doc.text(text, x0 + 3, y - 1);
-      doc.setDrawColor(150, 150, 150);
-      doc.setLineWidth(0.6);
-      doc.line(x0, y + 2.5, R, y + 2.5);
-      y += 20;
-    };
-    section("Employee Information");
-    row("Employee Name:", v.employeeName);
-    row("Email:", v.email);
-    row("Phone Number:", v.phone);
-    row("Address:", v.address);
-    row("Job Position:", v.position);
-    row("Location:", v.location);
-    section("Emergency Contact");
-    row("Name and Relation:", v.ecName);
-    row("Phone Number:", v.ecPhone);
-    row("Email Address:", v.ecEmail);
-    row("Authorization:", v.ecAuthorized ? "Yes, I authorize my emergency contact to be contacted via phone, text, or email" : "No, I do not authorize my emergency contact to be contacted");
-    section("Time Off Request");
-    row("Start:", `${usDate(v.startDate)}  ${usTime(v.startTime)}`);
-    row("Back to Work:", `${usDate(v.returnDate)}  ${usTime(v.returnTime)}`);
-    row("Total Hours Requested:", String(v.totalHours ?? ""));
-    row("Type of Leave:", leaveLabel(v));
-    row("Last Date Worked:", usDate(v.lastWorked));
-    if ((v.balances || []).length) row("Paycor Balance (hours):", v.balances.map((b) => `${b.type}: ${b.current ?? "\u2014"}`).join("   "));
-    if ((v.documents || []).length) row("Supporting Documents:", v.documents.join(", "));
-    section("Signature");
-    doc.setFont(F, "bold");
-    doc.setFontSize(10);
-    doc.text("Employee Signature:", L, y + 14);
-    const sx = L + LABEL_W;
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.8);
-    doc.line(sx, y + 17, sx + 200, y + 17);
-    if (v.signature) {
-      const p = doc.getImageProperties(v.signature);
-      const s = Math.min(196 / p.width, 30 / p.height);
-      doc.addImage(v.signature, "PNG", sx + 3, y + 16 - p.height * s, p.width * s, p.height * s, void 0, "FAST");
-    }
-    doc.text("Date:", sx + 220, y + 14);
-    doc.setFont(F, "normal");
-    doc.text(usDate(v.signedDate), sx + 252, y + 13);
-    doc.line(sx + 248, y + 17, R, y + 17);
-    doc.setFontSize(8.5);
-    doc.setTextColor(90, 90, 90);
-    doc.text("Please allow 24\u201348 hours for Human Resources to confirm your request.", 306, 752, { align: "center" });
-    doc.setTextColor(0, 0, 0);
-    return doc;
-  }
-
-  // src/time-off-request-ui.jsx
-  var { useState: useState9, useEffect: useEffect7 } = React;
-  var todayIso5 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  var MAX_DOCS = 5;
-  var MAX_DOC_BYTES = 3.5 * 1024 * 1024;
-  var call5 = async (body) => {
-    const res = await fetch("/.netlify/functions/time-off-request", {
-      method: body ? "POST" : "GET",
-      credentials: "include",
-      headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() },
-      body: body ? JSON.stringify(body) : void 0
-    });
-    const b = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
-    return b;
-  };
-  var assetsPromise3 = null;
-  var fetchB643 = (path) => fetch(path).then((r) => {
-    if (!r.ok) throw new Error("load " + path);
-    return r.arrayBuffer();
-  }).then(toB64);
-  var loadAssets3 = () => assetsPromise3 || (assetsPromise3 = Promise.all([fetchB643("/fonts/" + TOR_FONT.regular), fetchB643("/fonts/" + TOR_FONT.bold), fetchB643("/" + TOR_CHROME.logo.src), fetchB643("/" + TOR_CHROME.watermark.src)]).then(([regular, bold, logo, seal]) => ({ fonts: { regular, bold }, logo: "data:image/jpeg;base64," + logo, watermark: "data:image/png;base64," + seal })).catch((e) => {
-    assetsPromise3 = null;
-    throw e;
-  }));
-  var readDataUrl = (file) => new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = () => reject(new Error(`Couldn't read ${file.name}`));
-    r.readAsDataURL(file);
-  });
-  async function prepareDoc(file) {
-    if (/^image\/(jpeg|png|webp)$/.test(file.type)) {
-      try {
-        const url = await readDataUrl(file);
-        const img = await new Promise((res, rej) => {
-          const i = new Image();
-          i.onload = () => res(i);
-          i.onerror = rej;
-          i.src = url;
-        });
-        const k = Math.min(1, 1600 / Math.max(img.width, img.height));
-        const c = document.createElement("canvas");
-        c.width = Math.round(img.width * k);
-        c.height = Math.round(img.height * k);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        const data2 = c.toDataURL("image/jpeg", 0.82);
-        return { name: file.name.replace(/\.(png|webp)$/i, ".jpg"), type: "image/jpeg", data: data2, size: Math.round((data2.length - data2.indexOf(",") - 1) * 0.75) };
-      } catch {
-      }
-    }
-    const data = await readDataUrl(file);
-    return { name: file.name, type: file.type || "application/octet-stream", data, size: file.size };
-  }
-  var fmtSize = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
-  var fmtHrs = (n) => n == null || n === "" ? "\u2014" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
-  function TimeOffRequest({ th, isMobile, onBack }) {
-    const S = finStyles(th);
-    const [info, setInfo] = useState9(null);
-    const [error, setError] = useState9(null);
-    const [f, setF] = useState9({
-      email: "",
-      employeeName: "",
-      address: "",
-      phone: "",
-      ecName: "",
-      ecPhone: "",
-      ecEmail: "",
-      ecAuthorized: null,
-      position: "",
-      location: "",
-      locationOther: "",
-      startDate: "",
-      startTime: "",
-      returnDate: "",
-      returnTime: "",
-      totalHours: "",
-      leaveType: "",
-      leaveOther: "",
-      lastWorked: ""
-    });
-    const [docs, setDocs] = useState9([]);
-    const [sig, setSig] = useState9(null);
-    const [signing, setSigning] = useState9(false);
-    const [busy, setBusy] = useState9(false);
-    const [saved, setSaved] = useState9(null);
-    const [touched, setTouched] = useState9(false);
-    const set = (k) => (e) => {
-      const val = e && e.target ? e.target.value : e;
-      setF((x) => ({ ...x, [k]: val }));
-    };
-    useEffect7(() => {
-      call5().then((b) => {
-        setInfo(b);
-        setF((x) => ({ ...x, employeeName: b.me.name, email: x.email || b.me.email, phone: x.phone || b.me.phone, position: x.position || b.me.position, location: x.location || b.me.location }));
-      }).catch((e) => {
-        setError(e.message);
-        setInfo({ me: null, balances: [], linked: false });
-      });
-    }, []);
-    const location = f.location === "Other" ? f.locationOther.trim() ? `Other: ${f.locationOther.trim()}` : "" : f.location;
-    const form = { ...f, location, date: todayIso5(), documents: docs };
-    const base = timeOffValues(form);
-    const fp = timeOffFingerprint(base);
-    const sigOk = sig && sig.fp === fp ? sig : null;
-    const values = { ...timeOffValues({ ...form, sig: sigOk }), balances: (info?.balances || []).map((b) => ({ type: b.type, current: b.current })) };
-    const formMissing = missingTimeOffFields({ ...base, signature: "x" });
-    const problem = timeOffProblem(base);
-    const canSign = !formMissing.length && !problem;
-    const missing = missingTimeOffFields(values);
-    const ready = !missing.length && !problem && !busy && !!info?.me;
-    useEffect7(() => {
-      setSaved(null);
-    }, [fp]);
-    const docBytes = docs.reduce((n, d) => n + d.size, 0);
-    const addFiles = async (list) => {
-      const files = [...list].slice(0, MAX_DOCS - docs.length);
-      if (!files.length) return;
-      try {
-        const prepared = await Promise.all(files.map(prepareDoc));
-        const next = [...docs, ...prepared];
-        if (next.reduce((n, d) => n + d.size, 0) > MAX_DOC_BYTES) {
-          setError("Those documents are too large together (3.5 MB max). Send fewer or smaller files.");
-          return;
-        }
-        setError(null);
-        setDocs(next);
-      } catch (e) {
-        setError(e.message);
-      }
-    };
-    const send = async () => {
-      if (!ready) return;
-      setBusy(true);
-      setError(null);
-      try {
-        const JsPDF = window.jspdf && window.jspdf.jsPDF || window.jsPDF;
-        if (!JsPDF) throw new Error("PDF library did not load \u2014 refresh the page.");
-        const { fonts, logo, watermark } = await loadAssets3();
-        const doc = buildTimeOffPdf(JsPDF, fonts, values, { logo, watermark });
-        const fileName = timeOffFileName(values);
-        setSaved({ state: "saving" });
-        try {
-          const b = await call5({ values, pdf: doc.output("datauristring"), documents: docs.map((d) => ({ name: d.name, type: d.type, data: d.data })) });
-          setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
-        } catch (e) {
-          setSaved({ state: "failed", error: e.message, pdfUrl: deliverPdf(doc, fileName) });
-        }
-      } catch (e) {
-        setError(e.message);
-      }
-      setBusy(false);
-    };
-    const savedLine = () => {
-      if (!saved) return null;
-      if (saved.state === "saving") return /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "Sending for approval\u2026");
-      if (saved.state === "failed") return /* @__PURE__ */ React.createElement("span", { style: { color: "#dc2626" } }, "Not sent: ", saved.error, ". Press the button again to retry.");
-      const who = (saved.approvers || []).length ? saved.approvers.join(" / ") : "the approver";
-      if (saved.already) return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "Already sent", saved.status === "pending" ? `, waiting for ${who}` : saved.status === "approved" ? " and approved" : "", ".");
-      return /* @__PURE__ */ React.createElement("span", { style: { color: "#16a34a" } }, "Sent to ", who, " for approval", saved.notified ? "" : " (no approver could be reached, tell IT)", ". You'll get an email when it's approved; then it goes to HR and Google Drive.");
-    };
-    const bad = (cond) => touched && cond ? { boxShadow: "inset 0 0 0 2px #dc2626" } : {};
-    const field = (label, control, wide) => /* @__PURE__ */ React.createElement("label", { style: { ...S.fieldLabel, gridColumn: wide && !isMobile ? "1 / -1" : void 0, minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", null, label, " ", /* @__PURE__ */ React.createElement("span", { style: { color: O }, "aria-hidden": "true" }, "*")), control);
-    const text = (k, opts = {}) => /* @__PURE__ */ React.createElement("input", { style: { ...S.input, ...bad(!String(f[k]).trim()) }, value: f[k], onChange: set(k), maxLength: opts.max || 120, type: opts.type || "text", inputMode: opts.inputMode, autoComplete: opts.ac || "off", placeholder: opts.ph, "aria-required": "true", onBlur: () => setTouched(true) });
-    const sel = (k, options, ph) => /* @__PURE__ */ React.createElement("select", { style: { ...S.input, ...bad(!f[k]) }, value: f[k], onChange: set(k), "aria-required": "true" }, /* @__PURE__ */ React.createElement("option", { value: "" }, ph), options.map((o) => /* @__PURE__ */ React.createElement("option", { key: o, value: o }, o)));
-    const grid2 = { display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))", gap: "0.9rem 1rem", padding: "1rem 1.1rem 1.2rem" };
-    const section = (title, children, extra) => /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem 0", display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "0.8rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("h3", { style: { ...S.panelTitle, margin: 0 } }, title), extra), /* @__PURE__ */ React.createElement("div", { style: grid2 }, children));
-    const radio = (checked, onChange, label) => /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "flex-start", gap: "0.5rem", color: th.text, fontSize: "0.9rem", cursor: "pointer", lineHeight: 1.4 } }, /* @__PURE__ */ React.createElement("input", { type: "radio", checked, onChange, style: { accentColor: O, marginTop: "0.2rem", width: 16, height: 16 } }), " ", label);
-    if (!info) return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 860, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Loading your details\u2026"));
-    const balances = info.balances || [];
-    return /* @__PURE__ */ React.createElement("div", { className: "fin-root", style: { maxWidth: 860, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), onBack && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: onBack, style: { ...S.link, color: th.muted, fontWeight: 600, marginBottom: "0.4rem" } }, "Back to Tools"), /* @__PURE__ */ React.createElement("h2", { style: S.title }, "Time Off Request"), /* @__PURE__ */ React.createElement(ApprovalQueue, { th, isMobile, fn: "time-off-request", noun: "Time off request", openKey: "to_open", refresh: saved && saved.state === "done" ? saved.id : 0 }), /* @__PURE__ */ React.createElement("p", { style: S.lede }, "Request your own time off. Your name, contact details, position and location are filled in from your account. Every field is required; supporting documents are optional. It goes to Mike for approval, then to HR. Please allow 24\u201348 hours for HR to confirm your request."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), sig && !sigOk && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "The request changed after you signed it, so the signature no longer counts. Sign again."), section("Your information", /* @__PURE__ */ React.createElement(React.Fragment, null, field("Employee name", /* @__PURE__ */ React.createElement("div", { style: { ...S.input, background: th.card2, color: th.text }, title: "From your account" }, f.employeeName || "\u2014")), field("Email", text("email", { type: "email", ac: "email", inputMode: "email" })), field("Phone number", text("phone", { type: "tel", ac: "tel", inputMode: "tel", max: 30 })), field("Job position", sel("position", POSITIONS3, "Pick your position")), field("Address", text("address", { ac: "street-address", max: 200, ph: "Street, city, state, ZIP" }), true), field("Location", sel("location", [...info.me?.locations || [], "Other"], "Pick your location")), f.location === "Other" && field("Other location", text("locationOther")))), section("Emergency contact", /* @__PURE__ */ React.createElement(React.Fragment, null, field("Name and relation", text("ecName", { ph: "e.g. Jane Doe, spouse" })), field("Phone number", text("ecPhone", { type: "tel", inputMode: "tel", max: 30 })), field("Email address", text("ecEmail", { type: "email", inputMode: "email" })), /* @__PURE__ */ React.createElement("div", { style: { gridColumn: isMobile ? void 0 : "1 / -1", display: "grid", gap: "0.45rem" }, role: "radiogroup", "aria-label": "Emergency contact authorization" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "May HR contact your emergency contact? ", /* @__PURE__ */ React.createElement("span", { style: { color: O }, "aria-hidden": "true" }, "*")), radio(f.ecAuthorized === true, () => set("ecAuthorized")(true), "Yes, I authorize my emergency contact to be contacted via phone, text, or email"), radio(f.ecAuthorized === false, () => set("ecAuthorized")(false), "No, I do not authorize my emergency contact to be contacted")))), section("Time off", /* @__PURE__ */ React.createElement(React.Fragment, null, field("Start date", /* @__PURE__ */ React.createElement("input", { type: "date", style: { ...S.input, ...bad(!f.startDate) }, value: f.startDate, onChange: set("startDate"), "aria-required": "true" })), field("Start time", /* @__PURE__ */ React.createElement("input", { type: "time", style: { ...S.input, ...bad(!f.startTime) }, value: f.startTime, onChange: set("startTime"), "aria-required": "true" })), field("Back to work date", /* @__PURE__ */ React.createElement("input", { type: "date", style: { ...S.input, ...bad(!f.returnDate) }, value: f.returnDate, min: f.startDate || void 0, onChange: set("returnDate"), "aria-required": "true" })), field("Back to work start time", /* @__PURE__ */ React.createElement("input", { type: "time", style: { ...S.input, ...bad(!f.returnTime) }, value: f.returnTime, onChange: set("returnTime"), "aria-required": "true" })), field("Total hours requested", /* @__PURE__ */ React.createElement("input", { type: "number", min: "0.25", max: "2000", step: "0.25", inputMode: "decimal", style: { ...S.input, ...bad(!(Number(f.totalHours) > 0)) }, value: f.totalHours, onChange: set("totalHours"), "aria-required": "true" })), field("Last date worked", /* @__PURE__ */ React.createElement("input", { type: "date", style: { ...S.input, ...bad(!f.lastWorked) }, value: f.lastWorked, max: f.startDate || void 0, onChange: set("lastWorked"), "aria-required": "true" })), field("Type of leave", sel("leaveType", LEAVE_TYPES, "Pick the type of leave"), !isMobile && f.leaveType !== "Other"), f.leaveType === "Other" && field("Other type of leave", text("leaveOther"))), balances.length ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, fontVariantNumeric: "lining-nums tabular-nums" } }, "Paycor balance: ", balances.map((b, i) => /* @__PURE__ */ React.createElement("span", { key: b.type + i, style: { marginLeft: i ? "0.8rem" : "0.3rem", color: th.text } }, /* @__PURE__ */ React.createElement("b", null, fmtHrs(b.current), " h"), " ", b.type))) : info.linked === false ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, "Your account isn't linked to Paycor, so your balance can't be shown.") : null), problem && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, problem), /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem 0" } }, /* @__PURE__ */ React.createElement("h3", { style: { ...S.panelTitle, margin: 0 } }, "Supporting documents ", /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONTS.body, fontWeight: 400, fontSize: "0.82rem", color: th.muted } }, "optional, up to 5"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.8rem 1.1rem 1.1rem", display: "grid", gap: "0.5rem" } }, docs.map((d, i) => /* @__PURE__ */ React.createElement("div", { key: d.name + i, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.8rem", fontSize: "0.88rem", color: th.text, padding: "0.45rem 0.7rem", background: th.card2, borderRadius: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, d.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", fmtSize(d.size), ")")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.link, color: th.muted }, onClick: () => setDocs((x) => x.filter((_, j) => j !== i)), "aria-label": `Remove ${d.name}` }, "Remove"))), docs.length < MAX_DOCS && /* @__PURE__ */ React.createElement("label", { className: "fin-btn", style: { ...S.ghost, display: "inline-flex", alignItems: "center", justifySelf: "start", cursor: "pointer" } }, "Add a document", /* @__PURE__ */ React.createElement("input", { type: "file", multiple: true, accept: "application/pdf,image/*,.doc,.docx,.txt", style: S.srOnly, onChange: (e) => {
-      addFiles(e.target.files);
-      e.target.value = "";
-    } })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.muted } }, "PDFs, photos, Word or text files. ", docs.length ? `${fmtSize(docBytes)} of 3.5 MB used.` : ""))), /* @__PURE__ */ React.createElement("section", { style: { ...S.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.1rem", display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, fontSize: "0.92rem" } }, "Your signature ", /* @__PURE__ */ React.createElement("span", { style: { color: O }, "aria-hidden": "true" }, "*")), sigOk ? /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSigning(true), title: "Sign again", style: { background: "#fff", border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.2rem 0.6rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("img", { src: sigOk.image, alt: "Your signature", style: { maxHeight: 44, maxWidth: 220, objectFit: "contain", display: "block" } })) : /* @__PURE__ */ React.createElement(InlineSign, { th, can: canSign, onSign: (image) => setSig({ image, date: todayIso5(), fp }) }), sigOk && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", color: th.muted } }, "Signed ", usDate(sigOk.date)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.9rem", flexWrap: "wrap", marginBottom: "0.6rem" } }, !ready && !busy && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, missing.length ? `Still needed: ${missing.join(", ")}` : ""), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: { ...S.primary, opacity: ready ? 1 : 0.5, cursor: ready ? "pointer" : "not-allowed" }, disabled: !ready, onClick: send, onMouseEnter: () => setTouched(true) }, busy ? "Sending\u2026" : "Send for approval")), saved && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", fontSize: "0.85rem", marginBottom: "2rem" } }, savedLine(), saved.pdfUrl && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem" } }, /* @__PURE__ */ React.createElement(PdfOpenButton, { url: saved.pdfUrl, style: { ...S.ghost } }))), signing && /* @__PURE__ */ React.createElement(
-      SignatureModal,
-      {
-        th,
-        title: `Your signature \u2014 ${f.employeeName}`,
-        onCancel: () => setSigning(false),
-        onDone: (image) => {
-          setSig({ image, date: todayIso5(), fp });
-          setSigning(false);
-        }
-      }
-    ));
-  }
-
   // src/resignation-letter.mjs
-  var clean3 = (s, n = 160) => String(s ?? "").trim().slice(0, n);
-  var has4 = (v, k) => !!String(v?.[k] ?? "").trim();
+  var clean4 = (s, n = 160) => String(s ?? "").trim().slice(0, n);
+  var has5 = (v, k) => !!String(v?.[k] ?? "").trim();
   function resignationValues(f = {}) {
     return {
-      employeeName: clean3(f.employee?.name, 80),
-      position: clean3(f.employee?.jobTitle || f.position, 80),
-      pc: clean3(f.employee ? f.pc : "", 10),
-      storeAddress: clean3(f.storeAddress, 160),
-      lastDay: clean3(f.lastDay, 10),
-      date: clean3(f.date, 10),
-      supervisorName: clean3(f.supervisorName, 80),
-      supervisorTitle: clean3(f.supervisorTitle, 60),
+      employeeName: clean4(f.employee?.name, 80),
+      position: clean4(f.employee?.jobTitle || f.position, 80),
+      pc: clean4(f.employee ? f.pc : "", 10),
+      storeAddress: clean4(f.storeAddress, 160),
+      lastDay: clean4(f.lastDay, 10),
+      date: clean4(f.date, 10),
+      supervisorName: clean4(f.supervisorName, 80),
+      supervisorTitle: clean4(f.supervisorTitle, 60),
       employeeSignature: f.employeeSig?.image || "",
       employeeSignedDate: f.employeeSig?.date || "",
       supervisorSignature: f.supervisorSig?.image || "",
@@ -5081,12 +5611,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function missingResignationFields(v) {
     const out = [];
-    if (!has4(v, "employeeName")) out.push("Employee");
-    if (!has4(v, "storeAddress")) out.push("Store address");
-    if (!has4(v, "lastDay")) out.push("Last day of employment");
-    if (!has4(v, "supervisorName")) out.push("Supervisor name");
-    if (!has4(v, "supervisorTitle")) out.push("Supervisor title");
-    if (!has4(v, "supervisorSignature")) out.push("Supervisor signature");
+    if (!has5(v, "employeeName")) out.push("Employee");
+    if (!has5(v, "storeAddress")) out.push("Store address");
+    if (!has5(v, "lastDay")) out.push("Last day of employment");
+    if (!has5(v, "supervisorName")) out.push("Supervisor name");
+    if (!has5(v, "supervisorTitle")) out.push("Supervisor title");
+    if (!has5(v, "supervisorSignature")) out.push("Supervisor signature");
     return out;
   }
   var usDate2 = (iso) => {
@@ -5190,11 +5720,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/resignation-letter-ui.jsx
-  var { useState: useState10, useEffect: useEffect8 } = React;
+  var { useState: useState12, useEffect: useEffect10 } = React;
   var todayIso6 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  var FN3 = "/.netlify/functions/resignation-letter";
-  var call6 = async (body) => {
-    const res = await fetch(FN3, { method: body ? "POST" : "GET", credentials: "include", headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() }, body: body ? JSON.stringify(body) : void 0 });
+  var FN4 = "/.netlify/functions/resignation-letter";
+  var call7 = async (body) => {
+    const res = await fetch(FN4, { method: body ? "POST" : "GET", credentials: "include", headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() }, body: body ? JSON.stringify(body) : void 0 });
     const b = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
     return b;
@@ -5231,31 +5761,31 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var Locked3 = ({ value, placeholder = "from Paycor", w }) => /* @__PURE__ */ React.createElement("span", { className: `rl-locked${value ? "" : " rl-empty"}`, style: w ? { minWidth: w } : void 0, title: "From Paycor \u2014 can't be changed here" }, value || placeholder);
   function ResignationLetter({ th, isMobile, onBack, storeAddresses = {} }) {
     const S = finStyles(th);
-    const [stores, setStores] = useState10([]);
-    const [employees, setEmployees] = useState10(null);
-    const [error, setError] = useState10(null);
-    const [query, setQuery] = useState10("");
-    const [listOpen, setListOpen] = useState10(false);
-    const [picked, setPicked] = useState10(null);
-    const [storeAddress, setStoreAddress] = useState10("");
-    const [lastDay, setLastDay] = useState10("");
-    const [date] = useState10(todayIso6());
-    const [supervisorName, setSupervisorName] = useState10("");
-    const [supervisorTitle, setSupervisorTitle] = useState10("");
-    const [remote, setRemoteState] = useState10({ on: false, phone: "", email: "" });
+    const [stores, setStores] = useState12([]);
+    const [employees, setEmployees] = useState12(null);
+    const [error, setError] = useState12(null);
+    const [query, setQuery] = useState12("");
+    const [listOpen, setListOpen] = useState12(false);
+    const [picked, setPicked] = useState12(null);
+    const [storeAddress, setStoreAddress] = useState12("");
+    const [lastDay, setLastDay] = useState12("");
+    const [date] = useState12(todayIso6());
+    const [supervisorName, setSupervisorName] = useState12("");
+    const [supervisorTitle, setSupervisorTitle] = useState12("");
+    const [remote, setRemoteState] = useState12({ on: false, phone: "", email: "" });
     const setRemote = (patch) => setRemoteState((r) => ({ ...r, ...patch }));
-    const [sigs, setSigs] = useState10({});
-    const [signing, setSigning] = useState10(null);
-    const [busy, setBusy] = useState10(false);
-    const [saved, setSaved] = useState10(null);
-    const [lists, setLists] = useState10({ waiting: [], complete: [] });
-    const [seeAll, setSeeAll] = useState10(false);
-    const [view, setView] = useState10("list");
-    const [listTab, setListTab] = useState10("waiting");
-    const [viewing, setViewing] = useState10(null);
-    const [msg, setMsg] = useState10(null);
-    const [rowBusy, setRowBusy] = useState10(null);
-    const loadMain = () => call6().then((b) => {
+    const [sigs, setSigs] = useState12({});
+    const [signing, setSigning] = useState12(null);
+    const [busy, setBusy] = useState12(false);
+    const [saved, setSaved] = useState12(null);
+    const [lists, setLists] = useState12({ waiting: [], complete: [] });
+    const [seeAll, setSeeAll] = useState12(false);
+    const [view, setView] = useState12("list");
+    const [listTab, setListTab] = useState12("waiting");
+    const [viewing, setViewing] = useState12(null);
+    const [msg, setMsg] = useState12(null);
+    const [rowBusy, setRowBusy] = useState12(null);
+    const loadMain = () => call7().then((b) => {
       setStores(b.stores || []);
       setEmployees(b.employees || []);
       setSupervisorName((s) => s || b.myName || "");
@@ -5267,12 +5797,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setError(e.message);
       setEmployees([]);
     });
-    useEffect8(() => {
+    useEffect10(() => {
       loadMain();
     }, []);
     const viewRef = React.useRef(view);
     viewRef.current = view;
-    useEffect8(() => {
+    useEffect10(() => {
       const tick = () => {
         if (!document.hidden && viewRef.current === "list") loadMain();
       };
@@ -5309,7 +5839,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       ...remoteOn && !phoneOk2(remote.phone) ? ["Employee's cell number"] : []
     ];
     const ready = !missing.length && !busy;
-    useEffect8(() => {
+    useEffect10(() => {
       setSaved(null);
     }, [fp]);
     const q = query.trim().toLowerCase();
@@ -5341,7 +5871,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const fileName = `Resignation-Letter-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${date}.pdf`;
         setSaved({ state: "saving" });
         try {
-          const b = await call6({ values, employeeId: picked.id, pdf: doc.output("datauristring"), remoteSign: remoteOn ? { phone: remote.phone, email: remote.email.trim() } : null });
+          const b = await call7({ values, employeeId: picked.id, pdf: doc.output("datauristring"), remoteSign: remoteOn ? { phone: remote.phone, email: remote.email.trim() } : null });
           setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
           loadMain();
         } catch (e) {
@@ -5367,7 +5897,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setRowBusy(item.id);
       setMsg(null);
       try {
-        const b = await call6({ action, id: item.id, ...extra });
+        const b = await call7({ action, id: item.id, ...extra });
         if (action === "resendLink") setMsg({ tone: b.sign?.sent ? "success" : "error", text: b.sign?.sent ? `New signing link emailed to ${extra.email || item.employeeName}${b.sign.texted ? ", with a reminder text" : ""}. The old link no longer works.` : "The signing email did not go through." });
         else setMsg({ tone: b.ok ? "success" : "error", text: b.ok ? `Filed ${item.employeeName}'s letter in Google Drive.` : `Still could not file it: ${b.drive?.error || "error"}.` });
         loadMain();
@@ -5398,7 +5928,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         reset();
         setMsg(null);
         setView("form");
-      } }, "Start a resignation letter")), items.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, items.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Last day ", usDate2(f.lastDay), ". ", seeAll ? `From ${f.submittedBy}, ` : "Sent ", day2(f.createdAt), listTab === "waiting" ? ": waiting on the employee to sign from their email link" : f.driveError && !f.driveLink ? ": signed, NOT filed in Google Drive yet" : f.signedAt ? `: signed ${day2(f.signedAt)}` : ""), listTab === "waiting" && /* @__PURE__ */ React.createElement(SignProgress, { th, signing: f.signing, busy: rowBusy === f.id, onFix: (role, email) => rowAction(f, "resendLink", { email }) })), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View"), listTab === "waiting" && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: rowBusy === f.id, onClick: () => rowAction(f, "resendLink"), style: { ...S.link, color: O } }, rowBusy === f.id ? "Sending\u2026" : "Resend link"), listTab === "complete" && f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"), listTab === "complete" && !f.driveLink && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: rowBusy === f.id, onClick: () => rowAction(f, "refile"), style: { ...S.link, color: O } }, rowBusy === f.id ? "Filing\u2026" : "Retry filing"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, listTab === "waiting" ? "Nothing waiting on a signature." : "No signed resignation letters yet."), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `${FN3}?pdf=${viewing.id}`, title: `Resignation letter for ${viewing.employeeName}`, onClose: () => setViewing(null) }));
+      } }, "Start a resignation letter")), items.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, items.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: th.muted, fontSize: "0.8rem", marginTop: 2 } }, "Last day ", usDate2(f.lastDay), ". ", seeAll ? `From ${f.submittedBy}, ` : "Sent ", day2(f.createdAt), listTab === "waiting" ? ": waiting on the employee to sign from their email link" : f.driveError && !f.driveLink ? ": signed, NOT filed in Google Drive yet" : f.signedAt ? `: signed ${day2(f.signedAt)}` : ""), listTab === "waiting" && /* @__PURE__ */ React.createElement(SignProgress, { th, signing: f.signing, busy: rowBusy === f.id, onFix: (role, email) => rowAction(f, "resendLink", { email }) })), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: () => setViewing(f), style: { ...S.link, color: O } }, "View"), listTab === "waiting" && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: rowBusy === f.id, onClick: () => rowAction(f, "resendLink"), style: { ...S.link, color: O } }, rowBusy === f.id ? "Sending\u2026" : "Resend link"), listTab === "complete" && f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"), listTab === "complete" && !f.driveLink && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", disabled: rowBusy === f.id, onClick: () => rowAction(f, "refile"), style: { ...S.link, color: O } }, rowBusy === f.id ? "Filing\u2026" : "Retry filing"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, listTab === "waiting" ? "Nothing waiting on a signature." : "No signed resignation letters yet."), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `${FN4}?pdf=${viewing.id}`, title: `Resignation letter for ${viewing.employeeName}`, onClose: () => setViewing(null) }));
     }
     const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
       "input",
@@ -5526,12 +6056,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var MH_MAX_ROWS = 14;
   var MH_MAX_DAY_HOURS = 16;
   var MH_LOOKBACK_DAYS = 60;
-  var clean4 = (s, n = 80) => String(s ?? "").trim().slice(0, n);
-  var isDate2 = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
-  var isTime2 = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ""));
+  var clean5 = (s, n = 80) => String(s ?? "").trim().slice(0, n);
+  var isDate3 = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+  var isTime3 = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ""));
   var mins = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
   function rowHours(r) {
-    if (!isTime2(r?.clockIn) || !isTime2(r?.clockOut)) return 0;
+    if (!isTime3(r?.clockIn) || !isTime3(r?.clockOut)) return 0;
     let m = mins(r.clockOut) - mins(r.clockIn);
     if (m <= 0) m += 1440;
     return Math.round(m / 60 * 100) / 100;
@@ -5547,7 +6077,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso || "");
   };
   var fmtTime = (t) => {
-    if (!isTime2(t)) return "";
+    if (!isTime3(t)) return "";
     let h = Number(t.slice(0, 2));
     const ap = h >= 12 ? "PM" : "AM";
     h = h % 12 || 12;
@@ -5555,20 +6085,20 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   };
   var fmtHours = (h) => (Math.round(h * 100) / 100).toFixed(2);
   function missingHoursValues(f = {}) {
-    const rows = (f.rows || []).map((r) => ({ date: clean4(r.date, 10), clockIn: clean4(r.clockIn, 5), clockOut: clean4(r.clockOut, 5) })).filter((r) => r.date || r.clockIn || r.clockOut).map((r) => ({ ...r, hours: rowHours(r) })).sort((a, b) => (a.date + a.clockIn).localeCompare(b.date + b.clockIn));
+    const rows = (f.rows || []).map((r) => ({ date: clean5(r.date, 10), clockIn: clean5(r.clockIn, 5), clockOut: clean5(r.clockOut, 5) })).filter((r) => r.date || r.clockIn || r.clockOut).map((r) => ({ ...r, hours: rowHours(r) })).sort((a, b) => (a.date + a.clockIn).localeCompare(b.date + b.clockIn));
     const total = Math.round(rows.reduce((t, r) => t + r.hours, 0) * 100) / 100;
-    const p = rows[0] && isDate2(rows[0].date) ? periodFor2(rows[0].date) : null;
+    const p = rows[0] && isDate3(rows[0].date) ? periodFor2(rows[0].date) : null;
     return {
-      employeeName: clean4(f.employee?.name),
-      jobTitle: clean4(f.employee?.jobTitle),
-      pc: clean4(f.employee ? f.pc : "", 10),
+      employeeName: clean5(f.employee?.name),
+      jobTitle: clean5(f.employee?.jobTitle),
+      pc: clean5(f.employee ? f.pc : "", 10),
       periodStart: p?.start || "",
       periodEnd: p?.end || "",
       rows,
       total,
-      date: clean4(f.date, 10),
-      reason: clean4(f.reason, 300),
-      signerName: clean4(f.signerName),
+      date: clean5(f.date, 10),
+      reason: clean5(f.reason, 300),
+      signerName: clean5(f.signerName),
       signature: f.sig?.image || "",
       signedDate: f.sig?.date || ""
     };
@@ -5589,13 +6119,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const seen = /* @__PURE__ */ new Set();
     (v.rows || []).forEach((r, i) => {
       const n = `Row ${i + 1}`;
-      if (!isDate2(r.date)) out.push(`${n}: date`);
+      if (!isDate3(r.date)) out.push(`${n}: date`);
       else if (r.date > today) out.push(`${n}: the date can't be in the future`);
       else if (r.date < earliest) out.push(`${n}: more than ${MH_LOOKBACK_DAYS} days ago`);
       else periods.add(periodFor2(r.date).end);
-      if (!isTime2(r.clockIn)) out.push(`${n}: clock in`);
-      if (!isTime2(r.clockOut)) out.push(`${n}: clock out`);
-      if (isTime2(r.clockIn) && isTime2(r.clockOut) && r.hours > MH_MAX_DAY_HOURS) out.push(`${n}: more than ${MH_MAX_DAY_HOURS} hours`);
+      if (!isTime3(r.clockIn)) out.push(`${n}: clock in`);
+      if (!isTime3(r.clockOut)) out.push(`${n}: clock out`);
+      if (isTime3(r.clockIn) && isTime3(r.clockOut) && r.hours > MH_MAX_DAY_HOURS) out.push(`${n}: more than ${MH_MAX_DAY_HOURS} hours`);
       const k = `${r.date} ${r.clockIn}`;
       if (seen.has(k)) out.push(`${n}: listed twice`);
       seen.add(k);
@@ -5688,11 +6218,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/missing-hours-ui.jsx
-  var { useState: useState11, useEffect: useEffect9 } = React;
+  var { useState: useState13, useEffect: useEffect11 } = React;
   var todayIso7 = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  var FN4 = "/.netlify/functions/missing-hours";
-  var call7 = async (body) => {
-    const res = await fetch(FN4, { method: body ? "POST" : "GET", credentials: "include", headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() }, body: body ? JSON.stringify(body) : void 0 });
+  var FN5 = "/.netlify/functions/missing-hours";
+  var call8 = async (body) => {
+    const res = await fetch(FN5, { method: body ? "POST" : "GET", credentials: "include", headers: { ...body ? { "Content-Type": "application/json" } : {}, ...authHeader() }, body: body ? JSON.stringify(body) : void 0 });
     const b = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(b.error || `HTTP ${res.status}`);
     return b;
@@ -5723,16 +6253,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 .mh-blank:focus-visible, .mh-table td input:focus-visible, .mh-sigbtn:focus-visible, .mh-sigimg:focus-visible, .mh-x:focus-visible { outline: 2px solid ${O}; outline-offset: 1px; }`;
   function MhReview({ th, isMobile, form, canApprove, onClose }) {
     const S = finStyles(th);
-    const [busy, setBusy] = useState11(false);
-    const [err, setErr] = useState11(null);
-    const [backing, setBacking] = useState11(false);
-    const [note, setNote] = useState11("");
-    const src = `${FN4}?pdf=${form.id}`;
+    const [busy, setBusy] = useState13(false);
+    const [err, setErr] = useState13(null);
+    const [backing, setBacking] = useState13(false);
+    const [note, setNote] = useState13("");
+    const src = `${FN5}?pdf=${form.id}`;
     const decide = async (action) => {
       setBusy(true);
       setErr(null);
       try {
-        const b = await call7({ action, id: form.id, note: note.trim() });
+        const b = await call8({ action, id: form.id, note: note.trim() });
         if (action === "reject") return onClose(`Sent back to ${form.submittedBy}.`);
         const p = b.paycor || {}, d = b.drive || {};
         onClose(`Approved. ${p.ok ? `${fmtHours(form.totalHours)} hours were added to ${form.employeeName}'s Paycor payroll grid` : `The hours could NOT be added to Paycor yet (${p.error || "error"}); use Retry under Complete`}. ${d.saved ? "Filed in Google Drive." : `Not filed in Drive (${d.error || "error"}).`} ${form.submittedBy} was told.`);
@@ -5745,31 +6275,31 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function MissingHours({ th, isMobile, onBack, userType, username }) {
     const S = finStyles(th);
-    const [stores, setStores] = useState11([]);
-    const [employees, setEmployees] = useState11(null);
-    const [error, setError] = useState11(null);
-    const [query, setQuery] = useState11("");
-    const [listOpen, setListOpen] = useState11(false);
-    const [picked, setPicked] = useState11(null);
-    const [rows, setRows] = useState11(ROWS0);
-    const [reason, setReason] = useState11("");
-    const [signerName, setSignerName] = useState11("");
-    const [sig, setSig] = useState11(null);
-    const [signing, setSigning] = useState11(false);
-    const [busy, setBusy] = useState11(false);
-    const [saved, setSaved] = useState11(null);
-    const [canApprove, setCanApprove] = useState11(false);
-    const [seeAll, setSeeAll] = useState11(false);
-    const [lists, setLists] = useState11({ pending: [], sentBack: [], complete: [] });
-    const [view, setView] = useState11("list");
-    const [listTab, setListTab] = useState11("pending");
-    const [reviewing, setReviewing] = useState11(null);
-    const [viewing, setViewing] = useState11(null);
-    const [msg, setMsg] = useState11(null);
-    const [rowBusy, setRowBusy] = useState11(null);
-    const [fixing, setFixing] = useState11(null);
+    const [stores, setStores] = useState13([]);
+    const [employees, setEmployees] = useState13(null);
+    const [error, setError] = useState13(null);
+    const [query, setQuery] = useState13("");
+    const [listOpen, setListOpen] = useState13(false);
+    const [picked, setPicked] = useState13(null);
+    const [rows, setRows] = useState13(ROWS0);
+    const [reason, setReason] = useState13("");
+    const [signerName, setSignerName] = useState13("");
+    const [sig, setSig] = useState13(null);
+    const [signing, setSigning] = useState13(false);
+    const [busy, setBusy] = useState13(false);
+    const [saved, setSaved] = useState13(null);
+    const [canApprove, setCanApprove] = useState13(false);
+    const [seeAll, setSeeAll] = useState13(false);
+    const [lists, setLists] = useState13({ pending: [], sentBack: [], complete: [] });
+    const [view, setView] = useState13("list");
+    const [listTab, setListTab] = useState13("pending");
+    const [reviewing, setReviewing] = useState13(null);
+    const [viewing, setViewing] = useState13(null);
+    const [msg, setMsg] = useState13(null);
+    const [rowBusy, setRowBusy] = useState13(null);
+    const [fixing, setFixing] = useState13(null);
     const today = todayIso7();
-    const loadMain = () => call7().then((b) => {
+    const loadMain = () => call8().then((b) => {
       setStores(b.stores || []);
       setEmployees(b.employees || []);
       setSignerName((s) => s || b.myName || "");
@@ -5793,12 +6323,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setError(e.message);
       setEmployees([]);
     });
-    useEffect9(() => {
+    useEffect11(() => {
       loadMain();
     }, []);
     const viewRef = React.useRef(view);
     viewRef.current = view;
-    useEffect9(() => {
+    useEffect11(() => {
       const tick = () => {
         if (!document.hidden && viewRef.current === "list") loadMain();
       };
@@ -5825,7 +6355,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const canSign = !formProblems.length;
     const problems = missingHoursProblems(values, today);
     const ready = !problems.length && !busy;
-    useEffect9(() => {
+    useEffect11(() => {
       setSaved(null);
     }, [fp]);
     const signTitle = userType === "manager" ? "Store Manager" : userType === "it" ? "HR / IT Administrator" : secondLineLabel(userType, username);
@@ -5858,7 +6388,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const fileName = `Missing-Hours-${values.employeeName.replace(/[^A-Za-z0-9]+/g, "-")}-${today}.pdf`;
         setSaved({ state: "saving" });
         try {
-          const b = await call7({ values, employeeId: picked.id, pdf: doc.output("datauristring"), replaces: fixing?.id });
+          const b = await call8({ values, employeeId: picked.id, pdf: doc.output("datauristring"), replaces: fixing?.id });
           setSaved({ state: "done", ...b, pdfUrl: deliverPdf(doc, fileName) });
           setFixing(null);
           loadMain();
@@ -5886,7 +6416,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setRowBusy(item.id);
       setMsg(null);
       try {
-        const b = await call7({ action, id: item.id });
+        const b = await call8({ action, id: item.id });
         setMsg({ tone: b.ok === false ? "error" : "success", text: b.ok === false ? `Still could not add the hours to Paycor: ${b.paycor?.error || "error"}.` : okText });
         loadMain();
       } catch (e) {
@@ -5922,7 +6452,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         reset();
         setMsg(null);
         setView("form");
-      } }, "Fill in missing hours")), listTab === "pending" && (lists.pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.pending.map((f) => /* @__PURE__ */ React.createElement("button", { key: f.id, type: "button", className: "fin-btn", onClick: () => setReviewing(f), style: { ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), sub(f, "")), /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "sentback" && (lists.sentBack.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.sentBack.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: { ...rowStyle, borderLeft: "4px solid #d97706" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), sub(f, `. Sent back by ${f.decidedBy || "the approver"}`), f.note && /* @__PURE__ */ React.createElement("span", { style: { display: "block", marginTop: 4, fontSize: "0.9rem" } }, '"', f.note, '"')), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && link({ onClick: () => setViewing(f) }, "View"), f.canFix && link({ disabled: rowBusy === f.id, onClick: () => fix(f) }, "Fix and resend"), f.canFix && link({ disabled: rowBusy === f.id, danger: 1, onClick: () => rowAction(f, "delete", `Deleted the sent-back form for ${f.employeeName}.`) }, "Delete"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing sent back.")), listTab === "complete" && (lists.complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), sub(f, `. Approved by ${f.decidedBy}${f.decidedAt ? ` on ${day2(f.decidedAt)}` : ""}`), /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontSize: "0.8rem", marginTop: 2, color: f.paycorStatus === "sent" ? "#16a34a" : "#dc2626", fontWeight: 600 } }, f.paycorStatus === "sent" ? "In Paycor" : `Not in Paycor yet${f.paycorError ? `: ${f.paycorError}` : ""}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && link({ onClick: () => setViewing(f) }, "View"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"), (f.paycorStatus !== "sent" || !f.driveLink) && (canApprove || ["executive", "it"].includes(userType)) && link({ disabled: rowBusy === f.id, onClick: () => rowAction(f, "retry", `Done: ${f.employeeName}'s hours are in Paycor.`) }, rowBusy === f.id ? "Retrying\u2026" : "Retry"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing approved yet.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `${FN4}?pdf=${viewing.id}`, title: `Missing hours for ${viewing.employeeName}`, onClose: () => setViewing(null) })));
+      } }, "Fill in missing hours")), listTab === "pending" && (lists.pending.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.pending.map((f) => /* @__PURE__ */ React.createElement("button", { key: f.id, type: "button", className: "fin-btn", onClick: () => setReviewing(f), style: { ...rowStyle, border: `1px solid ${canApprove ? O : th.cardBorder}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), sub(f, "")), /* @__PURE__ */ React.createElement("span", { style: { color: canApprove ? O : th.muted, fontWeight: 700, fontSize: "0.85rem", alignSelf: "center" } }, canApprove ? "Review" : "View")))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing waiting for approval.")), listTab === "sentback" && (lists.sentBack.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.sentBack.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: { ...rowStyle, borderLeft: "4px solid #d97706" } }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), sub(f, `. Sent back by ${f.decidedBy || "the approver"}`), f.note && /* @__PURE__ */ React.createElement("span", { style: { display: "block", marginTop: 4, fontSize: "0.9rem" } }, '"', f.note, '"')), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && link({ onClick: () => setViewing(f) }, "View"), f.canFix && link({ disabled: rowBusy === f.id, onClick: () => fix(f) }, "Fix and resend"), f.canFix && link({ disabled: rowBusy === f.id, danger: 1, onClick: () => rowAction(f, "delete", `Deleted the sent-back form for ${f.employeeName}.`) }, "Delete"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing sent back.")), listTab === "complete" && (lists.complete.length ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem" } }, lists.complete.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, style: rowStyle }, /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, who(f), sub(f, `. Approved by ${f.decidedBy}${f.decidedAt ? ` on ${day2(f.decidedAt)}` : ""}`), /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontSize: "0.8rem", marginTop: 2, color: f.paycorStatus === "sent" ? "#16a34a" : "#dc2626", fontWeight: 600 } }, f.paycorStatus === "sent" ? "In Paycor" : `Not in Paycor yet${f.paycorError ? `: ${f.paycorError}` : ""}`)), /* @__PURE__ */ React.createElement("span", { style: { display: "flex", gap: "0.9rem", alignItems: "center", fontSize: "0.85rem", fontWeight: 700 } }, f.hasPdf && link({ onClick: () => setViewing(f) }, "View"), f.driveLink && /* @__PURE__ */ React.createElement("a", { href: f.driveLink, target: "_blank", rel: "noreferrer", style: { color: O } }, "Open in Google Drive"), (f.paycorStatus !== "sent" || !f.driveLink) && (canApprove || ["executive", "it"].includes(userType)) && link({ disabled: rowBusy === f.id, onClick: () => rowAction(f, "retry", `Done: ${f.employeeName}'s hours are in Paycor.`) }, rowBusy === f.id ? "Retrying\u2026" : "Retry"))))) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted, fontSize: "0.9rem" } }, "Nothing approved yet.")), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `${FN5}?pdf=${viewing.id}`, title: `Missing hours for ${viewing.employeeName}`, onClose: () => setViewing(null) })));
     }
     const empSearch = /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-block", maxWidth: "100%" } }, /* @__PURE__ */ React.createElement(
       "input",
@@ -5992,7 +6522,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/terms-gate-ui.jsx
-  var { useState: useState12 } = React;
+  var { useState: useState14 } = React;
   var TERMS_VERSION = "2026-11-13";
   async function fetchTermsStatus() {
     const res = await fetch("/.netlify/functions/terms-accept", { credentials: "include", headers: { ...authHeader() } });
@@ -6000,9 +6530,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return res.json();
   }
   function TermsGate({ th, user, onAccepted, onSignOut }) {
-    const [agree, setAgree] = useState12(false);
-    const [busy, setBusy] = useState12(false);
-    const [err, setErr] = useState12(null);
+    const [agree, setAgree] = useState14(false);
+    const [busy, setBusy] = useState14(false);
+    const [err, setErr] = useState14(null);
     const accept = async () => {
       setBusy(true);
       setErr(null);
@@ -6110,8 +6640,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/remote-sign-ui.jsx
-  var { useState: useState13, useEffect: useEffect10, useRef: useRef5 } = React;
-  var call8 = async (body) => {
+  var { useState: useState15, useEffect: useEffect12, useRef: useRef6 } = React;
+  var call9 = async (body) => {
     const res = await fetch("/.netlify/functions/violation-sign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const b = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -6128,9 +6658,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return out;
   };
   function PdfPages({ b64, width }) {
-    const ref = useRef5(null);
-    const [err, setErr] = useState13(null);
-    useEffect10(() => {
+    const ref = useRef6(null);
+    const [err, setErr] = useState15(null);
+    useEffect12(() => {
       let live = true;
       (async () => {
         const lib = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
@@ -6167,20 +6697,20 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   function RemoteSignPage({ token }) {
     const th = getTheme(false);
     const S = finStyles(th);
-    const [hello, setHello] = useState13(null);
-    const [error, setError] = useState13(null);
-    const [fatal, setFatal] = useState13(null);
-    const [last4, setLast4] = useState13("");
-    const [doc, setDoc] = useState13(null);
-    const [read, setRead] = useState13(false);
-    const [consent, setConsent] = useState13(false);
-    const [signing, setSigning] = useState13(false);
-    const [busy, setBusy] = useState13(false);
-    const [done, setDone] = useState13(null);
+    const [hello, setHello] = useState15(null);
+    const [error, setError] = useState15(null);
+    const [fatal, setFatal] = useState15(null);
+    const [last4, setLast4] = useState15("");
+    const [doc, setDoc] = useState15(null);
+    const [read, setRead] = useState15(false);
+    const [consent, setConsent] = useState15(false);
+    const [signing, setSigning] = useState15(false);
+    const [busy, setBusy] = useState15(false);
+    const [done, setDone] = useState15(null);
     const width = Math.min(820, (typeof window !== "undefined" ? window.innerWidth : 820) - 32);
-    useEffect10(() => {
+    useEffect12(() => {
       document.title = "Review and sign \xB7 PCG";
-      call8({ token, action: "hello" }).then(setHello).catch((e) => setFatal(e.message));
+      call9({ token, action: "hello" }).then(setHello).catch((e) => setFatal(e.message));
     }, []);
     const open = async (e) => {
       e.preventDefault();
@@ -6191,7 +6721,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBusy(true);
       setError(null);
       try {
-        setDoc(await call8({ token, last4, action: "open" }));
+        setDoc(await call9({ token, last4, action: "open" }));
       } catch (err) {
         if (/locked|expired|replaced|signed/.test(err.message)) setFatal(err.message);
         else setError(err.message);
@@ -6203,7 +6733,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBusy(true);
       setError(null);
       try {
-        const b = await call8({ token, last4, action: "sign", signature, esignConsent: consent });
+        const b = await call9({ token, last4, action: "sign", signature, esignConsent: consent });
         setDone({ url: URL.createObjectURL(new Blob([b64ToBytes(b.pdf)], { type: "application/pdf" })) });
       } catch (err) {
         if (err.done) setDone({});
@@ -6244,16 +6774,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/joy-leaderboard-ui.jsx
-  var { useState: useState14, useEffect: useEffect11 } = React;
+  var { useState: useState16, useEffect: useEffect13 } = React;
   var FONT_H = "'Raleway'";
   var FONT_B = "'Source Sans 3'";
   var NUM = { fontVariantNumeric: "lining-nums tabular-nums" };
-  var addDays = (iso, n) => {
+  var addDays2 = (iso, n) => {
     const d = /* @__PURE__ */ new Date(iso + "T12:00:00Z");
     d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
   };
-  var dayLabel = (iso, today) => iso === today ? "Today" : iso === addDays(today, -1) ? "Yesterday" : (/* @__PURE__ */ new Date(iso + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  var dayLabel = (iso, today) => iso === today ? "Today" : iso === addDays2(today, -1) ? "Yesterday" : (/* @__PURE__ */ new Date(iso + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   var addMonths = (ym, n) => {
     const [y, m] = ym.split("-").map(Number);
     const d = new Date(Date.UTC(y, m - 1 + n, 1));
@@ -6268,14 +6798,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var HeartIcon = ({ color }) => /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M12 20s-7-4.4-9.2-8.6C1.3 8.4 3.2 5 6.6 5c2 0 3.4 1.1 4.4 2.6C12 6.1 13.4 5 15.4 5c3.4 0 5.3 3.4 3.8 6.4C17 15.6 12 20 12 20Z" }));
   var Chevron = ({ dir, color }) => /* @__PURE__ */ React.createElement("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: dir === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6" }));
   function JoyLeaderboard({ th, isMobile }) {
-    const [data, setData] = useState14(null);
-    const [err, setErr] = useState14(null);
-    const [date, setDate] = useState14(null);
-    const [mode, setMode] = useState14("day");
-    const [month, setMonth] = useState14(null);
-    const [loading, setLoading] = useState14(false);
-    const [showAll, setShowAll] = useState14(false);
-    useEffect11(() => {
+    const [data, setData] = useState16(null);
+    const [err, setErr] = useState16(null);
+    const [date, setDate] = useState16(null);
+    const [mode, setMode] = useState16("day");
+    const [month, setMonth] = useState16(null);
+    const [loading, setLoading] = useState16(false);
+    const [showAll, setShowAll] = useState16(false);
+    useEffect13(() => {
       let live = true;
       const load = () => {
         setLoading(true);
@@ -6314,7 +6844,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const m = addMonths(shownMonth, n);
         setMonth(m >= data.thisMonth ? null : m);
       } else {
-        const d = addDays(shown, n);
+        const d = addDays2(shown, n);
         setDate(d >= today ? null : d);
       }
     };
@@ -6360,9 +6890,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return /* @__PURE__ */ React.createElement("section", { style: cardStyle, "aria-label": "Joy in Childhood leaderboard" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(HeartIcon, { color: O }), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontFamily: FONT_H, fontWeight: 800, fontSize: "1.02rem", color: th.text } }, "Joy in Childhood"), data?.updatedAt && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted, fontFamily: FONT_B } }, "Updated ", ago(data.updatedAt)))), data && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", fontFamily: FONT_B, flexWrap: "wrap", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("span", { role: "group", "aria-label": "Show one day or the whole month", style: { display: "inline-flex", gap: 2, padding: 2, borderRadius: 999, border: `1px solid ${th.cardBorder}` } }, seg("day", "Day"), seg("month", "Month")), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, arrow("left", canBack, () => step(-1), isMonth ? "Previous month" : "Previous day"), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { minWidth: "7.5em", textAlign: "center", fontWeight: 700, color: th.text, fontSize: "0.9rem", opacity: loading ? 0.6 : 1 } }, isMonth ? monthLabel(shownMonth, data.thisMonth) : dayLabel(shown, today)), arrow("right", canFwd, () => step(1), isMonth ? "Next month" : "Next day")))), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: "#dc2626", fontFamily: FONT_B, padding: "0.3rem 0" } }, err), data && isStore && rows[0] && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.6rem", padding: "0.4rem 0.2rem", fontFamily: FONT_B, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_H, fontWeight: 900, fontSize: "2.4rem", color: O, lineHeight: 1, ...NUM } }, rows[0].noData ? "\u2014" : rows[0].cnt.toLocaleString()), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, rows[0].noData ? `no data yet for ${rows[0].name}` : `donation${rows[0].cnt === 1 ? "" : "s"} at ${rows[0].name}`), !rows[0].noData && rows[0].ttl > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.88rem" } }, "$", rows[0].ttl.toLocaleString(void 0, { maximumFractionDigits: 2 }), " raised for Joy in Childhood")), data && isStore && !rows[0] && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, fontFamily: FONT_B } }, "Your account isn't linked to a store yet."), data && !isStore && /* @__PURE__ */ React.createElement(React.Fragment, null, rows.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, fontFamily: FONT_B, marginBottom: "0.3rem" } }, data.total.toLocaleString(), " donations across ", rows.filter((r) => !r.noData).length, " stores"), rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, fontFamily: FONT_B, padding: "0.4rem 0.2rem" } }, "No numbers for this ", isMonth ? "month" : "day", " yet. They fill in every hour."), !rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("ol", { style: { listStyle: "none", margin: 0, padding: 0 } }, rows.slice(0, limit).map((r) => /* @__PURE__ */ React.createElement("li", { key: r.pc, style: { display: "grid", gridTemplateColumns: isMobile ? "1.6rem minmax(0, 1.7fr) minmax(0, 1fr) 3rem" : "2rem minmax(0, 1fr) minmax(0, 1.4fr) 3.5rem", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.2rem", borderTop: `1px solid ${th.cardBorder}`, fontFamily: FONT_B } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_H, fontWeight: 900, color: r.rank && r.rank <= 3 ? O : th.muted, fontSize: "0.95rem", ...NUM } }, r.rank || ""), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.name, !isMobile && /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: th.muted, fontSize: "0.78rem" } }, " D", r.district)), /* @__PURE__ */ React.createElement("span", { "aria-hidden": "true", style: { height: 8, borderRadius: 4, background: th.cardBorder, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "block", height: "100%", width: `${r.noData ? 0 : Math.max(2, r.cnt / max * 100)}%`, background: O, borderRadius: 4 } })), /* @__PURE__ */ React.createElement("span", { style: { textAlign: "right", fontWeight: 800, color: th.text, ...NUM } }, r.noData ? "\u2014" : r.cnt.toLocaleString())))), data.scope === "all" && rows.length > 5 && !rows.every((r) => r.noData) && /* @__PURE__ */ React.createElement("div", { style: { paddingTop: "0.55rem", textAlign: "center" } }, linkBtn(showAll ? "Show top 5" : `Show all ${rows.length} stores`, () => setShowAll((v) => !v)))));
   }
   function JoyMobileTile({ cardStyle, mono, display, muted, secondary }) {
-    const [today, setToday] = useState14(null);
-    const [month, setMonth] = useState14(null);
-    useEffect11(() => {
+    const [today, setToday] = useState16(null);
+    const [month, setMonth] = useState16(null);
+    useEffect13(() => {
       let live = true;
       const get = (qs) => fetch("/.netlify/functions/joy" + qs, { credentials: "include", headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).catch(() => null);
       const load = () => Promise.all([get(""), get(`?month=${(/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" }).slice(0, 7)}`)]).then(([d, m2]) => {
@@ -6465,7 +6995,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
 
   // src/store-status.mjs
   var PERMANENTLY_CLOSED = "Permanently Closed";
-  var addDays2 = (iso, n) => {
+  var addDays3 = (iso, n) => {
     const d = /* @__PURE__ */ new Date(`${iso}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
@@ -6475,7 +7005,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const closed = String(store.closedDate || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(closed)) return true;
     const day2 = String(onIso || "").slice(0, 10) || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    return day2 > addDays2(closed, graceDays);
+    return day2 > addDays3(closed, graceDays);
   }
   function districtNumbers(stores) {
     const set = /* @__PURE__ */ new Set();
@@ -6748,15 +7278,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // src/office-clock-weeks.mjs
-  function addDays3(iso, n) {
+  function addDays4(iso, n) {
     const d = /* @__PURE__ */ new Date(`${iso}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
   }
   function periodWeeks(periodEnd) {
     return [
-      { weekStart: addDays3(periodEnd, -13), weekEnd: addDays3(periodEnd, -7) },
-      { weekStart: addDays3(periodEnd, -6), weekEnd: periodEnd }
+      { weekStart: addDays4(periodEnd, -13), weekEnd: addDays4(periodEnd, -7) },
+      { weekStart: addDays4(periodEnd, -6), weekEnd: periodEnd }
     ];
   }
   function weekTotals(dailyRows, periodEnd, { today = null, todayMinutes = null } = {}) {
@@ -7105,10 +7635,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function generatePassword() {
     const lower = "abcdefghijkmnpqrstuvwxyz", upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-    const digits2 = "23456789", special = "!@#$%^&*-_=+";
-    const all = lower + upper + digits2 + special;
+    const digits3 = "23456789", special = "!@#$%^&*-_=+";
+    const all = lower + upper + digits3 + special;
     const pick = (set) => set[Math.floor(Math.random() * set.length)];
-    let pw = pick(lower) + pick(upper) + pick(digits2) + pick(special);
+    let pw = pick(lower) + pick(upper) + pick(digits3) + pick(special);
     while (pw.length < PASSWORD_RULE.minLength) pw += pick(all);
     return pw.split("").sort(() => Math.random() - 0.5).join("");
   }
@@ -7502,7 +8032,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
 
   // app.jsx
-  var { useState: useState15, useRef: useRef6, useCallback, useEffect: useEffect12 } = React;
+  var { useState: useState17, useRef: useRef7, useCallback, useEffect: useEffect14 } = React;
   var Guard = class extends React.Component {
     constructor(props) {
       super(props);
@@ -7525,8 +8055,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
   var GOOGLE_ALLOWED_DOMAINS = ["peoplecapitalgroup.com", "rgi.life", "Raogroupinc.com"];
   function useIsMobile() {
-    const [isMobile, setIsMobile] = useState15(() => window.innerWidth <= 768);
-    useEffect12(() => {
+    const [isMobile, setIsMobile] = useState17(() => window.innerWidth <= 768);
+    useEffect14(() => {
       const handler = () => setIsMobile(window.innerWidth <= 768);
       window.addEventListener("resize", handler);
       return () => window.removeEventListener("resize", handler);
@@ -7534,8 +8064,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return isMobile;
   }
   function useNoHoverDevice() {
-    const [noHover, setNoHover] = useState15(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
-    useEffect12(() => {
+    const [noHover, setNoHover] = useState17(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
+    useEffect14(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mq = window.matchMedia("(hover: none)");
       const handler = () => setNoHover(mq.matches);
@@ -7547,8 +8077,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return noHover;
   }
   function useFrameHeight(frameRef, min = 360, gutter = 20, dep) {
-    const [frameH, setFrameH] = useState15(null);
-    useEffect12(() => {
+    const [frameH, setFrameH] = useState17(null);
+    useEffect14(() => {
       const measure = () => {
         const el = frameRef.current;
         if (!el) return;
@@ -8466,9 +8996,9 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return secret;
   }
   function base32ToBytes(secret) {
-    const clean5 = String(secret || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
+    const clean6 = String(secret || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
     let bits = "";
-    for (const char of clean5) {
+    for (const char of clean6) {
       const value = TOTP_BASE32_ALPHABET.indexOf(char);
       if (value >= 0) bits += value.toString(2).padStart(5, "0");
     }
@@ -8646,50 +9176,50 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Login({ onLogin, dark, toggleDark, users }) {
     const th = getTheme(dark);
-    const [form, setForm] = useState15({ u: (() => {
+    const [form, setForm] = useState17({ u: (() => {
       try {
         return localStorage.getItem("pcg_remember_username") || "";
       } catch {
         return "";
       }
     })(), p: "" });
-    const [rememberMe, setRememberMe] = useState15(() => {
+    const [rememberMe, setRememberMe] = useState17(() => {
       try {
         return !!localStorage.getItem("pcg_remember_username");
       } catch {
         return false;
       }
     });
-    const [authStage, setAuthStage] = useState15("password");
-    const [pendingUser, setPendingUser] = useState15(null);
-    const [twoFactorCode, setTwoFactorCode] = useState15("");
-    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState15("");
-    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState15(false);
-    const [trustDevice, setTrustDevice] = useState15(true);
-    const [err, setErr] = useState15("");
-    const [show, setShow] = useState15(false);
-    const [logoAnim, setLogoAnim] = useState15(false);
-    const [shake, setShake] = useState15(false);
-    const [loading, setLoading] = useState15(false);
-    const [exiting, setExiting] = useState15(false);
-    const [focusField, setFocusField] = useState15(null);
-    const [now, setNow] = useState15(/* @__PURE__ */ new Date());
-    const [mounted, setMounted] = useState15(false);
-    const [showItModal, setShowItModal] = useState15(false);
-    const [narrow, setNarrow] = useState15(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
-    const [tinyScreen, setTinyScreen] = useState15(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
-    const toggleBtnRef = useRef6(null);
-    const logoRef = useRef6(null);
-    const googleBtnRef = useRef6(null);
-    const tokenClientRef = useRef6(null);
-    const [bioAvailable, setBioAvailable] = useState15(false);
-    const [bioLoading, setBioLoading] = useState15(false);
-    const [bioAutoPrompting, setBioAutoPrompting] = useState15(false);
-    const bioAutoTriedRef = useRef6(false);
-    useEffect12(() => {
+    const [authStage, setAuthStage] = useState17("password");
+    const [pendingUser, setPendingUser] = useState17(null);
+    const [twoFactorCode, setTwoFactorCode] = useState17("");
+    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState17("");
+    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState17(false);
+    const [trustDevice, setTrustDevice] = useState17(true);
+    const [err, setErr] = useState17("");
+    const [show, setShow] = useState17(false);
+    const [logoAnim, setLogoAnim] = useState17(false);
+    const [shake, setShake] = useState17(false);
+    const [loading, setLoading] = useState17(false);
+    const [exiting, setExiting] = useState17(false);
+    const [focusField, setFocusField] = useState17(null);
+    const [now, setNow] = useState17(/* @__PURE__ */ new Date());
+    const [mounted, setMounted] = useState17(false);
+    const [showItModal, setShowItModal] = useState17(false);
+    const [narrow, setNarrow] = useState17(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
+    const [tinyScreen, setTinyScreen] = useState17(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
+    const toggleBtnRef = useRef7(null);
+    const logoRef = useRef7(null);
+    const googleBtnRef = useRef7(null);
+    const tokenClientRef = useRef7(null);
+    const [bioAvailable, setBioAvailable] = useState17(false);
+    const [bioLoading, setBioLoading] = useState17(false);
+    const [bioAutoPrompting, setBioAutoPrompting] = useState17(false);
+    const bioAutoTriedRef = useRef7(false);
+    useEffect14(() => {
       webauthnAvailable().then(setBioAvailable);
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       const onResize = () => {
         setNarrow(window.innerWidth < 900);
         setTinyScreen(window.innerWidth < 420);
@@ -8701,15 +9231,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         window.removeEventListener("orientationchange", onResize);
       };
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       const t = setInterval(() => setNow(/* @__PURE__ */ new Date()), 1e3);
       return () => clearInterval(t);
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       const t = setTimeout(() => setMounted(true), 30);
       return () => clearTimeout(t);
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       fetch("/.netlify/functions/portal-auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -8905,7 +9435,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBioLoading(false);
       await handleBiometricResult(res, false);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (bioAutoTriedRef.current) return;
       if (!bioAvailable || !webauthnDeviceEnrolled()) return;
       bioAutoTriedRef.current = true;
@@ -8916,7 +9446,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         await handleBiometricResult(res, true);
       })();
     }, [bioAvailable]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
       let tries = 0;
       const init = () => {
@@ -9777,15 +10307,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ))));
   }
   function LinksHub({ links, setLinks, th, user }) {
-    const [search, setSearch] = useState15("");
-    const [editMode, setEditMode] = useState15(false);
-    const [addMode, setAddMode] = useState15(false);
-    const [editingLink, setEditingLink] = useState15(null);
-    const [newLink, setNewLink] = useState15({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
-    const [editForm, setEditForm] = useState15({ name: "", url: "", desc: "", cat: "", visibility: "all" });
-    const [dragId, setDragId] = useState15(null);
-    const [dragCat, setDragCat] = useState15(null);
-    const [dragOverId, setDragOverId] = useState15(null);
+    const [search, setSearch] = useState17("");
+    const [editMode, setEditMode] = useState17(false);
+    const [addMode, setAddMode] = useState17(false);
+    const [editingLink, setEditingLink] = useState17(null);
+    const [newLink, setNewLink] = useState17({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
+    const [editForm, setEditForm] = useState17({ name: "", url: "", desc: "", cat: "", visibility: "all" });
+    const [dragId, setDragId] = useState17(null);
+    const [dragCat, setDragCat] = useState17(null);
+    const [dragOverId, setDragOverId] = useState17(null);
     const canAdmin = isFullAdmin(user) || user?.userType === "office_staff";
     const isFieldUser = user?.userType === "dm" || user?.userType === "manager";
     const allCats = Object.keys(links);
@@ -10058,15 +10588,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         [user.id]: typeof updater === "function" ? updater(prev[user.id] || []) : updater
       }));
     };
-    const [editing, setEditing] = useState15(null);
-    const [form, setForm] = useState15({ title: "", body: "" });
-    const [adding, setAdding] = useState15(false);
-    const [recording, setRecording] = useState15(false);
-    const [interimText, setInterimText] = useState15("");
-    const [recordError, setRecordError] = useState15("");
-    const recognitionRef = useRef6(null);
-    const baseBodyRef = useRef6("");
-    const finalChunksRef = useRef6("");
+    const [editing, setEditing] = useState17(null);
+    const [form, setForm] = useState17({ title: "", body: "" });
+    const [adding, setAdding] = useState17(false);
+    const [recording, setRecording] = useState17(false);
+    const [interimText, setInterimText] = useState17("");
+    const [recordError, setRecordError] = useState17("");
+    const recognitionRef = useRef7(null);
+    const baseBodyRef = useRef7("");
+    const finalChunksRef = useRef7("");
     const SpeechRecognition = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
     const recordingSupported = !!SpeechRecognition;
     const nextId = () => Date.now();
@@ -10134,8 +10664,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setForm((f) => ({ ...f, title: firstLine || "Voice Note " + (/* @__PURE__ */ new Date()).toLocaleDateString() }));
       }
     };
-    const recordingRef = useRef6(false);
-    useEffect12(() => {
+    const recordingRef = useRef7(false);
+    useEffect14(() => {
       return () => {
         recordingRef.current = false;
         try {
@@ -10460,13 +10990,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Todos({ todos, setTodos, user, users, th, deepLinkRef }) {
     const emptyForm = { text: "", priority: "Medium", assigneeIds: [user.id], dueDate: "", note: "" };
-    const [form, setForm] = useState15(emptyForm);
-    const [addOpen, setAddOpen] = useState15(false);
-    const [viewTab, setViewTab] = useState15("mine");
-    const [detailId, setDetailId] = useState15(null);
-    const [assignDropOpen, setAssignDropOpen] = useState15(false);
+    const [form, setForm] = useState17(emptyForm);
+    const [addOpen, setAddOpen] = useState17(false);
+    const [viewTab, setViewTab] = useState17("mine");
+    const [detailId, setDetailId] = useState17(null);
+    const [assignDropOpen, setAssignDropOpen] = useState17(false);
     const getUserById = (id) => users.find((u) => u.id === id);
-    useEffect12(() => {
+    useEffect14(() => {
       if (deepLinkRef?.current) {
         const task = todos.find((t) => t.id === deepLinkRef.current);
         if (task) {
@@ -10478,7 +11008,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         deepLinkRef.current = null;
       }
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       const needsMigration = todos.some((t) => t.assigneeId !== void 0 && !t.assigneeIds);
       if (needsMigration) {
         setTodos((ts) => ts.map((t) => {
@@ -10910,21 +11440,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         return st;
       }));
     };
-    const [view, setView] = useState15("list");
-    const [editId, setEditId] = useState15(null);
-    const [showPw, setShowPw] = useState15(false);
-    const [form, setForm] = useState15({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
-    const [search, setSearch] = useState15("");
-    const [welcomeSent, setWelcomeSent] = useState15(null);
-    const [saveFlash, setSaveFlash] = useState15(false);
-    const [confirmDeleteId, setConfirmDeleteId] = useState15(null);
+    const [view, setView] = useState17("list");
+    const [editId, setEditId] = useState17(null);
+    const [showPw, setShowPw] = useState17(false);
+    const [form, setForm] = useState17({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
+    const [search, setSearch] = useState17("");
+    const [welcomeSent, setWelcomeSent] = useState17(null);
+    const [saveFlash, setSaveFlash] = useState17(false);
+    const [confirmDeleteId, setConfirmDeleteId] = useState17(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const canLinkTimeOff = isFullAdmin(currentUser);
-    const [timeOff, setTimeOff] = useState15({});
-    const [timeOffSync, setTimeOffSync] = useState15(null);
-    const [timeOffSyncing, setTimeOffSyncing] = useState15(false);
-    const [linkTarget, setLinkTarget] = useState15(null);
+    const [timeOff, setTimeOff] = useState17({});
+    const [timeOffSync, setTimeOffSync] = useState17(null);
+    const [timeOffSyncing, setTimeOffSyncing] = useState17(false);
+    const [linkTarget, setLinkTarget] = useState17(null);
     const loadTimeOff = useCallback(() => {
       timeOffApi("users").then((j) => setTimeOff(j.users || {})).catch(() => {
       });
@@ -10955,7 +11485,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       loadTimeOff();
       setTimeOffSyncing(false);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       loadTimeOff().then((last) => {
         if (!canLinkTimeOff || last === void 0) return;
         const now = Date.now();
@@ -10967,12 +11497,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, [loadTimeOff]);
     const nextId = () => Math.max(0, ...users.map((u) => u.id)) + 1;
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-    const [emailAction, setEmailAction] = useState15(null);
-    const [revokeAction, setRevokeAction] = useState15(null);
-    const [statusFilter, setStatusFilter] = useState15("all");
-    const [flashUserKey, setFlashUserKey] = useState15(null);
-    const [leavingUserIds, setLeavingUserIds] = useState15([]);
-    const prevUserIdsRef = useRef6(/* @__PURE__ */ new Set());
+    const [emailAction, setEmailAction] = useState17(null);
+    const [revokeAction, setRevokeAction] = useState17(null);
+    const [statusFilter, setStatusFilter] = useState17("all");
+    const [flashUserKey, setFlashUserKey] = useState17(null);
+    const [leavingUserIds, setLeavingUserIds] = useState17([]);
+    const prevUserIdsRef = useRef7(/* @__PURE__ */ new Set());
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
       if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
@@ -11210,8 +11740,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
     const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development", "Field Operations Auditor"] : ["District Manager", "Store Manager", "Construction & Development"];
     const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
-    const [roleFilter, setRoleFilter] = useState15("all");
-    const [isMobileUsers, setIsMobileUsers] = useState15(() => window.innerWidth < 700);
+    const [roleFilter, setRoleFilter] = useState17("all");
+    const [isMobileUsers, setIsMobileUsers] = useState17(() => window.innerWidth < 700);
     React.useEffect(() => {
       const fn = () => setIsMobileUsers(window.innerWidth < 700);
       window.addEventListener("resize", fn);
@@ -11222,7 +11752,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
     const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
     const displayUsers = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username || "").toLowerCase().includes(search.toLowerCase())).filter((u) => roleFilter === "all" || u.userType === roleFilter).filter((u) => statusFilter === "all" || (statusFilter === "active" ? u.active !== false : statusFilter === "inactive" ? u.active === false : !!u.locked)).sort((a, b) => (b.active === false ? 1 : 0) - (a.active === false ? 1 : 0));
-    useEffect12(() => {
+    useEffect14(() => {
       prevUserIdsRef.current = new Set(displayUsers.map((u) => u.id));
     });
     const rc = roleColor(form.userType || "manager");
@@ -12027,21 +12557,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var openStoreList = () => LIVE_OPEN_STORES || STORES_SEED.filter((s) => s.status !== PERMANENTLY_CLOSED);
   function ClosestToFinder({ th, onClose }) {
     const O2 = "#FF671F";
-    const [addr, setAddr] = useState15("");
-    const [origin, setOrigin] = useState15(null);
-    const [ranked, setRanked] = useState15([]);
-    const [drive, setDrive] = useState15({});
-    const [busy, setBusy] = useState15(false);
-    const [status, setStatus] = useState15("");
-    const [hoverPc, setHoverPc] = useState15(null);
-    const [suggestions, setSuggestions] = useState15([]);
-    const [showSuggestions, setShowSuggestions] = useState15(false);
-    const [suggestLoading, setSuggestLoading] = useState15(false);
-    const [activeSugIdx, setActiveSugIdx] = useState15(-1);
-    const suggestTimer = useRef6(null);
-    const mapDiv = useRef6(null);
-    const mapRef = useRef6(null);
-    const markersRef = useRef6({});
+    const [addr, setAddr] = useState17("");
+    const [origin, setOrigin] = useState17(null);
+    const [ranked, setRanked] = useState17([]);
+    const [drive, setDrive] = useState17({});
+    const [busy, setBusy] = useState17(false);
+    const [status, setStatus] = useState17("");
+    const [hoverPc, setHoverPc] = useState17(null);
+    const [suggestions, setSuggestions] = useState17([]);
+    const [showSuggestions, setShowSuggestions] = useState17(false);
+    const [suggestLoading, setSuggestLoading] = useState17(false);
+    const [activeSugIdx, setActiveSugIdx] = useState17(-1);
+    const suggestTimer = useRef7(null);
+    const mapDiv = useRef7(null);
+    const mapRef = useRef7(null);
+    const markersRef = useRef7({});
     function handleAddrChange(val) {
       setAddr(val);
       setActiveSugIdx(-1);
@@ -12157,7 +12687,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setDrive((d) => ({ ...d, [row.pc]: "err" }));
       }
     }
-    useEffect12(() => {
+    useEffect14(() => {
       if (!mapDiv.current || !window.L) return;
       const L3 = window.L;
       if (!mapRef.current) {
@@ -12190,11 +12720,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setTimeout(() => map.invalidateSize(), 60);
     }, [ranked, origin]);
-    useEffect12(() => {
+    useEffect14(() => {
       const m = hoverPc && markersRef.current[hoverPc];
       if (m && m.openPopup) m.openPopup();
     }, [hoverPc]);
-    useEffect12(() => () => {
+    useEffect14(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -12241,30 +12771,30 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
     const mgrOf = (s) => storeMgrName(s, users);
-    const [laborData, setLaborData] = useState15(null);
-    useEffect12(() => {
+    const [laborData, setLaborData] = useState17(null);
+    useEffect14(() => {
       cloudLoad("pcg_labor_v1").then((d) => {
         if (d?.stores) setLaborData(d.stores);
       }).catch(() => {
       });
     }, []);
     const employeeCountOf = (s) => laborData?.[s.pc]?.today?.employees;
-    const [filterState, setFilterState] = useState15("All");
-    const [filterStatus, setFilterStatus] = useState15("All");
-    const [filterDistrict, setFilterDistrict] = useState15("All");
-    const [filterNxt, setFilterNxt] = useState15(false);
-    const [filterBaskin, setFilterBaskin] = useState15(false);
-    const [search, setSearch] = useState15("");
-    const [editStore, setEditStore] = useState15(null);
-    const [addMode, setAddMode] = useState15(false);
-    const [selectedStore, setSelectedStore] = useState15(null);
-    const [sortCol, setSortCol] = useState15("pc");
-    const [sortDir, setSortDir] = useState15("asc");
-    const [copiedId, setCopiedId] = useState15(null);
-    const [cityData, setCityData] = useState15(null);
-    const [cityLoading, setCityLoading] = useState15(false);
-    const [foodLicenses, setFoodLicenses] = useState15({});
-    const [foodLicensesLoading, setFoodLicensesLoading] = useState15(false);
+    const [filterState, setFilterState] = useState17("All");
+    const [filterStatus, setFilterStatus] = useState17("All");
+    const [filterDistrict, setFilterDistrict] = useState17("All");
+    const [filterNxt, setFilterNxt] = useState17(false);
+    const [filterBaskin, setFilterBaskin] = useState17(false);
+    const [search, setSearch] = useState17("");
+    const [editStore, setEditStore] = useState17(null);
+    const [addMode, setAddMode] = useState17(false);
+    const [selectedStore, setSelectedStore] = useState17(null);
+    const [sortCol, setSortCol] = useState17("pc");
+    const [sortDir, setSortDir] = useState17("asc");
+    const [copiedId, setCopiedId] = useState17(null);
+    const [cityData, setCityData] = useState17(null);
+    const [cityLoading, setCityLoading] = useState17(false);
+    const [foodLicenses, setFoodLicenses] = useState17({});
+    const [foodLicensesLoading, setFoodLicensesLoading] = useState17(false);
     const loadFoodLicenses = async () => {
       setFoodLicensesLoading(true);
       try {
@@ -12280,17 +12810,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setFoodLicensesLoading(false);
     };
-    const [toolsOpen, setToolsOpen] = useState15(false);
-    const [activeTool, setActiveTool] = useState15(null);
-    const [viewMode, setViewMode] = useState15("list");
-    useEffect12(() => {
+    const [toolsOpen, setToolsOpen] = useState17(false);
+    const [activeTool, setActiveTool] = useState17(null);
+    const [viewMode, setViewMode] = useState17("list");
+    useEffect14(() => {
       onMapModeChange?.(viewMode === "map");
       return () => onMapModeChange?.(false);
     }, [viewMode]);
-    const [isNarrow, setIsNarrow] = useState15(() => typeof window !== "undefined" && window.innerWidth < 760);
-    const frameRef = useRef6(null);
+    const [isNarrow, setIsNarrow] = useState17(() => typeof window !== "undefined" && window.innerWidth < 760);
+    const frameRef = useRef7(null);
     const frameH = useFrameHeight(frameRef, 340, 16);
-    useEffect12(() => {
+    useEffect14(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -12329,7 +12859,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     const emptyStore = { pc: "", paycor: "", legal: "", name: "", address: "", city: "", state: "PA", zip: "", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "", district: "", dmName: "", dmEmail: "", status: "Coming Soon", closedDate: "", employees: 0, sales: 0 };
-    const [newStore, setNewStore] = useState15(emptyStore);
+    const [newStore, setNewStore] = useState17(emptyStore);
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
     const isDM = user?.userType === "dm";
@@ -13536,12 +14066,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ));
   }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
-    const [editDist, setEditDist] = useState15(null);
-    const [distForm, setDistForm] = useState15({});
-    const [addMode, setAddMode] = useState15(false);
-    const [newDist, setNewDist] = useState15({ num: "", name: "", email: "" });
-    const [expandedDist, setExpandedDist] = useState15(null);
-    const [moveStore, setMoveStore] = useState15(null);
+    const [editDist, setEditDist] = useState17(null);
+    const [distForm, setDistForm] = useState17({});
+    const [addMode, setAddMode] = useState17(false);
+    const [newDist, setNewDist] = useState17({ num: "", name: "", email: "" });
+    const [expandedDist, setExpandedDist] = useState17(null);
+    const [moveStore, setMoveStore] = useState17(null);
     const distList = Object.values(districts).sort((a, b) => a.num - b.num);
     const mgrOf = (s) => storeMgrName(s, users);
     const saveEdit = () => {
@@ -13941,16 +14471,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const canUpload = user?.username === "mike.bahm";
     const isDMViewer = user?.userType === "dm";
     const dmDistrict = isDMViewer ? user?.district || null : null;
-    const [uploading, setUploading] = useState15(false);
-    const [uploadErr, setUploadErr] = useState15(null);
-    const [selWeek, setSelWeek] = useState15(0);
-    const [sortCol, setSortCol] = useState15("lwSale");
-    const [sortDir, setSortDir] = useState15(-1);
-    const [distFilter, setDistFilter] = useState15(isDMViewer ? dmDistrict || 0 : 0);
-    const [debugLines, setDebugLines] = useState15(null);
-    const [showDebug, setShowDebug] = useState15(false);
-    const fileRef = useRef6(null);
-    const detailTableRef = useRef6(null);
+    const [uploading, setUploading] = useState17(false);
+    const [uploadErr, setUploadErr] = useState17(null);
+    const [selWeek, setSelWeek] = useState17(0);
+    const [sortCol, setSortCol] = useState17("lwSale");
+    const [sortDir, setSortDir] = useState17(-1);
+    const [distFilter, setDistFilter] = useState17(isDMViewer ? dmDistrict || 0 : 0);
+    const [debugLines, setDebugLines] = useState17(null);
+    const [showDebug, setShowDebug] = useState17(false);
+    const fileRef = useRef7(null);
+    const detailTableRef = useRef7(null);
     const fmtSales = (n) => {
       if (!n) return "\u2014";
       if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
@@ -14175,14 +14705,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     })())));
   }
   function formatPhone(raw) {
-    const digits2 = (raw || "").replace(/\D/g, "").slice(0, 10);
-    if (digits2.length < 4) return digits2;
-    if (digits2.length < 7) return `(${digits2.slice(0, 3)}) ${digits2.slice(3)}`;
-    return `(${digits2.slice(0, 3)}) ${digits2.slice(3, 6)}-${digits2.slice(6)}`;
+    const digits3 = (raw || "").replace(/\D/g, "").slice(0, 10);
+    if (digits3.length < 4) return digits3;
+    if (digits3.length < 7) return `(${digits3.slice(0, 3)}) ${digits3.slice(3)}`;
+    return `(${digits3.slice(0, 3)}) ${digits3.slice(3, 6)}-${digits3.slice(6)}`;
   }
   function handlePhoneChange(val, setter, field) {
-    const digits2 = val.replace(/\D/g, "").slice(0, 10);
-    setter((f) => ({ ...f, [field]: formatPhone(digits2) }));
+    const digits3 = val.replace(/\D/g, "").slice(0, 10);
+    setter((f) => ({ ...f, [field]: formatPhone(digits3) }));
   }
   var CONTACTS_SEED = [
     { id: 1, name: "Mike Bahm", title: "VP of Operations", phone: "(610) 555-0101", email: "mike.bahm@pcgdunkin.com", dept: "Leadership" },
@@ -14212,33 +14742,33 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     "Other": { color: "#aaa", bg: "#aaa18" }
   };
   function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, currentUser, th }) {
-    const [search, setSearch] = useState15("");
-    const [modal, setModal] = useState15(null);
-    const [editItem, setEditItem] = useState15(null);
-    const [form, setForm] = useState15({});
-    const [deptDropOpen, setDeptDropOpen] = useState15(false);
-    const [showInternal, setShowInternal] = useState15(() => {
+    const [search, setSearch] = useState17("");
+    const [modal, setModal] = useState17(null);
+    const [editItem, setEditItem] = useState17(null);
+    const [form, setForm] = useState17({});
+    const [deptDropOpen, setDeptDropOpen] = useState17(false);
+    const [showInternal, setShowInternal] = useState17(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_internal") ?? "true");
       } catch {
         return true;
       }
     });
-    const [showVendors, setShowVendors] = useState15(() => {
+    const [showVendors, setShowVendors] = useState17(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_vendors") ?? "true");
       } catch {
         return true;
       }
     });
-    const [dragId, setDragId] = useState15(null);
-    useEffect12(() => {
+    const [dragId, setDragId] = useState17(null);
+    useEffect14(() => {
       localStorage.setItem("pcg_show_internal", JSON.stringify(showInternal));
     }, [showInternal]);
-    useEffect12(() => {
+    useEffect14(() => {
       localStorage.setItem("pcg_show_vendors", JSON.stringify(showVendors));
     }, [showVendors]);
-    useEffect12(() => {
+    useEffect14(() => {
       const needsMigration = contacts.some((c) => c.dept !== void 0 && !c.depts);
       if (needsMigration) {
         setContacts((cs) => cs.map((c) => {
@@ -14877,10 +15407,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function ReportPhotoImg({ photo, size = "med", style, alt, onClick }) {
     const inline = photo && typeof photo.data === "string" && photo.data.length > 32 && (size === "med" || !isRefPhoto(photo)) ? photo.data : null;
-    const [src, setSrc] = useState15(inline);
-    const [failed, setFailed] = useState15(false);
+    const [src, setSrc] = useState17(inline);
+    const [failed, setFailed] = useState17(false);
     const idKey = photo ? (photo.photoId || photo._localId || "") + "|" + size : "";
-    useEffect12(() => {
+    useEffect14(() => {
       if (inline) {
         setSrc(inline);
         setFailed(false);
@@ -14918,17 +15448,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     );
   }
   function useReportPhotoUploads(setRForm, getCtx) {
-    const ctxRef = useRef6(getCtx);
+    const ctxRef = useRef7(getCtx);
     ctxRef.current = getCtx;
-    const files = useRef6(/* @__PURE__ */ new Map());
-    const dropped = useRef6(/* @__PURE__ */ new Set());
-    const idByLocal = useRef6(/* @__PURE__ */ new Map());
-    const uploaded = useRef6([]);
-    const removed = useRef6([]);
-    const queue = useRef6([]);
-    const active = useRef6(0);
-    const rid = useRef6(null);
-    const captioned = useRef6(false);
+    const files = useRef7(/* @__PURE__ */ new Map());
+    const dropped = useRef7(/* @__PURE__ */ new Set());
+    const idByLocal = useRef7(/* @__PURE__ */ new Map());
+    const uploaded = useRef7([]);
+    const removed = useRef7([]);
+    const queue = useRef7([]);
+    const active = useRef7(0);
+    const rid = useRef7(null);
+    const captioned = useRef7(false);
     const noteReport = () => {
       const id = ctxRef.current()?.reportId;
       if (id != null) rid.current = id;
@@ -15120,7 +15650,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   function ReportPhotoConvert({ th, project, reports, allReports, setDailyReports }) {
     const todo = (reports || []).filter(needsLegacyConversion);
     const todoAll = (allReports || []).filter(needsLegacyConversion);
-    const [run, setRun] = useState15(null);
+    const [run, setRun] = useState17(null);
     if (!todo.length && !todoAll.length && !run) return null;
     const busy = run && !run.finished;
     const start = async (everything) => {
@@ -15303,8 +15833,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     for (const email of recipientEmails) {
       const u = allUsers.find((usr) => (usr.email || "").toLowerCase() === email.toLowerCase());
       if (u && u.smsNotify && u.phone) {
-        const digits2 = u.phone.replace(/\D/g, "");
-        if (digits2.length >= 10) smsNumbers.push(digits2);
+        const digits3 = u.phone.replace(/\D/g, "");
+        if (digits3.length >= 10) smsNumbers.push(digits3);
       }
     }
     if (smsNumbers.length > 0) sendNotifySMS(smsNumbers, smsBody);
@@ -15699,9 +16229,9 @@ ${pendingEmail.emails.join("\n")}`,
     }, user, standalone: true, txnDeepLinkRef, initialTab: initialTab || "sales" }));
   }
   function AdminSchedule({ stores, th, user }) {
-    const [selectedStore, setSelectedStore] = useState15(null);
-    const [search, setSearch] = useState15("");
-    const [filterDistrict, setFilterDistrict] = useState15("All");
+    const [selectedStore, setSelectedStore] = useState17(null);
+    const [search, setSearch] = useState17("");
+    const [filterDistrict, setFilterDistrict] = useState17("All");
     const isDM = user?.userType === "dm";
     const visibleStores = React.useMemo(() => {
       if (isDM && user?.district != null) return (stores || []).filter((s) => String(s.district) === String(user.district));
@@ -15739,7 +16269,7 @@ ${pendingEmail.emails.join("\n")}`,
     ))));
   }
   function ManagerSchedule({ stores, th, user }) {
-    const [mode, setMode] = useState15("build");
+    const [mode, setMode] = useState17("build");
     const store = getManagerStore(stores, user);
     if (!store?.pc) {
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "No store is linked to your account yet. Ask an admin to assign one.");
@@ -16217,13 +16747,13 @@ ${pendingEmail.emails.join("\n")}`,
       setWeekTotals(null);
       setOverrideLive(null);
       setTipsForPeriod(null);
-      const api2 = pc === "345986" ? "p227" : "p228";
+      const api3 = pc === "345986" ? "p227" : "p228";
       const fetchEndpoint = async (endpoint, body) => {
         try {
           const res = await fetch("/.netlify/functions/pulse", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ api: api2, endpoint, ...body })
+            body: JSON.stringify({ api: api3, endpoint, ...body })
           });
           return res.ok ? res.json() : null;
         } catch {
@@ -16409,13 +16939,13 @@ ${pendingEmail.emails.join("\n")}`,
     React.useEffect(() => {
       if (dayStoreCache) return;
       let alive = true;
-      const api2 = pc === "345986" ? "p227" : "p228";
+      const api3 = pc === "345986" ? "p227" : "p228";
       const fetchEndpoint = async (endpoint, body) => {
         try {
           const res = await fetch("/.netlify/functions/pulse", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ api: api2, endpoint, ...body })
+            body: JSON.stringify({ api: api3, endpoint, ...body })
           });
           return res.ok ? res.json() : null;
         } catch {
@@ -17609,14 +18139,14 @@ ${pendingEmail.emails.join("\n")}`,
           fetchEndpoint("getOrderTypeDimensions", { api: dimApi, locRef: dimStore.pc })
         ]);
         const allResults = await Promise.all(distStores.map(async (s) => {
-          const api2 = apiFor(s.pc);
+          const api3 = apiFor(s.pc);
           const perDay = await Promise.all(datesToFetch.map(async (date) => {
             const [tender, menu, order, checks, ops] = await Promise.all([
-              fetchEndpoint("getTenderMediaDailyTotals", { api: api2, locRef: s.pc, busDt: date, include: "revenueCenters.tenderMedias" }),
-              fetchEndpoint("getMenuItemDailyTotals", { api: api2, locRef: s.pc, busDt: date, searchCriteria: "where greaterThan(revenueCenters.menuItems.slsCnt, 0)", include: "revenueCenters.menuItems.miNum,revenueCenters.menuItems.slsTtl,revenueCenters.menuItems.slsCnt" }),
-              fetchEndpoint("getOrderTypeDailyTotals", { api: api2, locRef: s.pc, busDt: date, include: "revenueCenters.orderTypes" }),
-              fetchEndpoint("getGuestChecks", { api: api2, locRef: s.pc, busDt: date, include: "guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl" }),
-              fetchEndpoint("getOperationsDailyTotals", { api: api2, locRef: s.pc, busDt: date, include: "locRef,busDt,revenueCenters" })
+              fetchEndpoint("getTenderMediaDailyTotals", { api: api3, locRef: s.pc, busDt: date, include: "revenueCenters.tenderMedias" }),
+              fetchEndpoint("getMenuItemDailyTotals", { api: api3, locRef: s.pc, busDt: date, searchCriteria: "where greaterThan(revenueCenters.menuItems.slsCnt, 0)", include: "revenueCenters.menuItems.miNum,revenueCenters.menuItems.slsTtl,revenueCenters.menuItems.slsCnt" }),
+              fetchEndpoint("getOrderTypeDailyTotals", { api: api3, locRef: s.pc, busDt: date, include: "revenueCenters.orderTypes" }),
+              fetchEndpoint("getGuestChecks", { api: api3, locRef: s.pc, busDt: date, include: "guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl" }),
+              fetchEndpoint("getOperationsDailyTotals", { api: api3, locRef: s.pc, busDt: date, include: "locRef,busDt,revenueCenters" })
             ]);
             return { date, tender, menu, order, checks, ops };
           }));
@@ -18461,7 +18991,7 @@ ${pendingEmail.emails.join("\n")}`,
   function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
     const G = "#00d084";
     const isMobile = useIsMobile();
-    const [laborData, setLaborData] = useState15(null);
+    const [laborData, setLaborData] = useState17(null);
     const fetchLaborData = useCallback(async () => {
       try {
         const data = await cloudLoad("pcg_labor_v1");
@@ -18469,10 +18999,10 @@ ${pendingEmail.emails.join("\n")}`,
       } catch {
       }
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect12(() => {
+    useEffect14(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -18480,30 +19010,30 @@ ${pendingEmail.emails.join("\n")}`,
       const d = /* @__PURE__ */ new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     })();
-    const [busDt, setBusDt] = useState15(todayStr);
-    const [storeData, setStoreData] = useState15({});
-    const [loading, setLoading] = useState15(false);
-    const [progress, setProgress] = useState15(0);
-    const [lastRefresh, setLastRefresh] = useState15(null);
-    const [countdown, setCountdown] = useState15(300);
+    const [busDt, setBusDt] = useState17(todayStr);
+    const [storeData, setStoreData] = useState17({});
+    const [loading, setLoading] = useState17(false);
+    const [progress, setProgress] = useState17(0);
+    const [lastRefresh, setLastRefresh] = useState17(null);
+    const [countdown, setCountdown] = useState17(300);
     const isDMUser = user?.userType === "dm";
     const dmDistrict = isDMUser && user?.district ? Number(user.district) : 0;
-    const [distFilter, setDistFilter] = useState15(dmDistrict);
-    const [autoRefresh, setAutoRefresh] = useState15(true);
-    const [testResult, setTestResult] = useState15(null);
-    const [testing, setTesting] = useState15(false);
-    const [dateCache, setDateCache] = useState15({});
-    const [lyCache, setLyCache] = useState15({});
-    const [wtdLoading, setWtdLoading] = useState15(false);
-    const [viewMode, setViewMode] = useState15("day");
-    const [weekStoreData, setWeekStoreData] = useState15({});
-    const [weekLoading, setWeekLoading] = useState15(false);
-    const [dayStoreCache, setDayStoreCache] = useState15({});
-    const [comparisonsLoading, setComparisonsLoading] = useState15(false);
-    const [hourlyHistories, setHourlyHistories] = useState15(null);
-    const [collapsed, setCollapsed] = useState15(/* @__PURE__ */ new Set());
-    const [tipsSnapshot, setTipsSnapshot] = useState15(null);
-    useEffect12(() => {
+    const [distFilter, setDistFilter] = useState17(dmDistrict);
+    const [autoRefresh, setAutoRefresh] = useState17(true);
+    const [testResult, setTestResult] = useState17(null);
+    const [testing, setTesting] = useState17(false);
+    const [dateCache, setDateCache] = useState17({});
+    const [lyCache, setLyCache] = useState17({});
+    const [wtdLoading, setWtdLoading] = useState17(false);
+    const [viewMode, setViewMode] = useState17("day");
+    const [weekStoreData, setWeekStoreData] = useState17({});
+    const [weekLoading, setWeekLoading] = useState17(false);
+    const [dayStoreCache, setDayStoreCache] = useState17({});
+    const [comparisonsLoading, setComparisonsLoading] = useState17(false);
+    const [hourlyHistories, setHourlyHistories] = useState17(null);
+    const [collapsed, setCollapsed] = useState17(/* @__PURE__ */ new Set());
+    const [tipsSnapshot, setTipsSnapshot] = useState17(null);
+    useEffect14(() => {
       let alive = true;
       setTipsSnapshot(null);
       cloudLoad(`pcg_tips_snapshot_${busDt}`).then((d) => {
@@ -18520,8 +19050,8 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [busDt]);
-    const [laborDailyByStore, setLaborDailyByStore] = useState15({});
-    useEffect12(() => {
+    const [laborDailyByStore, setLaborDailyByStore] = useState17({});
+    useEffect14(() => {
       let alive = true;
       Promise.all((stores || []).map(
         (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => [s.pc, Array.isArray(d?.daily) ? d.daily : []]).catch(() => [s.pc, []])
@@ -18554,16 +19084,16 @@ ${pendingEmail.emails.join("\n")}`,
       if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
       return daily ? daily.find((e) => e.date === busDt) || null : null;
     }, [laborDailyByStore, viewMode, busDt, todayStr, laborData]);
-    const [pulseView, setPulseView] = useState15(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
-    const [weatherForecast, setWeatherForecast] = useState15(null);
-    const [networkReviews, setNetworkReviews] = useState15(null);
-    const cdRef = useRef6(null);
+    const [pulseView, setPulseView] = useState17(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
+    const [weatherForecast, setWeatherForecast] = useState17(null);
+    const [networkReviews, setNetworkReviews] = useState17(null);
+    const cdRef = useRef7(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
     const dmStoreCount = activePCs.length;
     const pulseDistrictNums = districtNumbers(stores.filter((s) => s.status === "Open"));
-    useEffect12(() => {
+    useEffect14(() => {
       let alive = true;
       Promise.all(activePCs.map(
         (pc) => cloudLoad(`pcg_hourly_history_${pc}`).then((d) => Array.isArray(d) ? d : null).catch(() => null)
@@ -18574,13 +19104,13 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [activePCs.join(",")]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (drillInStore) {
         setPulseView({ level: "store", pc: drillInStore });
         if (onClearDrillIn) onClearDrillIn();
       }
     }, [drillInStore]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (pulseView !== "network") {
         window.scrollTo(0, 0);
         frameRef.current?.scrollTo(0, 0);
@@ -18770,13 +19300,13 @@ ${t2.slice(0, 300)}`);
     const handleManualRefresh = () => {
       loadAll();
     };
-    const wtdAutoLoaded = useRef6(false);
-    const lastWtdWeek = useRef6("");
-    useEffect12(() => {
+    const wtdAutoLoaded = useRef7(false);
+    const lastWtdWeek = useRef7("");
+    useEffect14(() => {
       loadAll();
       if (!drillInStore) setPulseView("network");
     }, [busDt]);
-    useEffect12(() => {
+    useEffect14(() => {
       const d = /* @__PURE__ */ new Date(busDt + "T12:00:00");
       const sun = new Date(d);
       sun.setDate(d.getDate() - d.getDay());
@@ -18786,19 +19316,19 @@ ${t2.slice(0, 300)}`);
         lastWtdWeek.current = weekKey;
       }
     }, [busDt]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!loading && Object.keys(storeData).length > 0 && !wtdAutoLoaded.current) {
         wtdAutoLoaded.current = true;
         loadWTD();
         loadLYWeek();
       }
     }, [loading, storeData]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (loading) return;
       if (!Object.keys(storeData).length) return;
       loadComparisons();
     }, [busDt, viewMode, loading]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (autoRefresh) {
         cdRef.current = setInterval(() => {
           setCountdown((c) => {
@@ -18812,15 +19342,15 @@ ${t2.slice(0, 300)}`);
       }
       return () => clearInterval(cdRef.current);
     }, [autoRefresh, busDt]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (viewMode !== "week") return;
       loadWeekGrid();
     }, [viewMode, busDt]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (viewMode !== "week" || loading) return;
       loadWeekGrid();
     }, [storeData]);
-    useEffect12(() => {
+    useEffect14(() => {
       (async () => {
         try {
           const fRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) });
@@ -19859,10 +20389,10 @@ ${t2.slice(0, 300)}`);
     return doc;
   }
   function ReportPhotoRestore({ th, showAlert: showAlert2 }) {
-    const [open, setOpen] = useState15(false);
-    const [busy, setBusy] = useState15(null);
-    const [status, setStatus] = useState15(null);
-    const call9 = async (mode, extra = {}) => {
+    const [open, setOpen] = useState17(false);
+    const [busy, setBusy] = useState17(null);
+    const [status, setStatus] = useState17(null);
+    const call10 = async (mode, extra = {}) => {
       setBusy(mode);
       let before = null;
       try {
@@ -19906,22 +20436,22 @@ ${t2.slice(0, 300)}`);
       {
         disabled: !!busy,
         onClick: () => {
-          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call9("undo", { undoKey: status.undoKey });
+          if (window.confirm("Undo the restore and put these reports back exactly as they were before it?")) call10("undo", { undoKey: status.undoKey });
         },
         style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text }
       },
       "Undo restore"
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call9("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
-      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call9("restore");
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => setOpen(false), style: { ...btn(th), background: "transparent", border: `1px solid ${th.cardBorder}`, color: th.text } }, "Close"), /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => call10("scan"), style: { ...btn(th), background: "transparent", border: `1px solid ${O}88`, color: O } }, status ? "Check again" : "Dry run"), status?.mode === "scan" && plan?.reports > 0 && /* @__PURE__ */ React.createElement("button", { disabled: !!busy, onClick: () => {
+      if (window.confirm(`Restore ${plan.photos} photos on ${plan.reports} reports?`)) call10("restore");
     }, style: { ...btn(th) } }, "Restore ", plan.photos, " photos"))))));
   }
   function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert: showAlert2, editable }) {
     const dailyReports = _dr2 || [];
-    const [drView, setDrView] = useState15("list");
-    const [editReport, setEditReport] = useState15(null);
-    const [rForm, setRForm] = useState15({ ...EMPTY_DAILY_REPORT });
-    const [wxLoading, setWxLoading] = useState15(false);
-    const fileInputRefs = useRef6({});
+    const [drView, setDrView] = useState17("list");
+    const [editReport, setEditReport] = useState17(null);
+    const [rForm, setRForm] = useState17({ ...EMPTY_DAILY_REPORT });
+    const [wxLoading, setWxLoading] = useState17(false);
+    const fileInputRefs = useRef7({});
     const projReports = dailyReports.filter((r) => r.projectId === project.id).sort((a, b) => b.date.localeCompare(a.date));
     const nextId = () => {
       const ts = Date.now();
@@ -19930,7 +20460,7 @@ ${t2.slice(0, 300)}`);
       while (existing.has(id)) id++;
       return id;
     };
-    const pendingIdRef = useRef6(null);
+    const pendingIdRef = useRef7(null);
     const photoUp = useReportPhotoUploads(setRForm, () => ({
       projectId: project.id,
       projectNickname: project.nickname || project.address || project.pc || "",
@@ -20036,13 +20566,13 @@ ${t2.slice(0, 300)}`);
     const totalPhotos = (r) => (r.workLogs || []).reduce((s, w) => s + (w.photos?.length || 0), 0);
     const totalWorkers = (r) => (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
     const totalHrs = (r) => (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
-    const pdfImportRef = useRef6(null);
-    const [pdfImporting, setPdfImporting] = useState15(false);
-    const [forceSyncState, setForceSyncState] = useState15("idle");
-    const [forceSyncMsg, setForceSyncMsg] = useState15("");
-    const [backupState, setBackupState] = useState15("idle");
-    const [lastBackupTime, setLastBackupTime] = useState15(null);
-    useEffect12(() => {
+    const pdfImportRef = useRef7(null);
+    const [pdfImporting, setPdfImporting] = useState17(false);
+    const [forceSyncState, setForceSyncState] = useState17("idle");
+    const [forceSyncMsg, setForceSyncMsg] = useState17("");
+    const [backupState, setBackupState] = useState17("idle");
+    const [lastBackupTime, setLastBackupTime] = useState17(null);
+    useEffect14(() => {
       const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
       cloudLoad(`pcg_daily_reports_backup_${date}`).then((data) => {
         if (data?.[0] || Array.isArray(data)) {
@@ -20193,12 +20723,12 @@ ${t2.slice(0, 300)}`);
         if (pdfImportRef.current) pdfImportRef.current.value = "";
       }
     };
-    const [pdfLoading, setPdfLoading] = useState15(false);
-    const [emailModal, setEmailModal] = useState15(false);
-    const [emailTo, setEmailTo] = useState15("");
-    const [emailSubject, setEmailSubject] = useState15("");
-    const [emailSending, setEmailSending] = useState15(false);
-    const [lightbox, setLightbox] = useState15(null);
+    const [pdfLoading, setPdfLoading] = useState17(false);
+    const [emailModal, setEmailModal] = useState17(false);
+    const [emailTo, setEmailTo] = useState17("");
+    const [emailSubject, setEmailSubject] = useState17("");
+    const [emailSending, setEmailSending] = useState17(false);
+    const [lightbox, setLightbox] = useState17(null);
     const buildNativePdf = (report, projOverride) => buildReportPdf(report, projOverride || project);
     const _legacyPdfBody = async (report, project2) => {
       const _proj = project2;
@@ -21389,32 +21919,32 @@ ${t2.slice(0, 300)}`);
   }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
-    const [view, setView] = useState15("table");
-    const tableFrameRef = useRef6(null);
+    const [view, setView] = useState17("table");
+    const tableFrameRef = useRef7(null);
     const isMobile = useIsMobile();
     const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
-    const [selectedProject, setSelectedProject] = useState15(null);
-    const [detailTab, setDetailTab] = useState15("checklist");
-    const [addMode, setAddMode] = useState15(false);
-    const [editId, setEditId] = useState15(null);
-    const [form, setForm] = useState15({ ...EMPTY_PROJECT });
-    const [filterType, setFilterType] = useState15("All");
-    const [filterPhase, setFilterPhase] = useState15("All");
-    const [search, setSearch] = useState15("");
-    const [manualAddr, setManualAddr] = useState15(false);
-    const [sortCol, setSortCol] = useState15("priority");
-    const [sortDir, setSortDir] = useState15("asc");
-    const [reorderLocked, setReorderLocked] = useState15(true);
-    const [dragIdx, setDragIdx] = useState15(null);
-    const [dragOverIdx, setDragOverIdx] = useState15(null);
-    const [zoningOverlay, setZoningOverlay] = useState15(null);
-    const [zoningLoading, setZoningLoading] = useState15(false);
-    const [zoningData, setZoningData] = useState15(null);
-    const [permitUploading, setPermitUploading] = useState15(null);
-    const [permitDetailData, setPermitDetailData] = useState15(null);
-    const [docViewerData, setDocViewerData] = useState15(null);
-    const [docBlobUrl, setDocBlobUrl] = useState15(null);
-    useEffect12(() => {
+    const [selectedProject, setSelectedProject] = useState17(null);
+    const [detailTab, setDetailTab] = useState17("checklist");
+    const [addMode, setAddMode] = useState17(false);
+    const [editId, setEditId] = useState17(null);
+    const [form, setForm] = useState17({ ...EMPTY_PROJECT });
+    const [filterType, setFilterType] = useState17("All");
+    const [filterPhase, setFilterPhase] = useState17("All");
+    const [search, setSearch] = useState17("");
+    const [manualAddr, setManualAddr] = useState17(false);
+    const [sortCol, setSortCol] = useState17("priority");
+    const [sortDir, setSortDir] = useState17("asc");
+    const [reorderLocked, setReorderLocked] = useState17(true);
+    const [dragIdx, setDragIdx] = useState17(null);
+    const [dragOverIdx, setDragOverIdx] = useState17(null);
+    const [zoningOverlay, setZoningOverlay] = useState17(null);
+    const [zoningLoading, setZoningLoading] = useState17(false);
+    const [zoningData, setZoningData] = useState17(null);
+    const [permitUploading, setPermitUploading] = useState17(null);
+    const [permitDetailData, setPermitDetailData] = useState17(null);
+    const [docViewerData, setDocViewerData] = useState17(null);
+    const [docBlobUrl, setDocBlobUrl] = useState17(null);
+    useEffect14(() => {
       if (!docViewerData?.data || docViewerData.type && docViewerData.type.startsWith("image/")) {
         setDocBlobUrl(null);
         return;
@@ -21432,15 +21962,15 @@ ${t2.slice(0, 300)}`);
         setDocBlobUrl(null);
       }
     }, [docViewerData]);
-    const [planUploading, setPlanUploading] = useState15(null);
-    const [projCityData, setProjCityData] = useState15(null);
-    const [projCityLoading, setProjCityLoading] = useState15(false);
+    const [planUploading, setPlanUploading] = useState17(null);
+    const [projCityData, setProjCityData] = useState17(null);
+    const [projCityLoading, setProjCityLoading] = useState17(false);
     const pros = professionals || DEFAULT_PROFESSIONALS;
-    useEffect12(() => {
+    useEffect14(() => {
       setProjCityData(null);
       setZoningData(null);
     }, [selectedProject?.id]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (deepLinkRef?.current) {
         const proj = projects.find((p) => p.id === deepLinkRef.current);
         if (proj) {
@@ -22799,11 +23329,11 @@ ${t2.slice(0, 300)}`);
       }
       setTestStatus("sending_sms");
       try {
-        const digits2 = testPhone.replace(/\D/g, "");
+        const digits3 = testPhone.replace(/\D/g, "");
         const res = await fetch("/.netlify/functions/sms", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: [digits2], message: `${BRAND_CONFIG.portalName} Test: SMS notifications are working! \u{1F389}` })
+          body: JSON.stringify({ to: [digits3], message: `${BRAND_CONFIG.portalName} Test: SMS notifications are working! \u{1F389}` })
         });
         const data = await res.json();
         if (res.ok) {
@@ -22846,8 +23376,8 @@ ${t2.slice(0, 300)}`);
         placeholder: "(555) 555-5555",
         value: testPhone,
         onChange: (e) => {
-          const digits2 = e.target.value.replace(/\D/g, "").slice(0, 10);
-          setTestPhone(formatPhone(digits2));
+          const digits3 = e.target.value.replace(/\D/g, "").slice(0, 10);
+          setTestPhone(formatPhone(digits3));
         }
       }
     ), /* @__PURE__ */ React.createElement("button", { onClick: sendTestSMS, disabled: testStatus === "sending_sms", style: btn(th, { width: "100%", padding: "0.5rem", fontSize: "0.8rem", opacity: testStatus === "sending_sms" ? 0.6 : 1 }) }, testStatus === "sending_sms" ? "\u23F3 Sending..." : testStatus === "sms_ok" ? "\u2705 Sent!" : testStatus === "sms_fail" ? "\u274C Failed" : "\u{1F4F1} Send Test SMS"), /* @__PURE__ */ React.createElement("button", { onClick: checkQuota, disabled: quota === "checking", style: btn(th, { width: "100%", padding: "0.4rem", fontSize: "0.75rem", marginTop: "0.4rem", background: "transparent", color: th.muted, border: `1px solid ${th.cardBorder}` }) }, quota === "checking" ? "\u23F3 Checking\u2026" : quota === "error" ? "\u274C Quota check failed" : quota != null ? `\u{1F4CA} ${quota} texts left \u2014 re-check` : "\u{1F4CA} Check Quota")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.5rem", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", fontWeight: 600, color: th.text, marginBottom: "0.5rem" } }, "\u{1F4E7} Test Email (Resend)"), /* @__PURE__ */ React.createElement(
@@ -23056,12 +23586,12 @@ ${t2.slice(0, 300)}`);
   var accIco = (k, c, s = 18) => /* @__PURE__ */ React.createElement(HubIcon, { d: ACCESS_ICONS[k], color: c, size: s });
   var initialsOf = (name) => String(name || "?").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "?";
   function PnlAccessPanel({ th, user, users, showAlert: showAlert2 }) {
-    const [allowed, setAllowed] = useState15(null);
-    const [query, setQuery] = useState15("");
-    const [adding, setAdding] = useState15(false);
-    const [addQuery, setAddQuery] = useState15("");
-    const [saving, setSaving] = useState15(false);
-    useEffect12(() => {
+    const [allowed, setAllowed] = useState17(null);
+    const [query, setQuery] = useState17("");
+    const [adding, setAdding] = useState17(false);
+    const [addQuery, setAddQuery] = useState17("");
+    const [saving, setSaving] = useState17(false);
+    useEffect14(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => setAllowed(Array.isArray(d?.allowed) ? d.allowed : [...DEFAULT_PNL_ALLOWED])).catch(() => setAllowed([...DEFAULT_PNL_ALLOWED]));
     }, []);
     const persist = async (next) => {
@@ -23164,9 +23694,9 @@ ${t2.slice(0, 300)}`);
     });
     const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
     const ov = accessOverrides || {};
-    const [expandedHubs, setExpandedHubs] = useState15(/* @__PURE__ */ new Set());
-    const [openRoles, setOpenRoles] = useState15(/* @__PURE__ */ new Set());
-    const [showMore, setShowMore] = useState15(false);
+    const [expandedHubs, setExpandedHubs] = useState17(/* @__PURE__ */ new Set());
+    const [openRoles, setOpenRoles] = useState17(/* @__PURE__ */ new Set());
+    const [showMore, setShowMore] = useState17(false);
     const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
       const next = new Set(prev);
       if (next.has(hubId)) next.delete(hubId);
@@ -23293,7 +23823,7 @@ ${t2.slice(0, 300)}`);
     );
   }
   function WeeklyReportSendNow({ th, showAlert: showAlert2 }) {
-    const [state, setState] = useState15("idle");
+    const [state, setState] = useState17("idle");
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const today = /* @__PURE__ */ new Date();
     const daysSinceSat = (today.getDay() + 1) % 7 || 7;
@@ -23342,21 +23872,21 @@ ${t2.slice(0, 300)}`);
   var irIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS[k] || NOTIFY_ICONS[k], color: c, size: s });
   function InterviewRemindersPanel({ th, showAlert: showAlert2, users }) {
     const O2 = "#FF671F";
-    const [data, setData] = useState15(null);
-    const [err, setErr] = useState15(null);
-    const [running, setRunning] = useState15(false);
-    const [ivQ, setIvQ] = useState15("");
-    const [ivStatus, setIvStatus] = useState15("all");
-    const [ivRange, setIvRange] = useState15("today");
-    const [ivShowAll, setIvShowAll] = useState15(false);
-    const [peopleOpen, setPeopleOpen] = useState15(true);
-    const [activityOpen, setActivityOpen] = useState15(false);
-    const [peopleQ, setPeopleQ] = useState15("");
-    const [peopleRole, setPeopleRole] = useState15("all");
-    const [picked, setPicked] = useState15([]);
-    const [savingMuted, setSavingMuted] = useState15(false);
-    const [savingSource, setSavingSource] = useState15(false);
-    const [pxCheck, setPxCheck] = useState15(null);
+    const [data, setData] = useState17(null);
+    const [err, setErr] = useState17(null);
+    const [running, setRunning] = useState17(false);
+    const [ivQ, setIvQ] = useState17("");
+    const [ivStatus, setIvStatus] = useState17("all");
+    const [ivRange, setIvRange] = useState17("today");
+    const [ivShowAll, setIvShowAll] = useState17(false);
+    const [peopleOpen, setPeopleOpen] = useState17(true);
+    const [activityOpen, setActivityOpen] = useState17(false);
+    const [peopleQ, setPeopleQ] = useState17("");
+    const [peopleRole, setPeopleRole] = useState17("all");
+    const [picked, setPicked] = useState17([]);
+    const [savingMuted, setSavingMuted] = useState17(false);
+    const [savingSource, setSavingSource] = useState17(false);
+    const [pxCheck, setPxCheck] = useState17(null);
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -23368,7 +23898,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     const ivSourceNow = data?.config?.source === "paradox" ? "paradox" : "email";
@@ -23542,13 +24072,13 @@ ${t2.slice(0, 300)}`);
     ), activityOpen && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column" } }, (st?.sent || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No reminders sent yet."), (st?.sent || []).slice(0, 25).map((s, i, arr) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.5rem 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtAgo(s.at)), " \xB7 ", s.kind === "hour" ? "1-hour reminder" : "1-day reminder", " \xB7 ", s.store, " \xB7 ", s.candidate || "candidate", " \xB7 ", s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`, " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: s.smsSent ? "#16a34a" : "#dc2626" } }, s.smsSent ? "text sent" : "no text"), s.emails ? " \xB7 email sent" : "")))));
   }
   function NewHiresPanel({ th, showAlert: showAlert2, users }) {
-    const [data, setData] = useState15(null);
-    const [err, setErr] = useState15(null);
-    const [running, setRunning] = useState15(false);
-    const [testing, setTesting] = useState15(null);
-    const [draft, setDraft] = useState15(null);
-    const [savingCfg, setSavingCfg] = useState15(false);
-    const [pickQ, setPickQ] = useState15("");
+    const [data, setData] = useState17(null);
+    const [err, setErr] = useState17(null);
+    const [running, setRunning] = useState17(false);
+    const [testing, setTesting] = useState17(null);
+    const [draft, setDraft] = useState17(null);
+    const [savingCfg, setSavingCfg] = useState17(false);
+    const [pickQ, setPickQ] = useState17("");
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -23560,7 +24090,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     const runNow = async () => {
@@ -23596,7 +24126,7 @@ ${t2.slice(0, 300)}`);
       }
       setTesting(null);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [], source: data.hiresConfig.source || "email" });
     }, [data, draft]);
     const savedCfg = data?.hiresConfig || { live: false, recipients: [], source: "email" };
@@ -23742,6 +24272,7 @@ ${t2.slice(0, 300)}`);
     transferNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 8h13M13 4l4 4-4 4" }), /* @__PURE__ */ React.createElement("path", { d: "M20 16H7M11 12l-4 4 4 4" })),
     violationNotice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 3 2.5 20h19Z" }), /* @__PURE__ */ React.createElement("path", { d: "M12 10v4M12 17h.01" })),
     missingHoursApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "12", r: "8" }), /* @__PURE__ */ React.createElement("path", { d: "M11 8v4l2.5 1.5" }), /* @__PURE__ */ React.createElement("path", { d: "M19.5 3.5v5M17 6h5" })),
+    crewTimeOffOffice: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "15", r: "2.2" })),
     leaderTermAsk: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3" }), /* @__PURE__ */ React.createElement("path", { d: "M14 13h7v5h-4l-3 2.5Z" })),
     leaderTermIt: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "4", y: "10.5", width: "16", height: "10.5", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M8 10.5V7a4 4 0 0 1 8 0v3.5" }), /* @__PURE__ */ React.createElement("path", { d: "M12 14.5v3" })),
     transferApprovers: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 7h11M10 3.5 14 7l-4 3.5" }), /* @__PURE__ */ React.createElement("path", { d: "M21 15.5 16.5 20l-2.5-2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M14 13H3" })),
@@ -23788,6 +24319,7 @@ ${t2.slice(0, 300)}`);
     missingHoursApprovers: "Missing hours approvals",
     transferApprovers: "Transfer notice approvals",
     leaderTermAsk: "Leader termination (asked)",
+    crewTimeOffOffice: "Crew time off (office)",
     leaderTermIt: "Leader termination (IT)",
     timeOffApprovers: "Time off approvals"
   };
@@ -23834,16 +24366,16 @@ ${t2.slice(0, 300)}`);
     ), children);
   }
   function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel, seedUserTypes, tagKey = "mail", onCountChange }) {
-    const [emails, setEmails] = useState15(null);
-    const [phones, setPhones] = useState15(null);
-    const [emailOwners, setEmailOwners] = useState15(null);
-    const [phoneOwners, setPhoneOwners] = useState15(null);
-    const [newEmail, setNewEmail] = useState15("");
-    const [newPhone, setNewPhone] = useState15("");
-    const [nameQuery, setNameQuery] = useState15("");
-    const [showSuggestions, setShowSuggestions] = useState15(false);
-    const [saving, setSaving] = useState15(false);
-    useEffect12(() => {
+    const [emails, setEmails] = useState17(null);
+    const [phones, setPhones] = useState17(null);
+    const [emailOwners, setEmailOwners] = useState17(null);
+    const [phoneOwners, setPhoneOwners] = useState17(null);
+    const [newEmail, setNewEmail] = useState17("");
+    const [newPhone, setNewPhone] = useState17("");
+    const [nameQuery, setNameQuery] = useState17("");
+    const [showSuggestions, setShowSuggestions] = useState17(false);
+    const [saving, setSaving] = useState17(false);
+    useEffect14(() => {
       cloudLoad(blobKey).then((d) => {
         if (!d?.updatedAt && seedUserTypes && (users || []).length) {
           const seed = (users || []).filter((u) => u.active !== false && u.email && seedUserTypes.includes(u.userType));
@@ -23965,7 +24497,7 @@ ${t2.slice(0, 300)}`);
       setNameQuery("");
       setShowSuggestions(false);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!users || emails === null || phones === null) return;
       let changed = false;
       const nextEmails = (emails || []).map((e, i) => {
@@ -23990,7 +24522,7 @@ ${t2.slice(0, 300)}`);
       });
       if (changed) persist(nextEmails, nextPhones, emailOwners, phoneOwners);
     }, [users, emails, phones, emailOwners, phoneOwners]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (emails !== null && onCountChange) onCountChange(emails.length);
     }, [emails]);
     if (emails === null) return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading recipients\u2026");
@@ -24050,25 +24582,25 @@ ${t2.slice(0, 300)}`);
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey, tagText: NOTIFY_TAGS[tagKey] || "Notifications", onRemove: () => removeEmail(idx), disabled: saving }))), smsLabel && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "SMS", onRemove: () => removePhone(idx), disabled: saving })))));
   }
   function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
-    const [newEmail, setNewEmail] = useState15("");
-    const [newTicketEmail, setNewTicketEmail] = useState15("");
-    const [newTicketPhone, setNewTicketPhone] = useState15("");
-    const [ticketNameQuery, setTicketNameQuery] = useState15("");
-    const [ticketShowSuggestions, setTicketShowSuggestions] = useState15(false);
-    const [notifyLog, setNotifyLog] = useState15(null);
-    const [logLoading, setLogLoading] = useState15(false);
-    const [logOpen, setLogOpen] = useState15(false);
-    const [pushSubs, setPushSubs] = useState15(null);
-    const [notifyInfoOpen, setNotifyInfoOpen] = useState15(false);
-    const [notifSubTab, setNotifSubTab] = useState15("project");
-    const [nfPhone, setNfPhone] = useState15(() => {
+    const [newEmail, setNewEmail] = useState17("");
+    const [newTicketEmail, setNewTicketEmail] = useState17("");
+    const [newTicketPhone, setNewTicketPhone] = useState17("");
+    const [ticketNameQuery, setTicketNameQuery] = useState17("");
+    const [ticketShowSuggestions, setTicketShowSuggestions] = useState17(false);
+    const [notifyLog, setNotifyLog] = useState17(null);
+    const [logLoading, setLogLoading] = useState17(false);
+    const [logOpen, setLogOpen] = useState17(false);
+    const [pushSubs, setPushSubs] = useState17(null);
+    const [notifyInfoOpen, setNotifyInfoOpen] = useState17(false);
+    const [notifSubTab, setNotifSubTab] = useState17("project");
+    const [nfPhone, setNfPhone] = useState17(() => {
       try {
         return window.matchMedia("(max-width: 640px)").matches;
       } catch {
         return false;
       }
     });
-    useEffect12(() => {
+    useEffect14(() => {
       let mq;
       try {
         mq = window.matchMedia("(max-width: 640px)");
@@ -24081,12 +24613,12 @@ ${t2.slice(0, 300)}`);
         mq.removeEventListener ? mq.removeEventListener("change", on) : mq.removeListener(on);
       };
     }, []);
-    const [nfDetail, setNfDetail] = useState15(false);
-    const [nfQuery, setNfQuery] = useState15("");
-    const [nfOpen, setNfOpen] = useState15({ ops: true });
-    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1", resignationLetter: "pcg_resignation_notify_v1", missingHoursApprovers: "pcg_missing_hours_approvers_v1", payIncreaseOffice: "pcg_pay_increase_office_step_v1", payIncreasePaycor: "pcg_pay_increase_paycor_notify_v1", transferApprovers: "pcg_transfer_approvers_v1", leaderTermAsk: "pcg_leader_termination_notify_v1", leaderTermIt: "pcg_leader_termination_it_v1", timeOffApprovers: "pcg_time_off_approvers_v1" };
-    const [notifCounts, setNotifCounts] = useState15({});
-    useEffect12(() => {
+    const [nfDetail, setNfDetail] = useState17(false);
+    const [nfQuery, setNfQuery] = useState17("");
+    const [nfOpen, setNfOpen] = useState17({ ops: true });
+    const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1", resignationLetter: "pcg_resignation_notify_v1", missingHoursApprovers: "pcg_missing_hours_approvers_v1", payIncreaseOffice: "pcg_pay_increase_office_step_v1", payIncreasePaycor: "pcg_pay_increase_paycor_notify_v1", transferApprovers: "pcg_transfer_approvers_v1", leaderTermAsk: "pcg_leader_termination_notify_v1", crewTimeOffOffice: "pcg_crew_time_off_office_v1", leaderTermIt: "pcg_leader_termination_it_v1", timeOffApprovers: "pcg_time_off_approvers_v1" };
+    const [notifCounts, setNotifCounts] = useState17({});
+    useEffect14(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
         cloudLoad(key).then((d) => {
           let n = Array.isArray(d?.emails) ? d.emails.length : 0;
@@ -24097,11 +24629,11 @@ ${t2.slice(0, 300)}`);
       });
     }, [(users || []).length > 0]);
     const setNotifCount = (id) => (n) => setNotifCounts((c) => c[id] === n ? c : { ...c, [id]: n });
-    const [userNotifsOpen, setUserNotifsOpen] = useState15(false);
-    const [reportSettings, setReportSettings] = useState15(null);
-    const [reportLoading, setReportLoading] = useState15(false);
-    const [reportOpen, setReportOpen] = useState15(false);
-    const [newReportCC, setNewReportCC] = useState15("");
+    const [userNotifsOpen, setUserNotifsOpen] = useState17(false);
+    const [reportSettings, setReportSettings] = useState17(null);
+    const [reportLoading, setReportLoading] = useState17(false);
+    const [reportOpen, setReportOpen] = useState17(false);
+    const [newReportCC, setNewReportCC] = useState17("");
     const loadReportSettings = async () => {
       setReportLoading(true);
       try {
@@ -24158,7 +24690,7 @@ ${t2.slice(0, 300)}`);
       setNewEmail("");
       showAlert2("success", "Email added to global notify list");
     };
-    const [projectShowSuggestions, setProjectShowSuggestions] = useState15(false);
+    const [projectShowSuggestions, setProjectShowSuggestions] = useState17(false);
     const projectTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim()) ? newEmail.trim() : null;
     const projectNameMatches = (users || []).filter((u) => newEmail.trim().length > 0 && !projectTypedEmail && (u.name || "").toLowerCase().includes(newEmail.trim().toLowerCase()) && u.email).slice(0, 8);
     const removeEmail = (idx) => {
@@ -24194,13 +24726,13 @@ ${t2.slice(0, 300)}`);
       showAlert2("success", "Email removed from ticket list");
     };
     const addTicketPhone = (raw = newTicketPhone) => {
-      const digits2 = String(raw || "").replace(/\D/g, "");
-      const validLength = digits2.length === 10 || digits2.length === 11 && digits2[0] === "1";
+      const digits3 = String(raw || "").replace(/\D/g, "");
+      const validLength = digits3.length === 10 || digits3.length === 11 && digits3[0] === "1";
       if (!validLength) {
         showAlert2("error", "Enter a valid 10-digit phone number");
         return;
       }
-      const normalized = digits2.length === 11 ? digits2.slice(1) : digits2;
+      const normalized = digits3.length === 11 ? digits3.slice(1) : digits3;
       if ((ticketNotifyPhones || []).map((p) => p.replace(/\D/g, "")).includes(normalized)) {
         showAlert2("error", "Number already in ticket list");
         setTicketNameQuery("");
@@ -24239,9 +24771,9 @@ ${t2.slice(0, 300)}`);
       }
       if (u.phone) {
         const normalized = u.phone.replace(/\D/g, "");
-        const digits2 = normalized.length === 11 && normalized[0] === "1" ? normalized.slice(1) : normalized;
-        if (digits2.length === 10 && !(ticketNotifyPhones || []).map((p) => p.replace(/\D/g, "")).includes(digits2)) {
-          setTicketNotifyPhones((prev) => [...prev || [], digits2]);
+        const digits3 = normalized.length === 11 && normalized[0] === "1" ? normalized.slice(1) : normalized;
+        if (digits3.length === 10 && !(ticketNotifyPhones || []).map((p) => p.replace(/\D/g, "")).includes(digits3)) {
+          setTicketNotifyPhones((prev) => [...prev || [], digits3]);
           setTicketNotifyPhoneOwners((prev) => [...prev || [], u.id]);
           added = true;
         }
@@ -24250,7 +24782,7 @@ ${t2.slice(0, 300)}`);
       setTicketNameQuery("");
       setTicketShowSuggestions(false);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!users) return;
       (ticketNotifyEmailOwners || []).forEach((ownerId, i) => {
         if (ownerId == null) return;
@@ -24308,6 +24840,7 @@ ${t2.slice(0, 300)}`);
             { id: "timeOffRequest", label: "Time Off Request", count: notifCounts.timeOffRequest },
             { id: "transferNotice", label: "Transfer Notice", count: notifCounts.transferNotice },
             { id: "resignationLetter", label: "Resignation Letter", count: notifCounts.resignationLetter },
+            { id: "crewTimeOffOffice", label: "Crew time off (office)", count: notifCounts.crewTimeOffOffice },
             { id: "leaderTermAsk", label: "Leader termination", count: notifCounts.leaderTermAsk },
             { id: "leaderTermIt", label: "Leader termination (IT)", count: notifCounts.leaderTermIt },
             { id: "interviewReminders", label: "Interview Reminders" },
@@ -24587,6 +25120,19 @@ ${t2.slice(0, 300)}`);
         onCountChange: setNotifCount("payIncreasePaycor"),
         description: "Who hears about pay rate changes going into Paycor. After the office completes a pay rate change and presses Update pay in Paycor, it goes into Paycor right away, dated on the effective date (Paycor holds it until then), and these people get an email (with an Open button), a text and a phone push. On the effective date the portal checks Paycor and tells them again that it starts today, or to check Paycor if it doesn't show the new pay. Also told if Paycor didn't take it, or the date moves. While no one is here, only the person who sent it is told.",
         smsLabel: "Pay Rate Change Paycor update SMS Numbers"
+      }
+    ), notifSubTab === "crewTimeOffOffice" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
+      ManualNotifyListPanel,
+      {
+        th,
+        user,
+        users,
+        showAlert: showAlert2,
+        blobKey: "pcg_crew_time_off_office_v1",
+        tagKey: "crewTimeOffOffice",
+        onCountChange: setNotifCount("crewTimeOffOffice"),
+        description: "The office step of Tools \xB7 Crew Time Off (e.g. Roxy). After a crew member's manager approves their time off, these people get an email, a text and a push, and a reminder every 3 hours; approving files it in Google Drive and alerts the Time Off Request list (HR). Add them by name (that's what lets them approve). While no one is here, the people on Pay Rate Change office step do it.",
+        smsLabel: "Crew time off (office) SMS Numbers"
       }
     ), notifSubTab === "leaderTermAsk" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(
       ManualNotifyListPanel,
@@ -26039,7 +26585,7 @@ ${t2.slice(0, 300)}`);
       [isCurrentView, currentWeeks, viewPunches, shownEnd]
     );
     const shortDay = (iso) => officeClockParseDate(iso).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
-    const canGoBack = !!shownEnd && (!periodInfo?.firstPeriodEnd || addDays3(shownEnd, -14) >= periodInfo.firstPeriodEnd);
+    const canGoBack = !!shownEnd && (!periodInfo?.firstPeriodEnd || addDays4(shownEnd, -14) >= periodInfo.firstPeriodEnd);
     const dayLabel2 = (iso) => {
       const d = officeClockParseDate(iso);
       return d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
@@ -26073,18 +26619,18 @@ ${t2.slice(0, 300)}`);
       {
         type: "button",
         disabled: !canGoBack,
-        onClick: () => setViewEnd(addDays3(shownEnd, -14)),
+        onClick: () => setViewEnd(addDays4(shownEnd, -14)),
         "aria-label": "Previous pay period",
         style: { background: "transparent", border: `1px solid ${th.cardBorder}`, borderRadius: RADIUS.control, color: th.text, padding: "0.2rem 0.55rem", fontSize: "0.85rem", cursor: canGoBack ? "pointer" : "default", opacity: canGoBack ? 1 : 0.35 }
       },
       "\u2039"
-    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 600, whiteSpace: "nowrap" } }, shortDay(addDays3(shownEnd, -13)), " \u2013 ", shortDay(shownEnd)), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 600, whiteSpace: "nowrap" } }, shortDay(addDays4(shownEnd, -13)), " \u2013 ", shortDay(shownEnd)), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
         disabled: isCurrentView,
         onClick: () => {
-          const next = addDays3(shownEnd, 14);
+          const next = addDays4(shownEnd, 14);
           setViewEnd(next >= currentEnd ? null : next);
         },
         "aria-label": "Next pay period",
@@ -27092,6 +27638,7 @@ ${t2.slice(0, 300)}`);
       { id: "resignation-letter", label: "Resignation Letter" },
       { id: "missing-hours", label: "Missing Hours" },
       { id: "time-off-request", label: "Time Off Request" },
+      { id: "crew-time-off", label: "Crew Time Off" },
       { id: "pay-increase", label: "Pay Rate Change" }
     ],
     finance: [
@@ -27137,6 +27684,7 @@ ${t2.slice(0, 300)}`);
   var TRANSFER_NOTICE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
   var VIOLATION_NOTICE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
   var TIME_OFF_REQUEST_ROLES = /* @__PURE__ */ new Set(["executive", "it", "dm", "director", "manager"]);
+  var CREW_TIME_OFF_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
   var RESIGNATION_LETTER_ROLES = /* @__PURE__ */ new Set(["executive", "it", "office_staff", "dm", "director", "manager"]);
   var MISSING_HOURS_ROLES = /* @__PURE__ */ new Set(["executive", "it", "dm", "director", "manager"]);
   var PAY_INCREASE_ROLES = /* @__PURE__ */ new Set(["executive", "it", "dm", "director", "manager", "office_staff"]);
@@ -27148,35 +27696,35 @@ ${t2.slice(0, 300)}`);
   var TASK_TYPES = ["shift", "general"];
   var NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
   function AdminTaskManager({ th, user, stores, showAlert: showAlert2 }) {
-    const [templates, setTemplates] = useState15(null);
-    const [loading, setLoading] = useState15(false);
-    const [q, setQ] = useState15("");
-    const [catFilter, setCatFilter] = useState15("all");
-    const [activeFilter, setActiveFilter] = useState15("all");
-    const [editing, setEditing] = useState15(null);
-    const [locFor, setLocFor] = useState15(null);
-    const [locPcs, setLocPcs] = useState15([]);
-    const [itemsFor, setItemsFor] = useState15(null);
-    const [templateItems, setTemplateItems] = useState15([]);
-    const [templateEquip, setTemplateEquip] = useState15([]);
-    const [busy, setBusy] = useState15(false);
-    const api2 = useCallback(async (action, payload = {}) => {
+    const [templates, setTemplates] = useState17(null);
+    const [loading, setLoading] = useState17(false);
+    const [q, setQ] = useState17("");
+    const [catFilter, setCatFilter] = useState17("all");
+    const [activeFilter, setActiveFilter] = useState17("all");
+    const [editing, setEditing] = useState17(null);
+    const [locFor, setLocFor] = useState17(null);
+    const [locPcs, setLocPcs] = useState17([]);
+    const [itemsFor, setItemsFor] = useState17(null);
+    const [templateItems, setTemplateItems] = useState17([]);
+    const [templateEquip, setTemplateEquip] = useState17([]);
+    const [busy, setBusy] = useState17(false);
+    const api3 = useCallback(async (action, payload = {}) => {
       const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
       return r.json();
     }, []);
     const load = useCallback(async () => {
       setLoading(true);
       try {
-        const r = await api2("admin_templates");
+        const r = await api3("admin_templates");
         setTemplates(r.templates || []);
       } finally {
         setLoading(false);
       }
-    }, [api2]);
-    useEffect12(() => {
+    }, [api3]);
+    useEffect14(() => {
       load();
     }, [load]);
-    const frameRef = useRef6(null);
+    const frameRef = useRef7(null);
     const frameH = useFrameHeight(frameRef);
     const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
     const filtered = (templates || []).filter((t) => {
@@ -27193,7 +27741,7 @@ ${t2.slice(0, 300)}`);
       }
       setBusy(true);
       try {
-        const r = await api2("admin_save_template", { template: t });
+        const r = await api3("admin_save_template", { template: t });
         if (r.ok) {
           setEditing(null);
           showAlert2 && showAlert2("Task saved");
@@ -27204,19 +27752,19 @@ ${t2.slice(0, 300)}`);
       }
     }
     async function toggle(t) {
-      await api2("admin_toggle_active", { template_id: t.id, active: !t.active });
+      await api3("admin_toggle_active", { template_id: t.id, active: !t.active });
       load();
     }
     async function openLocations(t) {
       setLocFor(t);
       setLocPcs([]);
-      const r = await api2("admin_get_locations", { template_id: t.id });
+      const r = await api3("admin_get_locations", { template_id: t.id });
       setLocPcs(r.store_pcs || []);
     }
     async function saveLocations() {
       setBusy(true);
       try {
-        await api2("admin_set_locations", { template_id: locFor.id, store_pcs: locPcs });
+        await api3("admin_set_locations", { template_id: locFor.id, store_pcs: locPcs });
         setLocFor(null);
         await load();
       } finally {
@@ -27225,7 +27773,7 @@ ${t2.slice(0, 300)}`);
     }
     async function openItems(t) {
       setItemsFor(t);
-      const r = await api2("admin_get_items", { template_id: t.id });
+      const r = await api3("admin_get_items", { template_id: t.id });
       setTemplateItems(r.items || []);
       setTemplateEquip(r.equipment || []);
     }
@@ -27237,7 +27785,7 @@ ${t2.slice(0, 300)}`);
       try {
         const items = templateItems.map((it, i) => ({ ...it, sort_order: i }));
         const equipment = templateEquip.map((e, i) => ({ ...e, sort_order: i }));
-        const r = await api2("admin_save_items", { template_id: itemsFor.id, items, equipment });
+        const r = await api3("admin_save_items", { template_id: itemsFor.id, items, equipment });
         if (r.ok) {
           setItemsFor(null);
           showAlert2 && showAlert2("Items saved");
@@ -27270,11 +27818,11 @@ ${t2.slice(0, 300)}`);
     const activeT = (templates || []).filter((t) => t.active).length;
     return /* @__PURE__ */ React.createElement("div", { ref: frameRef, style: { display: "flex", flexDirection: "column", height: frameH || "calc(100vh - 200px)", minHeight: 360 } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { ...sectionTitle(th), margin: 0 } }, "Book Task \u2014 Task Templates"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEditing({ ...NEW_TASK }), style: { ...btn(th), fontSize: "0.82rem", padding: "0.5rem 1rem" } }, "+ New Task"), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
       setLoading(true);
-      await api2("seed");
+      await api3("seed");
       await load();
     }, style: { ...btn(th, { background: "transparent", color: th.text, border: `1px solid ${th.muted}55` }), fontSize: "0.82rem", padding: "0.5rem 1rem" } }, "Re-sync catalog"), /* @__PURE__ */ React.createElement("button", { onClick: async () => {
       setBusy(true);
-      const r = await api2("seed_items");
+      const r = await api3("seed_items");
       setBusy(false);
       showAlert2 && showAlert2(`Seeded items: ${r.items || 0} items across ${r.templates || 0} templates`);
       await load();
@@ -27497,16 +28045,16 @@ ${t2.slice(0, 300)}`);
     })));
   }
   function AdminSensors({ th, user, stores }) {
-    const [shellyDevices, setShellyDevices] = useState15(null);
+    const [shellyDevices, setShellyDevices] = useState17(null);
     const loadShellyTemp = () => {
       setShellyDevices(null);
       fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
     };
-    useEffect12(() => {
+    useEffect14(() => {
       loadShellyTemp();
     }, []);
-    const [shellyDeviceMap, setShellyDeviceMap] = useState15({});
-    useEffect12(() => {
+    const [shellyDeviceMap, setShellyDeviceMap] = useState17({});
+    useEffect14(() => {
       cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
       });
     }, []);
@@ -27594,7 +28142,7 @@ ${t2.slice(0, 300)}`);
     const [acks, setAcks] = React.useState(null);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
-    const reqRef = useRef6(0);
+    const reqRef = useRef7(0);
     const list = [...announcements || []].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const selected = list.find((a) => a.id === selId) || list[0] || null;
     const loadAcks = async (annId) => {
@@ -27783,15 +28331,15 @@ ${t2.slice(0, 300)}`);
     })))), displayed.length > PAGE && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAll((s) => !s), style: { ...btn(th, { padding: "0.3rem 1rem", fontSize: "0.75rem" }) } }, showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", textAlign: "right" } }, "Showing ", visibleRows.length, " of ", displayed.length, " event", displayed.length !== 1 ? "s" : ""))));
   }
   function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert: showAlert2, users }) {
-    const [editingId, setEditingId] = useState15(null);
-    const [editForm, setEditForm] = useState15({ title: "", message: "" });
-    const [addMode, setAddMode] = useState15(false);
-    const [newTitle, setNewTitle] = useState15("");
-    const [newMsg, setNewMsg] = useState15("");
-    const [newTargets, setNewTargets] = useState15([]);
-    const [newUserTargets, setNewUserTargets] = useState15([]);
-    const [newForceAll, setNewForceAll] = useState15(false);
-    const [expandedRole, setExpandedRole] = useState15(null);
+    const [editingId, setEditingId] = useState17(null);
+    const [editForm, setEditForm] = useState17({ title: "", message: "" });
+    const [addMode, setAddMode] = useState17(false);
+    const [newTitle, setNewTitle] = useState17("");
+    const [newMsg, setNewMsg] = useState17("");
+    const [newTargets, setNewTargets] = useState17([]);
+    const [newUserTargets, setNewUserTargets] = useState17([]);
+    const [newForceAll, setNewForceAll] = useState17(false);
+    const [expandedRole, setExpandedRole] = useState17(null);
     const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
     const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
     const ANN_ROLES = [
@@ -29013,8 +29561,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     } }, SAFE_VAR_LABEL[st] || st, variance != null ? ` ${fmtSafeMoney(variance)}` : "");
   }
   function SignaturePad({ th, onCapture, label }) {
-    const ref = useRef6(null);
-    const drawing = useRef6(false);
+    const ref = useRef7(null);
+    const drawing = useRef7(false);
     const pos = (e) => {
       const r = ref.current.getBoundingClientRect();
       const t = e.touches ? e.touches[0] : e;
@@ -29065,8 +29613,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: save, style: { ...btn(th), minHeight: 40 } }, "Save signature"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clear, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Clear")));
   }
   function SafeAuditsPane({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState15("list");
-    const [sel, setSel] = useState15(null);
+    const [view, setView] = useState17("list");
+    const [sel, setSel] = useState17(null);
     const openConduct = (id, storePC) => {
       setSel({ id, storePC });
       setView("conduct");
@@ -29111,11 +29659,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
   }
   function SafeAuditList({ user, th, stores, showAlert: showAlert2, onConduct, onViewReport }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState15(null);
-    const [err, setErr] = useState15(false);
-    const [picking, setPicking] = useState15(false);
-    const [pickStore, setPickStore] = useState15("");
-    const [starting, setStarting] = useState15(false);
+    const [audits, setAudits] = useState17(null);
+    const [err, setErr] = useState17(false);
+    const [picking, setPicking] = useState17(false);
+    const [pickStore, setPickStore] = useState17("");
+    const [starting, setStarting] = useState17(false);
     const canConduct = safeCanConduct(user);
     const load = useCallback(() => {
       setErr(false);
@@ -29124,7 +29672,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setErr(true);
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -29203,14 +29751,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const storeName = store?.name || storePC;
     const storeDistrict = store?.district ?? null;
     const localKey = "pcg_safe_draft_" + auditId;
-    const [loading, setLoading] = useState15(true);
-    const [loadErr, setLoadErr] = useState15(false);
-    const [setting, setSetting] = useState15(null);
-    const [savingExpected, setSavingExpected] = useState15(false);
-    const [submitting, setSubmitting] = useState15(false);
-    const [submitted, setSubmitted] = useState15(null);
-    const didHydrate = useRef6(false);
-    const [f, setF] = useState15({
+    const [loading, setLoading] = useState17(true);
+    const [loadErr, setLoadErr] = useState17(false);
+    const [setting, setSetting] = useState17(null);
+    const [savingExpected, setSavingExpected] = useState17(false);
+    const [submitting, setSubmitting] = useState17(false);
+    const [submitted, setSubmitted] = useState17(null);
+    const didHydrate = useRef7(false);
+    const [f, setF] = useState17({
       reason: "",
       safeCode: "",
       codeLastChanged: "",
@@ -29231,7 +29779,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       notes: ""
     });
     const set = (patch) => setF((prev) => ({ ...prev, ...patch }));
-    useEffect12(() => {
+    useEffect14(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -29318,7 +29866,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       managerAckName: f.managerAckName,
       notes: f.notes
     });
-    useEffect12(() => {
+    useEffect14(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -29495,9 +30043,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function SafeSigImage({ sigKey, th, label }) {
-    const [src, setSrc] = useState15(null);
-    const [loading, setLoading] = useState15(!!sigKey);
-    useEffect12(() => {
+    const [src, setSrc] = useState17(null);
+    const [loading, setLoading] = useState17(!!sigKey);
+    useEffect14(() => {
       let cancelled = false;
       if (!sigKey) {
         setSrc(null);
@@ -30147,12 +30695,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const store = stores?.find((s) => String(s.pc) === String(storePC));
     const storeName = store?.name || storePC;
     const storeAddress = store ? [store.address, store.city, store.state, store.zip].filter(Boolean).join(", ") : "";
-    const [audit, setAudit] = useState15(null);
-    const [err, setErr] = useState15(false);
-    const [lightbox, setLightbox] = useState15(null);
-    const [exporting, setExporting] = useState15(false);
-    const printRef = useRef6(null);
-    useEffect12(() => {
+    const [audit, setAudit] = useState17(null);
+    const [err, setErr] = useState17(false);
+    const [lightbox, setLightbox] = useState17(null);
+    const [exporting, setExporting] = useState17(false);
+    const printRef = useRef7(null);
+    useEffect14(() => {
       let cancelled = false;
       setAudit(null);
       setErr(false);
@@ -30208,16 +30756,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Back to safe audits"), /* @__PURE__ */ React.createElement("button", { onClick: exportPdf, disabled: exporting, style: { ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 } }, exporting ? "Exporting\u2026" : "\u2913 Export PDF")), /* @__PURE__ */ React.createElement("div", { ref: printRef }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "flex-start", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: pageTitle(th) }, storeName, " ", storePC ? `(${storePC})` : ""), storeAddress && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", marginTop: "0.15rem" } }, storeAddress), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Auditor: ", audit.auditorName || "\u2014", audit.auditorRole ? ` (${audit.auditorRole})` : ""), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginTop: "0.25rem" } }, "Started ", audit.startedAt ? new Date(audit.startedAt).toLocaleString() : "\u2014", " \xB7 Submitted ", audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "\u2014", durationLabel ? ` \xB7 Duration ${durationLabel}` : "")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.4rem" } }, "Accounted ", fmtSafeMoney(audit.accountedTotal), " vs Expected ", fmtSafeMoney(audit.expectedPettyCash))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "General Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Reason for audit", value: audit.reason || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Current safe code", value: audit.safeCode || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Code last changed", value: audit.codeLastChanged || "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Store Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store manager", value: audit.storeManagerName || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: audit.district != null ? districtLabel(audit.district) : "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Petty Cash Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Expected petty cash", value: fmtSafeMoney(audit.expectedPettyCash), th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts in safe", value: audit.hasReceipts ? "Yes" : "No", th }), audit.hasReceipts && /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts total", value: fmtSafeMoney(audit.receiptsTotal), th })), audit.hasReceipts && audit.receiptPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Receipt photos (", audit.receiptPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.receiptPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "left" } }, "Denomination"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Count"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Value"))), /* @__PURE__ */ React.createElement("tbody", null, SAFE_BILLS.map((d) => denomRow(d, "billCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Bills"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.billsTotal))), SAFE_COINS.map((d) => denomRow(d, "coinCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Coins"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.coinsTotal))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, "Counted Total"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, fmtSafeMoney(audit.countedTotal)))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between", marginTop: "0.9rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 700 } }, "Accounted total (counted + receipts): ", fmtSafeMoney(audit.accountedTotal)), /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.9rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: audit.hasCounterfeit ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit cash found", value: audit.hasCounterfeit ? "Yes" : "No", color: audit.hasCounterfeit ? "#ef4444" : void 0, th }), audit.hasCounterfeit && /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit total", value: fmtSafeMoney(audit.counterfeitTotal), color: "#ef4444", th })), audit.hasCounterfeit && audit.counterfeitPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Counterfeit photos (", audit.counterfeitPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.counterfeitPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Signatures"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem" } }, /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.conductorSigKey, th, label: `Conductor \u2014 ${audit.auditorName || "\u2014"}` }), /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.managerSigKey, th, label: `Store manager / witness${audit.managerAckName ? ` \u2014 ${audit.managerAckName}` : ""}` }))), audit.notes && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, whiteSpace: "pre-wrap" } }, audit.notes))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
   }
   function SystemHealth({ th, user }) {
-    const [snap, setSnap] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const [refreshing, setRefreshing] = useState15(false);
+    const [snap, setSnap] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const [refreshing, setRefreshing] = useState17(false);
     const load = useCallback(async () => {
       setLoading(true);
       const d = await cloudLoad("pcg_system_health_v1");
       setSnap(d || null);
       setLoading(false);
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     const refreshNow = async () => {
@@ -30257,7 +30805,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function AuditsTab({ user, th, stores, showAlert: showAlert2, setTab }) {
     const canFieldOps = auditCanView(user);
     const canSafe = safeCanView(user);
-    const [mode, setMode] = useState15(canFieldOps ? "field" : "safe");
+    const [mode, setMode] = useState17(canFieldOps ? "field" : "safe");
     const both = canFieldOps && canSafe;
     const effectiveMode = canFieldOps ? mode : "safe";
     const seg = both ? /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", padding: 3, gap: 3, borderRadius: 999, background: th.card2, border: `1px solid ${th.cardBorder}` } }, [["field", "Field Ops"], ["safe", "Safe"]].map(([m, lbl]) => /* @__PURE__ */ React.createElement(
@@ -30272,13 +30820,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, seg, effectiveMode === "safe" ? /* @__PURE__ */ React.createElement(SafeAuditsPane, { user, th, stores, showAlert: showAlert2, setTab }) : /* @__PURE__ */ React.createElement(FieldOpsAudits, { user, th, stores, showAlert: showAlert2, setTab }));
   }
   function FieldOpsAudits({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState15(null);
-    const [conduct, setConduct] = useState15(null);
+    const [view, setView] = useState17(null);
+    const [conduct, setConduct] = useState17(null);
     const canConduct = auditCanAudit(user);
     const canSeeCapBoard = auditCanView(user);
     const canSeeDashboard = canSeeCapBoard;
     const dashboardIsDefault = auditCanAudit(user);
-    useEffect12(() => {
+    useEffect14(() => {
       let cancelled = false;
       if (!dashboardIsDefault) {
         setView("list");
@@ -30373,11 +30921,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function AuditList({ user, th, stores, showAlert: showAlert2, canConduct, canSeeCapBoard, canSeeDashboard, onConduct, onViewReport, onOpenCapBoard, onOpenDashboard }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState15(null);
-    const [err, setErr] = useState15(false);
-    const [picking, setPicking] = useState15(false);
-    const [pickStore, setPickStore] = useState15("");
-    const [starting, setStarting] = useState15(false);
+    const [audits, setAudits] = useState17(null);
+    const [err, setErr] = useState17(false);
+    const [picking, setPicking] = useState17(false);
+    const [pickStore, setPickStore] = useState17("");
+    const [starting, setStarting] = useState17(false);
     const load = useCallback(() => {
       setErr(false);
       auditsApi("list").then((j) => setAudits(Array.isArray(j.audits) ? j.audits : [])).catch(() => {
@@ -30385,7 +30933,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -30449,18 +30997,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeDashboard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenDashboard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Dashboard"), canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
   }
   function AuditConduct({ user, th, stores, showAlert: showAlert2, auditId, storePC, onExit, onViewReport }) {
-    const [template, setTemplate] = useState15(null);
-    const [results, setResults] = useState15({});
-    const [secIdx, setSecIdx] = useState15(0);
-    const [loading, setLoading] = useState15(true);
-    const [loadErr, setLoadErr] = useState15(false);
-    const [submitting, setSubmitting] = useState15(false);
-    const [submitted, setSubmitted] = useState15(null);
-    const [gpsStatus, setGpsStatus] = useState15("");
-    const didHydrate = useRef6(false);
+    const [template, setTemplate] = useState17(null);
+    const [results, setResults] = useState17({});
+    const [secIdx, setSecIdx] = useState17(0);
+    const [loading, setLoading] = useState17(true);
+    const [loadErr, setLoadErr] = useState17(false);
+    const [submitting, setSubmitting] = useState17(false);
+    const [submitted, setSubmitted] = useState17(null);
+    const [gpsStatus, setGpsStatus] = useState17("");
+    const didHydrate = useRef7(false);
     const localKey = "pcg_audit_draft_" + auditId;
     const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
-    useEffect12(() => {
+    useEffect14(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -30493,7 +31041,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [auditId]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -30712,9 +31260,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   };
   var capStatusMeta = (s) => CAP_STATUS_META[s] || { label: s || "\u2014", color: "#6b7280" };
   function AuditPhotoThumb({ photoKey, th, onZoom, size = 64 }) {
-    const [src, setSrc] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    useEffect12(() => {
+    const [src, setSrc] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    useEffect14(() => {
       let cancelled = false;
       setLoading(true);
       cloudLoadFile(photoKey).then((f) => {
@@ -30739,10 +31287,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", cursor: "zoom-out" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "Full size", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "100%", borderRadius: "0.75rem", objectFit: "contain", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.25rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"));
   }
   function CapResolveForm({ th, user, cap, showAlert: showAlert2, onDone, onCancel }) {
-    const [note, setNote] = useState15("");
-    const [photoKeys, setPhotoKeys] = useState15([]);
-    const [uploading, setUploading] = useState15(false);
-    const [saving, setSaving] = useState15(false);
+    const [note, setNote] = useState17("");
+    const [photoKeys, setPhotoKeys] = useState17([]);
+    const [uploading, setUploading] = useState17(false);
+    const [saving, setSaving] = useState17(false);
     const addPhotos = async (fileList) => {
       const files = Array.from(fileList || []);
       if (!files.length) return;
@@ -30809,14 +31357,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function AuditReport({ user, th, stores, showAlert: showAlert2, auditId, storePC, onBack }) {
-    const [audit, setAudit] = useState15(null);
-    const [items, setItems] = useState15([]);
-    const [caps, setCaps] = useState15([]);
-    const [loading, setLoading] = useState15(true);
-    const [err, setErr] = useState15(false);
-    const [lightbox, setLightbox] = useState15(null);
-    const [exporting, setExporting] = useState15(false);
-    const printRef = useRef6(null);
+    const [audit, setAudit] = useState17(null);
+    const [items, setItems] = useState17([]);
+    const [caps, setCaps] = useState17([]);
+    const [loading, setLoading] = useState17(true);
+    const [err, setErr] = useState17(false);
+    const [lightbox, setLightbox] = useState17(null);
+    const [exporting, setExporting] = useState17(false);
+    const printRef = useRef7(null);
     const load = useCallback(() => {
       setLoading(true);
       setErr(false);
@@ -30826,7 +31374,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setCaps(Array.isArray(j.caps) ? j.caps : []);
       }).catch(() => setErr(true)).finally(() => setLoading(false));
     }, [auditId]);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     const store = (stores || []).find((s) => String(s.pc) === String(storePC));
@@ -30902,16 +31450,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function CapBoard({ user, th, stores, showAlert: showAlert2, onBack }) {
     const isMobile = useIsMobile();
-    const [rows, setRows] = useState15(null);
-    const [err, setErr] = useState15(false);
-    const [statusFilter, setStatusFilter] = useState15("all");
-    const [districtFilter, setDistrictFilter] = useState15("all");
-    const [ownerFilter, setOwnerFilter] = useState15("all");
-    const [expanded, setExpanded] = useState15(null);
-    const [rejectFor, setRejectFor] = useState15(null);
-    const [rejectNote, setRejectNote] = useState15("");
-    const [busyId, setBusyId] = useState15(null);
-    const [lightbox, setLightbox] = useState15(null);
+    const [rows, setRows] = useState17(null);
+    const [err, setErr] = useState17(false);
+    const [statusFilter, setStatusFilter] = useState17("all");
+    const [districtFilter, setDistrictFilter] = useState17("all");
+    const [ownerFilter, setOwnerFilter] = useState17("all");
+    const [expanded, setExpanded] = useState17(null);
+    const [rejectFor, setRejectFor] = useState17(null);
+    const [rejectNote, setRejectNote] = useState17("");
+    const [busyId, setBusyId] = useState17(null);
+    const [lightbox, setLightbox] = useState17(null);
     const canAudit = auditCanAudit(user);
     const load = useCallback(() => {
       setErr(false);
@@ -30920,7 +31468,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     const storeInfo = (pc) => (stores || []).find((s) => String(s.pc) === String(pc));
@@ -31036,8 +31584,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var DISTRICT_TREND_COLORS = ["#3b82f6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#14b8a6", "#eab308", "#ec4899"];
   function AuditDashboard({ user, th, stores, showAlert: showAlert2, onOpenReport, onGoList, onGoCaps }) {
-    const [data, setData] = useState15(null);
-    const [err, setErr] = useState15(false);
+    const [data, setData] = useState17(null);
+    const [err, setErr] = useState17(false);
     const isFull = auditCanView(user) && user?.userType !== "dm";
     const isDm = user?.userType === "dm";
     const canSeeManagerRanking = auditCanAudit(user);
@@ -31048,7 +31596,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     const visibleStores = React.useMemo(() => {
@@ -31114,7 +31662,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       for (const m of trend) Object.keys(m.byDistrict || {}).forEach((d) => set.add(d));
       return [...set].sort((a, b) => Number(a) - Number(b));
     }, [trend, isFull]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chartRef.current) {
         chartRef.current.destroy();
         chartRef.current = null;
@@ -31205,9 +31753,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ManagerCapCard({ user, th, stores, showAlert: showAlert2 }) {
     const store = getManagerStore(stores, user);
-    const [caps, setCaps] = useState15(null);
-    const [err, setErr] = useState15(false);
-    const [expanded, setExpanded] = useState15(null);
+    const [caps, setCaps] = useState17(null);
+    const [err, setErr] = useState17(false);
+    const [expanded, setExpanded] = useState17(null);
     const load = useCallback(() => {
       if (!store?.pc) {
         setCaps([]);
@@ -31228,7 +31776,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, [store?.pc]);
-    useEffect12(() => {
+    useEffect14(() => {
       load();
     }, [load]);
     if (!store?.pc) return null;
@@ -31290,6 +31838,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
       { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
       { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
+      { id: "crew-time-off", label: "Crew Time Off", icon: (c) => ICONS.crewTimeOff(c) },
       { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "Locations", icon: (c) => ICONS.locations(c) },
@@ -31362,7 +31911,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "network-complaints", label: "Complaints", icon: (c) => ICONS.bell(c) },
       { id: "ops-hub", label: "Operations", icon: (c) => ICONS.schedule(c), noPinToggle: true },
       { id: "team-hub", label: "Team & Sites", icon: (c) => ICONS.briefcase(c), noPinToggle: true },
-      { id: "system-hub", label: "System", icon: (c) => ICONS.folder(c), noPinToggle: true }
+      { id: "system-hub", label: "System", icon: (c) => ICONS.folder(c), noPinToggle: true },
+      { id: "crew-time-off", label: "Crew Time Off", icon: (c) => ICONS.crewTimeOff(c) }
     ];
     if (ut === "auditor") return [
       ...BASE_TABS,
@@ -31384,6 +31934,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
       { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
       { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
+      { id: "crew-time-off", label: "Crew Time Off", icon: (c) => ICONS.crewTimeOff(c) },
       { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -31414,6 +31965,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       { id: "resignation-letter", label: "Resignation Letter", icon: (c) => ICONS.resignationLetter(c) },
       { id: "pay-increase", label: "Pay Rate Change", icon: (c) => ICONS.payIncrease(c) },
       { id: "time-off-request", label: "Time Off Request", icon: (c) => ICONS.timeOffRequest(c) },
+      { id: "crew-time-off", label: "Crew Time Off", icon: (c) => ICONS.crewTimeOff(c) },
       { id: "missing-hours", label: "Missing Hours", icon: (c) => ICONS.missingHours(c) },
       { id: "tasks", label: "Tasks", icon: (c) => ICONS.todos(c) },
       { id: "locations", label: "My Locations", icon: (c) => ICONS.locations(c) },
@@ -31475,9 +32027,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return visible;
   };
   function ManagerOrionBrief({ pc, storeName, th }) {
-    const [brief, setBrief] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const [err, setErr] = useState15(false);
+    const [brief, setBrief] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const [err, setErr] = useState17(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -31497,7 +32049,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect12(() => {
+    useEffect14(() => {
       load(false);
     }, [pc]);
     return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem", borderLeft: "3px solid #b197fc" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", paddingBottom: "0.6rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 18 }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text, whiteSpace: "nowrap" } }, "Orion \xB7 Store Brief"), storeName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "\xB7 ", storeName)), /* @__PURE__ */ React.createElement(
@@ -31512,9 +32064,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Reading your store\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Brief unavailable right now \u2014 try again shortly.") : brief && brief.content ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(brief.content, th)) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "No brief yet \u2014 not enough data for this store."));
   }
   function ForecastPrePlanCard({ pc, storeName, th }) {
-    const [plan, setPlan] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const [err, setErr] = useState15(false);
+    const [plan, setPlan] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const [err, setErr] = useState17(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -31534,7 +32086,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect12(() => {
+    useEffect14(() => {
       load(false);
     }, [pc]);
     const fc = plan && plan.forecast;
@@ -31554,14 +32106,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Building your game plan\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Pre-plan unavailable right now \u2014 try again shortly.") : !fc ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Not enough history yet \u2014 the model is still collecting data.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.8rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.66rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high), fc.holidayName ? ` \xB7 \u{1F389} ${fc.holidayName}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginTop: "0.7rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 7, padding: "0.4rem 0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.5rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.72rem", marginTop: "0.15rem" } }, f(v))))), par && (par.donut || par.munchkin) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.55rem", fontSize: "0.62rem", color: th.muted } }, par.donut && /* @__PURE__ */ React.createElement("span", null, "\u{1F369} Donut par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.donut.par)), par.munchkin && /* @__PURE__ */ React.createElement("span", null, "\xB7 Munchkin par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.munchkin.par))), plan && plan.content && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.78rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(plan.content, th))));
   }
   function StoreForecastTab({ pc, date, actualHourly, th }) {
-    const [mode, setMode] = useState15("day");
-    const [data, setData] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const [err, setErr] = useState15(false);
-    const [week, setWeek] = useState15(null);
-    const [weekLoading, setWeekLoading] = useState15(false);
-    const [weekErr, setWeekErr] = useState15(false);
-    useEffect12(() => {
+    const [mode, setMode] = useState17("day");
+    const [data, setData] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const [err, setErr] = useState17(false);
+    const [week, setWeek] = useState17(null);
+    const [weekLoading, setWeekLoading] = useState17(false);
+    const [weekErr, setWeekErr] = useState17(false);
+    useEffect14(() => {
       if (!pc) {
         setLoading(false);
         return;
@@ -31588,7 +32140,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [pc, date]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (mode !== "week" || !pc) return;
       let cancelled = false;
       setWeekLoading(true);
@@ -31772,38 +32324,38 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 364);
       return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     })();
-    const [sales, setSales] = useState15(null);
-    const [tappedHour, setTappedHour] = useState15(null);
-    const [salesYesterday, setSalesYesterday] = useState15(null);
-    const [salesLastYear, setSalesLastYear] = useState15(null);
-    const [labor, setLabor] = useState15(null);
-    const [hourly, setHourly] = useState15(null);
-    const [workers, setWorkers] = useState15([]);
-    const [lwDaySales, setLwDaySales] = useState15(null);
-    const [carouselPage, setCarouselPage] = useState15(0);
-    const touchStartX = useRef6(null);
-    const carouselInnerRef = useRef6(null);
-    const fetchTokenRef = useRef6(0);
-    const [loading, setLoading] = useState15(true);
-    const [refreshing, setRefreshing] = useState15(false);
-    const [lastRefresh, setLastRefresh] = useState15(null);
-    const [showStoreInfo, setShowStoreInfo] = useState15(false);
-    const [showUserMenu, setShowUserMenu] = useState15(false);
-    const [dayOffset, setDayOffset] = useState15(0);
-    const [storeBlob, setStoreBlob] = useState15(null);
-    const [histHourly, setHistHourly] = useState15(null);
-    const [liveHistCache, setLiveHistCache] = useState15({});
-    const [histLoading, setHistLoading] = useState15(false);
-    const [storeTickets, setStoreTickets] = useState15([]);
-    const [taskSummary, setTaskSummary] = useState15(null);
-    const [mgrCaps, setMgrCaps] = useState15(null);
-    const [mgrCapsErr, setMgrCapsErr] = useState15(false);
-    const [expandedCap, setExpandedCap] = useState15(null);
-    const toggleBtnRef = useRef6(null);
-    const [voiceState, setVoiceState] = useState15("idle");
-    const [voiceTranscript, setVoiceTranscript] = useState15("");
-    const [voiceReply, setVoiceReply] = useState15("");
-    const recogRef = useRef6(null);
+    const [sales, setSales] = useState17(null);
+    const [tappedHour, setTappedHour] = useState17(null);
+    const [salesYesterday, setSalesYesterday] = useState17(null);
+    const [salesLastYear, setSalesLastYear] = useState17(null);
+    const [labor, setLabor] = useState17(null);
+    const [hourly, setHourly] = useState17(null);
+    const [workers, setWorkers] = useState17([]);
+    const [lwDaySales, setLwDaySales] = useState17(null);
+    const [carouselPage, setCarouselPage] = useState17(0);
+    const touchStartX = useRef7(null);
+    const carouselInnerRef = useRef7(null);
+    const fetchTokenRef = useRef7(0);
+    const [loading, setLoading] = useState17(true);
+    const [refreshing, setRefreshing] = useState17(false);
+    const [lastRefresh, setLastRefresh] = useState17(null);
+    const [showStoreInfo, setShowStoreInfo] = useState17(false);
+    const [showUserMenu, setShowUserMenu] = useState17(false);
+    const [dayOffset, setDayOffset] = useState17(0);
+    const [storeBlob, setStoreBlob] = useState17(null);
+    const [histHourly, setHistHourly] = useState17(null);
+    const [liveHistCache, setLiveHistCache] = useState17({});
+    const [histLoading, setHistLoading] = useState17(false);
+    const [storeTickets, setStoreTickets] = useState17([]);
+    const [taskSummary, setTaskSummary] = useState17(null);
+    const [mgrCaps, setMgrCaps] = useState17(null);
+    const [mgrCapsErr, setMgrCapsErr] = useState17(false);
+    const [expandedCap, setExpandedCap] = useState17(null);
+    const toggleBtnRef = useRef7(null);
+    const [voiceState, setVoiceState] = useState17("idle");
+    const [voiceTranscript, setVoiceTranscript] = useState17("");
+    const [voiceReply, setVoiceReply] = useState17("");
+    const recogRef = useRef7(null);
     const handleToggle = useCallback(() => {
       const btn2 = toggleBtnRef.current;
       if (btn2) {
@@ -31960,17 +32512,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     }, [pc, todayStr]);
-    useEffect12(() => {
+    useEffect14(() => {
       fetchAll();
       return () => {
         fetchTokenRef.current++;
       };
     }, [fetchAll]);
-    useEffect12(() => {
+    useEffect14(() => {
       const t = setInterval(fetchAll, 10 * 60 * 1e3);
       return () => clearInterval(t);
     }, [fetchAll]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (dayOffset === 0) {
         setHistHourly(null);
         return;
@@ -32017,7 +32569,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [dayOffset, pc]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!pc) return;
       try {
         const raw = localStorage.getItem("pcg_tickets_v1");
@@ -32373,7 +32925,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.29";
+  var APP_VERSION = "v23.30";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -32449,22 +33001,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     reader.readAsText(file);
   }
   function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert: showAlert2, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores, onDrillIn }) {
-    const [chatView, setChatView] = useState15(initialChannelId ? "thread" : "list");
-    const [activeChannelId, setActiveChannelId] = useState15(initialChannelId || null);
-    const [msgText, setMsgText] = useState15("");
-    const [searchTerm, setSearchTerm] = useState15("");
-    const [pendingAttachments, setPendingAttachments] = useState15([]);
-    const [mentionQuery, setMentionQuery] = useState15(null);
-    const [groupName, setGroupName] = useState15("");
-    const [groupMembers, setGroupMembers] = useState15([]);
-    const [dmSearch, setDmSearch] = useState15("");
-    const [orionThinking, setOrionThinking] = useState15(false);
-    const [replyToThread, setReplyToThread] = useState15(null);
-    const [expandedThreads, setExpandedThreads] = useState15(/* @__PURE__ */ new Set());
-    const [orionFeedback, setOrionFeedback] = useState15({});
-    const [editMembers, setEditMembers] = useState15(null);
-    const [chatMenuOpen, setChatMenuOpen] = useState15(false);
-    const [chatConfirm, setChatConfirm] = useState15(null);
+    const [chatView, setChatView] = useState17(initialChannelId ? "thread" : "list");
+    const [activeChannelId, setActiveChannelId] = useState17(initialChannelId || null);
+    const [msgText, setMsgText] = useState17("");
+    const [searchTerm, setSearchTerm] = useState17("");
+    const [pendingAttachments, setPendingAttachments] = useState17([]);
+    const [mentionQuery, setMentionQuery] = useState17(null);
+    const [groupName, setGroupName] = useState17("");
+    const [groupMembers, setGroupMembers] = useState17([]);
+    const [dmSearch, setDmSearch] = useState17("");
+    const [orionThinking, setOrionThinking] = useState17(false);
+    const [replyToThread, setReplyToThread] = useState17(null);
+    const [expandedThreads, setExpandedThreads] = useState17(/* @__PURE__ */ new Set());
+    const [orionFeedback, setOrionFeedback] = useState17({});
+    const [editMembers, setEditMembers] = useState17(null);
+    const [chatMenuOpen, setChatMenuOpen] = useState17(false);
+    const [chatConfirm, setChatConfirm] = useState17(null);
     const sendOrionFeedback = (messageId, rating) => {
       if (!messageId) return;
       setOrionFeedback((prev) => ({ ...prev, [messageId]: rating }));
@@ -32475,7 +33027,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!pendingOrionQuestion) return;
       const analystChId = `analyst_${user.id}`;
       setActiveChannelId(analystChId);
@@ -32504,15 +33056,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [pendingOrionQuestion]);
     const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
     const personalAnalystId = `analyst_${user.id}`;
-    useEffect12(() => {
+    useEffect14(() => {
       if (!isAnalystUser) return;
       setChannels((prev) => {
         if (prev.some((c) => c.id === personalAnalystId)) return prev;
         return [{ id: personalAnalystId, type: "analyst", name: "Orion \u2014 My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" }, ...prev];
       });
     }, [user?.id]);
-    const sanitizedRef = useRef6(false);
-    useEffect12(() => {
+    const sanitizedRef = useRef7(false);
+    useEffect14(() => {
       if (sanitizedRef.current || !channels || channels.length === 0) return;
       if (!users || users.length === 0) return;
       const removedIds = /* @__PURE__ */ new Set();
@@ -32683,10 +33235,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setOrionThinking(false);
     };
-    const [logFilters, setLogFilters] = useState15({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
-    const messagesEndRef = useRef6(null);
-    const inputRef = useRef6(null);
-    const fileRef = useRef6(null);
+    const [logFilters, setLogFilters] = useState17({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
+    const messagesEndRef = useRef7(null);
+    const inputRef = useRef7(null);
+    const fileRef = useRef7(null);
     const isAdmin = isChatAdmin(user);
     const activeUsers = users.filter((u) => u.active);
     const resolveMention = (mention) => {
@@ -33019,12 +33571,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const mentionSuggestions = mentionQuery ? activeUsers.filter(
       (u) => u.id !== user.id && (u.username.toLowerCase().includes(mentionQuery.query) || u.name.toLowerCase().includes(mentionQuery.query))
     ).slice(0, 6) : [];
-    useEffect12(() => {
+    useEffect14(() => {
       if (initialChannelId && activeChannelId === initialChannelId) {
         setReadState((prev) => ({ ...prev, [`${user.id}_${initialChannelId}`]: (/* @__PURE__ */ new Date()).toISOString() }));
       }
     }, [initialChannelId]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chatView === "thread") messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, chatView, activeChannelId]);
     const getSeenBy = (msg) => {
@@ -33038,7 +33590,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const activeChannel = channels.find((ch) => ch.id === activeChannelId);
     const threadMessages = activeChannelId ? messages.filter((m) => m.channelId === activeChannelId).sort((a, b) => a.timestamp.localeCompare(b.timestamp)) : [];
-    useEffect12(() => {
+    useEffect14(() => {
       setReplyToThread(null);
       setChatMenuOpen(false);
     }, [activeChannelId]);
@@ -33467,9 +34019,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: () => setChatView("list"), style: { color: th.muted, cursor: "pointer" } }, "\u2190 Back to Chat");
   }
   function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
-    const [uploading, setUploading] = useState15(false);
-    const [uploadMsg, setUploadMsg] = useState15(null);
-    const fileRef = useRef6(null);
+    const [uploading, setUploading] = useState17(false);
+    const [uploadMsg, setUploadMsg] = useState17(null);
+    const fileRef = useRef7(null);
     const handleUpload = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -33512,8 +34064,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     } }, uploadMsg.text), currentWeek && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.5rem", padding: "1rem", background: th.card2, borderRadius: "0.5rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Currently Loaded"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", color: th.text, fontWeight: 700 } }, "Week #", currentWeek.weekNum, " \u2014 ", currentWeek.weekEnd, currentWeek.isDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#ffa94d", fontWeight: 700, marginLeft: "0.4rem", fontSize: "0.65rem", border: "1px solid #ffa94d", borderRadius: "4px", padding: "1px 6px" } }, "DRAFT") : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, currentWeek.stores.length, " stores")), salesWeeks.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Previous Weeks"), salesWeeks.slice(1).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.25rem 0" } }, "Week #", w.weekNum, " \u2014 ", w.weekEnd, w.isDraft ? " (Draft)" : "", " (", w.stores.length, " stores)")))));
   }
   function BiometricEnrollPrompt({ th, onDone }) {
-    const [busy, setBusy] = useState15(false);
-    const [err, setErr] = useState15("");
+    const [busy, setBusy] = useState17(false);
+    const [err, setErr] = useState17("");
     const enable = async () => {
       setBusy(true);
       setErr("");
@@ -33536,8 +34088,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), maxWidth: 380, width: "100%", padding: "1.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 28, color: O })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Enable Face ID / Fingerprint?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" } }, "Skip typing your password next time you sign in on this device."), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.75rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted, flex: 1 }), onClick: decline, disabled: busy }, "Not now"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { flex: 1 }), onClick: enable, disabled: busy }, busy ? "Enabling..." : "Enable"))));
   }
   function FirstLoginSetup({ user, setUser, setUsers, th }) {
-    const [step, setStep] = useState15(1);
-    const [form, setForm] = useState15({
+    const [step, setStep] = useState17(1);
+    const [form, setForm] = useState17({
       newPassword: "",
       confirmPassword: "",
       showNew: false,
@@ -33548,7 +34100,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       smsNotify: false,
       pushNotify: false
     });
-    const [err, setErr] = useState15("");
+    const [err, setErr] = useState17("");
     const handleStep1 = () => {
       setErr("");
       if (!isSharedDeviceType(user.userType)) {
@@ -33673,8 +34225,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return j;
   }
   function MyTimeOffCard({ th }) {
-    const [data, setData] = useState15(null);
-    useEffect12(() => {
+    const [data, setData] = useState17(null);
+    useEffect14(() => {
       timeOffApi("mine").then(setData).catch(() => setData({ linked: false, balances: [] }));
     }, []);
     if (!data || !data.linked) return null;
@@ -33703,10 +34255,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), canLink && /* @__PURE__ */ React.createElement("button", { onClick: onLink, title: "Change the linked Paycor employee", style: { fontSize: "0.62rem", color: th.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" } }, "change"));
   }
   function TimeOffLinkPicker({ th, target, onClose, onSaved, showAlert: showAlert2 }) {
-    const [q, setQ] = useState15("");
-    const [list, setList] = useState15(null);
-    const [saving, setSaving] = useState15(false);
-    useEffect12(() => {
+    const [q, setQ] = useState17("");
+    const [list, setList] = useState17(null);
+    const [saving, setSaving] = useState17(false);
+    useEffect14(() => {
       let cancelled = false;
       const t = setTimeout(() => {
         timeOffApi("candidates", { userId: target.id, q }).then((j) => {
@@ -33753,7 +34305,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     );
   }
   function ProfileModal({ user, setUser, setUsers, th, onClose }) {
-    const [profileForm, setProfileForm] = useState15({
+    const [profileForm, setProfileForm] = useState17({
       email: user.email || "",
       phone: user.phone || "",
       emailNotify: user.emailNotify !== false,
@@ -33766,12 +34318,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       showNew: false,
       showConfirm: false
     });
-    const [profileMsg, setProfileMsg] = useState15(null);
-    const [bioAvailable, setBioAvailable] = useState15(false);
-    const [bioCreds, setBioCreds] = useState15([]);
-    const [bioBusy, setBioBusy] = useState15(false);
+    const [profileMsg, setProfileMsg] = useState17(null);
+    const [bioAvailable, setBioAvailable] = useState17(false);
+    const [bioCreds, setBioCreds] = useState17([]);
+    const [bioBusy, setBioBusy] = useState17(false);
     const refreshBioCreds = () => webauthnList().then(setBioCreds);
-    useEffect12(() => {
+    useEffect14(() => {
       webauthnAvailable().then(setBioAvailable);
       refreshBioCreds();
     }, []);
@@ -33973,11 +34525,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const [actionLog, setActionLog] = React.useState([]);
     const logLoadedRef = React.useRef(false);
     const cleanAcked = (raw) => {
-      const now = Date.now(), clean5 = {};
+      const now = Date.now(), clean6 = {};
       Object.entries(raw || {}).forEach(([k, ts]) => {
-        if (now - ts < 4 * 36e5) clean5[k] = ts;
+        if (now - ts < 4 * 36e5) clean6[k] = ts;
       });
-      return clean5;
+      return clean6;
     };
     const [acked, setAcked] = React.useState(() => {
       try {
@@ -34611,10 +35163,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const firstName2 = (user?.name || "").split(" ")[0];
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    const [weather, setWeather] = useState15(null);
-    const [showWeekWeather, setShowWeekWeather] = useState15(false);
-    const weatherRectRef = useRef6(null);
-    const weatherCloseTimer = useRef6(null);
+    const [weather, setWeather] = useState17(null);
+    const [showWeekWeather, setShowWeekWeather] = useState17(false);
+    const weatherRectRef = useRef7(null);
+    const weatherCloseTimer = useRef7(null);
     const openWeekWeather = (e) => {
       if (weatherCloseTimer.current) {
         clearTimeout(weatherCloseTimer.current);
@@ -34633,13 +35185,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (weatherCloseTimer.current) clearTimeout(weatherCloseTimer.current);
       weatherCloseTimer.current = setTimeout(() => setShowWeekWeather(false), 150);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!showWeekWeather) return;
       const close = () => setShowWeekWeather(false);
       window.addEventListener("scroll", close, { passive: true });
       return () => window.removeEventListener("scroll", close);
     }, [showWeekWeather]);
-    useEffect12(() => {
+    useEffect14(() => {
       (async () => {
         try {
           let lat = 40.084, lon = -75.0524;
@@ -34810,7 +35362,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))));
   }
   function DashboardHeadlines({ th, isMobile, dailyFeed }) {
-    const [newsTab, setNewsTab] = useState15("general");
+    const [newsTab, setNewsTab] = useState17("general");
     return /* @__PURE__ */ React.createElement(React.Fragment, null, dailyFeed?.news && Object.values(dailyFeed.news).some((arr) => Array.isArray(arr) && arr.length > 0) && (() => {
       const SOURCE_COLORS = {
         "Fox News": "#003366",
@@ -34976,8 +35528,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return all;
     }, [stores, user, isDM, isManager]);
     const { actions, acknowledge, delegate, delegating } = useActionQueue({ stores: scopedStores, user, users, showAlert: showAlert2, enabled: opsRole });
-    const [foodSafety, setFoodSafety] = useState15(null);
-    useEffect12(() => {
+    const [foodSafety, setFoodSafety] = useState17(null);
+    useEffect14(() => {
       if (!opsRole) return;
       if (isManager && !scopedStores.length) return;
       const district = isDM ? user?.district : isManager ? scopedStores[0]?.district : null;
@@ -35011,9 +35563,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [opsRole, scopedStores.length]);
-    const [cases, setCases] = useState15(null);
-    const [showAllCases, setShowAllCases] = useState15(false);
-    useEffect12(() => {
+    const [cases, setCases] = useState17(null);
+    const [showAllCases, setShowAllCases] = useState17(false);
+    useEffect14(() => {
       if (!isExecIT) return;
       fetch("/.netlify/functions/analyst", {
         method: "POST",
@@ -35023,15 +35575,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [isExecIT]);
     const CLOSED_CASE = /* @__PURE__ */ new Set(["Done", "Dismissed", "Rejected", "Closed"]);
     const openCases = (cases || []).filter((c) => !CLOSED_CASE.has(c.status)).sort((a, b) => (b.dollarOpportunity || 0) - (a.dollarOpportunity || 0));
-    const [dailyFeed, setDailyFeed] = useState15(null);
-    useEffect12(() => {
+    const [dailyFeed, setDailyFeed] = useState17(null);
+    useEffect14(() => {
       fetch("/.netlify/functions/daily-feed").then((r) => r.ok ? r.json() : null).then((d) => {
         if (d) setDailyFeed(d);
       }).catch(() => {
       });
     }, []);
-    const [showAllAttention, setShowAllAttention] = useState15(false);
-    const [showBrief, setShowBrief] = useState15(false);
+    const [showAllAttention, setShowAllAttention] = useState17(false);
+    const [showBrief, setShowBrief] = useState17(false);
     const now = /* @__PURE__ */ new Date();
     const sevRank = { High: 0, Medium: 1, Low: 2 };
     const ICON_STORE = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M3 9h18M9 20v-6h6v6" }));
@@ -35282,19 +35834,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return d.getDay() === 0;
   }
   function SalesReconciliation({ th, user, showAlert: showAlert2 }) {
-    const [busDt, setBusDt] = useState15(() => {
+    const [busDt, setBusDt] = useState17(() => {
       const d = /* @__PURE__ */ new Date();
       d.setDate(d.getDate() - 1);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     });
-    const [snapping, setSnapping] = useState15(false);
-    const [comparing, setComparing] = useState15(false);
-    const [result, setResult] = useState15(null);
-    const [history, setHistory] = useState15(null);
-    const [wtdSnapshots, setWtdSnapshots] = useState15(null);
-    const [wtdHistory, setWtdHistory] = useState15(null);
-    const [wtdDetail, setWtdDetail] = useState15(null);
-    const [view, setView] = useState15("main");
+    const [snapping, setSnapping] = useState17(false);
+    const [comparing, setComparing] = useState17(false);
+    const [result, setResult] = useState17(null);
+    const [history, setHistory] = useState17(null);
+    const [wtdSnapshots, setWtdSnapshots] = useState17(null);
+    const [wtdHistory, setWtdHistory] = useState17(null);
+    const [wtdDetail, setWtdDetail] = useState17(null);
+    const [view, setView] = useState17("main");
     const callRecon = async (action, extra = {}) => {
       const res = await fetch("/.netlify/functions/reconciliation", {
         method: "POST",
@@ -35353,7 +35905,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setComparing(false);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       loadHistory();
     }, []);
     const fmtD = (v) => "$" + Math.abs(v || 0).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -35415,19 +35967,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canEdit = isCashAdmin(user);
     const isDM = user?.userType === "dm";
     const dmDistrict = isDM ? user?.district : null;
-    const [noteModal, setNoteModal] = useState15(null);
-    const [noteText, setNoteText] = useState15("");
-    const [editDep, setEditDep] = useState15(null);
-    const [editForm, setEditForm] = useState15({ depositDate: "", amount: "" });
-    const [posLoading, setPosLoading] = useState15(false);
-    const [posProgress, setPosProgress] = useState15(0);
-    const fileRef = useRef6(null);
-    const [uploading, setUploading] = useState15(false);
-    const [uploadErr, setUploadErr] = useState15(null);
-    const [view, setView] = useState15("alerts");
-    const [weekOffset, setWeekOffset] = useState15(0);
-    const [storeFilter, setStoreFilter] = useState15(null);
-    const [distFilter, setDistFilter] = useState15(isDM ? dmDistrict : 0);
+    const [noteModal, setNoteModal] = useState17(null);
+    const [noteText, setNoteText] = useState17("");
+    const [editDep, setEditDep] = useState17(null);
+    const [editForm, setEditForm] = useState17({ depositDate: "", amount: "" });
+    const [posLoading, setPosLoading] = useState17(false);
+    const [posProgress, setPosProgress] = useState17(0);
+    const fileRef = useRef7(null);
+    const [uploading, setUploading] = useState17(false);
+    const [uploadErr, setUploadErr] = useState17(null);
+    const [view, setView] = useState17("alerts");
+    const [weekOffset, setWeekOffset] = useState17(0);
+    const [storeFilter, setStoreFilter] = useState17(null);
+    const [distFilter, setDistFilter] = useState17(isDM ? dmDistrict : 0);
     const fmtUSD = (v) => "$" + (Math.round(v * 100) / 100).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtUSDRound = (v) => "$" + Math.round(v).toLocaleString();
     const fmtShort = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
@@ -35680,8 +36232,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setPosLoading(false);
       if (!silent) showAlert2 && showAlert2("success", `POS cash totals loaded (${targets.length} fetched)`);
     };
-    const posAutoLoadedRef = useRef6("");
-    useEffect12(() => {
+    const posAutoLoadedRef = useRef7("");
+    useEffect14(() => {
       if (view !== "recon") return;
       const key = `${weekOffset}|${distFilter}|${view}`;
       if (posAutoLoadedRef.current === key) return;
@@ -36404,10 +36956,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var SCHEDULE_DESKTOP_BREAKPOINT = 1024;
   function useIsDesktopViewport() {
-    const [isDesktop, setIsDesktop] = useState15(
+    const [isDesktop, setIsDesktop] = useState17(
       () => typeof window !== "undefined" ? window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT : true
     );
-    useEffect12(() => {
+    useEffect14(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mql = window.matchMedia(`(min-width: ${SCHEDULE_DESKTOP_BREAKPOINT}px)`);
       const onChange = (e) => setIsDesktop(e.matches);
@@ -36495,9 +37047,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setUTCDate(d.getUTCDate() + i);
       return d;
     });
-    const [hoveredCell, setHoveredCell] = useState15(null);
-    const [clipboard, setClipboard] = useState15(null);
-    useEffect12(() => {
+    const [hoveredCell, setHoveredCell] = useState17(null);
+    const [clipboard, setClipboard] = useState17(null);
+    useEffect14(() => {
       const onKeyDown = (e) => {
         if (e.key === "Escape") setClipboard(null);
       };
@@ -36521,8 +37073,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const handleAddShift = (employeeId, dayOffset) => {
       onCardsChange(addShiftToEmployee(cards, employeeId, { dayOffset, startTime: "09:00", endTime: "17:00" }));
     };
-    const [editingShift, setEditingShift] = useState15(null);
-    const [editDraft, setEditDraft] = useState15({ startTime: "", endTime: "", reassignTo: "" });
+    const [editingShift, setEditingShift] = useState17(null);
+    const [editDraft, setEditDraft] = useState17({ startTime: "", endTime: "", reassignTo: "" });
     const openEdit = (employeeId, shift) => {
       setEditingShift({ employeeId, shift });
       setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: "" });
@@ -36598,8 +37150,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "sticky", top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.85rem 1.1rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Projected Weekly Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color } }, "$", weeklyTotal.totalDollars.toFixed(2), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 600 } }, "(", pct.toFixed(1), "%)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, weeklyTotal.totalHours.toFixed(1), " total hours"), overtimeEmployees.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b", fontWeight: 600 } }, "\u26A0 ", overtimeEmployees.length, " employee(s) over 40h this week"));
   }
   function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmployees = [], onReassign, startInEdit = false }) {
-    const [editing, setEditing] = useState15(startInEdit);
-    const [draftShifts, setDraftShifts] = useState15(cardData.shifts || []);
+    const [editing, setEditing] = useState17(startInEdit);
+    const [draftShifts, setDraftShifts] = useState17(cardData.shifts || []);
     const updateShift = (idx, field, value) => {
       setDraftShifts((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
     };
@@ -36633,17 +37185,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ScheduleBuilder({ store, th, mode }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [weekStart, setWeekStart] = useState15("");
-    const [loading, setLoading] = useState15(false);
-    const [error, setError] = useState15(null);
-    const [cards, setCards] = useState15(null);
-    const [cardIndex, setCardIndex] = useState15(0);
-    const [approvedCards, setApprovedCards] = useState15([]);
-    const [payRates, setPayRates] = useState15({});
-    const [openShiftGroups, setOpenShiftGroups] = useState15([]);
-    const [submitResult, setSubmitResult] = useState15(null);
-    const [showBuildPreview, setShowBuildPreview] = useState15(false);
-    const [reopenEmployeeId, setReopenEmployeeId] = useState15(null);
+    const [weekStart, setWeekStart] = useState17("");
+    const [loading, setLoading] = useState17(false);
+    const [error, setError] = useState17(null);
+    const [cards, setCards] = useState17(null);
+    const [cardIndex, setCardIndex] = useState17(0);
+    const [approvedCards, setApprovedCards] = useState17([]);
+    const [payRates, setPayRates] = useState17({});
+    const [openShiftGroups, setOpenShiftGroups] = useState17([]);
+    const [submitResult, setSubmitResult] = useState17(null);
+    const [showBuildPreview, setShowBuildPreview] = useState17(false);
+    const [reopenEmployeeId, setReopenEmployeeId] = useState17(null);
     const load = async () => {
       if (!weekStart) return;
       setLoading(true);
@@ -36901,21 +37453,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
-    const [activeTab, setActiveTab] = useState15("hourly");
-    const [laborHoverHr, setLaborHoverHr] = useState15(null);
-    const [punches, setPunches] = useState15([]);
-    const [employees, setEmployees] = useState15([]);
-    const [storeHistory, setStoreHistory] = useState15(null);
-    const [hourlySales, setHourlySales] = useState15({});
-    const [scheduleShifts, setScheduleShifts] = useState15([]);
-    const [livePunches, setLivePunches] = useState15({});
-    const [liveSummary, setLiveSummary] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const [fetchError, setFetchError] = useState15(false);
-    const [empExpanded, setEmpExpanded] = useState15(false);
-    const [weekSchedule, setWeekSchedule] = useState15(null);
-    const [expandedDay, setExpandedDay] = useState15(null);
-    const [empHourAdj, setEmpHourAdj] = useState15({});
+    const [activeTab, setActiveTab] = useState17("hourly");
+    const [laborHoverHr, setLaborHoverHr] = useState17(null);
+    const [punches, setPunches] = useState17([]);
+    const [employees, setEmployees] = useState17([]);
+    const [storeHistory, setStoreHistory] = useState17(null);
+    const [hourlySales, setHourlySales] = useState17({});
+    const [scheduleShifts, setScheduleShifts] = useState17([]);
+    const [livePunches, setLivePunches] = useState17({});
+    const [liveSummary, setLiveSummary] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const [fetchError, setFetchError] = useState17(false);
+    const [empExpanded, setEmpExpanded] = useState17(false);
+    const [weekSchedule, setWeekSchedule] = useState17(null);
+    const [expandedDay, setExpandedDay] = useState17(null);
+    const [empHourAdj, setEmpHourAdj] = useState17({});
     const storeInfo = stores.find((s) => s.pc === store.pc) || {};
     const mgrName = storeMgrName(storeInfo, users) || "Unassigned";
     const todayStr = localDateStr(/* @__PURE__ */ new Date());
@@ -36926,11 +37478,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() + diff);
       return localDateStr(d);
     })();
-    useEffect12(() => {
+    useEffect14(() => {
       async function loadAll() {
         setLoading(true);
         const legalEntityId = store.paycor || storeInfo.paycor;
-        const api2 = store.pc === "345986" ? "p227" : "p228";
+        const api3 = store.pc === "345986" ? "p227" : "p228";
         const tmrw = /* @__PURE__ */ new Date();
         tmrw.setDate(tmrw.getDate() + 1);
         const tmrwStr = localDateStr(tmrw);
@@ -36954,7 +37506,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              api: api2,
+              api: api3,
               endpoint: "getGuestChecks",
               locRef: store.pc,
               busDt: todayStr,
@@ -37048,7 +37600,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       loadAll();
     }, [store.pc, store.paycor]);
-    useEffect12(() => {
+    useEffect14(() => {
       setWeekSchedule(null);
       setExpandedDay(null);
       setEmpHourAdj({});
@@ -37290,7 +37842,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 3 } }, hrLong), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: O, marginRight: 6 } }), "Sales ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.sales))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: clr, marginRight: 6 } }), "Labor ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.labor)), h.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", pct.toFixed(1), "%")))
       );
     }
-    useEffect12(() => {
+    useEffect14(() => {
       if (activeTab !== "optimizer" || weekSchedule !== null) return;
       cloudLoad("pcg_schedule_" + store.pc).then((data) => {
         setWeekSchedule(data || {});
@@ -37521,21 +38073,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return Math.floor(hrs / 24) + "d ago";
   }
   function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn, users }) {
-    const [laborData, setLaborData] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const [error, setError] = useState15(null);
-    const [selectedStore, setSelectedStore] = useState15(null);
-    useEffect12(() => {
+    const [laborData, setLaborData] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const [error, setError] = useState17(null);
+    const [selectedStore, setSelectedStore] = useState17(null);
+    useEffect14(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
-    const [timeFilter, setTimeFilter] = useState15("today");
-    const [districtFilter, setDistrictFilter] = useState15("all");
-    const [storeQuery, setStoreQuery] = useState15("");
-    const [viewDate, setViewDate] = useState15("");
-    const [dayData, setDayData] = useState15(null);
-    const [dayLoading, setDayLoading] = useState15(false);
-    const [dayError, setDayError] = useState15(null);
-    useEffect12(() => {
+    const [timeFilter, setTimeFilter] = useState17("today");
+    const [districtFilter, setDistrictFilter] = useState17("all");
+    const [storeQuery, setStoreQuery] = useState17("");
+    const [viewDate, setViewDate] = useState17("");
+    const [dayData, setDayData] = useState17(null);
+    const [dayLoading, setDayLoading] = useState17(false);
+    const [dayError, setDayError] = useState17(null);
+    useEffect14(() => {
       if (!viewDate) {
         setDayData(null);
         setDayError(null);
@@ -37564,7 +38116,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [viewDate]);
-    const [forecastData, setForecastData] = useState15({});
+    const [forecastData, setForecastData] = useState17({});
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const next7Days = React.useMemo(() => {
@@ -37582,10 +38134,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
     }, []);
     const todayStr = next7Days.find((d) => d.isToday)?.dateStr;
-    useEffect12(() => {
+    useEffect14(() => {
       if (isDM && user.district) setDistrictFilter(String(user.district));
     }, [isDM, user]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (drillInStore) {
         const store = stores.find((s) => s.pc === drillInStore);
         if (store) {
@@ -37608,10 +38160,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setLoading(false);
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect12(() => {
+    useEffect14(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -37619,7 +38171,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!isManager) return /* @__PURE__ */ new Set();
       return new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
     }, [isManager, stores, user]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!laborData?.stores) return;
       const pcs = Object.keys(laborData.stores);
       let cancelled = false;
@@ -37841,13 +38393,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })));
   }
   function PnLStoreDetail({ store, th, onClose }) {
-    const [history, setHistory] = useState15(null);
+    const [history, setHistory] = useState17(null);
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad(`pcg_pnl_store_${store.pc}`).then((d) => setHistory(d?.daily || [])).catch(() => setHistory([]));
     }, [store.pc]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !history?.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -37992,58 +38544,58 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
       return f.format(/* @__PURE__ */ new Date());
     };
-    const [view, setView] = useState15(isManager ? "tasks" : "dashboard");
+    const [view, setView] = useState17(isManager ? "tasks" : "dashboard");
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef, 420, 20, view);
-    const [storePc, setStorePc] = useState15(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
-    const [date, setDate] = useState15(todayET());
-    const [seg, setSeg] = useState15("open");
-    const [data, setData] = useState15(null);
-    const [dash, setDash] = useState15(null);
-    const [rollup, setRollup] = useState15(null);
-    const [loading, setLoading] = useState15(false);
-    const [busyId, setBusyId] = useState15(null);
-    const [openEntry, setOpenEntry] = useState15(null);
-    const [entryVal, setEntryVal] = useState15("");
-    const [keypad, setKeypad] = useState15(null);
-    const [expandedId, setExpandedId] = useState15(null);
-    const [localAnswers, setLocalAnswers] = useState15({});
-    const [cas, setCas] = useState15(null);
-    const [caFilter, setCaFilter] = useState15("open");
-    const [loadingCAs, setLoadingCAs] = useState15(false);
-    const [gpsRows, setGpsRows] = useState15(null);
-    const [gpsLoading, setGpsLoading] = useState15(false);
-    const [gpsDays, setGpsDays] = useState15(7);
-    const [gpsTab, setGpsTab] = useState15("list");
-    const gpsMapDiv = useRef6(null);
-    const gpsMapRef = useRef6(null);
-    const gpsLayerRef = useRef6(null);
-    const [auditData, setAuditData] = useState15(null);
-    const [auditLoading, setAuditLoading] = useState15(false);
-    const [auditStore, setAuditStore] = useState15("");
-    const [auditFrom, setAuditFrom] = useState15("");
-    const [auditTo, setAuditTo] = useState15("");
-    const [auditPhotos, setAuditPhotos] = useState15(false);
-    const [auditPhotoUrls, setAuditPhotoUrls] = useState15({});
-    const [auditExporting, setAuditExporting] = useState15(false);
-    const auditRef = useRef6(null);
-    const [photoLightbox, setPhotoLightbox] = useState15(null);
-    const [photoUrls, setPhotoUrls] = useState15({});
-    const [merch, setMerch] = useState15(null);
-    const [merchPage, setMerchPage] = useState15(1);
-    const [merchLoading, setMerchLoading] = useState15(false);
-    const [merchAllDates, setMerchAllDates] = useState15(false);
+    const [storePc, setStorePc] = useState17(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
+    const [date, setDate] = useState17(todayET());
+    const [seg, setSeg] = useState17("open");
+    const [data, setData] = useState17(null);
+    const [dash, setDash] = useState17(null);
+    const [rollup, setRollup] = useState17(null);
+    const [loading, setLoading] = useState17(false);
+    const [busyId, setBusyId] = useState17(null);
+    const [openEntry, setOpenEntry] = useState17(null);
+    const [entryVal, setEntryVal] = useState17("");
+    const [keypad, setKeypad] = useState17(null);
+    const [expandedId, setExpandedId] = useState17(null);
+    const [localAnswers, setLocalAnswers] = useState17({});
+    const [cas, setCas] = useState17(null);
+    const [caFilter, setCaFilter] = useState17("open");
+    const [loadingCAs, setLoadingCAs] = useState17(false);
+    const [gpsRows, setGpsRows] = useState17(null);
+    const [gpsLoading, setGpsLoading] = useState17(false);
+    const [gpsDays, setGpsDays] = useState17(7);
+    const [gpsTab, setGpsTab] = useState17("list");
+    const gpsMapDiv = useRef7(null);
+    const gpsMapRef = useRef7(null);
+    const gpsLayerRef = useRef7(null);
+    const [auditData, setAuditData] = useState17(null);
+    const [auditLoading, setAuditLoading] = useState17(false);
+    const [auditStore, setAuditStore] = useState17("");
+    const [auditFrom, setAuditFrom] = useState17("");
+    const [auditTo, setAuditTo] = useState17("");
+    const [auditPhotos, setAuditPhotos] = useState17(false);
+    const [auditPhotoUrls, setAuditPhotoUrls] = useState17({});
+    const [auditExporting, setAuditExporting] = useState17(false);
+    const auditRef = useRef7(null);
+    const [photoLightbox, setPhotoLightbox] = useState17(null);
+    const [photoUrls, setPhotoUrls] = useState17({});
+    const [merch, setMerch] = useState17(null);
+    const [merchPage, setMerchPage] = useState17(1);
+    const [merchLoading, setMerchLoading] = useState17(false);
+    const [merchAllDates, setMerchAllDates] = useState17(false);
     const MERCH_PAGE_SIZE = 8;
-    const [rangeDays, setRangeDays] = useState15(14);
-    const [reportData, setReportData] = useState15(null);
-    const [reportLoading, setReportLoading] = useState15(false);
-    const [hist, setHist] = useState15(null);
-    const [histLoading, setHistLoading] = useState15(false);
-    const [histPage, setHistPage] = useState15(1);
-    const [histStatus, setHistStatus] = useState15("all");
-    const [tempLog, setTempLog] = useState15(null);
-    const [tempLoading, setTempLoading] = useState15(false);
-    const [tempPage, setTempPage] = useState15(1);
+    const [rangeDays, setRangeDays] = useState17(14);
+    const [reportData, setReportData] = useState17(null);
+    const [reportLoading, setReportLoading] = useState17(false);
+    const [hist, setHist] = useState17(null);
+    const [histLoading, setHistLoading] = useState17(false);
+    const [histPage, setHistPage] = useState17(1);
+    const [histStatus, setHistStatus] = useState17("all");
+    const [tempLog, setTempLog] = useState17(null);
+    const [tempLoading, setTempLoading] = useState17(false);
+    const [tempPage, setTempPage] = useState17(1);
     const byName = user?.name || user?.email || "user";
     const SHIFT_WINDOWS_CLIENT = {
       "1 AM": 0,
@@ -38062,7 +38614,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }).formatToParts(/* @__PURE__ */ new Date());
       return parseInt(parts.find((p) => p.type === "hour").value) || 0;
     };
-    const api2 = useCallback(async (action, payload = {}) => {
+    const api3 = useCallback(async (action, payload = {}) => {
       const r = await fetch("/.netlify/functions/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -38070,10 +38622,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
       return r.json();
     }, []);
-    const geoRef = useRef6(null);
+    const geoRef = useRef7(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
     const locDefaultOn = user?.userType === "store_tablet";
-    const [shareLoc, setShareLoc] = useState15(() => {
+    const [shareLoc, setShareLoc] = useState17(() => {
       try {
         const v = localStorage.getItem("pcg_share_location");
         if (v === "1") return true;
@@ -38083,21 +38635,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return locDefaultOn;
       }
     });
-    const [locAsked, setLocAsked] = useState15(() => {
+    const [locAsked, setLocAsked] = useState17(() => {
       try {
         return localStorage.getItem("pcg_share_location") != null;
       } catch {
         return true;
       }
     });
-    const [locDenied, setLocDenied] = useState15(false);
+    const [locDenied, setLocDenied] = useState17(false);
     const persistLoc = (on) => {
       try {
         localStorage.setItem("pcg_share_location", on ? "1" : "0");
       } catch {
       }
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!navigator.permissions?.query) return;
       let perm;
       navigator.permissions.query({ name: "geolocation" }).then((p) => {
@@ -38177,10 +38729,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!storePc) return;
       if (!silent) setLoading(true);
       if (view === "dashboard") {
-        const dashData = await api2("dashboard", { store_pc: storePc, date });
+        const dashData = await api3("dashboard", { store_pc: storePc, date });
         setDash(dashData && dashData.totals && Array.isArray(dashData.categories) ? dashData : { totals: {}, open_cas: 0, categories: [] });
       } else {
-        const result = await api2("list", { store_pc: storePc, date });
+        const result = await api3("list", { store_pc: storePc, date });
         setData(result);
         const photoTasks = (result?.tasks || []).filter((t) => t.has_photo);
         if (photoTasks.length) {
@@ -38193,7 +38745,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           });
           Promise.all(
             photoTasks.map(
-              (t) => api2("get_task_photo", { instance_id: t.id, store_pc: t.store_pc }).then((r) => ({ id: t.id, url: r.photo_url })).catch(() => null)
+              (t) => api3("get_task_photo", { instance_id: t.id, store_pc: t.store_pc }).then((r) => ({ id: t.id, url: r.photo_url })).catch(() => null)
             )
           ).then((results) => {
             const updates = {};
@@ -38205,24 +38757,24 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       }
       if (!silent) setLoading(false);
-    }, [api2, storePc, date, view]);
+    }, [api3, storePc, date, view]);
     const loadRollup = useCallback(async () => {
       setLoading(true);
-      const r = await api2("rollup", { date, district: isDM ? user?.district : null });
+      const r = await api3("rollup", { date, district: isDM ? user?.district : null });
       const own = user?.userType === "director" ? new Set(scopeStores.map((st) => String(st.pc))) : null;
       setRollup(r && Array.isArray(r.stores) ? own ? { ...r, stores: r.stores.filter((st) => own.has(String(st.pc))) } : r : { stores: [] });
       setLoading(false);
-    }, [api2, date, isDM, user, scopeStores]);
+    }, [api3, date, isDM, user, scopeStores]);
     const loadCAs = useCallback(async () => {
       setLoadingCAs(true);
-      const r = await api2("list_corrective_actions", {
+      const r = await api3("list_corrective_actions", {
         store_pc: isManager ? myStore ? String(myStore.pc) : "" : null,
         district: isDM ? user?.district : null
       });
       const own = user?.userType === "director" ? new Set(scopeStores.map((st) => String(st.pc))) : null;
       setCas((r.corrective_actions || []).filter((ca) => !own || own.has(String(ca.store_pc))));
       setLoadingCAs(false);
-    }, [api2, isManager, myStore, isDM, user, scopeStores]);
+    }, [api3, isManager, myStore, isDM, user, scopeStores]);
     const loadGps = useCallback(async () => {
       setGpsLoading(true);
       try {
@@ -38230,17 +38782,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const d = /* @__PURE__ */ new Date(to + "T12:00:00");
         d.setDate(d.getDate() - (gpsDays - 1));
         const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        const r = await api2("gps_audit", { from, to, store_pcs: scopeStores.map((s) => String(s.pc)) });
+        const r = await api3("gps_audit", { from, to, store_pcs: scopeStores.map((s) => String(s.pc)) });
         if (r && r.summary && Array.isArray(r.exceptions)) setGpsRows(r);
         else setGpsRows({ summary: { total: 0, onsite: 0, offsite: 0, noLocation: 0, unverified: 0 }, points: [], exceptions: [] });
       } finally {
         setGpsLoading(false);
       }
-    }, [api2, gpsDays, scopeStores]);
+    }, [api3, gpsDays, scopeStores]);
     const loadMerch = useCallback(async () => {
       setMerchLoading(true);
       try {
-        const r = await api2("merchandising", { userId: user?.id, store_pcs: scopeStores.map((s) => String(s.pc)), date: merchAllDates ? null : date, page: merchPage, page_size: MERCH_PAGE_SIZE });
+        const r = await api3("merchandising", { userId: user?.id, store_pcs: scopeStores.map((s) => String(s.pc)), date: merchAllDates ? null : date, page: merchPage, page_size: MERCH_PAGE_SIZE });
         if (r && Array.isArray(r.photos)) {
           setMerch(r);
           const totalPages = Math.max(1, Math.ceil((r.total || 0) / MERCH_PAGE_SIZE));
@@ -38251,23 +38803,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       } finally {
         setMerchLoading(false);
       }
-    }, [api2, scopeStores, merchPage, date, merchAllDates]);
-    useEffect12(() => {
+    }, [api3, scopeStores, merchPage, date, merchAllDates]);
+    useEffect14(() => {
       setMerchPage(1);
     }, [date, merchAllDates]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view === "tasks" || view === "dashboard") loadStore();
     }, [view, loadStore]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view === "stores") loadRollup();
     }, [view, loadRollup]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view === "cas") loadCAs();
     }, [view, loadCAs]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view === "gps") loadGps();
     }, [view, gpsDays]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view === "merchandising") loadMerch();
     }, [view, loadMerch]);
     const rangeFromTo = useCallback(() => {
@@ -38282,46 +38834,46 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setReportLoading(true);
       try {
         const { from, to } = rangeFromTo();
-        setReportData(await api2("trends", { userId: user?.id, store_pcs: scopePcs(), from, to }));
+        setReportData(await api3("trends", { userId: user?.id, store_pcs: scopePcs(), from, to }));
       } finally {
         setReportLoading(false);
       }
-    }, [api2, scopePcs, rangeFromTo, user]);
+    }, [api3, scopePcs, rangeFromTo, user]);
     const loadHistory = useCallback(async () => {
       setHistLoading(true);
       try {
         const { from, to } = rangeFromTo();
-        setHist(await api2("history", { userId: user?.id, store_pcs: scopePcs(), from, to, status: histStatus, page: histPage, page_size: 30 }));
+        setHist(await api3("history", { userId: user?.id, store_pcs: scopePcs(), from, to, status: histStatus, page: histPage, page_size: 30 }));
       } finally {
         setHistLoading(false);
       }
-    }, [api2, scopePcs, rangeFromTo, histStatus, histPage, user]);
+    }, [api3, scopePcs, rangeFromTo, histStatus, histPage, user]);
     const loadTemp = useCallback(async () => {
       setTempLoading(true);
       try {
         const { from, to } = rangeFromTo();
-        setTempLog(await api2("temp_log", { userId: user?.id, store_pcs: scopePcs(), from, to, page: tempPage, page_size: 50 }));
+        setTempLog(await api3("temp_log", { userId: user?.id, store_pcs: scopePcs(), from, to, page: tempPage, page_size: 50 }));
       } finally {
         setTempLoading(false);
       }
-    }, [api2, scopePcs, rangeFromTo, tempPage, user]);
-    useEffect12(() => {
+    }, [api3, scopePcs, rangeFromTo, tempPage, user]);
+    useEffect14(() => {
       if (view === "reports") loadReports();
     }, [view, loadReports]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view === "history") loadHistory();
     }, [view, loadHistory]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view === "temp") loadTemp();
     }, [view, loadTemp]);
-    useEffect12(() => {
+    useEffect14(() => {
       setHistPage(1);
       setTempPage(1);
     }, [rangeDays]);
-    useEffect12(() => {
+    useEffect14(() => {
       setHistPage(1);
     }, [histStatus]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view !== "gps" || gpsTab !== "map" || !gpsRows || !gpsMapDiv.current || !window.L) return;
       const L3 = window.L;
       if (!gpsMapRef.current) {
@@ -38353,7 +38905,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       }, 150);
     }, [view, gpsTab, gpsRows, th.dark, stores]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (view === "gps" && gpsTab === "map") return;
       if (gpsMapRef.current) {
         try {
@@ -38364,7 +38916,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         gpsLayerRef.current = null;
       }
     }, [view, gpsTab]);
-    useEffect12(() => () => {
+    useEffect14(() => () => {
       if (gpsMapRef.current) {
         try {
           gpsMapRef.current.remove();
@@ -38375,7 +38927,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     }, []);
     const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    useEffect12(() => {
+    useEffect14(() => {
       if (view !== "audit" || auditTo) return;
       const to = todayET();
       const d = /* @__PURE__ */ new Date(to + "T12:00:00");
@@ -38390,13 +38942,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setAuditData(null);
       setAuditPhotoUrls({});
       try {
-        const r = await api2("audit_report", { store_pc: auditStore, from: auditFrom, to: auditTo });
+        const r = await api3("audit_report", { store_pc: auditStore, from: auditFrom, to: auditTo });
         setAuditData(r);
       } finally {
         setAuditLoading(false);
       }
-    }, [api2, auditStore, auditFrom, auditTo]);
-    useEffect12(() => {
+    }, [api3, auditStore, auditFrom, auditTo]);
+    useEffect14(() => {
       if (!auditPhotos || !auditData) return;
       const need = (auditData.tasks || []).filter((t) => t.has_photo && auditPhotoUrls[t.id] === void 0);
       if (!need.length) return;
@@ -38407,7 +38959,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         });
         return n;
       });
-      Promise.all(need.map((t) => api2("get_task_photo", { instance_id: t.id, store_pc: auditStore }).then((r) => ({ id: t.id, url: r.photo_url })).catch(() => null))).then((res) => {
+      Promise.all(need.map((t) => api3("get_task_photo", { instance_id: t.id, store_pc: auditStore }).then((r) => ({ id: t.id, url: r.photo_url })).catch(() => null))).then((res) => {
         const up = {};
         res.filter(Boolean).forEach((r) => {
           if (r.url) up[r.id] = r.url;
@@ -38426,7 +38978,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditExporting(false);
       }
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (view !== "tasks" && view !== "dashboard") return;
       const id = setInterval(() => loadStore(true), 25e3);
       return () => clearInterval(id);
@@ -38435,7 +38987,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setBusyId(tk.id);
       try {
         const loc = await getLocation();
-        await api2("complete", { instance_id: tk.id, value: value ?? null, by: byName, store_pc: tk.store_pc, ...loc || {} });
+        await api3("complete", { instance_id: tk.id, value: value ?? null, by: byName, store_pc: tk.store_pc, ...loc || {} });
         setOpenEntry(null);
         setEntryVal("");
         await loadStore(true);
@@ -38446,7 +38998,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     async function reopenTask(tk) {
       setBusyId(tk.id);
       try {
-        await api2("reopen", { instance_id: tk.id });
+        await api3("reopen", { instance_id: tk.id });
         setExpandedId(null);
         await loadStore(true);
       } finally {
@@ -38458,7 +39010,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const key = `${tk.id}_${item.id}_${equip?.id || "null"}`;
       try {
         const loc = await getLocation();
-        await api2("submit_answers", {
+        await api3("submit_answers", {
           instance_id: tk.id,
           answers: [{ item_id: item.id, equipment_id: equip?.id || null, ...answerData }],
           by: byName,
@@ -38476,13 +39028,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     }
     async function resolveCA(ca) {
-      await api2("resolve_ca", { ca_id: ca.id, resolved_by: byName });
+      await api3("resolve_ca", { ca_id: ca.id, resolved_by: byName });
       loadCAs();
     }
     async function signOffTask(tk) {
       setBusyId(tk.id);
       try {
-        await api2("sign_off", { instance_id: tk.id, signed_off_by: byName });
+        await api3("sign_off", { instance_id: tk.id, signed_off_by: byName });
         await loadStore(true);
       } finally {
         setBusyId(null);
@@ -38510,7 +39062,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
               canvas.height = Math.round(img.height * scale);
               canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
               const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-              await api2("ca_add_photo", { ca_id: ca.id, photo_url: dataUrl });
+              await api3("ca_add_photo", { ca_id: ca.id, photo_url: dataUrl });
               loadCAs();
             } catch (err) {
               console.error("CA photo error", err);
@@ -38549,7 +39101,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
               canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
               const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
               const loc = await getLocation();
-              await api2("task_add_photo", { instance_id: tk.id, store_pc: tk.store_pc, photo_url: dataUrl, by: byName, ...loc || {} });
+              await api3("task_add_photo", { instance_id: tk.id, store_pc: tk.store_pc, photo_url: dataUrl, by: byName, ...loc || {} });
               setPhotoUrls((prev) => ({ ...prev, [tk.id]: dataUrl }));
               await loadStore(true);
             } catch (err) {
@@ -38960,8 +39512,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const totalPages = Math.max(1, Math.ceil((hist.total || 0) / (hist.page_size || 30)));
       return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: 0, overflow: "hidden" } }, hist.rows.map((r, i) => {
         const sc = TASK_STATUS_COLOR[r.status] || th.muted;
-        const when3 = r.completed_at ? new Date(r.completed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : null;
-        return /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.7rem 1rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 92, flexShrink: 0, fontSize: "0.74rem", color: th.muted, fontVariantNumeric: "tabular-nums" } }, r.business_date), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, r.category, r.shift_time ? ` \xB7 ${r.shift_time}` : "", !isManager ? ` \xB7 ${r.store_name}` : "", when3 ? ` \xB7 ${r.completed_by || ""} ${when3}` : "")), /* @__PURE__ */ React.createElement("span", { className: "ops-chip", style: { background: sc + "1e", color: sc, textTransform: "capitalize", flexShrink: 0 } }, r.status));
+        const when4 = r.completed_at ? new Date(r.completed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : null;
+        return /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.7rem 1rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 92, flexShrink: 0, fontSize: "0.74rem", color: th.muted, fontVariantNumeric: "tabular-nums" } }, r.business_date), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, r.category, r.shift_time ? ` \xB7 ${r.shift_time}` : "", !isManager ? ` \xB7 ${r.store_name}` : "", when4 ? ` \xB7 ${r.completed_by || ""} ${when4}` : "")), /* @__PURE__ */ React.createElement("span", { className: "ops-chip", style: { background: sc + "1e", color: sc, textTransform: "capitalize", flexShrink: 0 } }, r.status));
       })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: histPage <= 1 || histLoading, onClick: () => setHistPage((p) => Math.max(1, p - 1)), style: { ...btn(th, { background: "transparent", color: histPage <= 1 ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: histPage <= 1 ? 0.5 : 1 } }, "\u2190 Prev"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, fontWeight: 600 } }, "Page ", histPage, " of ", totalPages, " \xB7 ", hist.total, " records"), /* @__PURE__ */ React.createElement("button", { disabled: histPage >= totalPages || histLoading, onClick: () => setHistPage((p) => p + 1), style: { ...btn(th, { background: "transparent", color: histPage >= totalPages ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: histPage >= totalPages ? 0.5 : 1 } }, "Next \u2192")));
     })()), view === "temp" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Temperature & quality readings \xB7 last ", rangeDays, " days", tempLog && tempLog.rows.length > 0 ? ` \xB7 ${tempLog.page_in_range}/${tempLog.rows.length} in range on this page` : ""), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, [7, 14, 30].map((n) => /* @__PURE__ */ React.createElement("button", { key: n, onClick: () => setRangeDays(n), style: { padding: "0.35rem 0.7rem", borderRadius: 999, minHeight: 36, border: `1px solid ${rangeDays === n ? O : th.muted + "55"}`, background: rangeDays === n ? O + "18" : "transparent", color: rangeDays === n ? O : th.text, fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", touchAction: "manipulation" } }, n, "d")))), tempLoading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "2.5rem", color: th.muted } }, "Loading readings\u2026"), !tempLoading && tempLog && tempLog.rows.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2.5rem 1.5rem", textAlign: "center", color: th.muted, fontWeight: 700 } }, "No temperature readings in this window"), !tempLoading && tempLog && tempLog.rows.length > 0 && (() => {
       const totalPages = Math.max(1, Math.ceil((tempLog.total || 0) / (tempLog.page_size || 50)));
@@ -38969,30 +39521,30 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const pass = r.in_range === true, fail = r.in_range === false;
         const c = pass ? "#2f9e44" : fail ? "#e03131" : th.muted;
         const rng = r.min_val != null || r.max_val != null ? `${r.min_val ?? ""}\u2013${r.max_val ?? ""}${r.unit || ""}` : "";
-        const when3 = r.at ? new Date(r.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : r.business_date;
-        return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.7rem 1rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none", borderLeft: `3px solid ${c}` } }, /* @__PURE__ */ React.createElement("span", { style: { width: 118, flexShrink: 0, fontSize: "0.72rem", color: th.muted } }, when3), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.item_label, r.equipment ? ` \xB7 ${r.equipment}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, r.task_name, !isManager ? ` \xB7 ${r.store_name}` : "", r.by ? ` \xB7 ${r.by}` : "")), /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, fontSize: "0.95rem", fontWeight: 800, color: c, fontVariantNumeric: "tabular-nums" } }, r.value, r.unit || ""), /* @__PURE__ */ React.createElement("div", { style: { width: 92, flexShrink: 0, textAlign: "right" } }, rng && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted } }, rng), /* @__PURE__ */ React.createElement("span", { className: "ops-chip", style: { background: c + "1e", color: c } }, pass ? "In range" : fail ? "Out of range" : "\u2014")));
+        const when4 = r.at ? new Date(r.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : r.business_date;
+        return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.7rem 1rem", borderTop: i ? `1px solid ${th.cardBorder}` : "none", borderLeft: `3px solid ${c}` } }, /* @__PURE__ */ React.createElement("span", { style: { width: 118, flexShrink: 0, fontSize: "0.72rem", color: th.muted } }, when4), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", fontWeight: 600, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.item_label, r.equipment ? ` \xB7 ${r.equipment}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted } }, r.task_name, !isManager ? ` \xB7 ${r.store_name}` : "", r.by ? ` \xB7 ${r.by}` : "")), /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0, fontSize: "0.95rem", fontWeight: 800, color: c, fontVariantNumeric: "tabular-nums" } }, r.value, r.unit || ""), /* @__PURE__ */ React.createElement("div", { style: { width: 92, flexShrink: 0, textAlign: "right" } }, rng && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted } }, rng), /* @__PURE__ */ React.createElement("span", { className: "ops-chip", style: { background: c + "1e", color: c } }, pass ? "In range" : fail ? "Out of range" : "\u2014")));
       })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("button", { disabled: tempPage <= 1 || tempLoading, onClick: () => setTempPage((p) => Math.max(1, p - 1)), style: { ...btn(th, { background: "transparent", color: tempPage <= 1 ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: tempPage <= 1 ? 0.5 : 1 } }, "\u2190 Prev"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted, fontWeight: 600 } }, "Page ", tempPage, " of ", totalPages, " \xB7 ", tempLog.total, " readings"), /* @__PURE__ */ React.createElement("button", { disabled: tempPage >= totalPages || tempLoading, onClick: () => setTempPage((p) => p + 1), style: { ...btn(th, { background: "transparent", color: tempPage >= totalPages ? th.muted : th.text, border: `1px solid ${th.muted}55` }), padding: "0.45rem 1rem", minHeight: 40, opacity: tempPage >= totalPages ? 0.5 : 1 } }, "Next \u2192")));
     })()), photoLightbox && /* @__PURE__ */ React.createElement("div", { onClick: () => setPhotoLightbox(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoLightbox(null), style: { position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: photoLightbox, alt: "Full size photo", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } }))))));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
-    const [eventAddr, setEventAddr] = useState15("2310 W Passyunk Ave, Philadelphia, PA 19145");
-    const [eventLatLng, setEventLatLng] = useState15(null);
-    const [eventDate, setEventDate] = useState15("2025-12-28");
-    const [weeksBefore, setWeeksBefore] = useState15(13);
-    const [weeksAfter, setWeeksAfter] = useState15("");
-    const [coords, setCoords] = useState15(null);
-    const [ranked, setRanked] = useState15([]);
-    const [impactedPc, setImpactedPc] = useState15(null);
-    const [controlPcs, setControlPcs] = useState15([]);
-    const [status, setStatus] = useState15("");
-    const [busy, setBusy] = useState15(false);
-    const [results, setResults] = useState15(null);
-    const chartCanvas = useRef6(null);
-    const chartRef = useRef6(null);
-    const mapDiv = useRef6(null);
-    const mapRef = useRef6(null);
-    const [radiusMi, setRadiusMi] = useState15(1);
-    const histCache = useRef6(/* @__PURE__ */ new Map());
+    const [eventAddr, setEventAddr] = useState17("2310 W Passyunk Ave, Philadelphia, PA 19145");
+    const [eventLatLng, setEventLatLng] = useState17(null);
+    const [eventDate, setEventDate] = useState17("2025-12-28");
+    const [weeksBefore, setWeeksBefore] = useState17(13);
+    const [weeksAfter, setWeeksAfter] = useState17("");
+    const [coords, setCoords] = useState17(null);
+    const [ranked, setRanked] = useState17([]);
+    const [impactedPc, setImpactedPc] = useState17(null);
+    const [controlPcs, setControlPcs] = useState17([]);
+    const [status, setStatus] = useState17("");
+    const [busy, setBusy] = useState17(false);
+    const [results, setResults] = useState17(null);
+    const chartCanvas = useRef7(null);
+    const chartRef = useRef7(null);
+    const mapDiv = useRef7(null);
+    const mapRef = useRef7(null);
+    const [radiusMi, setRadiusMi] = useState17(1);
+    const histCache = useRef7(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
       setBusy(true);
@@ -39149,7 +39701,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       doc.text("Source: Dunkin\u2019 Pulse POS net sales. Distances are geocoded centroid estimates (US Census).", margin, 10.7);
       doc.save(`impact-${imp.name.replace(/\s+/g, "-")}-${eventDate}.pdf`);
     }
-    useEffect12(() => {
+    useEffect14(() => {
       (async () => {
         let c = await cloudLoad(COORDS_BLOB);
         if (!c || Object.keys(c).length < STORES_SEED.length) {
@@ -39196,7 +39748,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setBusy(false);
     }
-    useEffect12(() => {
+    useEffect14(() => {
       if (!eventLatLng || !coords) return;
       const rows = openStoreList().filter((s) => coords[s.pc]).map((s) => ({
         pc: s.pc,
@@ -39210,7 +39762,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
       }
     }, [eventLatLng, coords]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!results || !chartCanvas.current || !window.Chart) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -39246,7 +39798,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       };
     }, [results, dark]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!eventLatLng || !mapDiv.current || !window.L) return;
       if (!mapRef.current) {
         mapRef.current = window.L.map(mapDiv.current).setView([eventLatLng.lat, eventLatLng.lng], 13);
@@ -39286,7 +39838,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       map.setView([eventLatLng.lat, eventLatLng.lng], 13);
     }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
-    useEffect12(() => () => {
+    useEffect14(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -39300,37 +39852,37 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })(), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", color: th.muted, fontSize: 12 } }, /* @__PURE__ */ React.createElement("th", { style: { padding: 6 } }, "Store"), /* @__PURE__ */ React.createElement("th", null, "Distance"), /* @__PURE__ */ React.createElement("th", null, "Before $/wk"), /* @__PURE__ */ React.createElement("th", null, "After $/wk"), /* @__PURE__ */ React.createElement("th", null, "%\u0394"), /* @__PURE__ */ React.createElement("th", null, "Weeks"))), /* @__PURE__ */ React.createElement("tbody", null, [results.impacted, ...results.controls].map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: row.pc, style: { borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: 6 } }, row.name, i === 0 ? " (impacted)" : ""), /* @__PURE__ */ React.createElement("td", null, row.distance != null ? `${row.distance.toFixed(1)} mi` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgBefore)), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgAfter)), /* @__PURE__ */ React.createElement("td", { style: { color: row.deltaPct < -15 ? "#dc2626" : row.deltaPct < -7 ? "#d97706" : th.text } }, fmtPct(row.deltaPct)), /* @__PURE__ */ React.createElement("td", { style: { color: row.weeksBeforeUsed < weeksBefore ? "#d97706" : th.muted } }, row.weeksBeforeUsed, "/", row.weeksAfterUsed, row.weeksBeforeUsed < weeksBefore ? " \u26A0" : ""))))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 11, marginTop: 8 } }, "Source: ", results.impacted.source === "scorecard" ? `uploaded weekly scorecards (${results.impacted.weeksAvailable} wks available for the impacted store)` : `Pulse net sales via labor blobs (~13-week retention; ${results.impacted.weeksAvailable} wks available)`, ". \u26A0 = fewer weeks than requested.")));
   }
   function AdminNdcp({ th, user }) {
-    const [orders, setOrders] = useState15(null);
-    const [err, setErr] = useState15(null);
-    const [q, setQ] = useState15("");
-    const [storeFilter, setStoreFilter] = useState15("");
-    const [sel, setSel] = useState15(null);
-    const [detail, setDetail] = useState15(null);
-    const [detailLoading, setDetailLoading] = useState15(false);
+    const [orders, setOrders] = useState17(null);
+    const [err, setErr] = useState17(null);
+    const [q, setQ] = useState17("");
+    const [storeFilter, setStoreFilter] = useState17("");
+    const [sel, setSel] = useState17(null);
+    const [detail, setDetail] = useState17(null);
+    const [detailLoading, setDetailLoading] = useState17(false);
     const todayISO = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const ago2 = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-    const [from, setFrom] = useState15(ago2(13 * 7));
-    const [to, setTo] = useState15(todayISO);
-    const [view, setView] = useState15("weekly");
-    const [summary, setSummary] = useState15(null);
-    const [labor, setLabor] = useState15(null);
-    const [expandWeek, setExpandWeek] = useState15(null);
-    const [expandDist, setExpandDist] = useState15(null);
+    const [from, setFrom] = useState17(ago2(13 * 7));
+    const [to, setTo] = useState17(todayISO);
+    const [view, setView] = useState17("weekly");
+    const [summary, setSummary] = useState17(null);
+    const [labor, setLabor] = useState17(null);
+    const [expandWeek, setExpandWeek] = useState17(null);
+    const [expandDist, setExpandDist] = useState17(null);
     const dcpPct = (spend, sales) => {
       if (spend == null || sales == null) return null;
       const sp = +spend, sl = +sales;
       if (!isFinite(sp) || !isFinite(sl) || sl <= 0) return null;
       return Math.round(sp / sl * 1e3) / 10;
     };
-    const api2 = (payload) => fetch("/.netlify/functions/ndcp", {
+    const api3 = (payload) => fetch("/.netlify/functions/ndcp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }).then((r) => r.json());
-    useEffect12(() => {
+    useEffect14(() => {
       setOrders(null);
       setErr(null);
-      const f = (action, extra = {}) => api2({ action, from, to, ...extra });
+      const f = (action, extra = {}) => api3({ action, from, to, ...extra });
       Promise.all([f("list"), f("summary")]).then(([l, s]) => {
         if (l && l.error) {
           setErr(l.error);
@@ -39342,7 +39894,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setOrders([]);
       });
     }, [from, to]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_labor_v1").then(setLabor).catch(() => {
       });
     }, []);
@@ -39356,7 +39908,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setSel(orderNumber);
       setDetail(null);
       setDetailLoading(true);
-      api2({ action: "detail", order_number: orderNumber }).then((r) => {
+      api3({ action: "detail", order_number: orderNumber }).then((r) => {
         setDetail(r);
         setDetailLoading(false);
       }).catch(() => {
@@ -39513,7 +40065,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
     const weeks = React.useMemo(() => Object.entries(summary && summary.byWeek || {}).sort((a, b) => a[0].localeCompare(b[0])), [summary]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !weeks.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -39616,65 +40168,65 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
     const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
     const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
-    const [deals, setDeals] = useState15([]);
-    const [loading, setLoading] = useState15(true);
-    const [error, setError] = useState15(null);
-    const [view, setView] = useState15("kanban");
-    const [filterBrand, setFilterBrand] = useState15("all");
-    const [filterType, setFilterType] = useState15("all");
-    const [filterState, setFilterState] = useState15("all");
-    const [filterStage, setFilterStage] = useState15("all");
-    const [filterLead, setFilterLead] = useState15("all");
-    const [sortCol, setSortCol] = useState15("name");
-    const [sortDir, setSortDir] = useState15("asc");
-    const [selectedDeal, setSelectedDeal] = useState15(null);
-    const [detailDeal, setDetailDeal] = useState15(null);
-    const [detailDates, setDetailDates] = useState15([]);
-    const [detailNotes, setDetailNotes] = useState15([]);
-    const [detailLoading, setDetailLoading] = useState15(false);
-    const [detailError, setDetailError] = useState15(null);
-    const [editFields, setEditFields] = useState15({});
-    const [saving, setSaving] = useState15(false);
-    const [saveMsg, setSaveMsg] = useState15(null);
-    const [newNote, setNewNote] = useState15("");
-    const [addingNote, setAddingNote] = useState15(false);
-    const [noteErr, setNoteErr] = useState15(null);
-    const [actionErr, setActionErr] = useState15(null);
-    const [showCreate, setShowCreate] = useState15(false);
-    const [createForm, setCreateForm] = useState15({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
-    const [creating, setCreating] = useState15(false);
-    const [createError, setCreateError] = useState15(null);
-    const [docs, setDocs] = useState15([]);
-    const [docVersions, setDocVersions] = useState15([]);
-    const [docBusy, setDocBusy] = useState15(false);
-    const [docErr, setDocErr] = useState15(null);
-    const [newDocType, setNewDocType] = useState15("loi");
-    const [allDates, setAllDates] = useState15([]);
-    const [newDateType, setNewDateType] = useState15(DATE_TYPES[0]?.id || "");
-    const [newDateDue, setNewDateDue] = useState15("");
-    const [newDateTiers, setNewDateTiers] = useState15(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
-    const [newDateNotes, setNewDateNotes] = useState15("");
-    const [newDateRecurring, setNewDateRecurring] = useState15("");
-    const [dateAdding, setDateAdding] = useState15(false);
-    const [dateErr, setDateErr] = useState15(null);
-    const [showAccess, setShowAccess] = useState15(false);
-    const [accessRows, setAccessRows] = useState15(null);
-    const [accessInput, setAccessInput] = useState15("");
-    const [accessRole, setAccessRole] = useState15("view");
-    const [accessBusy, setAccessBusy] = useState15(false);
-    const [accessErr, setAccessErr] = useState15(null);
-    const [dealLeads, setDealLeads] = useState15([]);
-    const [newLeadName, setNewLeadName] = useState15("");
-    const [deadFor, setDeadFor] = useState15(null);
-    const [deadReason, setDeadReason] = useState15(DEAD_REASONS[0]);
-    const [deadNote, setDeadNote] = useState15("");
-    const [deadBusy, setDeadBusy] = useState15(false);
-    const [deadErr, setDeadErr] = useState15(null);
-    const [remindFor, setRemindFor] = useState15(null);
-    const [remindPhone, setRemindPhone] = useState15("");
-    const [remindMsg, setRemindMsg] = useState15("");
-    const [remindBusy, setRemindBusy] = useState15(false);
-    const [remindStatus, setRemindStatus] = useState15(null);
+    const [deals, setDeals] = useState17([]);
+    const [loading, setLoading] = useState17(true);
+    const [error, setError] = useState17(null);
+    const [view, setView] = useState17("kanban");
+    const [filterBrand, setFilterBrand] = useState17("all");
+    const [filterType, setFilterType] = useState17("all");
+    const [filterState, setFilterState] = useState17("all");
+    const [filterStage, setFilterStage] = useState17("all");
+    const [filterLead, setFilterLead] = useState17("all");
+    const [sortCol, setSortCol] = useState17("name");
+    const [sortDir, setSortDir] = useState17("asc");
+    const [selectedDeal, setSelectedDeal] = useState17(null);
+    const [detailDeal, setDetailDeal] = useState17(null);
+    const [detailDates, setDetailDates] = useState17([]);
+    const [detailNotes, setDetailNotes] = useState17([]);
+    const [detailLoading, setDetailLoading] = useState17(false);
+    const [detailError, setDetailError] = useState17(null);
+    const [editFields, setEditFields] = useState17({});
+    const [saving, setSaving] = useState17(false);
+    const [saveMsg, setSaveMsg] = useState17(null);
+    const [newNote, setNewNote] = useState17("");
+    const [addingNote, setAddingNote] = useState17(false);
+    const [noteErr, setNoteErr] = useState17(null);
+    const [actionErr, setActionErr] = useState17(null);
+    const [showCreate, setShowCreate] = useState17(false);
+    const [createForm, setCreateForm] = useState17({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
+    const [creating, setCreating] = useState17(false);
+    const [createError, setCreateError] = useState17(null);
+    const [docs, setDocs] = useState17([]);
+    const [docVersions, setDocVersions] = useState17([]);
+    const [docBusy, setDocBusy] = useState17(false);
+    const [docErr, setDocErr] = useState17(null);
+    const [newDocType, setNewDocType] = useState17("loi");
+    const [allDates, setAllDates] = useState17([]);
+    const [newDateType, setNewDateType] = useState17(DATE_TYPES[0]?.id || "");
+    const [newDateDue, setNewDateDue] = useState17("");
+    const [newDateTiers, setNewDateTiers] = useState17(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
+    const [newDateNotes, setNewDateNotes] = useState17("");
+    const [newDateRecurring, setNewDateRecurring] = useState17("");
+    const [dateAdding, setDateAdding] = useState17(false);
+    const [dateErr, setDateErr] = useState17(null);
+    const [showAccess, setShowAccess] = useState17(false);
+    const [accessRows, setAccessRows] = useState17(null);
+    const [accessInput, setAccessInput] = useState17("");
+    const [accessRole, setAccessRole] = useState17("view");
+    const [accessBusy, setAccessBusy] = useState17(false);
+    const [accessErr, setAccessErr] = useState17(null);
+    const [dealLeads, setDealLeads] = useState17([]);
+    const [newLeadName, setNewLeadName] = useState17("");
+    const [deadFor, setDeadFor] = useState17(null);
+    const [deadReason, setDeadReason] = useState17(DEAD_REASONS[0]);
+    const [deadNote, setDeadNote] = useState17("");
+    const [deadBusy, setDeadBusy] = useState17(false);
+    const [deadErr, setDeadErr] = useState17(null);
+    const [remindFor, setRemindFor] = useState17(null);
+    const [remindPhone, setRemindPhone] = useState17("");
+    const [remindMsg, setRemindMsg] = useState17("");
+    const [remindBusy, setRemindBusy] = useState17(false);
+    const [remindStatus, setRemindStatus] = useState17(null);
     const loadList = () => {
       setLoading(true);
       return dealApi(token, { action: "list", status: "active" }).then((r) => {
@@ -39683,7 +40235,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setError(null);
       }).catch((e) => setError(e.message)).finally(() => setLoading(false));
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!token) {
         setLoading(false);
         return;
@@ -39696,7 +40248,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setAccessErr(null);
       dealApi(token, { action: "listAccess" }).then((r) => setAccessRows(r.access || [])).catch((e) => setAccessErr(e.message));
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (showAccess) loadAccess();
     }, [showAccess]);
     const doSetAccess = (key, r) => {
@@ -40520,16 +41072,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ));
   }
   function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
-    const [pnl, setPnl] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const [error, setError] = useState15(null);
-    const [selectedStore, setSelectedStore] = useState15(null);
-    useEffect12(() => {
+    const [pnl, setPnl] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const [error, setError] = useState17(null);
+    const [selectedStore, setSelectedStore] = useState17(null);
+    useEffect14(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) {
           setPnl(d);
@@ -40562,7 +41114,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const p = (n) => a.revenue > 0 ? n / a.revenue * 100 : 0;
       return { ...a, marginPct: p(a.contribution), laborPct: p(a.labor), cogsPct: p(a.cogs) };
     }, [ranked]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (drillInStore && pnl?.stores) {
         const match = pnl.stores.find((s) => String(s.pc) === String(drillInStore));
         if (match) setSelectedStore(match);
@@ -40768,8 +41320,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var QUICKFIND_HUB_LABELS = { "ops-hub": "Operations", "team-hub": "Team & Sites", "system-hub": "System", "tools-hub": "Tools", finance: "Finance" };
   function QuickFindBar({ th, tabs, onNavigate, compact }) {
-    const [query, setQuery] = useState15("");
-    const [showSuggestions, setShowSuggestions] = useState15(false);
+    const [query, setQuery] = useState17("");
+    const [showSuggestions, setShowSuggestions] = useState17(false);
     const matches = React.useMemo(() => {
       const q = query.trim().toLowerCase();
       if (!q) return [];
@@ -40905,11 +41457,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
     const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
-    const [viewMode, setViewMode] = useState15("overview");
-    const [hubQuery, setHubQuery] = useState15("");
-    const [pnlOv, setPnlOv] = useState15(null);
-    const [expPending, setExpPending] = useState15(null);
-    useEffect12(() => {
+    const [viewMode, setViewMode] = useState17("overview");
+    const [hubQuery, setHubQuery] = useState17("");
+    const [pnlOv, setPnlOv] = useState17(null);
+    const [expPending, setExpPending] = useState17(null);
+    useEffect14(() => {
       if (viewMode !== "overview") return;
       if (canPnl && !pnlOv) cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) setPnlOv(d);
@@ -41193,21 +41745,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function TipsReportBuilder({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [periodStart, setPeriodStart] = useState15("");
-    const [loading, setLoading] = useState15(false);
-    const [error, setError] = useState15(null);
-    const [dayInfo, setDayInfo] = useState15(null);
-    const [snapshots, setSnapshots] = useState15(null);
-    const [grandTotal, setGrandTotal] = useState15(0);
+    const [periodStart, setPeriodStart] = useState17("");
+    const [loading, setLoading] = useState17(false);
+    const [error, setError] = useState17(null);
+    const [dayInfo, setDayInfo] = useState17(null);
+    const [snapshots, setSnapshots] = useState17(null);
+    const [grandTotal, setGrandTotal] = useState17(0);
     const canPushToPaycor = canPaycorPush(user);
-    const [paycorCfg, setPaycorCfg] = useState15({});
-    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState15(false);
-    const [paycorPush, setPaycorPush] = useState15(null);
-    const [singleSendPc, setSingleSendPc] = useState15("");
-    const [singleSending, setSingleSending] = useState15(false);
-    const [refreshingDates, setRefreshingDates] = useState15(() => /* @__PURE__ */ new Set());
-    const [refreshingStores, setRefreshingStores] = useState15(() => /* @__PURE__ */ new Set());
-    useEffect12(() => {
+    const [paycorCfg, setPaycorCfg] = useState17({});
+    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState17(false);
+    const [paycorPush, setPaycorPush] = useState17(null);
+    const [singleSendPc, setSingleSendPc] = useState17("");
+    const [singleSending, setSingleSending] = useState17(false);
+    const [refreshingDates, setRefreshingDates] = useState17(() => /* @__PURE__ */ new Set());
+    const [refreshingStores, setRefreshingStores] = useState17(() => /* @__PURE__ */ new Set());
+    useEffect14(() => {
       if (!canPushToPaycor || paycorCfgLoaded) return;
       cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
       }).finally(() => setPaycorCfgLoaded(true));
@@ -41223,12 +41775,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return next;
       });
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!canPushToPaycor || !paycorCfgLoaded || !snapshots) return;
       const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
       fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc));
     }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
-    const [missingCheck, setMissingCheck] = useState15(null);
+    const [missingCheck, setMissingCheck] = useState17(null);
     const start = periodStart ? tipsParseISODate(periodStart) : null;
     const end = start ? tipsAddDays(start, 13) : null;
     const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 864e5) : 0;
@@ -41620,9 +42172,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   var teHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
-    const [shown, setShown] = useState15(target);
-    const fromRef = useRef6(target);
-    useEffect12(() => {
+    const [shown, setShown] = useState17(target);
+    const fromRef = useRef7(target);
+    useEffect14(() => {
       const from = fromRef.current;
       if (teReducedMotion() || Math.abs(from - target) < 5e-3) {
         fromRef.current = target;
@@ -41740,22 +42292,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 14);
       return tipsFormatISODate(d);
     })();
-    const [storePc, setStorePc] = useState15("");
-    const [roster, setRoster] = useState15(null);
-    const [rosterLoading, setRosterLoading] = useState15(false);
-    const [personQuery, setPersonQuery] = useState15("");
-    const [person, setPerson] = useState15(null);
-    const [startDate, setStartDate] = useState15(twoWeeksAgo);
-    const [endDate, setEndDate] = useState15(yesterday);
-    const [days, setDays] = useState15(null);
-    const [edits, setEdits] = useState15({});
-    const [loading, setLoading] = useState15(false);
-    const [saving, setSaving] = useState15(false);
-    const [error, setError] = useState15(null);
-    const [result, setResult] = useState15(null);
-    const [reason, setReason] = useState15("");
+    const [storePc, setStorePc] = useState17("");
+    const [roster, setRoster] = useState17(null);
+    const [rosterLoading, setRosterLoading] = useState17(false);
+    const [personQuery, setPersonQuery] = useState17("");
+    const [person, setPerson] = useState17(null);
+    const [startDate, setStartDate] = useState17(twoWeeksAgo);
+    const [endDate, setEndDate] = useState17(yesterday);
+    const [days, setDays] = useState17(null);
+    const [edits, setEdits] = useState17({});
+    const [loading, setLoading] = useState17(false);
+    const [saving, setSaving] = useState17(false);
+    const [error, setError] = useState17(null);
+    const [result, setResult] = useState17(null);
+    const [reason, setReason] = useState17("");
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
-    const api2 = async (body) => {
+    const api3 = async (body) => {
       const res = await fetch("/.netlify/functions/tips-manual-edit", {
         method: "POST",
         credentials: "include",
@@ -41777,7 +42329,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!s?.paycor) return;
       setRosterLoading(true);
       try {
-        const j = await api2({ action: "employeeRoster", legalEntityId: s.paycor });
+        const j = await api3({ action: "employeeRoster", legalEntityId: s.paycor });
         setRoster(j.roster || []);
       } catch (e) {
         setError(e.message);
@@ -41791,7 +42343,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setResult(null);
       setDays(null);
       try {
-        const j = await api2({ action: "rangePreview", pc: storePc, legalEntityId: selectedStore.paycor, guid: person.guid, name: person.name, startDate, endDate });
+        const j = await api3({ action: "rangePreview", pc: storePc, legalEntityId: selectedStore.paycor, guid: person.guid, name: person.name, startDate, endDate });
         const rows = j.days || [];
         const init = {};
         rows.forEach((d) => {
@@ -41817,7 +42369,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setSaving(true);
       setError(null);
       try {
-        const j = await api2({ action: "bulkSave", pc: storePc, person: { name: person.name, guid: person.guid, payrollId: person.payrollId }, entries, reason: reason.trim() || void 0 });
+        const j = await api3({ action: "bulkSave", pc: storePc, person: { name: person.name, guid: person.guid, payrollId: person.payrollId }, entries, reason: reason.trim() || void 0 });
         setResult(j.results || []);
         await loadDays();
       } catch (e) {
@@ -41892,25 +42444,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.88rem", fontWeight: 600, color: th.text, marginBottom: "0.35rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("textarea", { rows: 2, className: "te-input", placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: FONTS.body, fontSize: "0.92rem" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.84rem", color: th.muted, marginRight: "auto" } }, /* @__PURE__ */ React.createElement(TeTicker, { value: checkedDays.length, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
   }
   function TipsEditor({ th, stores, user, onGoToReport }) {
-    const [mode, setMode] = useState15("day");
+    const [mode, setMode] = useState17("day");
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState15("");
-    const [dateStr, setDateStr] = useState15(todayStr);
-    const [loading, setLoading] = useState15(false);
-    const [error, setError] = useState15(null);
-    const [store, setStore] = useState15(null);
-    const [crew, setCrew] = useState15([]);
-    const [saving, setSaving] = useState15(false);
-    const [savedMsg, setSavedMsg] = useState15(null);
-    const [reason, setReason] = useState15("");
-    const [roster, setRoster] = useState15(null);
-    const [rosterLoading, setRosterLoading] = useState15(false);
-    const [rosterQuery, setRosterQuery] = useState15("");
-    const [showRoster, setShowRoster] = useState15(false);
-    const [hoverKey, setHoverKey] = useState15(null);
-    const [leavingKeys, setLeavingKeys] = useState15([]);
-    const [justSaved, setJustSaved] = useState15(false);
-    const [addedKeys, setAddedKeys] = useState15([]);
+    const [storePc, setStorePc] = useState17("");
+    const [dateStr, setDateStr] = useState17(todayStr);
+    const [loading, setLoading] = useState17(false);
+    const [error, setError] = useState17(null);
+    const [store, setStore] = useState17(null);
+    const [crew, setCrew] = useState17([]);
+    const [saving, setSaving] = useState17(false);
+    const [savedMsg, setSavedMsg] = useState17(null);
+    const [reason, setReason] = useState17("");
+    const [roster, setRoster] = useState17(null);
+    const [rosterLoading, setRosterLoading] = useState17(false);
+    const [rosterQuery, setRosterQuery] = useState17("");
+    const [showRoster, setShowRoster] = useState17(false);
+    const [hoverKey, setHoverKey] = useState17(null);
+    const [leavingKeys, setLeavingKeys] = useState17([]);
+    const [justSaved, setJustSaved] = useState17(false);
+    const [addedKeys, setAddedKeys] = useState17([]);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const pool = tipsRound2(store?.tipPool || 0);
     const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
@@ -42099,14 +42651,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function EmployeeHoursReport({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState15("");
-    const [startDate, setStartDate] = useState15("");
-    const [endDate, setEndDate] = useState15("");
-    const [status, setStatus] = useState15(null);
-    const [step, setStep] = useState15("");
-    const [error, setError] = useState15(null);
-    const [result, setResult] = useState15(null);
-    const pollRef = useRef6(null);
+    const [storePc, setStorePc] = useState17("");
+    const [startDate, setStartDate] = useState17("");
+    const [endDate, setEndDate] = useState17("");
+    const [status, setStatus] = useState17(null);
+    const [step, setStep] = useState17("");
+    const [error, setError] = useState17(null);
+    const [result, setResult] = useState17(null);
+    const pollRef = useRef7(null);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     React.useEffect(() => () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -42296,13 +42848,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return React.createElement("div", { style: { fontFamily: "'Source Sans 3'", fontSize: "0.875rem" } }, elements);
   }
   function AskBar({ user, stores, th, onNavigate }) {
-    const [open, setOpen] = useState15(false);
-    const [query, setQuery] = useState15("");
-    const [answer, setAnswer] = useState15(null);
-    const [loading, setLoading] = useState15(false);
-    const [feedback, setFeedback] = useState15(null);
-    const inputRef = useRef6(null);
-    useEffect12(() => {
+    const [open, setOpen] = useState17(false);
+    const [query, setQuery] = useState17("");
+    const [answer, setAnswer] = useState17(null);
+    const [loading, setLoading] = useState17(false);
+    const [feedback, setFeedback] = useState17(null);
+    const inputRef = useRef7(null);
+    useEffect14(() => {
       const handler = (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") {
           e.preventDefault();
@@ -42318,7 +42870,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       window.addEventListener("keydown", handler);
       return () => window.removeEventListener("keydown", handler);
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (open && inputRef.current) inputRef.current.focus();
     }, [open]);
     const ask = async () => {
@@ -42437,14 +42989,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         y = margin;
       }
       if (line.startsWith("\u2022") || line.startsWith("-")) {
-        const clean5 = line.replace(/^[•\-]\s*/, "").replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
-        const parts = clean5.split("\xB7");
+        const clean6 = line.replace(/^[•\-]\s*/, "").replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
+        const parts = clean6.split("\xB7");
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
         doc.setTextColor(30, 30, 30);
         doc.setFillColor(...br);
         doc.circle(margin + 0.07, y - 0.04, 0.035, "F");
-        const wrapped = doc.splitTextToSize(clean5, contentW - 0.25);
+        const wrapped = doc.splitTextToSize(clean6, contentW - 0.25);
         if (y + wrapped.length * 0.175 > pageH - 1.2) {
           doc.addPage();
           y = margin;
@@ -42453,8 +43005,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         y += wrapped.length * 0.175 + 0.14;
       } else if (line.toLowerCase().includes("watch today")) {
         y += 0.08;
-        const clean5 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").replace(/^[^\w]*/, "").trim();
-        const label = clean5.match(/^watch today/i) ? clean5 : "Watch today: " + clean5;
+        const clean6 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").replace(/^[^\w]*/, "").trim();
+        const label = clean6.match(/^watch today/i) ? clean6 : "Watch today: " + clean6;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         const wrapped = doc.splitTextToSize(label, contentW - 0.4);
@@ -42471,15 +43023,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         doc.text(wrapped, margin + 0.18, y + 0.1);
         y += boxH + 0.1;
       } else {
-        const clean5 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
-        if (!clean5) {
+        const clean6 = line.replace(/\*\*/g, "").replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
+        if (!clean6) {
           y += 0.08;
           continue;
         }
-        doc.setFont("helvetica", clean5.length < 60 ? "bold" : "normal");
+        doc.setFont("helvetica", clean6.length < 60 ? "bold" : "normal");
         doc.setFontSize(10);
         doc.setTextColor(50, 50, 50);
-        const wrapped = doc.splitTextToSize(clean5, contentW);
+        const wrapped = doc.splitTextToSize(clean6, contentW);
         doc.text(wrapped, margin, y);
         y += wrapped.length * 0.175 + 0.08;
       }
@@ -42584,10 +43136,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     sectionTitle2("All Questions Asked");
     (recent || []).forEach((r) => {
-      const when3 = new Date(r.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const when4 = new Date(r.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
       const miss = r.answered === false || r.feedback === "down";
       const tag = miss ? "  [UNANSWERED]" : "";
-      const meta = `${when3} \xB7 ${orionRoleLabel(r.userRole)}${r.userName ? " \xB7 " + r.userName : ""}${r.scope ? " \xB7 " + r.scope : ""}${tag}`;
+      const meta = `${when4} \xB7 ${orionRoleLabel(r.userRole)}${r.userName ? " \xB7 " + r.userName : ""}${r.scope ? " \xB7 " + r.scope : ""}${tag}`;
       const qWrapped = doc.splitTextToSize(strip(r.question), contentW - 0.1);
       ensure(qWrapped.length * 0.17 + 0.28);
       doc.setFont("helvetica", "normal");
@@ -42701,11 +43253,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     doc.save(`business_cases_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.pdf`);
   }
   function TodayBrief({ user, th, setAnnouncements, showAlert: showAlert2, announcementsDismissed, setAnnouncementsDismissed }) {
-    const [brief, setBrief] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const [refreshing, setRefreshing] = useState15(false);
-    const [collapsed, setCollapsed] = useState15(false);
-    const [posting, setPosting] = useState15(false);
+    const [brief, setBrief] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const [refreshing, setRefreshing] = useState17(false);
+    const [collapsed, setCollapsed] = useState17(false);
+    const [posting, setPosting] = useState17(false);
     const fetchBrief = async (refresh) => {
       if (refresh) setRefreshing(true);
       else setLoading(true);
@@ -42723,7 +43275,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setLoading(false);
       setRefreshing(false);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       fetchBrief(false);
     }, []);
     if (loading) return /* @__PURE__ */ React.createElement("div", { style: { background: `linear-gradient(135deg, ${O}12, ${O}06)`, border: `1px solid ${O}33`, borderRadius: "0.75rem", padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", color: O, fontSize: "0.75rem", fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", null, "\u{1F52E}"), " Loading Orion's brief..."));
@@ -42752,16 +43304,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, collapsed ? "\u25BC" : "\u25B2"))), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem" } }, renderAnalystMarkdown(brief.content, th)));
   }
   function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnouncements, showAlert: showAlert2 }) {
-    const [cases, setCases] = useState15([]);
-    const [totalOpp, setTotalOpp] = useState15(0);
-    const [byStatus, setByStatus] = useState15({});
-    const [loading, setLoading] = useState15(true);
-    const [expanded, setExpanded] = useState15(null);
-    const [caseAction, setCaseAction] = useState15({});
-    const [reasonPrompt, setReasonPrompt] = useState15(null);
-    const [decisionLog, setDecisionLog] = useState15([]);
-    const [showDecisionLog, setShowDecisionLog] = useState15(false);
-    useEffect12(() => {
+    const [cases, setCases] = useState17([]);
+    const [totalOpp, setTotalOpp] = useState17(0);
+    const [byStatus, setByStatus] = useState17({});
+    const [loading, setLoading] = useState17(true);
+    const [expanded, setExpanded] = useState17(null);
+    const [caseAction, setCaseAction] = useState17({});
+    const [reasonPrompt, setReasonPrompt] = useState17(null);
+    const [decisionLog, setDecisionLog] = useState17([]);
+    const [showDecisionLog, setShowDecisionLog] = useState17(false);
+    useEffect14(() => {
       (async () => {
         try {
           const district = user.userType === "dm" ? user.district : null;
@@ -42948,7 +43500,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setReportsReadIds(allIds);
       setReportsUnreadCount(0);
     };
-    const selectReportTokenRef = useRef6(0);
+    const selectReportTokenRef = useRef7(0);
     const handleSelectReport = async (rpt) => {
       const myToken = ++selectReportTokenRef.current;
       setSelectedReport(rpt);
@@ -43580,19 +44132,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const CAT_COLORS = { "Setup Guide": "#3b82f6", "SOP": "#8b5cf6", "Training": "#22c55e", "Policy": "#ef4444", "Reference": "#f59e0b" };
     const isAdmin = user && (user.userType === "executive" || user.userType === "it");
     const [kbSection, setKbSection] = React.useState("articles");
-    const [articles, setArticles] = useState15([]);
-    const [selectedArticle, setSelectedArticle] = useState15(null);
-    const [articleContent, setArticleContent] = useState15(null);
-    const [loading, setLoading] = useState15(true);
-    const kbContentRef = useRef6(null);
-    const [search, setSearch] = useState15("");
-    const [catFilter, setCatFilter] = useState15("All");
-    const [showForm, setShowForm] = useState15(false);
-    const [showPdfModal, setShowPdfModal] = useState15(false);
-    const [editing, setEditing] = useState15(false);
-    const [editForm, setEditForm] = useState15({ title: "", category: "", description: "", content: "" });
-    const [form, setForm] = useState15({ title: "", category: "Setup Guide", description: "", content: "" });
-    useEffect12(() => {
+    const [articles, setArticles] = useState17([]);
+    const [selectedArticle, setSelectedArticle] = useState17(null);
+    const [articleContent, setArticleContent] = useState17(null);
+    const [loading, setLoading] = useState17(true);
+    const kbContentRef = useRef7(null);
+    const [search, setSearch] = useState17("");
+    const [catFilter, setCatFilter] = useState17("All");
+    const [showForm, setShowForm] = useState17(false);
+    const [showPdfModal, setShowPdfModal] = useState17(false);
+    const [editing, setEditing] = useState17(false);
+    const [editForm, setEditForm] = useState17({ title: "", category: "", description: "", content: "" });
+    const [form, setForm] = useState17({ title: "", category: "Setup Guide", description: "", content: "" });
+    useEffect14(() => {
       if (!kbContentRef.current || !articleContent) return;
       kbContentRef.current.querySelectorAll("script").forEach((old) => {
         const s = document.createElement("script");
@@ -43601,7 +44153,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         old.parentNode.replaceChild(s, old);
       });
     }, [articleContent]);
-    useEffect12(() => {
+    useEffect14(() => {
       (async () => {
         setLoading(true);
         const data = await cloudLoad("pcg_kb_articles");
@@ -43609,7 +44161,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setLoading(false);
       })();
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       const draft = takePendingKbDraft();
       if (draft) {
         setForm({
@@ -44104,14 +44656,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     );
   }
   function EmailTab({ th, user }) {
-    const [emails, setEmails] = useState15([]);
-    const [loading, setLoading] = useState15(true);
-    const [filter, setFilter] = useState15("all");
-    const [selectedEmail, setSelectedEmail] = useState15(null);
-    const [composing, setComposing] = useState15(false);
-    const [composeData, setComposeData] = useState15({ to: "", cc: "", subject: "", body: "" });
-    const [sending, setSending] = useState15(false);
-    const [lastSync, setLastSync] = useState15(null);
+    const [emails, setEmails] = useState17([]);
+    const [loading, setLoading] = useState17(true);
+    const [filter, setFilter] = useState17("all");
+    const [selectedEmail, setSelectedEmail] = useState17(null);
+    const [composing, setComposing] = useState17(false);
+    const [composeData, setComposeData] = useState17({ to: "", cc: "", subject: "", body: "" });
+    const [sending, setSending] = useState17(false);
+    const [lastSync, setLastSync] = useState17(null);
     const loadEmails = async () => {
       setLoading(true);
       try {
@@ -44130,7 +44682,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setLoading(false);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       loadEmails();
     }, []);
     const filtered = filter === "all" ? emails : emails.filter((e) => e.category === filter);
@@ -44632,14 +45184,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { label: "Forecast", value: agg.forecast > 0 ? fmtUSD(agg.forecast) : "\u2014", color: "#cc5de8" }
       ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { display: "flex", flexDirection: "column", alignItems: "center", background: `${k.color}12`, border: `1px solid ${k.color}30`, borderRadius: 999, padding: "0.25rem 0.7rem", minWidth: 56 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.78rem", color: k.color, lineHeight: 1.1, whiteSpace: "nowrap" } }, k.value), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.48rem", color: `${k.color}77`, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, whiteSpace: "nowrap" } }, k.label))))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 8 } }, "Store Breakdown"), storeRows.length === 0 && loading && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: th.muted, padding: 20, fontSize: 13 } }, "Loading stores..."), pulseWtdLoading && isWeek && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: G, padding: 12, fontSize: 12, fontWeight: 600 } }, "\u23F3 Loading week data\u2026"), storeRows.map((s) => {
         const isOpen = expandedStore === s.pc;
-        const api2 = isWeek ? pulseWtdData[s.pc] : pulseApiData[s.pc];
-        const sales = api2?.netSales || (isWeek ? s.wtdSales : s.todaySales);
-        const guests = api2?.guests || 0;
+        const api3 = isWeek ? pulseWtdData[s.pc] : pulseApiData[s.pc];
+        const sales = api3?.netSales || (isWeek ? s.wtdSales : s.todaySales);
+        const guests = api3?.guests || 0;
         const avgChk = guests > 0 ? sales / guests : 0;
-        const discounts = api2?.discounts || 0;
-        const voids = api2?.voids || 0;
-        const tax = api2?.tax || 0;
-        const errCor = api2?.errCor || 0;
+        const discounts = api3?.discounts || 0;
+        const voids = api3?.voids || 0;
+        const tax = api3?.tax || 0;
+        const errCor = api3?.errCor || 0;
         const voidR = sales > 0 ? voids / sales * 100 : 0;
         const laborPct = isWeek ? s.wtdLaborPct : s.todayLaborPct;
         const lColor = laborColor3(laborPct);
@@ -45317,17 +45869,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   };
   function ConstructionMobileView({ th, user, stores, projects, setProjects, todos, setTodos, onFullPortal, onOpenChat, onLogout }) {
     const O2 = "#FF671F";
-    const [navTab, setNavTab] = useState15("projects");
-    const [screen, setScreen] = useState15("list");
-    const [detailTab, setDetailTab] = useState15("reports");
-    const [calWeekOffset, setCalWeekOffset] = useState15(0);
-    const [calSelectedDay, setCalSelectedDay] = useState15(() => {
+    const [navTab, setNavTab] = useState17("projects");
+    const [screen, setScreen] = useState17("list");
+    const [detailTab, setDetailTab] = useState17("reports");
+    const [calWeekOffset, setCalWeekOffset] = useState17(0);
+    const [calSelectedDay, setCalSelectedDay] = useState17(() => {
       const d = /* @__PURE__ */ new Date();
       d.setHours(0, 0, 0, 0);
       return d;
     });
-    const [calSchedules, setCalSchedules] = useState15([]);
-    useEffect12(() => {
+    const [calSchedules, setCalSchedules] = useState17([]);
+    useEffect14(() => {
       const load = () => cloudLoad(typeof MAINT_SCHEDULE_KEY !== "undefined" ? MAINT_SCHEDULE_KEY : "pcg_maint_schedules_v1").then((d) => {
         if (Array.isArray(d)) setCalSchedules(d);
       }).catch(() => {
@@ -45336,9 +45888,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const id = setInterval(load, 6e4);
       return () => clearInterval(id);
     }, []);
-    const [selectedProject, setSelectedProject] = useState15(null);
-    const [dailyReports, setDailyReports] = useState15([]);
-    const [loadingReports, setLoadingReports] = useState15(false);
+    const [selectedProject, setSelectedProject] = useState17(null);
+    const [dailyReports, setDailyReports] = useState17([]);
+    const [loadingReports, setLoadingReports] = useState17(false);
     const EMPTY_LOG = { name: "", description: "", quantity: "", totalHours: "", hoursToDate: "", photos: [] };
     const SURVEY_KEYS = ["accidents", "scheduleDelays", "weatherDelays", "visitors", "blockedAreas", "rentedEquipment"];
     const SURVEY_LABELS = {
@@ -45354,7 +45906,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { time: "12:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" },
       { time: "4:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" }
     ];
-    const [rForm, setRForm] = useState15({
+    const [rForm, setRForm] = useState17({
       date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
       preparedBy: user?.name || "",
       jobNumber: "",
@@ -45366,8 +45918,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       survey: Object.fromEntries(SURVEY_KEYS.map((k) => [k, null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map((k) => [k, ""]))
     });
-    const [rSaving, setRSaving] = useState15(false);
-    const [wxLoading, setWxLoading] = useState15(false);
+    const [rSaving, setRSaving] = useState17(false);
+    const [wxLoading, setWxLoading] = useState17(false);
     const autoFillWeather = async (proj, date) => {
       const zip = proj?.zip;
       if (!zip) {
@@ -45391,23 +45943,23 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setWxLoading(false);
     };
-    const [syncing, setSyncing] = useState15(false);
-    const [syncMsg, setSyncMsg] = useState15("");
-    const [selectedReport, setSelectedReport] = useState15(null);
-    const [loadingReport, setLoadingReport] = useState15(false);
-    const [lightboxSrc, setLightboxSrc] = useState15(null);
-    const mobileReportIdRef = useRef6(null);
+    const [syncing, setSyncing] = useState17(false);
+    const [syncMsg, setSyncMsg] = useState17("");
+    const [selectedReport, setSelectedReport] = useState17(null);
+    const [loadingReport, setLoadingReport] = useState17(false);
+    const [lightboxSrc, setLightboxSrc] = useState17(null);
+    const mobileReportIdRef = useRef7(null);
     const photoUp = useReportPhotoUploads(setRForm, () => ({
       projectId: selectedProject?.id,
       projectNickname: selectedProject?.nickname || selectedProject?.address || selectedProject?.pc || "",
       reportId: mobileReportIdRef.current
     }));
-    const [expandedLogs, setExpandedLogs] = useState15({});
-    const [pdfLoading, setPdfLoading] = useState15(false);
-    const [emailModal, setEmailModal] = useState15(false);
-    const [emailTo, setEmailTo] = useState15("");
-    const [emailSubject, setEmailSubject] = useState15("");
-    const [emailSending, setEmailSending] = useState15(false);
+    const [expandedLogs, setExpandedLogs] = useState17({});
+    const [pdfLoading, setPdfLoading] = useState17(false);
+    const [emailModal, setEmailModal] = useState17(false);
+    const [emailTo, setEmailTo] = useState17("");
+    const [emailSubject, setEmailSubject] = useState17("");
+    const [emailSending, setEmailSending] = useState17(false);
     const mobileGeneratePdf = async (r, proj, download = true) => {
       setPdfLoading(true);
       try {
@@ -45616,7 +46168,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setRSaving(false);
       }
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (screen !== "detail" || !selectedProject) return;
       setLoadingReports(true);
       const forProject = (idx) => (Array.isArray(idx) ? idx : []).filter((r) => String(r.projectId) === String(selectedProject.id)).sort((a, b) => b.date?.localeCompare(a.date || "") || 0);
@@ -46208,8 +46760,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const deleteSchedule = (id) => saveSchedules(schedules.filter((s) => s.id !== id));
     const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
     const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const [isNarrow, setIsNarrow] = useState15(() => typeof window !== "undefined" && window.innerWidth < 760);
-    useEffect12(() => {
+    const [isNarrow, setIsNarrow] = useState17(() => typeof window !== "undefined" && window.innerWidth < 760);
+    useEffect14(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -46266,8 +46818,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: form.storePC, onChange: (e) => setForm((p) => ({ ...p, storePC: e.target.value })), style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.9rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: form.category, onChange: (e) => setForm((p) => ({ ...p, category: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, MAINT_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: form.freq, onChange: (e) => setForm((p) => ({ ...p, freq: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, Object.entries(FREQ_LABELS).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Notes (optional)"), /* @__PURE__ */ React.createElement("textarea", { value: form.notes, onChange: (e) => setForm((p) => ({ ...p, notes: e.target.value })), rows: 2, style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem", resize: "vertical", boxSizing: "border-box" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: handleAdd, disabled: !form.title.trim() || saving, style: { flex: 1, background: O2, border: "none", borderRadius: 8, color: "#fff", padding: "0.65rem", cursor: "pointer", fontWeight: 700, fontFamily: "'Source Sans 3'", opacity: !form.title.trim() ? 0.5 : 1 } }, "Save Schedule"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAdd(false), style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.65rem 1rem", cursor: "pointer" } }, "Cancel")))));
   }
   function DunkinRunnerScene({ dark }) {
-    const hostRef = useRef6(null);
-    useEffect12(() => {
+    const hostRef = useRef7(null);
+    useEffect14(() => {
       const host = hostRef.current;
       if (!host) return;
       const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -46576,24 +47128,24 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const store = (stores || []).find((s) => String(s.pc) === String(pc));
     const storeName = store?.name || pc;
     const existingUsernames = users.map((u) => u.username);
-    const [selectedCandidateId, setSelectedCandidateId] = useState15(
+    const [selectedCandidateId, setSelectedCandidateId] = useState17(
       item.kind === "needsReview" ? null : item.candidate?.employeeId || null
     );
     const candidate = item.kind === "needsReview" ? (item.candidates || []).find((c) => c.employeeId === selectedCandidateId) || null : item.kind === "vacant" ? null : item.candidate;
     const existingAccount = item.kind === "replace" ? item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId) : null : users.find((u) => u.userType === "manager" && u.active !== false && String(u.storePC) === String(pc));
     const oldAlreadyDeactivated = existingAccount ? existingAccount.active === false : true;
-    const [deactivateOld, setDeactivateOld] = useState15(true);
-    const [form, setForm] = useState15({
+    const [deactivateOld, setDeactivateOld] = useState17(true);
+    const [form, setForm] = useState17({
       name: candidate?.name || "",
       username: candidate ? suggestUsername(candidate.name, existingUsernames) : "",
       password: generatePassword(),
       email: `${pc}@peoplecapitalgroup.com`,
       role: ""
     });
-    const [showPw, setShowPw] = useState15(false);
-    const [saving, setSaving] = useState15(false);
-    const prevCandidateName = useRef6(candidate?.name || null);
-    useEffect12(() => {
+    const [showPw, setShowPw] = useState17(false);
+    const [saving, setSaving] = useState17(false);
+    const prevCandidateName = useRef7(candidate?.name || null);
+    useEffect14(() => {
       if (!candidate || candidate.name === prevCandidateName.current) return;
       prevCandidateName.current = candidate.name;
       setForm((f) => ({ ...f, name: candidate.name, username: suggestUsername(candidate.name, existingUsernames) }));
@@ -46685,13 +47237,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 } }, "Dismiss")))))));
   }
   function PCGPortal() {
-    const [rawUser, setUser] = useState15(null);
+    const [rawUser, setUser] = useState17(null);
     const user = React.useMemo(() => {
       if (!rawUser || !isDirector(rawUser)) return rawUser;
       return { ...rawUser, userType: "director", realUserType: "director", district: null, districts: parseDistricts(rawUser.districts) };
     }, [rawUser]);
-    const restoredFromTokenRef = useRef6(false);
-    useEffect12(() => {
+    const restoredFromTokenRef = useRef7(false);
+    useEffect14(() => {
       if (user || !getSessionToken()) return;
       let cancelled = false;
       portalMe().then((u) => {
@@ -46705,8 +47257,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    const [managerMode, setManagerMode] = useState15(null);
-    const [preferFullPortal, setPreferFullPortal] = useState15(() => {
+    const [managerMode, setManagerMode] = useState17(null);
+    const [preferFullPortal, setPreferFullPortal] = useState17(() => {
       try {
         return localStorage.getItem("pcg_prefer_full_portal") === "true";
       } catch {
@@ -46729,7 +47281,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       queueNav(full ? "forward" : "back", () => setPreferFullPortal(full), { shell: true });
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user) return;
       const onMobile = window.innerWidth <= 768;
       if (onMobile && (user.userType === "manager" || user.userType === "maintenance" || user.userType === "office_staff") && preferFullPortal) {
@@ -46755,25 +47307,25 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setPreferFullPortal(false);
       setUser(null);
     };
-    const [tab, setTabRaw] = useState15("dashboard");
-    const [pulseInitialTab, setPulseInitialTab] = useState15("sales");
-    useEffect12(() => {
+    const [tab, setTabRaw] = useState17("dashboard");
+    const [pulseInitialTab, setPulseInitialTab] = useState17("sales");
+    useEffect14(() => {
       window.scrollTo(0, 0);
     }, [tab]);
-    const [pendingOrionQuestion, setPendingOrionQuestion] = useState15(null);
-    const [orionIntent, setOrionIntent] = useState15(false);
-    useEffect12(() => {
+    const [pendingOrionQuestion, setPendingOrionQuestion] = useState17(null);
+    const [orionIntent, setOrionIntent] = useState17(false);
+    useEffect14(() => {
       if (tab !== "chat" && orionIntent) setOrionIntent(false);
     }, [tab, orionIntent]);
-    const [drillInStore, setDrillInStore] = useState15(null);
-    const [locationsMapMode, setLocationsMapMode] = useState15(false);
+    const [drillInStore, setDrillInStore] = useState17(null);
+    const [locationsMapMode, setLocationsMapMode] = useState17(false);
     const handleDrillIn = (storePC, targetTab) => {
       setDrillInStore(storePC);
       setTab(targetTab);
     };
-    const tabHistoryRef = useRef6(["dashboard"]);
-    const isGoingBackRef = useRef6(false);
-    const tabNowRef = useRef6("dashboard");
+    const tabHistoryRef = useRef7(["dashboard"]);
+    const isGoingBackRef = useRef7(false);
+    const tabNowRef = useRef7("dashboard");
     tabNowRef.current = tab;
     const setTab = useCallback((next) => {
       const target = typeof next === "function" ? next(tabNowRef.current) : next;
@@ -46795,11 +47347,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ids.has(id)) return true;
       return Object.entries(HUB_SUBITEMS).some(([hub, items]) => ids.has(hub) && items.some((x) => x.id === id));
     }, []);
-    const routeUserRef = useRef6(null);
-    const routeAppliedForRef = useRef6(null);
-    const routePendingRef = useRef6(null);
-    const routeFromPopRef = useRef6(false);
-    useEffect12(() => {
+    const routeUserRef = useRef7(null);
+    const routeAppliedForRef = useRef7(null);
+    const routePendingRef = useRef7(null);
+    const routeFromPopRef = useRef7(false);
+    useEffect14(() => {
       routeUserRef.current = user;
       if (!user) {
         routeAppliedForRef.current = null;
@@ -46815,7 +47367,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTab(want);
       } else window.history.replaceState(window.history.state, "", "/" + window.location.search);
     }, [user]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user) return;
       const pending = routePendingRef.current;
       if (pending) {
@@ -46833,7 +47385,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (fromPop) window.history.replaceState({ tab }, "", want);
       else window.history.pushState({ tab }, "", want);
     }, [tab, user]);
-    useEffect12(() => {
+    useEffect14(() => {
       const onPop = () => {
         const u = routeUserRef.current;
         if (!u) return;
@@ -46848,9 +47400,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       window.addEventListener("popstate", onPop);
       return () => window.removeEventListener("popstate", onPop);
     }, []);
-    const sidebarNavRef = useRef6(null);
-    const sidebarScrollPos = useRef6(0);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState15(() => {
+    const sidebarNavRef = useRef7(null);
+    const sidebarScrollPos = useRef7(0);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState17(() => {
       try {
         const v = localStorage.getItem("pcg_sidebar_collapsed");
         return v === null ? true : v === "true";
@@ -46858,8 +47410,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return true;
       }
     });
-    const [pinnedTabIds, setPinnedTabIds] = useState15(null);
-    useEffect12(() => {
+    const [pinnedTabIds, setPinnedTabIds] = useState17(null);
+    useEffect14(() => {
       if (!user?.id) {
         setPinnedTabIds(null);
         return;
@@ -46910,7 +47462,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, [user?.id]);
-    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState15(() => {
+    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState17(() => {
       try {
         const s = localStorage.getItem("pcg_sidebar_sections");
         if (s) return JSON.parse(s);
@@ -46918,21 +47470,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return {};
     });
-    const [managingFavorites, setManagingFavorites] = useState15(false);
-    const [links, setLinks] = useState15(() => {
+    const [managingFavorites, setManagingFavorites] = useState17(false);
+    const [links, setLinks] = useState17(() => {
       const s = loadFromStorage();
       return s?.links || INIT_LINKS;
     });
-    const [notes, setNotes] = useState15(() => {
+    const [notes, setNotes] = useState17(() => {
       const s = loadFromStorage();
       return s?.notes || {};
     });
-    const [todos, setTodos] = useState15(() => {
+    const [todos, setTodos] = useState17(() => {
       const s = loadFromStorage();
       return s?.todos || [];
     });
-    const [users, setUsers] = useState15([]);
-    const [stores, setStores] = useState15(() => {
+    const [users, setUsers] = useState17([]);
+    const [stores, setStores] = useState17(() => {
       const s = loadFromStorage();
       return s?.stores || STORES_SEED;
     });
@@ -46945,10 +47497,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return open;
     }, [stores, user?.realUserType, (user?.districts || []).join(",")]);
-    useEffect12(() => {
+    useEffect14(() => {
       LIVE_OPEN_STORES = openStores;
     }, [openStores]);
-    const [districts, setDistricts] = useState15(() => {
+    const [districts, setDistricts] = useState17(() => {
       const s = loadFromStorage();
       return s?.districts || DISTRICTS_SEED;
     });
@@ -46956,15 +47508,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     React.useEffect(() => {
       setDistrictsRef(districts);
     }, [districts]);
-    const [contacts, setContacts] = useState15(() => {
+    const [contacts, setContacts] = useState17(() => {
       const s = loadFromStorage();
       return s?.contacts || CONTACTS_SEED;
     });
-    const [vendors, setVendors] = useState15(() => {
+    const [vendors, setVendors] = useState17(() => {
       const s = loadFromStorage();
       return s?.vendors || VENDORS_SEED;
     });
-    const [dark, setDark] = useState15(() => {
+    const [dark, setDark] = useState17(() => {
       try {
         const v = localStorage.getItem("pcg_dark_mode");
         if (v !== null) return JSON.parse(v);
@@ -46973,51 +47525,51 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.dark ?? false;
     });
-    const [projects, setProjects] = useState15(() => {
+    const [projects, setProjects] = useState17(() => {
       const s = loadFromStorage();
       const p = s?.projects;
       return p && p.length > 0 ? p : PROJECTS_SEED;
     });
-    const [notifications, setNotifications] = useState15(() => {
+    const [notifications, setNotifications] = useState17(() => {
       const s = loadFromStorage();
       return s?.notifications || [];
     });
-    const [dailyReports, setDailyReports] = useState15(() => {
+    const [dailyReports, setDailyReports] = useState17(() => {
       const s = loadFromStorage();
       return s?.dailyReports || [];
     });
     const DEFAULT_GLOBAL_NOTIFY = ["Mike@peoplecapitalgroup.com", "Bill@Raogroupinc.com", "Sam@peoplecapitalgroup.com", "Casey@peoplecapitalgroup.com"];
-    const [globalNotifyEmails, setGlobalNotifyEmails] = useState15(() => {
+    const [globalNotifyEmails, setGlobalNotifyEmails] = useState17(() => {
       const s = loadFromStorage();
       return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY;
     });
     const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter((e) => e.toLowerCase() !== "sam@peoplecapitalgroup.com");
-    const [ticketNotifyEmails, setTicketNotifyEmails] = useState15(() => {
+    const [ticketNotifyEmails, setTicketNotifyEmails] = useState17(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY;
     });
-    const [ticketNotifyPhones, setTicketNotifyPhones] = useState15(() => {
+    const [ticketNotifyPhones, setTicketNotifyPhones] = useState17(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhones || [];
     });
-    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState15(() => {
+    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState17(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmailOwners || ticketNotifyEmails.map(() => null);
     });
-    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState15(() => {
+    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState17(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhoneOwners || ticketNotifyPhones.map(() => null);
     });
-    const [chatChannels, setChatChannels] = useState15([]);
-    const [chatMessages, setChatMessages] = useState15([]);
-    const [chatReadState, setChatReadState] = useState15({});
-    const [announcements, setAnnouncements] = useState15([]);
-    const [announcementsDismissed, setAnnouncementsDismissed] = useState15({});
-    const [annGateQueue, setAnnGateQueue] = useState15([]);
-    const [annGateIdx, setAnnGateIdx] = useState15(0);
-    const [annGateDone, setAnnGateDone] = useState15(false);
-    const [termsState, setTermsState] = useState15("checking");
-    useEffect12(() => {
+    const [chatChannels, setChatChannels] = useState17([]);
+    const [chatMessages, setChatMessages] = useState17([]);
+    const [chatReadState, setChatReadState] = useState17({});
+    const [announcements, setAnnouncements] = useState17([]);
+    const [announcementsDismissed, setAnnouncementsDismissed] = useState17({});
+    const [annGateQueue, setAnnGateQueue] = useState17([]);
+    const [annGateIdx, setAnnGateIdx] = useState17(0);
+    const [annGateDone, setAnnGateDone] = useState17(false);
+    const [termsState, setTermsState] = useState17("checking");
+    useEffect14(() => {
       if (!user) {
         setTermsState("checking");
         return;
@@ -47037,39 +47589,39 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         live = false;
       };
     }, [user?.id]);
-    const [bioPromptDone, setBioPromptDone] = useState15(false);
-    const [bioPromptEligible, setBioPromptEligible] = useState15(false);
-    useEffect12(() => {
+    const [bioPromptDone, setBioPromptDone] = useState17(false);
+    const [bioPromptEligible, setBioPromptEligible] = useState17(false);
+    useEffect14(() => {
       if (!user) return;
       webauthnAvailable().then((avail) => {
         setBioPromptEligible(avail && !webauthnDeviceEnrolled() && !webauthnDeviceDeclined());
       });
     }, [user?.id]);
-    const [accessOverrides, setAccessOverrides] = useState15({});
-    const cloudAccessLoaded = useRef6(false);
-    const cloudProjectsLoaded = useRef6(false);
-    const cloudDailyReportsLoaded = useRef6(false);
-    const cloudChatLoaded = useRef6(false);
-    const cloudAnnouncementsLoaded = useRef6(false);
-    const cloudStoresLoaded = useRef6(false);
-    const cloudDistrictsLoaded = useRef6(false);
-    const cloudContactsLoaded = useRef6(false);
-    const cloudVendorsLoaded = useRef6(false);
-    const cloudLinksLoaded = useRef6(false);
-    const cloudNotesLoaded = useRef6(false);
-    const cloudTodosLoaded = useRef6(false);
-    const cloudNotificationsLoaded = useRef6(false);
-    const cloudGlobalNotifyLoaded = useRef6(false);
-    const cloudTicketNotifyLoaded = useRef6(false);
-    const cloudTicketNotifyPhonesLoaded = useRef6(false);
-    const skipNextTicketNotifyPhonesSave = useRef6(false);
-    const cloudTicketNotifyOwnersLoaded = useRef6(false);
-    const cloudTicketNotifyPhoneOwnersLoaded = useRef6(false);
-    const projectsUserEdited = useRef6(false);
-    const dailyReportsUserEdited = useRef6(false);
-    const prevDailyReportsRef = useRef6([]);
-    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState15({});
-    useEffect12(() => {
+    const [accessOverrides, setAccessOverrides] = useState17({});
+    const cloudAccessLoaded = useRef7(false);
+    const cloudProjectsLoaded = useRef7(false);
+    const cloudDailyReportsLoaded = useRef7(false);
+    const cloudChatLoaded = useRef7(false);
+    const cloudAnnouncementsLoaded = useRef7(false);
+    const cloudStoresLoaded = useRef7(false);
+    const cloudDistrictsLoaded = useRef7(false);
+    const cloudContactsLoaded = useRef7(false);
+    const cloudVendorsLoaded = useRef7(false);
+    const cloudLinksLoaded = useRef7(false);
+    const cloudNotesLoaded = useRef7(false);
+    const cloudTodosLoaded = useRef7(false);
+    const cloudNotificationsLoaded = useRef7(false);
+    const cloudGlobalNotifyLoaded = useRef7(false);
+    const cloudTicketNotifyLoaded = useRef7(false);
+    const cloudTicketNotifyPhonesLoaded = useRef7(false);
+    const skipNextTicketNotifyPhonesSave = useRef7(false);
+    const cloudTicketNotifyOwnersLoaded = useRef7(false);
+    const cloudTicketNotifyPhoneOwnersLoaded = useRef7(false);
+    const projectsUserEdited = useRef7(false);
+    const dailyReportsUserEdited = useRef7(false);
+    const prevDailyReportsRef = useRef7([]);
+    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState17({});
+    useEffect14(() => {
       const handler = (e) => {
         const pending = Object.values(dailyReportSyncStatus).some((s) => s === "syncing" || s === "failed");
         if (pending) {
@@ -47081,47 +47633,47 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       window.addEventListener("beforeunload", handler);
       return () => window.removeEventListener("beforeunload", handler);
     }, [dailyReportSyncStatus]);
-    useEffect12(() => {
+    useEffect14(() => {
       try {
         localStorage.setItem("pcg_dark_mode", JSON.stringify(dark));
       } catch {
       }
     }, [dark]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
-    const [showNotifs, setShowNotifs] = useState15(false);
-    const notifRef = useRef6(null);
-    const chatPanelRef = useRef6(null);
-    const [showChatPanel, setShowChatPanel] = useState15(false);
-    const [chatQuickReply, setChatQuickReply] = useState15({ channelId: null, text: "" });
-    const [salesWeeks, setSalesWeeks] = useState15([]);
-    const [cashDeposits, setCashDeposits] = useState15([]);
-    const [cashUploads, setCashUploads] = useState15([]);
-    const [cashNotes, setCashNotes] = useState15([]);
-    const [cashPOS, setCashPOS] = useState15({});
-    const cloudCashLoaded = useRef6(false);
-    const [professionals, setProfessionals] = useState15(DEFAULT_PROFESSIONALS);
-    const cloudProfessionalsLoaded = useRef6(false);
-    const [showProfile, setShowProfile] = useState15(false);
-    const [cloudStatus, setCloudStatus] = useState15("idle");
-    const [logoAnim, setLogoAnim] = useState15(false);
-    const [showTimeoutWarning, setShowTimeoutWarning] = useState15(false);
-    const [timeoutCountdown, setTimeoutCountdown] = useState15(60);
-    const lastActivityRef = useRef6(Date.now());
-    const warningActiveRef = useRef6(false);
-    const [dataAlert, setDataAlert] = useState15(null);
-    const importRef = useRef6(null);
-    const logoRef = useRef6(null);
-    const toggleBtnRef = useRef6(null);
-    const deepLinkRef = useRef6(null);
-    const todoDeepLinkRef = useRef6(null);
-    const ticketDeepLinkRef = useRef6(null);
-    const txnDeepLinkRef = useRef6(null);
+    const [showNotifs, setShowNotifs] = useState17(false);
+    const notifRef = useRef7(null);
+    const chatPanelRef = useRef7(null);
+    const [showChatPanel, setShowChatPanel] = useState17(false);
+    const [chatQuickReply, setChatQuickReply] = useState17({ channelId: null, text: "" });
+    const [salesWeeks, setSalesWeeks] = useState17([]);
+    const [cashDeposits, setCashDeposits] = useState17([]);
+    const [cashUploads, setCashUploads] = useState17([]);
+    const [cashNotes, setCashNotes] = useState17([]);
+    const [cashPOS, setCashPOS] = useState17({});
+    const cloudCashLoaded = useRef7(false);
+    const [professionals, setProfessionals] = useState17(DEFAULT_PROFESSIONALS);
+    const cloudProfessionalsLoaded = useRef7(false);
+    const [showProfile, setShowProfile] = useState17(false);
+    const [cloudStatus, setCloudStatus] = useState17("idle");
+    const [logoAnim, setLogoAnim] = useState17(false);
+    const [showTimeoutWarning, setShowTimeoutWarning] = useState17(false);
+    const [timeoutCountdown, setTimeoutCountdown] = useState17(60);
+    const lastActivityRef = useRef7(Date.now());
+    const warningActiveRef = useRef7(false);
+    const [dataAlert, setDataAlert] = useState17(null);
+    const importRef = useRef7(null);
+    const logoRef = useRef7(null);
+    const toggleBtnRef = useRef7(null);
+    const deepLinkRef = useRef7(null);
+    const todoDeepLinkRef = useRef7(null);
+    const ticketDeepLinkRef = useRef7(null);
+    const txnDeepLinkRef = useRef7(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
-    const [pnlAllowed, setPnlAllowed] = useState15(DEFAULT_PNL_ALLOWED);
-    useEffect12(() => {
+    const [pnlAllowed, setPnlAllowed] = useState17(DEFAULT_PNL_ALLOWED);
+    useEffect14(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => {
         if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed);
       }).catch(() => {
@@ -47129,8 +47681,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, []);
     const canPnl = canViewPnl(user, pnlAllowed);
     const canManagePnl = canManagePnlAccess(user);
-    const [dealAuth, setDealAuth] = useState15({ token: null, role: null, loaded: false });
-    useEffect12(() => {
+    const [dealAuth, setDealAuth] = useState17({ token: null, role: null, loaded: false });
+    useEffect14(() => {
       if (!user) {
         setDealAuth({ token: null, role: null, loaded: false });
         return;
@@ -47206,12 +47758,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return null;
     };
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user || !tab || tab === MOBILE_LAUNCHER_TAB_ID) return;
       const ids = tabsForUser(user).map((t) => t.id);
       if (!ids.includes(tab)) setTab(ids[0] || "dashboard");
     }, [accessOverrides, tab, user?.userType]);
-    useEffect12(() => {
+    useEffect14(() => {
       const hiddenAt = { t: null };
       const TIMEOUT_MS = 15 * 60 * 1e3;
       const onVisibility = () => {
@@ -47253,10 +47805,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.removeEventListener("pageshow", onPageShow);
       };
     }, [user]);
-    const [updateReady, setUpdateReady] = useState15(false);
-    const signedInRef = useRef6(false);
+    const [updateReady, setUpdateReady] = useState17(false);
+    const signedInRef = useRef7(false);
     signedInRef.current = !!user;
-    useEffect12(() => startUpdateWatch({
+    useEffect14(() => startUpdateWatch({
       onUpdate: ({ hiddenMs }) => {
         const away = hiddenMs >= 2 * 60 * 1e3 && hiddenMs < 15 * 60 * 1e3;
         if (!signedInRef.current || away) {
@@ -47265,10 +47817,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setUpdateReady(true);
       }
     }), []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (updateReady && !user) reloadForUpdate();
     }, [updateReady, user]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!updateReady) return;
       const onVis = () => {
         if (!document.hidden) reloadForUpdate();
@@ -47276,7 +47828,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       document.addEventListener("visibilitychange", onVis);
       return () => document.removeEventListener("visibilitychange", onVis);
     }, [updateReady]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       let cancelled = false;
       const forceOut = (reason) => {
@@ -47307,7 +47859,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       const WARN_AFTER = 29 * 60 * 1e3 + 45 * 1e3;
       const LOGOUT_AFTER = 30 * 60 * 1e3;
@@ -47350,7 +47902,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user || !isTwoFactorRequired(user)) return;
       const check = async () => {
         if (!user.twoFactorSecret) return;
@@ -47378,7 +47930,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", onVisibility);
       };
     }, [user]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (isGoingBackRef.current) {
         isGoingBackRef.current = false;
         return;
@@ -47394,7 +47946,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       isGoingBackRef.current = true;
       setTab(next[next.length - 1]);
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!isMobile) return;
       let startX = 0, startY = 0, edgeSwipe = false;
       const onStart = (e) => {
@@ -47416,7 +47968,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("touchend", onEnd);
       };
     }, [isMobile, goBack]);
-    useEffect12(() => {
+    useEffect14(() => {
       try {
         localStorage.setItem("pcg_sidebar_collapsed", sidebarCollapsed);
       } catch {
@@ -47514,19 +48066,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return missing;
     }, [cashDeposits, cashUploads, stores, user]);
-    useEffect12(() => {
+    useEffect14(() => {
       fetch("/.netlify/functions/users?action=list", { headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).then((data) => {
         if (Array.isArray(data) && data.length > 0) setUsers(data);
       }).catch(() => {
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!restoredFromTokenRef.current || !rawUser || !users.length) return;
       const acct = users.find((x) => String(x.id) === String(rawUser.id) && x.active !== false);
       restoredFromTokenRef.current = false;
       if (acct) setUser((prev) => prev && String(prev.id) === String(acct.id) ? { ...acct, officeClockLinked: prev.officeClockLinked || false, districts: prev.districts ?? acct.districts } : prev);
     }, [users, rawUser]);
-    useEffect12(() => {
+    useEffect14(() => {
       let updated = [...projects];
       let changed = false;
       for (const seed of PROJECTS_SEED) {
@@ -47548,7 +48100,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       if (changed) setProjects(updated);
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const projId = parseInt(params.get("project"));
@@ -47565,7 +48117,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTab("reports");
       }
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const ticketParam = params.get("ticket");
@@ -47620,10 +48172,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.history.replaceState({}, "", window.location.pathname);
       }
     }, [user]);
-    useEffect12(() => {
+    useEffect14(() => {
       saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners });
     }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
-    useEffect12(() => {
+    useEffect14(() => {
       setCloudStatus("loading");
       cloudLoadOrThrow("pcg_sales_v1").then((data) => {
         if (Array.isArray(data)) {
@@ -47643,7 +48195,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setCloudStatus("error");
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (salesWeeks.length === 0) return;
       setCloudStatus("saving");
       try {
@@ -47655,7 +48207,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTimeout(() => setCloudStatus("idle"), 2500);
       });
     }, [salesWeeks]);
-    useEffect12(() => {
+    useEffect14(() => {
       let cancelled = false;
       (async () => {
         let legacy = null;
@@ -47683,7 +48235,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       Promise.all([
         cloudLoad("pcg_cash_deposits_v1"),
         cloudLoad("pcg_cash_uploads_v1"),
@@ -47697,22 +48249,22 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudCashLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudCashLoaded.current) return;
       if (cashDeposits.length === 0) return;
       cloudSave("pcg_cash_deposits_v1", cashDeposits);
     }, [cashDeposits]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudCashLoaded.current) return;
       if (cashUploads.length === 0) return;
       cloudSave("pcg_cash_uploads_v1", cashUploads);
     }, [cashUploads]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudCashLoaded.current) return;
       if (cashNotes.length === 0) return;
       cloudSave("pcg_cash_notes_v1", cashNotes);
     }, [cashNotes]);
-    useEffect12(() => {
+    useEffect14(() => {
       const refresh = () => {
         if (!cloudProjectsLoaded.current || projectsUserEdited.current || document.hidden) return;
         loadProjects();
@@ -47749,7 +48301,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", refresh);
       };
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudProjectsLoaded.current) return;
       if (!projectsUserEdited.current) return;
       if (projects.length === 0) return;
@@ -47783,7 +48335,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const full = await cloudLoadReport(id);
       return full || null;
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       (async () => {
         try {
           const [index, legacy, delRec] = await Promise.all([
@@ -47844,7 +48396,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       const poll = async () => {
         if (dailyReportsUserEdited.current) return;
         if (!cloudDailyReportsLoaded.current) return;
@@ -47898,7 +48450,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", onShow);
       };
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!dailyReportsUserEdited.current) return;
       if (!cloudDailyReportsLoaded.current) return;
       dailyReportsUserEdited.current = false;
@@ -47975,14 +48527,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, [dailyReports]);
-    const storesSyncedRef = useRef6(null);
+    const storesSyncedRef = useRef7(null);
     const storeKey = (s) => String(s?.pc || s?.id || "");
     const storeSig = (s) => {
       if (!s) return "";
       const { updatedAt, ...rest } = s;
       return JSON.stringify(rest);
     };
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_stores_v1").then((data) => {
         cloudStoresLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -48000,7 +48552,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudStoresLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudStoresLoaded.current) return;
       if (stores.length === 0) return;
       const synced = storesSyncedRef.current || /* @__PURE__ */ new Map();
@@ -48031,7 +48583,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 500);
       return () => clearTimeout(t);
     }, [stores]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_districts_v1").then((data) => {
         cloudDistrictsLoaded.current = true;
         if (data && typeof data === "object" && Object.keys(data).length > 0) setDistricts(data);
@@ -48039,12 +48591,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudDistrictsLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudDistrictsLoaded.current) return;
       if (!districts || Object.keys(districts).length === 0) return;
       cloudSave("pcg_districts_v1", districts);
     }, [districts]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_contacts_v1").then((data) => {
         cloudContactsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setContacts(data);
@@ -48052,12 +48604,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudContactsLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudContactsLoaded.current) return;
       if (contacts.length === 0) return;
       cloudSave("pcg_contacts_v1", contacts);
     }, [contacts]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_vendors_v1").then((data) => {
         cloudVendorsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setVendors(data);
@@ -48065,12 +48617,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudVendorsLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudVendorsLoaded.current) return;
       if (vendors.length === 0) return;
       cloudSave("pcg_vendors_v1", vendors);
     }, [vendors]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_professionals_v1").then((data) => {
         cloudProfessionalsLoaded.current = true;
         if (data && typeof data === "object" && data.attorneys) setProfessionals((prev) => ({ ...DEFAULT_PROFESSIONALS, ...prev, ...data }));
@@ -48078,11 +48630,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudProfessionalsLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudProfessionalsLoaded.current) return;
       cloudSave("pcg_professionals_v1", professionals);
     }, [professionals]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_links_v1").then((data) => {
         cloudLinksLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setLinks(data);
@@ -48090,12 +48642,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudLinksLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudLinksLoaded.current) return;
       if (!links || Object.keys(links).length === 0) return;
       cloudSave("pcg_links_v1", links);
     }, [links]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_notes_v1").then((data) => {
         cloudNotesLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setNotes(data);
@@ -48103,12 +48655,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotesLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudNotesLoaded.current) return;
       if (!notes || Object.keys(notes).length === 0) return;
       cloudSave("pcg_notes_v1", notes);
     }, [notes]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_todos_v1").then((data) => {
         cloudTodosLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTodos(data);
@@ -48116,12 +48668,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTodosLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudTodosLoaded.current) return;
       if (todos.length === 0) return;
       cloudSave("pcg_todos_v1", todos);
     }, [todos]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_notifications_v1").then((data) => {
         cloudNotificationsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -48134,12 +48686,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotificationsLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chatPollActive.current || !cloudNotificationsLoaded.current) return;
       if (notifications.length === 0) return;
       cloudSave("pcg_notifications_v1", notifications);
     }, [notifications]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_global_notify_v1").then((data) => {
         cloudGlobalNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setGlobalNotifyEmails(data);
@@ -48147,12 +48699,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudGlobalNotifyLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudGlobalNotifyLoaded.current) return;
       if (globalNotifyEmails.length === 0) return;
       cloudSave("pcg_global_notify_v1", globalNotifyEmails);
     }, [globalNotifyEmails]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_ticket_notify_v1").then((data) => {
         cloudTicketNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTicketNotifyEmails(data);
@@ -48160,12 +48712,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudTicketNotifyLoaded.current) return;
       if (ticketNotifyEmails.length === 0) return;
       cloudSave("pcg_ticket_notify_v1", ticketNotifyEmails);
     }, [ticketNotifyEmails]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_ticket_notify_phones_v1").then((data) => {
         cloudTicketNotifyPhonesLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -48176,7 +48728,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhonesLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudTicketNotifyPhonesLoaded.current) return;
       if (skipNextTicketNotifyPhonesSave.current) {
         skipNextTicketNotifyPhonesSave.current = false;
@@ -48185,7 +48737,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ticketNotifyPhones.length === 0) return;
       cloudSave("pcg_ticket_notify_phones_v1", ticketNotifyPhones);
     }, [ticketNotifyPhones]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_ticket_notify_owners_v1").then((data) => {
         cloudTicketNotifyOwnersLoaded.current = true;
         if (Array.isArray(data)) setTicketNotifyEmailOwners(data);
@@ -48199,17 +48751,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhoneOwnersLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudTicketNotifyOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_owners_v1", ticketNotifyEmailOwners);
     }, [ticketNotifyEmailOwners]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_phone_owners_v1", ticketNotifyPhoneOwners);
     }, [ticketNotifyPhoneOwners]);
-    const chatPollRef = useRef6(null);
-    const chatPollActive = useRef6(false);
-    useEffect12(() => {
+    const chatPollRef = useRef7(null);
+    const chatPollActive = useRef7(false);
+    useEffect14(() => {
       Promise.all([
         cloudLoad("pcg_chat_channels_v1"),
         cloudLoad("pcg_chat_messages_v1"),
@@ -48223,19 +48775,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudChatLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatChannels.length === 0) return;
       cloudSave("pcg_chat_channels_v1", chatChannels);
     }, [chatChannels]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatMessages.length === 0) return;
       cloudSave("pcg_chat_messages_v1", chatMessages);
     }, [chatMessages]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || Object.keys(chatReadState).length === 0) return;
       cloudSave("pcg_chat_read_v1", chatReadState);
     }, [chatReadState]);
-    useEffect12(() => {
+    useEffect14(() => {
       Promise.all([
         cloudLoad("pcg_announcements_v1"),
         cloudLoad("pcg_announcements_dismissed_v1")
@@ -48247,15 +48799,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAnnouncementsLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return;
       cloudSave("pcg_announcements_v1", announcements);
     }, [announcements]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return;
       cloudSave("pcg_announcements_dismissed_v1", announcementsDismissed);
     }, [announcementsDismissed]);
-    useEffect12(() => {
+    useEffect14(() => {
       cloudLoad("pcg_access_overrides_v1").then((ov) => {
         cloudAccessLoaded.current = true;
         if (ov && typeof ov === "object" && !Array.isArray(ov)) setAccessOverrides(ov);
@@ -48263,17 +48815,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAccessLoaded.current = true;
       });
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (chatPollActive.current || !cloudAccessLoaded.current) return;
       cloudSave("pcg_access_overrides_v1", accessOverrides);
     }, [accessOverrides]);
-    useEffect12(() => {
+    useEffect14(() => {
       registerServiceWorker();
     }, []);
-    useEffect12(() => {
+    useEffect14(() => {
       if (user && user.pushNotify) subscribeToPush(user.id);
     }, [user?.id]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user) return;
       chatPollRef.current = setInterval(async () => {
         try {
@@ -48308,8 +48860,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 12e3);
       return () => clearInterval(chatPollRef.current);
     }, [user]);
-    const mentionAlertRef = useRef6({});
-    useEffect12(() => {
+    const mentionAlertRef = useRef7({});
+    useEffect14(() => {
       if (!user) return;
       const interval = setInterval(() => {
         const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1e3).toISOString();
@@ -48344,7 +48896,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 5 * 60 * 1e3);
       return () => clearInterval(interval);
     }, [user, chatMessages, chatChannels, chatReadState, users, globalNotifyEmails]);
-    useEffect12(() => {
+    useEffect14(() => {
       const completedIds = new Set(projects.filter((p) => p.completed).map((p) => p.id));
       if (completedIds.size === 0) return;
       setNotifications((prev) => {
@@ -48356,7 +48908,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return prev;
       });
     }, [projects]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!showNotifs) return;
       const handleOutside = (e) => {
         if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false);
@@ -48371,7 +48923,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showNotifs]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!showChatPanel) return;
       const handleOutside = (e) => {
         if (chatPanelRef.current && !chatPanelRef.current.contains(e.target)) setShowChatPanel(false);
@@ -48386,7 +48938,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showChatPanel]);
-    useEffect12(() => {
+    useEffect14(() => {
       const mkId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const checkDeadlines = () => {
         const now = /* @__PURE__ */ new Date();
@@ -48416,7 +48968,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const interval = setInterval(checkDeadlines, 864e5);
       return () => clearInterval(interval);
     }, [projects.map((p) => `${p.id}:${p.dueDate || ""}:${p.completed ? 1 : 0}`).join("|")]);
-    const prevProjectsRef = useRef6(projects);
+    const prevProjectsRef = useRef7(projects);
     const getNotifyRecipients = (p) => {
       const perProject = p.notifyEmails ? p.notifyEmails.split(",").map((e) => e.trim()).filter(Boolean) : [];
       const all = [...globalNotifyEmails, ...perProject];
@@ -48426,7 +48978,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     PROJECT_PHASES.forEach((ph) => ph.items.forEach((it) => {
       itemLabels[it.key] = { label: it.label, type: it.type, phase: ph.label };
     }));
-    useEffect12(() => {
+    useEffect14(() => {
       if (!projectsUserEdited.current) {
         prevProjectsRef.current = projects;
         return;
@@ -48565,10 +49117,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDataAlert({ type, msg });
       setTimeout(() => setDataAlert(null), 3500);
     };
-    const [managerPending, setManagerPending] = useState15({});
+    const [managerPending, setManagerPending] = useState17({});
     const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
     });
-    useEffect12(() => {
+    useEffect14(() => {
       loadManagerPending();
     }, []);
     const dismissManagerPending = async (pc) => {
@@ -48599,7 +49151,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const openStorePcs = React.useMemo(() => new Set(openStores.map((s) => String(s.pc))), [openStores]);
     const managerPendingCount = Object.entries(managerPending).filter(([pc, item]) => openStorePcs.has(String(pc)) && managerPendingIsActionable(item)).length;
-    const [managerReviewPc, setManagerReviewPc] = useState15(null);
+    const [managerReviewPc, setManagerReviewPc] = useState17(null);
     const handleToggle = useCallback(() => {
       const newDark = !dark;
       setLogoAnim(true);
@@ -48618,7 +49170,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setDark(newDark);
       }
     }, [dark]);
-    useEffect12(() => {
+    useEffect14(() => {
       if (!user || annGateDone || user.userType?.startsWith("kiosk")) return;
       const GATE_MAX_AGE_DAYS = 14;
       const cutoff = Date.now() - GATE_MAX_AGE_DAYS * 864e5;
@@ -48637,8 +49189,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setAnnGateQueue(queue);
       setAnnGateIdx(0);
     }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
-    const annBackfillRef = useRef6(false);
-    useEffect12(() => {
+    const annBackfillRef = useRef7(false);
+    useEffect14(() => {
       if (!user || annBackfillRef.current || user.userType?.startsWith("kiosk")) return;
       if (!announcements || announcements.length === 0) return;
       annBackfillRef.current = true;
@@ -49845,6 +50397,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "hours-report", name: "Hours Report", sub: "Any store, any date range \u2014 per-employee hours broken into weekly columns + total, exportable.", show: (isFullAdmin(user) || isOfficeStaff) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "hours-report"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "9" }), /* @__PURE__ */ React.createElement("path", { d: "M12 7v5l3.5 2" })) },
         // v22.33: on for every role by default; switch it off per role in Admin · Access.
         // What each person sees inside is scoped server-side (DM → district, manager → store).
+        { id: "crew-time-off", name: "Crew Time Off", sub: "Crew members request time off on their phone, no login: send them their form or print a store QR poster. Manager approves, then the office.", show: CREW_TIME_OFF_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "crew-time-off"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "8", cy: "7", r: "3.2" }), /* @__PURE__ */ React.createElement("path", { d: "M2.5 19a5.5 5.5 0 0 1 9.5-3.8" }), /* @__PURE__ */ React.createElement("rect", { x: "13", y: "12", width: "8.5", height: "8.5", rx: "1.5" }), /* @__PURE__ */ React.createElement("path", { d: "M13 15.5h8.5M15.5 10.5v3M19 10.5v3" })) },
         { id: "leader-terminations", name: "Leader Terminations", sub: "A Store Manager, DM or Director terminated in Paycor: Mike, Sam and Krunal reply YES by text, their portal login goes off and IT gets the checklist.", show: (user?.userType === "executive" || user?.userType === "it") && accessSubOn(accessOverrides, user?.userType, "tools-hub", "leader-terminations"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h4" }), /* @__PURE__ */ React.createElement("rect", { x: "14.5", y: "13.5", width: "7", height: "7.5", rx: "1.5" }), /* @__PURE__ */ React.createElement("path", { d: "M16 13.5V12a2 2 0 0 1 4 0v1.5" })) },
         { id: "terminations", name: "Terminations", sub: "Who left, by store \u2014 quarter and half-year views from Paycor.", show: accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h3a5.5 5.5 0 0 1 3.9 1.6" }), /* @__PURE__ */ React.createElement("path", { d: "M16 18h6" }), /* @__PURE__ */ React.createElement("path", { d: "M19 15l3 3-3 3" })) },
         // v22.49: HR's Employee Transfer letter, filled from Paycor (name, position, PC#, wage locked).
@@ -49856,8 +50409,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         { id: "pay-increase", name: "Pay Rate Change", sub: "HR\u2019s Pay Rate Change Form filled from Paycor (a raise, or a lower rate after a move), signed by the Store Manager and the DM or Director, and sent to the office.", show: PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase"), icon: /* @__PURE__ */ React.createElement(React.Fragment, null, ICONS.payIncrease(TOOLS)) }
       ].filter((t) => t.show);
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(TileGrid, { title: "Tools", subtitle: "Quick access to your workplace tools", tiles: toolsTiles, color: TOOLS, th, isMobile, onNavigate: setTab, pinnedNavIds, togglePinNav }), toolsTiles.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.5rem", textAlign: "center", color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Nothing here yet \u2014 tools will show up in this section as they're added."));
-    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores: openStores, users, onBack: () => setTab("tools-hub"), setStores, districts, setDistricts, setUsers }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores: openStores, user }), tab === "leader-terminations" && (user?.userType === "executive" || user?.userType === "it") && accessSubOn(accessOverrides, user?.userType, "tools-hub", "leader-terminations") && /* @__PURE__ */ React.createElement(LeaderTerminations, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "terminations" && accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations") && /* @__PURE__ */ React.createElement(TerminationsReport, { th, user, isMobile, onBack: () => setTab("tools-hub") }), tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice") && /* @__PURE__ */ React.createElement(TransferNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "violation-notice" && VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "violation-notice") && /* @__PURE__ */ React.createElement(ViolationNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "resignation-letter" && RESIGNATION_LETTER_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "resignation-letter") && /* @__PURE__ */ React.createElement(ResignationLetter, { th, isMobile, onBack: () => setTab("tools-hub"), storeAddresses: STORE_ADDRESSES }), tab === "missing-hours" && MISSING_HOURS_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "missing-hours") && /* @__PURE__ */ React.createElement(MissingHours, { th, isMobile, onBack: () => setTab("tools-hub"), userType: user?.userType, username: user?.username }), tab === "time-off-request" && TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "time-off-request") && /* @__PURE__ */ React.createElement(TimeOffRequest, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase") && /* @__PURE__ */ React.createElement(PayIncrease, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores: openStores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores: openStores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores: openStores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores: openStores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores: openStores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "executive" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExecutiveView, { th, user, stores: openStores, isMobile, go: setTab }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { setDistricts, setStores, globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores: openStores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores: openStores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores: openStores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores: openStores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores: openStores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores: openStores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores: openStores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
+    })(), tab === "district-alignment" && /* @__PURE__ */ React.createElement(DistrictAlignmentTool, { user, th, stores: openStores, users, onBack: () => setTab("tools-hub"), setStores, districts, setDistricts, setUsers }), tab === "hours-report" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmployeeHoursReport, { th, stores: openStores, user }), tab === "crew-time-off" && CREW_TIME_OFF_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "crew-time-off") && /* @__PURE__ */ React.createElement(CrewTimeOff, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "leader-terminations" && (user?.userType === "executive" || user?.userType === "it") && accessSubOn(accessOverrides, user?.userType, "tools-hub", "leader-terminations") && /* @__PURE__ */ React.createElement(LeaderTerminations, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "terminations" && accessSubOn(accessOverrides, user?.userType, "tools-hub", "terminations") && /* @__PURE__ */ React.createElement(TerminationsReport, { th, user, isMobile, onBack: () => setTab("tools-hub") }), tab === "transfer-notice" && TRANSFER_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "transfer-notice") && /* @__PURE__ */ React.createElement(TransferNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "violation-notice" && VIOLATION_NOTICE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "violation-notice") && /* @__PURE__ */ React.createElement(ViolationNotice, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "resignation-letter" && RESIGNATION_LETTER_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "resignation-letter") && /* @__PURE__ */ React.createElement(ResignationLetter, { th, isMobile, onBack: () => setTab("tools-hub"), storeAddresses: STORE_ADDRESSES }), tab === "missing-hours" && MISSING_HOURS_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "missing-hours") && /* @__PURE__ */ React.createElement(MissingHours, { th, isMobile, onBack: () => setTab("tools-hub"), userType: user?.userType, username: user?.username }), tab === "time-off-request" && TIME_OFF_REQUEST_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "time-off-request") && /* @__PURE__ */ React.createElement(TimeOffRequest, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pay-increase" && PAY_INCREASE_ROLES.has(user?.userType) && accessSubOn(accessOverrides, user?.userType, "tools-hub", "pay-increase") && /* @__PURE__ */ React.createElement(PayIncrease, { th, isMobile, onBack: () => setTab("tools-hub") }), tab === "pnl" && canPnl && /* @__PURE__ */ React.createElement(AdminPnL, { stores: openStores, th, user, drillInStore, onClearDrillIn: () => setDrillInStore(null) }), tab === "impact" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(ImpactRadar, { th, user, dark, salesWeeks }), tab === "tasks" && (isFullAdmin(user) || isOfficeStaff || isDM || isManager) && /* @__PURE__ */ React.createElement(OpsTasks, { stores: openStores, th, user }), tab === "deals" && canDeals && /* @__PURE__ */ React.createElement(AdminDeals, { th, user, dealAuth }), tab === "reports" && /* @__PURE__ */ React.createElement(ReportsTab, { th, user, showAlert: showAlert2, reportsIndex, reportsReadIds, setReportsReadIds, setReportsUnreadCount }), tab === "audits" && (auditCanView(user) || safeCanView(user)) && /* @__PURE__ */ React.createElement(AuditsTab, { user, th, stores: openStores, showAlert: showAlert2, setTab }), tab === "projects" && canViewProjects(user) && /* @__PURE__ */ React.createElement(AdminProjects, { projects, setProjects: setProjectsUser, stores: openStores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports, setDailyReports: setDailyReportsUser, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users, professionals, setProfessionals }), tab === "project-gallery" && (user?.userType === "construction" || user?.userType === "executive" || user?.userType === "it") && /* @__PURE__ */ React.createElement(ProjectGalleryTab, { user, th, projects, setProjects: setProjectsUser, dailyReports, isMobile }), tab === "network-complaints" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(NetworkComplaintsTab, { th, user, stores: openStores, showAlert: showAlert2 }), tab === "system-health" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(SystemHealth, { th, user }), tab === "executive" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(ExecutiveView, { th, user, stores: openStores, isMobile, go: setTab }), tab === "admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(AdminConsole, { setDistricts, setStores, globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, stores, districts, version: APP_VERSION, accessOverrides, setAccessOverrides, announcements, setAnnouncements, professionals, setProfessionals }), tab === "chat" && /* @__PURE__ */ React.createElement(ChatSection, { user, users, projects, channels: chatChannels, setChannels: setChatChannels, messages: chatMessages, setMessages: setChatMessages, readState: chatReadState, setReadState: setChatReadState, th, showAlert: showAlert2, pendingOrionQuestion, clearPendingOrion: () => setPendingOrionQuestion(null), stores: openStores, onDrillIn: handleDrillIn, initialChannelId: orionIntent ? `analyst_${user.id}` : void 0 }), tab === "announcements" && /* @__PURE__ */ React.createElement(AnnouncementsPage, { announcements, setAnnouncements, user, th, showAlert: showAlert2, users }), tab === "kb" && /* @__PURE__ */ React.createElement(KnowledgeBase, { th, user, showAlert: showAlert2, stores: openStores }), tab === "email" && (isFullAdmin(user) || isOfficeStaff) && /* @__PURE__ */ React.createElement(EmailTab, { th, user }), tab === "tickets" && /* @__PURE__ */ React.createElement(AdminTickets, { user, users, stores: openStores, th, showAlert: showAlert2, ticketNotifyEmails, ticketNotifyPhones, setNotifications, setTab, deepLinkRef: ticketDeepLinkRef }), tab === "expenses" && /* @__PURE__ */ React.createElement(ExpensesTab, { user, th, stores: openStores }), tab === "incident-reports" && /* @__PURE__ */ React.createElement(IncidentReportsTab, { user, th, stores: openStores, showAlert: showAlert2 }), tab === "minor-timecard" && /* @__PURE__ */ React.createElement(MinorTimecardComplianceTab, { user, th, showAlert: showAlert2 }), tab === "office-clock" && user?.userType === "office_staff" && /* @__PURE__ */ React.createElement(OfficeClockTab, { user, th, showAlert: showAlert2 }), tab === "office-clock-admin" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockAdmin, { user, th, showAlert: showAlert2, users, setUsers }), tab === "office-clock-review" && isFullAdmin(user) && /* @__PURE__ */ React.createElement(OfficeClockReview, { user, th, showAlert: showAlert2 }), tab === "calendar" && user?.userType === "maintenance" && /* @__PURE__ */ React.createElement(MaintenanceCalendar, { th, user, stores: openStores, todos, setTodos }), tab === "calendar" && user?.userType !== "maintenance" && /* @__PURE__ */ React.createElement(PortalCalendar, { th, user, stores: openStores, todos, projects })))), showProfile && /* @__PURE__ */ React.createElement(ProfileModal, { user, setUser, setUsers, th, onClose: () => setShowProfile(false) }));
   }
   var SIGN_TOKEN = new URLSearchParams(window.location.search).get("sign");
-  ReactDOM.createRoot(document.getElementById("root")).render(SIGN_TOKEN ? /* @__PURE__ */ React.createElement(RemoteSignPage, { token: SIGN_TOKEN }) : /* @__PURE__ */ React.createElement(PCGPortal, null));
+  var CREW_TOKEN = new URLSearchParams(window.location.search).get("crew");
+  var CREW_STORE = new URLSearchParams(window.location.search).get("crewStore");
+  ReactDOM.createRoot(document.getElementById("root")).render(SIGN_TOKEN ? /* @__PURE__ */ React.createElement(RemoteSignPage, { token: SIGN_TOKEN }) : CREW_TOKEN || CREW_STORE ? /* @__PURE__ */ React.createElement(CrewTimeOffForm, { token: CREW_TOKEN, store: CREW_STORE }) : /* @__PURE__ */ React.createElement(PCGPortal, null));
 })();
