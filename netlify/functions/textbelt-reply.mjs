@@ -24,6 +24,8 @@ export function verifyTextbelt(raw, timestamp, signature, key) {
 export default async (request) => {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
   const raw = await request.text();
+  // v23.29: every call is logged (no content, no numbers) — so "did Textbelt post anything?" has an answer.
+  console.log('[textbelt-reply] call', JSON.stringify({ bytes: raw.length, hasTimestamp: !!request.headers.get('x-textbelt-timestamp'), hasSignature: !!request.headers.get('x-textbelt-signature'), type: request.headers.get('content-type') || '' }));
   if (!verifyTextbelt(raw, request.headers.get('x-textbelt-timestamp'), request.headers.get('x-textbelt-signature'), process.env.TEXTBELT_API_KEY)) {
     console.warn('[textbelt-reply] refused: bad or missing signature');
     return new Response('Forbidden', { status: 403 });

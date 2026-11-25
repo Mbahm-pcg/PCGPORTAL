@@ -9,7 +9,7 @@
 //   POST { action: 'done', id }             mark the whole thing done
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser } from './auth-lib/require-user.js';
-import { ensureTable, readList, liveOn, setLive, sendTest, clearTests, detectLeaderTerminations, askWaiting, answer, CHECKLIST, ASK_KEY, IT_KEY, ROLE_LABEL } from './_shared/leader-terminations.mjs';
+import { ensureTable, readList, liveOn, setLive, sendTest, clearTests, textStatus, textbeltQuota, mask, detectLeaderTerminations, askWaiting, answer, CHECKLIST, ASK_KEY, IT_KEY, ROLE_LABEL } from './_shared/leader-terminations.mjs';
 import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -35,9 +35,10 @@ export default async (request) => {
         id: r.id, name: r.name, role: r.role, title: r.title || ROLE_LABEL[r.role] || '', store: storeName(r.store_pc), district: r.district,
         terminationDate: r.termination_date, source: r.source, isTest: r.is_test, status: r.status, detectedAt: r.detected_at, askedAt: r.asked_at,
         askedCount: (r.asked || []).length, askedOk: (r.asked || []).filter(a => a.ok).length,
+        sends: (r.asked || []).map(a => ({ phone: mask(a.phone), ok: a.ok, error: a.error || null, hasId: !!a.textId })),
         answer: r.answer, answeredBy: r.answered_by, answeredAt: r.answered_at, answeredVia: r.answered_via,
         portalOff: r.portal_off_note || null, hasAccount: !!r.user_id, checklist: r.checklist || {}, doneAt: r.done_at, doneBy: r.done_by }));
-      return json(200, { rows, live: await liveOn(), canAdmin: isStaff, canAnswer, canCheck, checklist: CHECKLIST, askListSize: askL.phones.length + askL.emails.length });
+      return json(200, { rows, textbelt: isStaff ? await textbeltQuota() : null, live: await liveOn(), canAdmin: isStaff, canAnswer, canCheck, checklist: CHECKLIST, askListSize: askL.phones.length + askL.emails.length });
     }
     if (request.method !== 'POST') return json(405, { error: 'Method not allowed' });
     const body = await request.json().catch(() => ({}));
@@ -50,6 +51,14 @@ export default async (request) => {
     if (body.action === 'test') {
       if (!isStaff) return json(403, { error: 'Only exec or IT can send a test.' });
       return json(200, { ok: true, ...(await sendTest(db, myName)) });
+    }
+    if (body.action === 'delivery') {
+      if (!isStaff) return json(403, { error: 'Only exec or IT can do this.' });
+      const r = (await db`SELECT asked FROM leader_terminations WHERE id = ${Number(body.id)}`)[0];
+      if (!r) return json(404, { error: 'Not found' });
+      const out = [];
+      for (const a of r.asked || []) out.push({ phone: mask(a.phone), accepted: !!a.ok, error: a.error || null, status: a.ok ? await textStatus(a.textId) : 'NOT SENT' });
+      return json(200, { ok: true, delivery: out });
     }
     if (body.action === 'clearTests') {
       if (!isStaff) return json(403, { error: 'Only exec or IT can do this.' });

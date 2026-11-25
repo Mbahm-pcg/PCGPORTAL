@@ -1711,6 +1711,7 @@
     const [err, setErr] = useState2(null);
     const [msg, setMsg] = useState2(null);
     const [busy, setBusy] = useState2(null);
+    const [delivery, setDelivery] = useState2({});
     const load = () => call().then((b) => {
       setData(b);
       setErr(null);
@@ -1744,7 +1745,26 @@
     const card2 = (r) => {
       const checks = data.checklist.map((item) => ({ item, ...r.checklist?.[item] || {} }));
       const doneCount = checks.filter((c) => c.done).length;
-      return /* @__PURE__ */ React.createElement("div", { key: r.id, style: { ...S.panel, padding: "0.9rem 1rem", display: "grid", gap: "0.55rem", borderLeft: `4px solid ${r.status === "asking" ? "#d97706" : r.status === "approved" && !r.doneAt ? O : th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.02rem", color: th.text } }, r.isTest && /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed" } }, "TEST \xB7 "), r.name, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 500, color: th.muted } }, " ", r.title, r.store ? `, ${r.store}` : r.district ? `, District ${r.district}` : "")), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem" } }, chip(r))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.84rem", lineHeight: 1.5 } }, "Terminated in Paycor ", day(r.terminationDate), " \xB7 found ", when(r.detectedAt), r.source === "daily" ? " (morning list)" : "", r.askedAt && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 asked ", r.askedOk, " of ", r.askedCount, " by text ", when(r.askedAt)), r.answeredBy && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("b", { style: { color: th.text } }, r.answeredBy), " answered ", /* @__PURE__ */ React.createElement("b", { style: { color: r.answer === "yes" ? "#16a34a" : th.text } }, String(r.answer).toUpperCase()), " ", r.answeredVia === "portal" ? "in the portal" : "by text", ", ", when(r.answeredAt)), r.status === "approved" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("br", null), "Portal login: ", r.isTest ? "test, not touched" : r.portalOff === "Turned off automatically" ? "turned off automatically" : r.portalOff || (r.hasAccount ? "..." : "no portal account found")), r.doneAt && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("br", null), "Done by ", r.doneBy, ", ", when(r.doneAt))), r.status === "asking" && data.canAnswer && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { key: r.id, style: { ...S.panel, padding: "0.9rem 1rem", display: "grid", gap: "0.55rem", borderLeft: `4px solid ${r.status === "asking" ? "#d97706" : r.status === "approved" && !r.doneAt ? O : th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", flexWrap: "wrap", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: "1.02rem", color: th.text } }, r.isTest && /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed" } }, "TEST \xB7 "), r.name, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 500, color: th.muted } }, " ", r.title, r.store ? `, ${r.store}` : r.district ? `, District ${r.district}` : "")), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem" } }, chip(r))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.84rem", lineHeight: 1.5 } }, "Terminated in Paycor ", day(r.terminationDate), " \xB7 found ", when(r.detectedAt), r.source === "daily" ? " (morning list)" : "", r.askedAt && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 asked ", r.askedOk, " of ", r.askedCount, " by text ", when(r.askedAt)), r.answeredBy && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("b", { style: { color: th.text } }, r.answeredBy), " answered ", /* @__PURE__ */ React.createElement("b", { style: { color: r.answer === "yes" ? "#16a34a" : th.text } }, String(r.answer).toUpperCase()), " ", r.answeredVia === "portal" ? "in the portal" : "by text", ", ", when(r.answeredAt)), r.status === "approved" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("br", null), "Portal login: ", r.isTest ? "test, not touched" : r.portalOff === "Turned off automatically" ? "turned off automatically" : r.portalOff || (r.hasAccount ? "..." : "no portal account found")), r.doneAt && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("br", null), "Done by ", r.doneBy, ", ", when(r.doneAt))), data.canAdmin && (r.sends || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, display: "grid", gap: "0.15rem" } }, (delivery[r.id] || r.sends.map((x) => ({ phone: x.phone, accepted: x.ok, error: x.error, status: null }))).map((x, i) => /* @__PURE__ */ React.createElement("span", { key: i }, "Text to ", x.phone, ": ", x.accepted ? /* @__PURE__ */ React.createElement("b", { style: { color: x.status === "DELIVERED" ? "#16a34a" : x.status && x.status !== "SENT" && x.status !== "SENDING" ? "#dc2626" : th.text } }, x.status ? x.status.toLowerCase() : "accepted by Textbelt") : /* @__PURE__ */ React.createElement("b", { style: { color: "#dc2626" } }, "refused by Textbelt", x.error ? `: ${x.error}` : ""))), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          className: "fin-btn",
+          disabled: busy === `v${r.id}`,
+          style: { ...S.link, color: O, justifySelf: "start", fontSize: "0.8rem", fontWeight: 700 },
+          onClick: async () => {
+            setBusy(`v${r.id}`);
+            try {
+              const b = await call({ action: "delivery", id: r.id });
+              setDelivery((d) => ({ ...d, [r.id]: b.delivery }));
+            } catch (e) {
+              setErr(e.message);
+            }
+            setBusy(null);
+          }
+        },
+        busy === `v${r.id}` ? "Asking Textbelt\u2026" : "Check delivery"
+      )), r.status === "asking" && data.canAnswer && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
         "button",
         {
           type: "button",
@@ -1830,7 +1850,7 @@
         onClick: () => act("run", { action: "runNow" }, (b) => `Checked ${b.checked || 0} of ${b.leaders || 0} linked leaders in Paycor${b.errors ? ` (${b.errors} couldn't be read)` : ""}. ${b.created ? `${b.created} new.` : "Nothing new."}${b.held === "live-off" && b.created ? " Not texted: Live is OFF." : ""}`)
       },
       busy === "run" ? "Checking\u2026" : "Check Paycor now"
-    ), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, data.live ? "Texts go out." : "OFF: terminations are only recorded here, nobody is texted.", !data.askListSize ? " Nobody is on the Leader termination list yet, so the executives are asked." : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.7rem" } }, open.length ? open.map(card2) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Nothing open.")), closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, margin: "1.4rem 0 0.6rem" } }, "Finished"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.7rem" } }, closed.slice(0, 30).map(card2)))));
+    ), data.textbelt && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: data.textbelt.error ? "#dc2626" : th.text } }, data.textbelt.error ? `Textbelt: ${data.textbelt.error}` : `Textbelt credits left: ${data.textbelt.left ?? "?"}`), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.82rem" } }, data.live ? "Texts go out." : "OFF: terminations are only recorded here, nobody is texted.", !data.askListSize ? " Nobody is on the Leader termination list yet, so the executives are asked." : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.7rem" } }, open.length ? open.map(card2) : /* @__PURE__ */ React.createElement("p", { style: { color: th.muted } }, "Nothing open.")), closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, margin: "1.4rem 0 0.6rem" } }, "Finished"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.7rem" } }, closed.slice(0, 30).map(card2)))));
   }
 
   // src/pay-increase-pdf.mjs
@@ -32353,7 +32373,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.28";
+  var APP_VERSION = "v23.29";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

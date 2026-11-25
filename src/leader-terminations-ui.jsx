@@ -34,6 +34,7 @@ export function LeaderTerminations({ th, isMobile, onBack }) {
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [delivery, setDelivery] = useState({}); // v23.29: id → [{ phone, accepted, error, status }]
   const load = () => call().then(b => { setData(b); setErr(null); }).catch(e => setErr(e.message));
   useEffect(() => {
     load();
@@ -68,6 +69,17 @@ export function LeaderTerminations({ th, isMobile, onBack }) {
           {r.status === 'approved' && <><br />Portal login: {r.isTest ? 'test, not touched' : r.portalOff === 'Turned off automatically' ? 'turned off automatically' : r.portalOff || (r.hasAccount ? '...' : 'no portal account found')}</>}
           {r.doneAt && <><br />Done by {r.doneBy}, {when(r.doneAt)}</>}
         </div>
+        {data.canAdmin && (r.sends || []).length > 0 && (
+          <div style={{ fontSize: '0.8rem', color: th.muted, display: 'grid', gap: '0.15rem' }}>
+            {(delivery[r.id] || r.sends.map(x => ({ phone: x.phone, accepted: x.ok, error: x.error, status: null }))).map((x, i) => (
+              <span key={i}>Text to {x.phone}: {x.accepted
+                ? <b style={{ color: x.status === 'DELIVERED' ? '#16a34a' : x.status && x.status !== 'SENT' && x.status !== 'SENDING' ? '#dc2626' : th.text }}>{x.status ? x.status.toLowerCase() : 'accepted by Textbelt'}</b>
+                : <b style={{ color: '#dc2626' }}>refused by Textbelt{x.error ? `: ${x.error}` : ''}</b>}</span>
+            ))}
+            <button type="button" className="fin-btn" disabled={busy === `v${r.id}`} style={{ ...S.link, color: O, justifySelf: 'start', fontSize: '0.8rem', fontWeight: 700 }}
+              onClick={async () => { setBusy(`v${r.id}`); try { const b = await call({ action: 'delivery', id: r.id }); setDelivery(d => ({ ...d, [r.id]: b.delivery })); } catch (e) { setErr(e.message); } setBusy(null); }}>{busy === `v${r.id}` ? 'Asking Textbelt…' : 'Check delivery'}</button>
+          </div>
+        )}
         {r.status === 'asking' && data.canAnswer && (
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button type="button" className="fin-btn" disabled={busy === `a${r.id}`} style={{ ...S.primary, minHeight: 38 }}
@@ -115,6 +127,7 @@ export function LeaderTerminations({ th, isMobile, onBack }) {
               onClick={() => act('clear', { action: 'clearTests' }, (b) => `Removed ${b.removed} test case${b.removed === 1 ? '' : 's'}.`)}>Remove test cases</button>}
             <button type="button" className="fin-btn" disabled={busy === 'run'} style={{ ...S.ghost, minHeight: 38 }}
               onClick={() => act('run', { action: 'runNow' }, (b) => `Checked ${b.checked || 0} of ${b.leaders || 0} linked leaders in Paycor${b.errors ? ` (${b.errors} couldn't be read)` : ''}. ${b.created ? `${b.created} new.` : 'Nothing new.'}${b.held === 'live-off' && b.created ? ' Not texted: Live is OFF.' : ''}`)}>{busy === 'run' ? 'Checking…' : 'Check Paycor now'}</button>
+            {data.textbelt && <span style={{ fontSize: '0.82rem', fontWeight: 700, color: data.textbelt.error ? '#dc2626' : th.text }}>{data.textbelt.error ? `Textbelt: ${data.textbelt.error}` : `Textbelt credits left: ${data.textbelt.left ?? '?'}`}</span>}
             <span style={{ color: th.muted, fontSize: '0.82rem' }}>{data.live ? 'Texts go out.' : 'OFF: terminations are only recorded here, nobody is texted.'}{!data.askListSize ? ' Nobody is on the Leader termination list yet, so the executives are asked.' : ''}</span>
           </div>
         )}

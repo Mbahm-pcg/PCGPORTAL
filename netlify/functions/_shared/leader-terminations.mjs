@@ -40,6 +40,23 @@ export const digits = (x) => String(x || '').replace(/\D/g, '').slice(-10);
 const todayET = (d = new Date()) => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 const etHour = (d = new Date()) => Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }).format(d)) % 24;
 const minusDays = (iso, n) => new Date(Date.parse(iso + 'T12:00:00Z') - n * 864e5).toISOString().slice(0, 10);
+export const mask = (p) => { const d = digits(p); return d ? `***-***-${d.slice(-4)}` : ''; };
+// v23.29 Textbelt checks (the key never leaves the server): a text's delivery status, and credits left.
+const tbGet = async (path) => {
+  const res = await fetch(`https://textbelt.com${path}`, { cache: 'no-store' });
+  return res.json().catch(() => ({}));
+};
+export async function textStatus(textId) {
+  if (!textId) return 'NO ID';
+  const j = await tbGet(`/status/${encodeURIComponent(textId)}`).catch(() => ({}));
+  return String(j.status || 'UNKNOWN').toUpperCase();
+}
+export async function textbeltQuota() {
+  const key = process.env.TEXTBELT_API_KEY;
+  if (!key) return { error: 'TEXTBELT_API_KEY is not set' };
+  const j = await tbGet(`/quota/${encodeURIComponent(key)}`).catch(e => ({ error: e.message }));
+  return j.success === false ? { error: j.error || 'Textbelt refused the key' } : { left: j.quotaRemaining ?? null };
+}
 export const webhookUrl = () => `${process.env.URL || PORTAL}/.netlify/functions/textbelt-reply`;
 
 let ready = null;
@@ -171,6 +188,8 @@ export async function ask(db, row) {
   const sms = `PCG: ${line} Reply YES to have ${it} deactivate their accounts (Crunch Time, WorkPulse, etc.) and turn off their portal login, or NO to skip.`;
   const res = await sendSms(l.phones, sms, { replyWebhookUrl: webhookUrl(), webhookData: `lt:${claimed.id}` });
   const asked = (res.results || []).map(x => ({ phone: x.number, ok: !!x.success, textId: x.textId || null, error: x.error || null }));
+  // v23.29: what Textbelt said for each number (masked), so a text that never arrives can be traced.
+  console.log('[leader-terminations] asked', claimed.id, JSON.stringify(asked.map(a => ({ phone: mask(a.phone), ok: a.ok, textId: a.textId, error: a.error }))), 'reply to', webhookUrl());
   const b = blobs();
   const link = `${PORTAL}/tools/leader-terminations`;
   await Promise.all([
