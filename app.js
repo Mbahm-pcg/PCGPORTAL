@@ -3780,7 +3780,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [busy, setBusy] = useState6(false);
     const [sent, setSent] = useState6(null);
     const [poster, setPoster] = useState6(null);
-    const [bd, setBd] = useState6({ q: "", emp: null, badge: "", out: null });
+    const [bd, setBd] = useState6({ q: "", emp: null });
     const openRef = useRef5(open);
     openRef.current = open;
     const load = () => call4().then((b) => {
@@ -3891,25 +3891,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       } catch (er) {
         setErr(er.message);
       }
-    }, style: S.input }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick a store"), data.stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), poster && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", justifyItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement(Qr, { text: poster.url, size: 240 }), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => printPoster(poster.store, poster.url) }, "Print the poster"))), tab === "posters" && (data.role === "executive" || data.role === "it") && /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("b", null, "IT: check a badge ID"), /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: bd.emp ? bd.emp.name : bd.q, onChange: (e) => setBd({ q: e.target.value, emp: null, badge: bd.badge, out: null }), placeholder: "Crew member's name", style: S.input }), !bd.emp && bd.q.trim().length > 1 && (data.employees || []).filter((e) => e.name.toLowerCase().includes(bd.q.trim().toLowerCase())).slice(0, 8).map((e) => /* @__PURE__ */ React.createElement("button", { key: e.pc + e.id, type: "button", className: "fin-btn", onClick: () => setBd((x) => ({ ...x, emp: e })), style: { ...S.ghost, textAlign: "left" } }, e.name, " \xB7 ", (data.stores.find((s2) => s2.pc === e.pc) || {}).name)), /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: bd.badge, onChange: (e) => setBd((x) => ({ ...x, badge: e.target.value })), placeholder: "The badge ID you tried", style: S.input }), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        type: "button",
-        className: "fin-btn",
-        disabled: !bd.emp,
-        style: { ...S.ghost, justifySelf: "start" },
-        onClick: async () => {
-          try {
-            setBd((x) => ({ ...x, out: null }));
-            const b = await call4("", { action: "badgeCheck", pc: bd.emp.pc, employeeId: bd.emp.id, badge: bd.badge });
-            setBd((x) => ({ ...x, out: b }));
-          } catch (e) {
-            setErr(e.message);
-          }
-        }
-      },
-      "Check"
-    ), /* @__PURE__ */ React.createElement(
+    }, style: S.input }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick a store"), data.stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), poster && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", justifyItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement(Qr, { text: poster.url, size: 240 }), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => printPoster(poster.store, poster.url) }, "Print the poster"))), tab === "posters" && /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("b", null, "Unlock a badge ID"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem" } }, "After 5 wrong badge IDs on the poster, that name is locked for 30 minutes. Unlock it here so they can try again."), /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: bd.emp ? bd.emp.name : bd.q, onChange: (e) => setBd({ q: e.target.value, emp: null }), placeholder: "Crew member's name", style: S.input }), !bd.emp && bd.q.trim().length > 1 && (data.employees || []).filter((e) => e.name.toLowerCase().includes(bd.q.trim().toLowerCase())).slice(0, 8).map((e) => /* @__PURE__ */ React.createElement("button", { key: e.pc + e.id, type: "button", className: "fin-btn", onClick: () => setBd((x) => ({ ...x, emp: e })), style: { ...S.ghost, textAlign: "left" } }, e.name, " \xB7 ", (data.stores.find((s2) => s2.pc === e.pc) || {}).name)), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -3920,13 +3902,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
           try {
             const b = await call4("", { action: "unlockBadge", pc: bd.emp.pc, employeeId: bd.emp.id });
             setMsg(b.unlocked ? `Unlocked ${bd.emp.name}: they can try their badge ID again.` : `${bd.emp.name} wasn't locked.`);
+            setBd({ q: "", emp: null });
           } catch (e) {
             setErr(e.message);
           }
         }
       },
-      "Unlock their badge ID"
-    ), bd.out && /* @__PURE__ */ React.createElement("pre", { style: { background: th.card3, padding: "0.6rem", borderRadius: 8, fontSize: "0.75rem", overflowX: "auto", margin: 0 } }, JSON.stringify(bd.out, null, 2))), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `${FN3}?pdf=${viewing.id}`, title: `Time off for ${viewing.name}`, onClose: () => setViewing(null) }));
+      "Unlock"
+    )), viewing && /* @__PURE__ */ React.createElement(FormModal, { th, id: `${FN3}?pdf=${viewing.id}`, title: `Time off for ${viewing.name}`, onClose: () => setViewing(null) }));
   }
 
   // src/time-off-request.mjs
@@ -32925,7 +32908,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.30";
+  var APP_VERSION = "v23.31";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

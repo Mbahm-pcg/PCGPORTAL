@@ -85,48 +85,12 @@ export default async (request) => {
     if (request.method !== 'POST') return json(405, { error: 'Method not allowed' });
     const body = await request.json().catch(() => ({}));
 
-    // v23.30 IT-only: why doesn't a badge ID match? What each source holds for this person.
     // v23.30: clear a badge lockout (5 wrong tries → 30 minutes) — exec / IT, or the person's own store manager / DM.
     if (body.action === 'unlockBadge') {
       if (!(real === 'executive' || real === 'it' || inScope(body.pc))) return json(403, { error: 'forbidden' });
       await db`CREATE TABLE IF NOT EXISTS crew_badge_attempts (employee_id text PRIMARY KEY, fails integer NOT NULL DEFAULT 0, locked_until timestamptz, last_at timestamptz)`;
       const gone = await db`DELETE FROM crew_badge_attempts WHERE employee_id = ${String(body.employeeId || '')} RETURNING employee_id`;
       return json(200, { ok: true, unlocked: gone.length > 0 });
-    }
-    if (body.action === 'badgeCheck') {
-      if (!(real === 'executive' || real === 'it')) return json(403, { error: 'Only exec or IT can do this.' });
-      const roster = await loadRoster().catch(() => ({ stores: {} }));
-      const emp = (roster.stores[String(body.pc)] || []).find(e => e.id === String(body.employeeId || ''));
-      if (!emp) return json(404, { error: 'Not on that store roster.' });
-      const sync = await db`SELECT paycor_employee_id, legal_entity_id, employee_name, employee_number FROM time_off_people WHERE paycor_employee_id = ${emp.id}`.catch(() => []);
-      const dir = await db`SELECT paycor_employee_id, employee_number, first_name, last_name, store_pc, status FROM employee_directory WHERE paycor_employee_id = ${emp.id}`.catch(() => []);
-      const [first, ...rest] = emp.name.split(' ');
-      const dirByName = await db`SELECT paycor_employee_id, employee_number, store_pc, status FROM employee_directory WHERE lower(first_name) = lower(${first}) AND lower(last_name) = lower(${rest.join(' ')})`.catch(() => []);
-      const syncByName = await db`SELECT paycor_employee_id, legal_entity_id, employee_number FROM time_off_people WHERE lower(employee_name) = lower(${emp.name})`.catch(() => []);
-      // Live from Paycor (works on the live site only — previews can't reach Paycor): where does the
-      // time-clock number live? Only number-like fields come back; never anything SSN / tax / birth / bank.
-      const BLOCK = /ssn|social|tax|birth|dob|bank|account|routing|salary|rate|pay|wage|amount/i;
-      const flat = (o, pre = '', out = []) => {
-        if (out.length > 150 || o == null) return out;
-        if (typeof o !== 'object') { const sv = String(o); if (/\d{3,}/.test(sv) && sv.length <= 40 && !BLOCK.test(pre)) out.push(`${pre} = ${sv}`); return out; }
-        for (const [k, val] of Object.entries(o)) if (!BLOCK.test(k)) flat(val, pre ? `${pre}.${k}` : k, out);
-        return out;
-      };
-      // v23.30 fix: in parallel, 8 s each, no whole-store read (that took 33 s → HTTP 504).
-      const end = todayET(), start = new Date(Date.parse(end + 'T12:00:00Z') - 14 * 864e5).toISOString().slice(0, 10);
-      const { callPaycor } = await import('./paycor.mjs');
-      const capped = (path) => Promise.race([callPaycor(path), new Promise((_, rej) => setTimeout(() => rej(new Error('Paycor took over 8 s')), 8000))]);
-      const live = {};
-      await Promise.all([['employee', `/employees/${emp.id}?include=All`], ['punches', `/employees/${emp.id}/punches?startDate=${start}&endDate=${end}`],
-        ['timecard', `/employees/${emp.id}/employeePunches?startDate=${start}&endDate=${end}`]].map(async ([label, path]) => {
-        try {
-          const res = await capped(path);
-          let d = res.data;
-          if (label !== 'employee') d = (d?.records || (Array.isArray(d) ? d : [])).slice(0, 2);
-          live[label] = { status: res.status, fields: flat(d) };
-        } catch (e) { live[label] = { error: e.message }; }
-      }));
-      return json(200, { employee: emp.name, rosterId: emp.id, typed: String(body.badge || ''), sync, syncByName, directory: dir, directoryByName: dirByName, live });
     }
     if (body.action === 'invite') {
       if (!inScope(body.pc)) return json(403, { error: 'You can only send this to people at your own stores.' });

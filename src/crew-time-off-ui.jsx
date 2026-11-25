@@ -111,7 +111,7 @@ export function CrewTimeOff({ th, isMobile, onBack }) {
   const [sent, setSent] = useState(null);
   // posters
   const [poster, setPoster] = useState(null);
-  const [bd, setBd] = useState({ q: '', emp: null, badge: '', out: null }); // v23.30 IT badge check
+  const [bd, setBd] = useState({ q: '', emp: null }); // unlock a badge ID
   const openRef = useRef(open); openRef.current = open;
 
   const load = () => call().then(b => { setData(b); setErr(null); if (!pc && b.stores?.length === 1) setPc(b.stores[0].pc); }).catch(e => setErr(e.message));
@@ -205,18 +205,15 @@ export function CrewTimeOff({ th, isMobile, onBack }) {
             <button type="button" className="fin-btn" style={S.primary} onClick={() => printPoster(poster.store, poster.url)}>Print the poster</button></div>}
         </div>
       )}
-      {tab === 'posters' && (data.role === 'executive' || data.role === 'it') && (
+      {tab === 'posters' && (
         <div style={{ ...S.panel, padding: '1rem', display: 'grid', gap: '0.6rem', marginTop: '1rem' }}>
-          <b>IT: check a badge ID</b>
-          <input className="fin-input" value={bd.emp ? bd.emp.name : bd.q} onChange={e => setBd({ q: e.target.value, emp: null, badge: bd.badge, out: null })} placeholder="Crew member's name" style={S.input} />
+          <b>Unlock a badge ID</b>
+          <span style={{ color: th.muted, fontSize: '0.85rem' }}>After 5 wrong badge IDs on the poster, that name is locked for 30 minutes. Unlock it here so they can try again.</span>
+          <input className="fin-input" value={bd.emp ? bd.emp.name : bd.q} onChange={e => setBd({ q: e.target.value, emp: null })} placeholder="Crew member's name" style={S.input} />
           {!bd.emp && bd.q.trim().length > 1 && (data.employees || []).filter(e => e.name.toLowerCase().includes(bd.q.trim().toLowerCase())).slice(0, 8).map(e => (
             <button key={e.pc + e.id} type="button" className="fin-btn" onClick={() => setBd(x => ({ ...x, emp: e }))} style={{ ...S.ghost, textAlign: 'left' }}>{e.name} · {(data.stores.find(s2 => s2.pc === e.pc) || {}).name}</button>))}
-          <input className="fin-input" value={bd.badge} onChange={e => setBd(x => ({ ...x, badge: e.target.value }))} placeholder="The badge ID you tried" style={S.input} />
           <button type="button" className="fin-btn" disabled={!bd.emp} style={{ ...S.ghost, justifySelf: 'start' }}
-            onClick={async () => { try { setBd(x => ({ ...x, out: null })); const b = await call('', { action: 'badgeCheck', pc: bd.emp.pc, employeeId: bd.emp.id, badge: bd.badge }); setBd(x => ({ ...x, out: b })); } catch (e) { setErr(e.message); } }}>Check</button>
-          <button type="button" className="fin-btn" disabled={!bd.emp} style={{ ...S.ghost, justifySelf: 'start' }}
-            onClick={async () => { try { const b = await call('', { action: 'unlockBadge', pc: bd.emp.pc, employeeId: bd.emp.id }); setMsg(b.unlocked ? `Unlocked ${bd.emp.name}: they can try their badge ID again.` : `${bd.emp.name} wasn't locked.`); } catch (e) { setErr(e.message); } }}>Unlock their badge ID</button>
-          {bd.out && <pre style={{ background: th.card3, padding: '0.6rem', borderRadius: 8, fontSize: '0.75rem', overflowX: 'auto', margin: 0 }}>{JSON.stringify(bd.out, null, 2)}</pre>}
+            onClick={async () => { try { const b = await call('', { action: 'unlockBadge', pc: bd.emp.pc, employeeId: bd.emp.id }); setMsg(b.unlocked ? `Unlocked ${bd.emp.name}: they can try their badge ID again.` : `${bd.emp.name} wasn't locked.`); setBd({ q: '', emp: null }); } catch (e) { setErr(e.message); } }}>Unlock</button>
         </div>
       )}
       {viewing && <FormModal th={th} id={`${FN}?pdf=${viewing.id}`} title={`Time off for ${viewing.name}`} onClose={() => setViewing(null)} />}

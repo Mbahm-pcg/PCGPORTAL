@@ -18,7 +18,7 @@ import { sendSms, sendPush, sendHtmlEmail } from './channels.mjs';
 import { bell, esc, PORTAL, stampApproval, etNow } from './form-approval.mjs';
 import { STORES } from '../tips-report-cron-background.mjs';
 import { crewSummary, usDay } from '../../../src/crew-time-off.mjs';
-import { storeRoster } from '../transfer-notice.mjs';
+import { callPaycor } from '../paycor.mjs';
 
 export const OFFICE_KEY = 'pcg_crew_time_off_office_v1';
 const PAY_OFFICE_STEP_KEY = 'pcg_pay_increase_office_step_v1';
@@ -55,24 +55,33 @@ export function docOk(id, i, exp, sig) {
 }
 
 // ── v23.30 the poster's badge check (user, 2026-11-25): pick your name AND enter your badge ID (the
-// Paycor employee number), checked here on the server — never sent to the phone. 5 wrong tries lock
+// time-clock badge number), checked here on the server — never sent to the phone. 5 wrong tries lock
 // that name for 30 minutes. A right one gives a 2-hour pass to fill in the form for that person only.
 const normBadge = (x) => String(x || '').replace(/\D/g, '').replace(/^0+/, '');
 const BADGE_TRIES = 5, LOCK_MIN = 30;
-export async function badgeFor(db, store, employeeId) {
-  const r = (await db`SELECT employee_number FROM time_off_people WHERE paycor_employee_id = ${String(employeeId)} AND employee_number IS NOT NULL LIMIT 1`.catch(() => []))[0];
-  if (r?.employee_number) return normBadge(r.employee_number);
-  // not in the morning sync (e.g. hired today) → this store's roster, live
-  const rec = (await storeRoster(store.paycor).catch(() => [])).find(e => String(e.id) === String(employeeId));
-  return normBadge(rec?.employeeNumber);
+// v23.31: the number crew clock in with is Paycor's badgeNumber (= alternateEmployeeNumber, e.g.
+// 332941001 — store PC + 3 digits); employeeNumber (e.g. 130, HR's) is accepted as a backup. Read live
+// for that one person (fast); if Paycor doesn't answer in 8 s, the morning sync's employee number.
+export async function badgesFor(db, employeeId) {
+  const out = new Set();
+  try {
+    const res = await Promise.race([callPaycor(`/employees/${encodeURIComponent(String(employeeId))}?include=All`), new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 8000))]);
+    const d = res.data?.records?.[0] || res.data || {};
+    for (const k of ['badgeNumber', 'alternateEmployeeNumber', 'employeeNumber']) if (normBadge(d[k])) out.add(normBadge(d[k]));
+  } catch (e) { console.warn('[crew-time-off] badge lookup', e.message); }
+  if (!out.size) {
+    const r = (await db`SELECT employee_number FROM time_off_people WHERE paycor_employee_id = ${String(employeeId)} AND employee_number IS NOT NULL LIMIT 1`.catch(() => []))[0];
+    if (normBadge(r?.employee_number)) out.add(normBadge(r.employee_number));
+  }
+  return out;
 }
 export async function checkBadge(db, store, employeeId, badge) {
   await db`CREATE TABLE IF NOT EXISTS crew_badge_attempts (employee_id text PRIMARY KEY, fails integer NOT NULL DEFAULT 0, locked_until timestamptz, last_at timestamptz)`;
   const a = (await db`SELECT fails, locked_until FROM crew_badge_attempts WHERE employee_id = ${String(employeeId)}`)[0];
   if (a?.locked_until && Date.parse(a.locked_until) > Date.now()) return { ok: false, locked: true };
-  const want = await badgeFor(db, store, employeeId);
-  if (!want) return { ok: false, noBadge: true };
-  if (normBadge(badge) && normBadge(badge) === want) {
+  const want = await badgesFor(db, employeeId);
+  if (!want.size) return { ok: false, noBadge: true };
+  if (normBadge(badge) && want.has(normBadge(badge))) {
     await db`DELETE FROM crew_badge_attempts WHERE employee_id = ${String(employeeId)}`;
     return { ok: true };
   }
