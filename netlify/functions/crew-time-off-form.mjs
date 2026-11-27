@@ -11,6 +11,7 @@ import { STORES, ALL_STORES } from './tips-report-cron-background.mjs';
 import { refreshStoreList } from './_shared/store-status.mjs';
 import { loadRoster } from './transfer-notice.mjs';
 import { ensureTable, hashToken, posterOk, storeOf, docOk, notifyManagers, checkBadge, makePass, passOk } from './_shared/crew-time-off-lib.mjs';
+import { auditForm } from './_shared/audit.mjs';
 import { crewValues, missingCrewFields, crewProblem, positionFor } from '../../src/crew-time-off.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -114,6 +115,7 @@ export default async (request) => {
       row = (await db`INSERT INTO crew_time_off (via, pc, employee_id, employee_name, job_title, status, submitted_at, form_values, pdf, documents_data, documents, contact_phone, contact_email)
         VALUES ('poster', ${String(st.pc)}, ${emp.id}, ${emp.name}, ${emp.jobTitle || null}, 'manager', now(), ${JSON.stringify(v)}, ${pdf}, ${JSON.stringify(docs)}, ${docs.length}, ${v.phone}, ${v.email || null}) RETURNING *`)[0];
     }
+    await auditForm(db, 'crew_time_off', 'submitted', row, null, { via: row.via });
     const notified = await notifyManagers(db, row).catch(e => { console.error('[crew-time-off-form] notify', e.message); return 0; });
     return json(200, { ok: true, id: row.id, notified });
   } catch (e) {

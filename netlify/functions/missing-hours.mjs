@@ -38,6 +38,7 @@ async function hoursRoster() {
 import { callPaycor } from './paycor.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
 import { missingHoursProblems, missingHoursFingerprint, missingHoursFileName, missingHoursRowsHtml, usDate, fmtHours, rowHours, periodFor, MH_MAX_ROWS } from '../../src/missing-hours.mjs';
+import { auditForm } from './_shared/audit.mjs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const blobs = () => getStore({ name: 'pcg-portal', siteID: process.env.PCG_SITE_ID, token: process.env.PCG_AUTH_TOKEN });
@@ -262,12 +263,14 @@ export default async (request) => {
         const upd = (await db`UPDATE missing_hours_forms SET status = 'rejected', decided_by = ${mine}, decided_by_name = ${myName}, decided_at = now(), decision_note = ${note}
           WHERE id = ${Number(body.id)} AND status = 'pending' RETURNING *`)[0];
         if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        await auditForm(db, 'missing_hours', 'sent_back', upd, { id: authed.sub, role: realType, name: myName }, { note: note.slice(0, 120) });
         await tellMaker(db, upd, `Missing hours sent back: ${upd.employee_name}`, `${myName} sent back the missing hours for ${upd.employee_name}: "${note}". It's under Sent back in Tools > Missing Hours, where you can fix and resend it.`);
         return json(200, { ok: true });
       }
       const upd = (await db`UPDATE missing_hours_forms SET status = 'approved', decided_by = ${mine}, decided_by_name = ${myName}, decided_at = now()
         WHERE id = ${Number(body.id)} AND status = 'pending' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+      await auditForm(db, 'missing_hours', 'approved', upd, { id: authed.sub, role: realType, name: myName });
       const paycor = await stageInPaycor(db, upd);
       const drive = await fileForm(db, upd, myName);
       await tellMaker(db, upd, `Missing hours approved: ${upd.employee_name}`, paycor.ok
@@ -309,6 +312,7 @@ export default async (request) => {
       await db`UPDATE missing_hours_forms SET status = 'resent', resent_as = ${row.id} WHERE id = ${Number(body.replaces)} AND status = 'rejected'
         AND (submitted_by = ${mine} OR ${realType === 'executive' || realType === 'it'})`;
     }
+    if (inserted.length) await auditForm(db, 'missing_hours', body.replaces ? 'resent' : 'sent', row, { id: authed.sub, role: realType, name: myName });
     const notified = inserted.length ? await notifyMissingHoursApprovers(db, row) : 0;
     return json(200, { ok: true, id: row.id, status: row.status, notified, already: !inserted.length });
   } catch (e) {

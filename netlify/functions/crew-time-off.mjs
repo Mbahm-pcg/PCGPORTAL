@@ -19,6 +19,7 @@ import { timeOffAlertText, timeOffEmailHtml } from '../../src/time-off-request.m
 import { crewSummary, crewFileName, usDay, isEmail, isPhone } from '../../src/crew-time-off.mjs';
 import { baseFor, ensureTable, storeOf, newToken, hashToken, linkFor, linkExpiry, sendInvite, posterUrl, docUrl, officePeople, notifyOffice, tellCrew, stampApproval, approvalLine, readList } from './_shared/crew-time-off-lib.mjs';
 import { sendSms, sendPush } from './_shared/channels.mjs';
+import { auditForm } from './_shared/audit.mjs';
 import { contactsFrom, pickContact } from '../../src/paycor-fields.mjs';
 import { getStore } from '@netlify/blobs';
 
@@ -141,6 +142,7 @@ export default async (request) => {
       const token = newToken();
       const row = (await db`INSERT INTO crew_time_off (token_hash, link_expires_at, via, pc, employee_id, employee_name, job_title, invited_by, invited_by_name, invite_phone, invite_email)
         VALUES (${hashToken(token)}, ${linkExpiry().toISOString()}, 'link', ${String(body.pc)}, ${emp.id}, ${emp.name}, ${emp.jobTitle || null}, ${Number(authed.sub) || null}, ${myName}, ${phone || null}, ${email || null}) RETURNING *`)[0];
+      await auditForm(db, 'crew_time_off', 'link_sent', row, { id: authed.sub, role: real, name: myName });
       const sent = await sendInvite(row, token, myName, baseFor(request)).catch(e => { console.error('[crew-time-off] invite', e.message); return { emailed: false, texted: false }; });
       return json(200, { ok: true, id: row.id, link: linkFor(token, baseFor(request)), ...sent });
     }
@@ -153,6 +155,7 @@ export default async (request) => {
       const upd = (await db`UPDATE crew_time_off SET status = 'rejected', decision_note = 'Link withdrawn', rejected_by_name = ${myName}, rejected_at = now(), token_hash = NULL
         WHERE id = ${r.id} AND status = 'invited' RETURNING id`)[0];
       if (!upd) return json(409, { error: 'It was already used.' });
+      await auditForm(db, 'crew_time_off', 'link_withdrawn', r, { id: authed.sub, role: real, name: myName });
       return json(200, { ok: true });
     }
 
@@ -165,11 +168,13 @@ export default async (request) => {
       if (reject) {
         const upd = (await db`UPDATE crew_time_off SET status = 'rejected', decision_note = ${note}, rejected_by_name = ${myName}, rejected_at = now() WHERE id = ${r.id} AND status = 'manager' RETURNING *`)[0];
         if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        await auditForm(db, 'crew_time_off', 'manager_sent_back', upd, { id: authed.sub, role: real, name: myName }, { note: note.slice(0, 120) });
         await tellCrew(upd, `${myName} sent back your time off request (${crewSummary(upd.form_values || {})}). Why: ${note}. Ask your manager for a new form.`, 'Your time off request was sent back');
         return json(200, { ok: true });
       }
       const upd = (await db`UPDATE crew_time_off SET status = 'office', manager_by = ${Number(authed.sub)}, manager_by_name = ${myName}, manager_at = now() WHERE id = ${r.id} AND status = 'manager' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+      await auditForm(db, 'crew_time_off', 'manager_approved', upd, { id: authed.sub, role: real, name: myName });
       await notifyOffice(db, upd).catch(e => console.error('[crew-time-off] office notify', e.message));
       await tellCrew(upd, `${myName} approved your time off request (${crewSummary(upd.form_values || {})}). The office will confirm it.`, 'Your manager approved your time off');
       return json(200, { ok: true });
@@ -180,6 +185,7 @@ export default async (request) => {
       if (reject) {
         const upd = (await db`UPDATE crew_time_off SET status = 'rejected', decision_note = ${note}, rejected_by_name = ${myName}, rejected_at = now() WHERE id = ${r.id} AND status = 'office' RETURNING *`)[0];
         if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        await auditForm(db, 'crew_time_off', 'office_sent_back', upd, { id: authed.sub, role: real, name: myName }, { note: note.slice(0, 120) });
         await tellCrew(upd, `The office sent back your time off request (${crewSummary(upd.form_values || {})}). Why: ${note}. Talk to your manager.`, 'Your time off request was sent back');
         return json(200, { ok: true });
       }
@@ -187,6 +193,7 @@ export default async (request) => {
       const refile = r.status === 'approved' && (!r.drive_file_id || !r.alerted_at);
       const upd = refile ? r : (await db`UPDATE crew_time_off SET status = 'approved', office_by = ${Number(authed.sub)}, office_by_name = ${myName}, office_at = now() WHERE id = ${r.id} AND status = 'office' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+      await auditForm(db, 'crew_time_off', refile ? 'filed_again' : 'office_approved', upd, { id: authed.sub, role: real, name: myName });
       const v = upd.form_values || {};
       let pdf = Buffer.from(upd.pdf);
       if (!refile) {

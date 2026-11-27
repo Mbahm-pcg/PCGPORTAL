@@ -25347,9 +25347,15 @@ function AuditLogSection({ th, user, users, accent }) {
 
   const [showAll, setShowAll] = React.useState(false);
   const PAGE = 50;
+  // v23.38 HR form steps (type 'form'): readable names, colours, and a "Forms only" switch.
+  const [formsOnly, setFormsOnly] = React.useState(false);
+  const FORM_NAMES = { pay_rate: 'Pay Rate Change', transfer: 'Transfer Notice', time_off: 'Time Off', violation: 'Violation Notice', missing_hours: 'Missing Hours', resignation: 'Resignation Letter', crew_time_off: 'Crew Time Off' };
+  const actionText = (e) => { if (e.type !== 'form' || !e.action) return e.action || '—'; const [f, step] = e.action.split('.'); return `${FORM_NAMES[f] || f}: ${String(step || '').replace(/_/g, ' ')}`; };
+  const formColor = (a) => (/sent_back|refused|withdrawn/.test(a) ? '#ef4444' : /approved|completed|filed|signed/.test(a) ? '#16a34a' : '#0ea5e9');
+  const whoDid = (e) => (e.userId ? userName(e.userId) : (e.meta?.byName || '—'));
 
-  const displayed = (entries || []).filter(e => !filterAction || e.action === filterAction);
-  const uniqueActions = [...new Set((entries || []).map(e => e.action).filter(Boolean))].sort();
+  const displayed = (entries || []).filter(e => (!filterAction || e.action === filterAction) && (!formsOnly || e.type === 'form'));
+  const uniqueActions = [...new Set((entries || []).filter(e => !formsOnly || e.type === 'form').map(e => e.action).filter(Boolean))].sort();
   const reversed = [...displayed].reverse();
   const visibleRows = showAll ? reversed : reversed.slice(0, PAGE);
 
@@ -25378,6 +25384,10 @@ function AuditLogSection({ th, user, users, accent }) {
               <input type="date" value={date} onChange={e => handleDateChange(e.target.value)}
                 style={{ ...inp(th), padding: '0.3rem 0.6rem', fontSize: '0.8rem', width: 'auto' }} />
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: th.text, fontWeight: 600, cursor: 'pointer' }}>
+              <input type="checkbox" checked={formsOnly} onChange={e => { setFormsOnly(e.target.checked); setFilterAction(''); }} style={{ accentColor: O }} />
+              Forms only
+            </label>
             {uniqueActions.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <span style={{ fontSize: '0.75rem', color: th.muted, fontWeight: 600 }}>Action</span>
@@ -25394,9 +25404,9 @@ function AuditLogSection({ th, user, users, accent }) {
                 const headers = ['Time', 'User', 'Role', 'Action', 'Scope', 'Status', 'Detail', 'Latency(ms)'];
                 const rows = [...displayed].reverse().map(e => [
                   e.ts ? new Date(e.ts).toLocaleString() : '',
-                  userName(e.userId),
+                  whoDid(e),
                   e.userRole || '',
-                  e.action || '',
+                  actionText(e),
                   e.district ? districtLabel(e.district, { short:true }) : 'Network',
                   e.statusCode || '',
                   e.error || (e.meta?.from != null && e.meta?.to != null ? `${e.meta.from} → ${e.meta.to}` : e.meta?.targetName || e.meta?.filename || (e.meta?.backed != null ? `${e.meta.backed} reports` : (e.meta?.synced != null ? `${e.meta.synced} synced` : ''))) || '',
@@ -25453,17 +25463,17 @@ function AuditLogSection({ th, user, users, accent }) {
                     {visibleRows.map((e, i) => {
                       const dt = e.ts ? new Date(e.ts) : null;
                       const isErr = e.statusCode >= 400;
-                      const actionColor = ACTION_COLORS[e.action] || th.muted;
+                      const actionColor = e.type === 'form' ? formColor(e.action || '') : (ACTION_COLORS[e.action] || th.muted);
                       return (
                         <tr key={i} style={{ borderBottom: `1px solid ${th.cardBorder}`, background: isErr ? '#f4433608' : 'transparent' }}>
                           <td style={{ padding: '0.4rem 0.6rem', color: th.muted, whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
                             {dt ? dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }) : '—'}
                           </td>
-                          <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 500 }}>{userName(e.userId)}</td>
+                          <td style={{ padding: '0.4rem 0.6rem', color: th.text, fontWeight: 500 }}>{whoDid(e)}</td>
                           <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>{e.userRole || '—'}</td>
                           <td style={{ padding: '0.4rem 0.6rem' }}>
                             <span style={{ fontSize: '0.65rem', fontWeight: 700, color: actionColor, background: actionColor + '18', padding: '0.15rem 0.45rem', borderRadius: '0.2rem', whiteSpace: 'nowrap' }}>
-                              {e.action || '—'}
+                              {actionText(e)}
                             </span>
                           </td>
                           <td style={{ padding: '0.4rem 0.6rem', color: th.muted, fontSize: '0.75rem' }}>
@@ -31713,7 +31723,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.37";
+const APP_VERSION = "v23.38";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";

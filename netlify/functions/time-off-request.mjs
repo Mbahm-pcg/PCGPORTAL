@@ -25,6 +25,7 @@ import { syncDistricts, refreshStoreList } from './_shared/store-status.mjs';
 import { saveToDrive } from './transfer-notice.mjs';
 import { sendSms, sendPush } from './_shared/channels.mjs';
 import { PORTAL, formApprovers, approversFor, mayDecide, approverNames, notifyFormApprovers, tellPerson, stampApproval, approverTitle, etNow, usDay } from './_shared/form-approval.mjs';
+import { auditForm } from './_shared/audit.mjs';
 import { CORPORATE, defaultPosition, missingTimeOffFields, timeOffProblem, timeOffFingerprint, timeOffFileName, timeOffAlertText, timeOffEmailHtml } from '../../src/time-off-request.mjs';
 import { buildTaggedUploadParams, buildTaggedFileQuery, buildFolderFindQuery, buildFolderCreateParams } from '../../src/incident-report-drive.mjs';
 import { google } from 'googleapis';
@@ -255,6 +256,7 @@ export default async (request) => {
         const upd = (await db`UPDATE time_off_requests SET status = 'rejected', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now(), decision_note = ${note}
           WHERE id = ${Number(body.id)} AND status = 'pending' RETURNING *`)[0];
         if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        await auditForm(db, 'time_off', 'sent_back', upd, { id: authed.sub, role, name: myName }, { note: note.slice(0, 120) });
         await tellPerson(db, upd.user_id, { title: 'Time off request sent back', line: `${myName} sent back your time off request (${usDay(upd.start_date)} to ${usDay(upd.return_date)}). Why: ${note}. Fix it and send it again in Tools > Time Off Request.`, pushTag: `timeoff-${upd.id}`, type: 'time_off_request', path: `/?timeOff=${upd.id}` });
         return json(200, { ok: true });
       }
@@ -264,6 +266,7 @@ export default async (request) => {
         : (await db`UPDATE time_off_requests SET status = 'approved', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
           WHERE id = ${Number(body.id)} AND status = 'pending' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        await auditForm(db, 'time_off', refile ? 'filed_again' : 'approved', upd, { id: authed.sub, role, name: myName });
       let pdf = Buffer.from(upd.pdf);
       if (!refile) {
         const title = approverTitle(role, authed.username);
@@ -307,6 +310,7 @@ export default async (request) => {
       WHERE id = ${row.id} AND status = 'rejected' RETURNING id`).length > 0;
     if (!inserted.length && !resent) return json(200, { ok: true, id: row.id, status: row.status || 'approved', already: true, approvers: names });
     const full = (await db`SELECT * FROM time_off_requests WHERE id = ${row.id}`)[0];
+    await auditForm(db, 'time_off', resent ? 'resent' : 'sent', full, { id: authed.sub, role, name: me.name || '' });
     const notified = await notifyTimeOffApprovers(db, full);
     return json(200, { ok: true, id: row.id, status: 'pending', notified, approvers: names });
   } catch (e) {

@@ -30641,8 +30641,17 @@ ${t2.slice(0, 300)}`);
     };
     const [showAll, setShowAll] = React.useState(false);
     const PAGE = 50;
-    const displayed = (entries || []).filter((e) => !filterAction || e.action === filterAction);
-    const uniqueActions = [...new Set((entries || []).map((e) => e.action).filter(Boolean))].sort();
+    const [formsOnly, setFormsOnly] = React.useState(false);
+    const FORM_NAMES = { pay_rate: "Pay Rate Change", transfer: "Transfer Notice", time_off: "Time Off", violation: "Violation Notice", missing_hours: "Missing Hours", resignation: "Resignation Letter", crew_time_off: "Crew Time Off" };
+    const actionText = (e) => {
+      if (e.type !== "form" || !e.action) return e.action || "\u2014";
+      const [f, step] = e.action.split(".");
+      return `${FORM_NAMES[f] || f}: ${String(step || "").replace(/_/g, " ")}`;
+    };
+    const formColor = (a) => /sent_back|refused|withdrawn/.test(a) ? "#ef4444" : /approved|completed|filed|signed/.test(a) ? "#16a34a" : "#0ea5e9";
+    const whoDid = (e) => e.userId ? userName(e.userId) : e.meta?.byName || "\u2014";
+    const displayed = (entries || []).filter((e) => (!filterAction || e.action === filterAction) && (!formsOnly || e.type === "form"));
+    const uniqueActions = [...new Set((entries || []).filter((e) => !formsOnly || e.type === "form").map((e) => e.action).filter(Boolean))].sort();
     const reversed = [...displayed].reverse();
     const visibleRows = showAll ? reversed : reversed.slice(0, PAGE);
     return /* @__PURE__ */ React.createElement("div", { style: accentCard(th, accent || "#0EA5E9", { padding: "1.5rem", marginBottom: "1.25rem" }) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: open ? "1rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "1.125rem" } }, "\u{1F50D}"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "1rem", color: th.text } }, "Audit Log"), entries !== null && !loading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, background: th.card2, padding: "0.1rem 0.5rem", borderRadius: "0.9rem", fontWeight: 600 } }, entries.length, " event", entries.length !== 1 ? "s" : "", " today")), /* @__PURE__ */ React.createElement("button", { onClick: handleToggle, style: { ...btn(th, { padding: "0.35rem 0.75rem", fontSize: "0.75rem" }) } }, open ? "Hide" : "View Log")), open && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600 } }, "Date"), /* @__PURE__ */ React.createElement(
@@ -30653,7 +30662,10 @@ ${t2.slice(0, 300)}`);
         onChange: (e) => handleDateChange(e.target.value),
         style: { ...inp(th), padding: "0.3rem 0.6rem", fontSize: "0.8rem", width: "auto" }
       }
-    )), uniqueActions.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600 } }, "Action"), /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.78rem", color: th.text, fontWeight: 600, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: formsOnly, onChange: (e) => {
+      setFormsOnly(e.target.checked);
+      setFilterAction("");
+    }, style: { accentColor: O } }), "Forms only"), uniqueActions.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 600 } }, "Action"), /* @__PURE__ */ React.createElement(
       "select",
       {
         value: filterAction,
@@ -30667,9 +30679,9 @@ ${t2.slice(0, 300)}`);
       const headers = ["Time", "User", "Role", "Action", "Scope", "Status", "Detail", "Latency(ms)"];
       const rows = [...displayed].reverse().map((e) => [
         e.ts ? new Date(e.ts).toLocaleString() : "",
-        userName(e.userId),
+        whoDid(e),
         e.userRole || "",
-        e.action || "",
+        actionText(e),
         e.district ? districtLabel(e.district, { short: true }) : "Network",
         e.statusCode || "",
         e.error || (e.meta?.from != null && e.meta?.to != null ? `${e.meta.from} \u2192 ${e.meta.to}` : e.meta?.targetName || e.meta?.filename || (e.meta?.backed != null ? `${e.meta.backed} reports` : e.meta?.synced != null ? `${e.meta.synced} synced` : "")) || "",
@@ -30687,8 +30699,8 @@ ${t2.slice(0, 300)}`);
     ))), /* @__PURE__ */ React.createElement("tbody", null, visibleRows.map((e, i) => {
       const dt = e.ts ? new Date(e.ts) : null;
       const isErr = e.statusCode >= 400;
-      const actionColor = ACTION_COLORS[e.action] || th.muted;
-      return /* @__PURE__ */ React.createElement("tr", { key: i, style: { borderBottom: `1px solid ${th.cardBorder}`, background: isErr ? "#f4433608" : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, whiteSpace: "nowrap", fontSize: "0.75rem" } }, dt ? dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true }) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.text, fontWeight: 500 } }, userName(e.userId)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem" } }, e.userRole || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: actionColor, background: actionColor + "18", padding: "0.15rem 0.45rem", borderRadius: "0.2rem", whiteSpace: "nowrap" } }, e.action || "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem" } }, e.district ? districtLabel(e.district, { short: true }) : "Network"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: isErr ? "#f44336" : "#4caf50", background: isErr ? "#f4433618" : "#4caf5018", padding: "0.15rem 0.4rem", borderRadius: "0.2rem" } }, e.statusCode || "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: isErr ? "#f44336" : th.muted, fontSize: "0.72rem", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.error ? e.error : e.meta ? e.meta.from != null && e.meta.to != null ? `${e.meta.from} \u2192 ${e.meta.to}` : e.meta.targetName ? e.meta.targetName : e.meta.filename || (e.meta.backed != null ? `${e.meta.backed} reports` : e.meta.synced != null ? `${e.meta.synced} synced` : "") || "" : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem", textAlign: "right" } }, e.latencyMs != null ? e.latencyMs : "\u2014"));
+      const actionColor = e.type === "form" ? formColor(e.action || "") : ACTION_COLORS[e.action] || th.muted;
+      return /* @__PURE__ */ React.createElement("tr", { key: i, style: { borderBottom: `1px solid ${th.cardBorder}`, background: isErr ? "#f4433608" : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, whiteSpace: "nowrap", fontSize: "0.75rem" } }, dt ? dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true }) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.text, fontWeight: 500 } }, whoDid(e)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem" } }, e.userRole || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: actionColor, background: actionColor + "18", padding: "0.15rem 0.45rem", borderRadius: "0.2rem", whiteSpace: "nowrap" } }, actionText(e))), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem" } }, e.district ? districtLabel(e.district, { short: true }) : "Network"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", fontWeight: 700, color: isErr ? "#f44336" : "#4caf50", background: isErr ? "#f4433618" : "#4caf5018", padding: "0.15rem 0.4rem", borderRadius: "0.2rem" } }, e.statusCode || "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: isErr ? "#f44336" : th.muted, fontSize: "0.72rem", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.error ? e.error : e.meta ? e.meta.from != null && e.meta.to != null ? `${e.meta.from} \u2192 ${e.meta.to}` : e.meta.targetName ? e.meta.targetName : e.meta.filename || (e.meta.backed != null ? `${e.meta.backed} reports` : e.meta.synced != null ? `${e.meta.synced} synced` : "") || "" : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.6rem", color: th.muted, fontSize: "0.75rem", textAlign: "right" } }, e.latencyMs != null ? e.latencyMs : "\u2014"));
     })))), displayed.length > PAGE && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAll((s) => !s), style: { ...btn(th, { padding: "0.3rem 1rem", fontSize: "0.75rem" }) } }, showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", textAlign: "right" } }, "Showing ", visibleRows.length, " of ", displayed.length, " event", displayed.length !== 1 ? "s" : ""))));
   }
   function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert: showAlert2, users }) {
@@ -35304,7 +35316,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.37";
+  var APP_VERSION = "v23.38";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

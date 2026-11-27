@@ -15,6 +15,7 @@
 // Safety: the code is 32 random bytes (only its sha256 is stored); one notice, one person; expires
 // after 3 days; dies once signed or replaced; 5 wrong last-4 tries lock it. This endpoint is public
 // on purpose and can reach nothing but the one notice the code points at.
+import { auditForm } from './_shared/audit.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { sql } from './_shared/db.mjs';
@@ -420,6 +421,7 @@ export default async (request) => {
       return json(200, { ok: true, pdf: signed.toString('base64') });
     }
     if (role === 'employee') await db`UPDATE violation_notices SET employee_signed = true WHERE id = ${r.notice_id}`.catch(() => {});
+    await auditForm(db, 'violation', role === 'employee' ? 'signed_by_link' : 'witness_signed_by_link', { id: r.notice_id, employee_name: r.employee_name, pc: r.pc }, null);
     // Nothing is filed or sent to the alert list here any more (v22.81 approval step): the notice keeps
     // this latest copy, and once nobody is left to sign it goes to the approver (violation-notice.mjs).
     try {

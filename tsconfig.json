@@ -27,6 +27,8 @@
     "netlify/functions/approval-inbox.mjs",
     "netlify/functions/crew-time-off.mjs",
     "netlify/functions/crew-time-off-form.mjs",
-    "netlify/functions/textbelt-reply.mjs"
+    "netlify/functions/textbelt-reply.mjs",
+    "netlify/functions/_shared/audit.mjs",
+    "netlify/functions/_shared/internal-key.mjs"
   ]
 }

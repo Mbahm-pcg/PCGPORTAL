@@ -24,6 +24,7 @@ import { getStore } from '@netlify/blobs';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { cleanRates, currentRate, compareToForm, buildNewRate, canMoveEffective, isDueNow, paycorNoticeText, alreadyScheduled, payOf } from '../../src/pay-rate-paycor.mjs';
 import { callPaycor } from './paycor.mjs';
+import { auditForm } from './_shared/audit.mjs';
 // v23.26 (review): the shared helpers instead of copies (escaping, dates, the bell).
 import { esc, usDay, etNow, bell as sharedBell } from './_shared/form-approval.mjs';
 import { createHash } from 'node:crypto';
@@ -483,6 +484,7 @@ export default async (request) => {
         const upd = (await db`UPDATE pay_increase_forms SET status = 'rejected', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now(), decision_note = ${note}
           WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
         if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        await auditForm(db, 'pay_rate', 'sent_back', upd, { id: authed.sub, role: realType, name: myName }, { note: note.slice(0, 120) });
         await tellMaker(db, upd, 'rejected', { by: myName, note });
         return json(200, { ok: true });
       }
@@ -491,6 +493,7 @@ export default async (request) => {
       const upd = (await db`UPDATE pay_increase_forms SET status = 'office', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
         WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+      await auditForm(db, 'pay_rate', 'approved', upd, { id: authed.sub, role: realType, name: myName });
       const store = storeOf(upd.pc);
       const v = rowValues(upd);
       let alert;
@@ -517,6 +520,7 @@ export default async (request) => {
       const upd = (await db`UPDATE pay_increase_forms SET status = 'approved', pdf = ${pdf}, effective_date = ${body.effectiveDate}, paycheck_date = ${body.paycheckDate},
           office_by = ${Number(authed.sub)}, office_by_name = ${myName}, office_at = now() WHERE id = ${r.id} AND status = 'office' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'Someone else just completed it — reload.' });
+      await auditForm(db, 'pay_rate', 'office_completed', upd, { id: authed.sub, role: realType, name: myName }, { effectiveDate: upd?.effective_date });
       const store = storeOf(upd.pc);
       const v = rowValues(upd);
       const fileName = payFileName(v, store?.name);
@@ -698,6 +702,7 @@ export default async (request) => {
     const resent = row.status === 'rejected' && (await db`UPDATE pay_increase_forms SET status = 'pending', decided_by = NULL, decided_by_name = NULL, decided_at = NULL, decision_note = NULL
       WHERE id = ${row.id} AND status = 'rejected' RETURNING id`).length > 0;
     if (!inserted.length && !resent) return json(200, { ok: true, id: row.id, status: row.status === 'rejected' ? 'pending' : (row.status || 'approved'), notified: 0, already: true });
+    await auditForm(db, 'pay_rate', resent ? 'resent' : 'sent', { ...row, ...(await db`SELECT id, employee_name, pc FROM pay_increase_forms WHERE id = ${row.id}`)[0] }, { id: authed.sub, role: realType, name: myName });
     const full = (await db`SELECT * FROM pay_increase_forms WHERE id = ${row.id}`)[0];
     const notified = await notifyApprovers(db, full);
     return json(200, { ok: true, id: row.id, status: 'pending', notified });

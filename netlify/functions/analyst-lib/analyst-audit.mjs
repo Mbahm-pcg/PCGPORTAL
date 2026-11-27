@@ -132,6 +132,21 @@ async function loadAccessEntries(date, limit = 500) {
       if (c > limit) truncated = c;
     }
     list.truncated = truncated;
+    // v23.38: HR form steps (type 'form', _shared/audit.mjs) — every one for the day, never cut by the
+    // 500 cap above (busy page-visit days mustn't hide who approved what), merged in time order.
+    try {
+      const forms = await db`
+        SELECT created_at, user_id, user_role, action, metadata FROM audit_log
+        WHERE type = 'form' AND created_at >= ${d}::date AND created_at < (${d}::date + INTERVAL '1 day')
+        ORDER BY created_at ASC`;
+      if (forms.length) {
+        const merged = [...list, ...forms.map(r => ({ ts: new Date(r.created_at).toISOString(), type: 'form', userId: r.user_id, userRole: r.user_role,
+          action: r.action, district: null, statusCode: null, latencyMs: null, error: null, meta: r.metadata || null }))]
+          .sort((x, y) => String(x.ts).localeCompare(String(y.ts)));
+        merged.truncated = truncated;
+        return merged;
+      }
+    } catch (e) { console.warn('loadAccessEntries forms failed:', e.message); }
     return list;
   } catch (e) {
     console.warn('loadAccessEntries failed:', e.message);

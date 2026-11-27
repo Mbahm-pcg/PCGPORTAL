@@ -16,6 +16,7 @@
 // Who they can pick is scoped server-side: DM / Director → their districts; manager → their store;
 // exec / IT / office → all. exec / IT / office see every letter; everyone else sees their own.
 import { getStore } from '@netlify/blobs';
+import { auditForm } from './_shared/audit.mjs';
 import { createHash } from 'node:crypto';
 import { sql } from './_shared/db.mjs';
 import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
@@ -74,6 +75,7 @@ async function tellMaker(db, row, title, line) {
 async function fileLetter(db, id) {
   const upd = (await db`UPDATE resignation_letters SET status = 'signed', signed_at = COALESCE(signed_at, now()) WHERE id = ${id} AND status IN ('awaiting_signature', 'signed') AND filed_at IS NULL RETURNING *`)[0];
   if (!upd) return null;
+  await auditForm(db, 'resignation', 'filed', upd, null);
   const store = storeOf(upd.pc);
   const v = upd.form_values || {};
   const pdf = Buffer.from(upd.pdf);
@@ -221,6 +223,7 @@ export default async (request) => {
         ${v.supervisorName}, ${v.supervisorTitle}, ${!remote}, ${remote ? null : new Date().toISOString()}, ${Number(authed.sub) || null}, ${myName})
       ON CONFLICT (form_key) DO NOTHING RETURNING id`;
     const row = (await db`SELECT * FROM resignation_letters WHERE form_key = ${key}`)[0];
+    if (inserted.length) await auditForm(db, 'resignation', row.status === 'signed' ? 'sent_signed_in_person' : 'sent_for_signature', row, { id: authed.sub, role: realType, name: myName });
 
     if (row.status === 'signed') {
       const out = row.filed_at ? { drive: { saved: true, link: row.drive_link }, alert: row.alert_summary } : await fileLetter(db, row.id);

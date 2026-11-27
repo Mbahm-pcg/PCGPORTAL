@@ -26,6 +26,7 @@ import { loadRoster, saveToDrive, emailWithPdf } from './transfer-notice.mjs';
 import { sendSms, sendPush, sendHtmlEmail } from './_shared/channels.mjs';
 import { createSignRequest, ensureSignTable, signProgress, stampInPerson, stampRefused, stampFooter, stampWitnessName, stampHrApproval } from './violation-sign.mjs';
 import { missingViolationFields, violationFingerprint, violationFileName, violationAlertText, violationEmailHtml, withTerminated } from '../../src/violation-notice.mjs';
+import { auditForm } from './_shared/audit.mjs';
 import { loadTerminations } from './terminations-lib/run.mjs';
 
 // v23.14: who can be written up — the store's active Paycor roster plus people terminated there in
@@ -384,12 +385,14 @@ export default async (request) => {
         pdf = await stampRefused(Buffer.from(r.pdf), myName);
         await cancelOpen();
         await db`UPDATE violation_notices SET pdf = ${pdf}, employee_refused = true WHERE id = ${r.id}`;
+        await auditForm(db, 'violation', 'refused_in_person', r, { id: authed.sub, role: realType, name: myName });
       } else {
         if (!isSig(body.signature)) return json(400, { error: 'Sign again — the signature did not come through.' });
         pdf = await stampInPerson(Buffer.from(r.pdf), body.signature, role, myName, witnessName);
         await cancelOpen();
         if (role === 'employee') await db`UPDATE violation_notices SET pdf = ${pdf}, employee_signed = true WHERE id = ${r.id}`;
         else await db`UPDATE violation_notices SET pdf = ${pdf}, witness_name = ${witnessName} WHERE id = ${r.id}`;
+        await auditForm(db, 'violation', role === 'employee' ? 'signed_in_person' : 'witness_signed', r, { id: authed.sub, role: realType, name: myName });
       }
       const filed = await maybeFileApproved(db, r.id);
       return json(200, { ok: true, filed: !!filed, drive: filed?.drive || null });
@@ -409,6 +412,7 @@ export default async (request) => {
       const upd = (await db`UPDATE violation_notices SET status = 'pending', pending_at = now(), decided_by = NULL, decided_by_name = NULL, decided_at = NULL, decision_note = NULL, reminded_at = NULL
         WHERE id = ${r.id} AND status = 'rejected' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'This one already changed — reload.' });
+      await auditForm(db, 'violation', 'resent', upd, { id: authed.sub, role: realType, name: myName });
       const notified = await notifyViolationApprovers(db, upd);
       return json(200, { ok: true, status: 'pending', notified });
     }
@@ -424,6 +428,7 @@ export default async (request) => {
         const upd = (await db`UPDATE violation_notices SET status = 'rejected', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now(), decision_note = ${note}
           WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
         if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        await auditForm(db, 'violation', 'sent_back', upd, { id: authed.sub, role: realType, name: myName }, { note: note.slice(0, 120) });
         await tellMaker(db, upd, `Violation notice sent back: ${upd.employee_name}`, `${myName} sent back the Violation Notice for ${upd.employee_name}: "${note}". It's under Sent back in Tools > Violation Notice, where you can fix and resend it.`);
         return json(200, { ok: true });
       }
@@ -457,6 +462,7 @@ export default async (request) => {
             edited_by_name = ${edited ? myName : null}, decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
           WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
         if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+        await auditForm(db, 'violation', 'approved', upd, { id: authed.sub, role: realType, name: myName }, { next: 'employee signs' });
         // Optional: send it to the employee right away (otherwise the supervisor does it, in person or by link).
         let sign = null;
         const to = body.sendTo || null;
@@ -477,6 +483,7 @@ export default async (request) => {
       const upd = (await db`UPDATE violation_notices SET status = 'approved', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
         WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
       if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+      await auditForm(db, 'violation', 'approved', upd, { id: authed.sub, role: realType, name: myName });
       const store = storeOf(upd.pc);
       const v = upd.form_values || {};
       const pdf = Buffer.from(upd.pdf);
@@ -529,6 +536,7 @@ export default async (request) => {
         await db`UPDATE violation_notices SET status = 'resent', resent_as = ${row.id} WHERE id = ${Number(body.replaces)} AND status = 'rejected'
           AND (submitted_by = ${Number(authed.sub) || -1} OR ${realType === 'executive' || realType === 'it'})`;
       }
+      if (inserted.length) await auditForm(db, 'violation', body.replaces ? 'resent' : 'sent', row, { id: authed.sub, role: realType, name: myName });
       const notified = inserted.length ? await notifyViolationApprovers(db, row) : 0;
       return json(200, { ok: true, id: row.id, status: row.status, notified, already: !inserted.length });
     }
@@ -580,6 +588,7 @@ export default async (request) => {
     }
 
     let notified = 0;
+    if (inserted.length) await auditForm(db, 'violation', body.replaces ? 'resent' : 'sent', row, { id: authed.sub, role: realType, name: myName });
     if (inserted.length && row.status === 'pending') notified = await notifyViolationApprovers(db, row);
 
     // Signing links: on the first save, and again whenever the supervisor presses send while the

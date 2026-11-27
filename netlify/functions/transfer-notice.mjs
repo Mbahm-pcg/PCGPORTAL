@@ -26,6 +26,7 @@ import { pickCurrentPayRate, readEmploymentType, missingTransferFields, letterFi
 import { buildFolderFindQuery, buildFolderCreateParams, buildTaggedUploadParams, buildTaggedFileQuery } from '../../src/incident-report-drive.mjs';
 import { sendSms, sendPush } from './_shared/channels.mjs';
 import { PORTAL, formApprovers, approversFor, mayDecide, approverNames, notifyFormApprovers, tellPerson, stampApproval, approverTitle, etNow, usDay } from './_shared/form-approval.mjs';
+import { auditForm } from './_shared/audit.mjs';
 import { google } from 'googleapis';
 import { Readable } from 'node:stream';
 import { createHash } from 'node:crypto';
@@ -230,6 +231,7 @@ async function submitNotice(body, db, authed, allowed) {
     WHERE id = ${row.id} AND status = 'rejected' RETURNING id`).length > 0;
   if (!inserted.length && !resent) return json(200, { ok: true, id: row.id, status: row.status || 'approved', already: true, approvers: names, drive: { saved: !!row.drive_file_id, link: row.drive_link || '' } });
   const full = (await db`SELECT * FROM transfer_notices WHERE id = ${row.id}`)[0];
+  await auditForm(db, 'transfer', resent ? 'resent' : 'sent', full, { id: authed.sub, role: authed.realUserType || authed.userType, name: submittedBy });
   const notified = await notifyTransferApprovers(db, full);
   return json(200, { ok: true, id: row.id, status: 'pending', notified, approvers: names });
 }
@@ -247,6 +249,7 @@ async function decideNotice(body, db, authed, me, appr) {
     const upd = (await db`UPDATE transfer_notices SET status = 'rejected', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now(), decision_note = ${note}
       WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
     if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+    await auditForm(db, 'transfer', 'sent_back', upd, { id: authed.sub, role: real, name: myName }, { note: note.slice(0, 120) });
     await tellPerson(db, upd.submitted_by, { title: `Transfer notice sent back: ${upd.employee_name}`, line: `${myName} sent back the transfer notice for ${summary(upd)}. Why: ${note}. Fix it and send it again in Tools > Transfer Notice.`, pushTag: `transfer-${upd.id}`, type: 'transfer_notice', path: `/?transfer=${upd.id}` });
     return json(200, { ok: true });
   }
@@ -255,6 +258,7 @@ async function decideNotice(body, db, authed, me, appr) {
   const upd = refile ? r : (await db`UPDATE transfer_notices SET status = 'approved', decided_by = ${Number(authed.sub)}, decided_by_name = ${myName}, decided_at = now()
     WHERE id = ${r.id} AND status = 'pending' RETURNING *`)[0];
   if (!upd) return json(409, { error: 'This one was already decided — reload.' });
+  await auditForm(db, 'transfer', refile ? 'filed_again' : 'approved', upd, { id: authed.sub, role: real, name: myName });
   let pdf = Buffer.from(upd.pdf);
   if (!refile) {
     const title = approverTitle(real, me.username || authed.username);
