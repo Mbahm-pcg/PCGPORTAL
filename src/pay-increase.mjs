@@ -24,6 +24,8 @@ export function rateProblem(currentRate, newRate, basis = 'hour') {
   if (!(nr > 0)) return basis === 'year' ? 'Enter the new yearly salary.' : 'Enter the new pay rate.';
   if (!(cur > 0)) return basis === 'year' ? 'Paycor has no current salary for this employee.' : 'Paycor has no current hourly rate for this employee.';
   // v23.13 (user, 2026-11-23): a Pay Rate Change can also LOWER pay (e.g. moved to another district).
+  // v23.35: $12.00 → $0.50 was sent twice (the raise typed instead of the new rate) — never below PA's minimum wage.
+  if (basis !== 'year' && nr < 7.25) return `Enter the new hourly rate (e.g. ${fmtPay(cur + 0.5, basis)}), not the raise amount.`;
   if (Math.abs(nr - cur) < 0.005) return `The new ${basis === 'year' ? 'salary' : 'rate'} is the same as the current ${fmtPay(cur, basis)}.`;
   if (nr > (basis === 'year' ? 500000 : 100)) return 'That amount looks wrong — check it.';
   return null;

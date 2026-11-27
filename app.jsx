@@ -9,6 +9,7 @@ import { TerminationsReport } from './src/terminations-ui.jsx';
 import { LeaderTerminations } from './src/leader-terminations-ui.jsx';
 import { CrewTimeOff, qrSvg } from './src/crew-time-off-ui.jsx';
 import { CrewTimeOffForm } from './src/crew-time-off-form-ui.jsx';
+import { ApprovalInbox } from './src/approval-inbox-ui.jsx';
 import { TransferNotice } from './src/transfer-notice-ui.jsx';
 import { PayIncrease } from './src/pay-increase-ui.jsx';
 import { ViolationNotice } from './src/violation-notice-ui.jsx';
@@ -33002,7 +33003,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.34";
+const APP_VERSION = "v23.35";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -55656,6 +55657,12 @@ function PCGPortal() {
     tabNowRef.current = target;
     queueNav(dir, () => setTabRaw(target));
   }, []);
+  // v23.35: signing out (any way: Logout, idle time-out, revoked) clears the "approvals popup already
+  // shown" flag, so the NEXT sign-in shows it again — it's once per sign-in, not once per browser tab.
+  useEffect(() => {
+    if (user) return;
+    try { Object.keys(sessionStorage).filter(k => k.startsWith('pcg_inbox_shown_')).forEach(k => sessionStorage.removeItem(k)); } catch {}
+  }, [user]);
   // v23.24 every screen has its own address (src/routes.mjs): /labor, /tools/missing-hours, ...
   // The browser's Back / Forward move between screens, a refresh stays put, and a screen can be
   // bookmarked or sent. Opening an address the person's role doesn't have → their Dashboard (each
@@ -58425,7 +58432,10 @@ function PCGPortal() {
           <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: th.muted, fontSize: '0.8rem', cursor: 'pointer' }}>Log out</button>
         </div>
       }>
+        <>
         <MobileAnalystShell user={user} th={th} dark={dark} onLogout={handleLogout} stores={openStores} announcements={announcements} announcementsDismissed={announcementsDismissed} setAnnouncementsDismissed={setAnnouncementsDismissed} onSwitchToFull={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }} onTickets={() => { togglePortalMode(true); setTab("tickets"); }} onTasks={() => { togglePortalMode(true); setTab("tasks"); }} onExpenses={() => { togglePortalMode(true); setTab("expenses"); }} todos={todos} projects={projects} users={users} />
+        <ApprovalInbox th={th} user={user} onOpen={(t) => { togglePortalMode(true); setTab(t); }} />
+        </>
       </Guard>
     );
   }
@@ -58433,6 +58443,8 @@ function PCGPortal() {
   return (
     <div className="dash-enter" style={{ display: "flex", minHeight: "100vh", background: th.bg, color: th.text, transition: "background .3s, color .3s" }}>
 
+      {/* v23.35 Waiting for your approval — once per sign-in, only when something waits for this person */}
+      <ApprovalInbox th={th} user={user} onOpen={(t) => setTab(t)} />
       {/* v22.94 New version ready (see startUpdateWatch above) */}
       {updateReady && (
         <div role="status" style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: "calc(16px + env(safe-area-inset-bottom, 0px))", zIndex: 9998, display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", justifyContent: "center", maxWidth: "calc(100vw - 32px)", background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, borderRadius: 14, padding: "0.6rem 0.75rem 0.6rem 1rem", boxShadow: "0 10px 30px rgba(0,0,0,0.25)", fontFamily: "'Source Sans 3', sans-serif", fontSize: "0.92rem" }}>
