@@ -1,3 +1,4 @@
+// @ts-check
 // _shared/form-approval.mjs — the approval step shared by Transfer Notice and Time Off Request
 // (v23.22, user 2026-11-24: "DM or manager → Mike for approval → then to Drive", like Pay Rate Change).
 //
@@ -37,13 +38,18 @@ export async function formApprovers(db, key) {
 // v23.26 (review): nobody approves their own request. For one sent by `submitterId`, they're left
 // out; if that leaves no one, the OTHER executives approve it. Their own email / number are dropped too.
 const digits = (x) => String(x || '').replace(/\D/g, '').slice(-10);
+// The approvers minus the person who sent it — their id, email and number (pure; tested).
+export function withoutSubmitter(appr, me, self = {}) {
+  return { ...appr, ids: appr.ids.filter(id => id !== String(me)),
+    emails: appr.emails.filter(e => !self.email || String(e).toLowerCase() !== String(self.email).toLowerCase()),
+    phones: appr.phones.filter(ph => !self.phone || digits(ph) !== digits(self.phone)) };
+}
 export async function approversFor(db, key, submitterId) {
   const appr = await formApprovers(db, key);
   const me = String(submitterId ?? '');
   if (!me) return appr;
   const self = (await db`SELECT email, phone FROM users WHERE id = ${Number(me) || -1}`.catch(() => []))[0] || {};
-  const notMe = (x) => ({ ...x, ids: x.ids.filter(id => id !== me), emails: x.emails.filter(e => !self.email || String(e).toLowerCase() !== String(self.email).toLowerCase()), phones: x.phones.filter(ph => !self.phone || digits(ph) !== digits(self.phone)) });
-  const rest = notMe(appr);
+  const rest = withoutSubmitter(appr, me, self);
   if (rest.ids.length) return rest;
   const execs = await db`SELECT id, email, phone FROM users WHERE active IS NOT FALSE AND user_type = 'executive' AND id <> ${Number(me) || -1}`;
   return { ids: execs.map(e => String(e.id)), emails: execs.map(e => e.email).filter(Boolean), phones: execs.map(e => e.phone).filter(Boolean), source: 'other-exec' };

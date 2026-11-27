@@ -1,3 +1,4 @@
+// @ts-check
 // src/pay-rate-paycor.mjs — pure helpers for writing an approved pay rate change into Paycor (v23.9).
 // No I/O. Used by netlify/functions/pay-increase.mjs.
 //
@@ -48,6 +49,11 @@ export function compareToForm(rate, form) {
 // The new rate to create: same slot / type / description as today's rate, the approved amount,
 // starting on the effective date. A salaried employee's per-paycheck payRate is scaled from the
 // annual figure the same way Paycor shows today's (payRate / annualPayRate).
+/**
+ * @param {any} rate  today's rate (cleanRates shape)
+ * @param {{ payBasis?: string, newRate: number, effectiveDate: string }} form
+ * @param {{ formId?: number|string, approvedBy?: string }} [opts]
+ */
 export function buildNewRate(rate, form, { formId, approvedBy } = {}) {
   const basis = form.payBasis === 'year' ? 'year' : 'hour';
   const out = {

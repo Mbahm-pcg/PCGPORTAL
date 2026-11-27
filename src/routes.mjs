@@ -1,3 +1,4 @@
+// @ts-check
 // src/routes.mjs — every screen has its own web address (v23.24, user 2026-11-24: "it should be
 // /labor or /tool/missing hours"). The browser's Back / Forward move between screens, a refresh
 // stays put, and a screen can be bookmarked or sent as a link.

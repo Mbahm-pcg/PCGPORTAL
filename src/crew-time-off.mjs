@@ -1,3 +1,4 @@
+// @ts-check
 // src/crew-time-off.mjs — Crew Time Off (v23.30): pure rules, no I/O.
 // Crew members have no login: a manager / DM / office sends them a private link (email, or a QR on the
 // manager's screen), or they scan the store's QR poster. They fill HR's Time Off Request (the same PDF

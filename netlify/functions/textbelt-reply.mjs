@@ -1,3 +1,4 @@
+// @ts-check
 // textbelt-reply.mjs — Textbelt posts SMS replies here (v23.27). We only text with a reply address for
 // the leader-termination question (Mike / Sam / Krunal answer YES or NO), so that's all it handles.
 //
@@ -10,6 +11,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from './_shared/db.mjs';
 import { handleReply } from './_shared/leader-terminations.mjs';
 
+/** @param {object} [body] */
 const ok = (body = { ok: true }) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
 export function verifyTextbelt(raw, timestamp, signature, key) {
@@ -30,6 +32,7 @@ export default async (request) => {
     console.warn('[textbelt-reply] refused: bad or missing signature');
     return new Response('Forbidden', { status: 403 });
   }
+  /** @type {any} */
   let body = {};
   try { body = JSON.parse(raw); } catch { return new Response('Bad JSON', { status: 400 }); }
   try {

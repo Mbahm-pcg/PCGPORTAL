@@ -8150,8 +8150,3251 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return `${window.location.origin}${PDF_URL}?t=${token}`;
   }
 
+  // src/screens/CashManagement.jsx
+  var { useEffect: useEffect15, useRef: useRef7, useState: useState18 } = React;
+  function CashManagement({ user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }) {
+    const G = "#22c55e";
+    const R3 = "#ef4444";
+    const Y = "#fbbf24";
+    const canUpload = user?.userType === "executive" || user?.userType === "it" || user?.userType === "office_staff";
+    const canEdit = isCashAdmin(user);
+    const isDM = user?.userType === "dm";
+    const dmDistrict = isDM ? user?.district : null;
+    const [noteModal, setNoteModal] = useState18(null);
+    const [noteText, setNoteText] = useState18("");
+    const [editDep, setEditDep] = useState18(null);
+    const [editForm, setEditForm] = useState18({ depositDate: "", amount: "" });
+    const [posLoading, setPosLoading] = useState18(false);
+    const [posProgress, setPosProgress] = useState18(0);
+    const fileRef = useRef7(null);
+    const [uploading, setUploading] = useState18(false);
+    const [uploadErr, setUploadErr] = useState18(null);
+    const [view, setView] = useState18("alerts");
+    const [weekOffset, setWeekOffset] = useState18(0);
+    const [storeFilter, setStoreFilter] = useState18(null);
+    const [distFilter, setDistFilter] = useState18(isDM ? dmDistrict : 0);
+    const fmtUSD = (v) => "$" + (Math.round(v * 100) / 100).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtUSDRound = (v) => "$" + Math.round(v).toLocaleString();
+    const fmtShort = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
+    const effectiveDeposits = React.useMemo(() => {
+      if (!cashDeposits || cashDeposits.length === 0) return [];
+      const DUP_WINDOW_DAYS = 14;
+      const MS_PER_DAY = 864e5;
+      const sorted = [...cashDeposits].sort((a, b) => (a.depositDate || "").localeCompare(b.depositDate || ""));
+      const kept = [];
+      const keptByKey = /* @__PURE__ */ new Map();
+      for (const d of sorted) {
+        const cents = Math.round((d.amount || 0) * 100);
+        const key = `${d.pc}|${cents}`;
+        const t = (/* @__PURE__ */ new Date((d.depositDate || "") + "T12:00:00")).getTime();
+        const priors = keptByKey.get(key) || [];
+        const isDup = priors.some((pt) => Math.abs(t - pt) <= DUP_WINDOW_DAYS * MS_PER_DAY);
+        if (isDup) continue;
+        kept.push(d);
+        priors.push(t);
+        keptByKey.set(key, priors);
+      }
+      return kept;
+    }, [cashDeposits]);
+    const duplicatesRemoved = (cashDeposits?.length || 0) - effectiveDeposits.length;
+    const handleUpload = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setUploading(true);
+      setUploadErr(null);
+      try {
+        const XLSX = window.XLSX;
+        if (!XLSX) throw new Error("SheetJS not loaded. Refresh the page.");
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        const parsed = [];
+        for (const row of rows) {
+          if (!row || row.length < 3) continue;
+          const dateRaw = row[0];
+          const pcLLC = String(row[1] || "").trim();
+          const amountRaw = row[2];
+          if (!dateRaw || !pcLLC || amountRaw === "" || amountRaw == null) continue;
+          const date = parseAnyDate(dateRaw);
+          if (!date) continue;
+          const pcMatch = pcLLC.match(/^\s*(\d{5,7})\b/);
+          let pc = pcMatch ? pcMatch[1] : null;
+          const llcName = pcLLC.replace(/^\s*\d{5,7}\s*/, "").trim();
+          if (!pc) {
+            const match = stores.find((s) => {
+              const legal = (s.legal || "").toLowerCase().replace(/[.,]/g, "").trim();
+              const needle = llcName.toLowerCase().replace(/[.,]/g, "").trim();
+              return legal && needle && (legal === needle || legal.includes(needle.split(" ")[0]));
+            });
+            if (match) pc = match.pc;
+          }
+          const amount = parseFloat(amountRaw);
+          if (!pc || isNaN(amount)) continue;
+          parsed.push({ date, pc, llcName, amount });
+        }
+        if (parsed.length === 0) throw new Error("No valid deposit rows found in this file. Expected columns: A=date, B=PC+LLC, C=amount.");
+        const fingerprint = (d) => `${d.date || d.depositDate}|${d.pc}|${(d.amount || 0).toFixed(2)}`;
+        const existing = new Set(cashDeposits.map((d) => `${d.depositDate}|${d.pc}|${(d.amount || 0).toFixed(2)}`));
+        const DUP_WINDOW_MS = 14 * 864e5;
+        const existingByKey = /* @__PURE__ */ new Map();
+        for (const d of cashDeposits) {
+          const cents = Math.round((d.amount || 0) * 100);
+          const key = `${d.pc}|${cents}`;
+          const t = (/* @__PURE__ */ new Date((d.depositDate || "") + "T12:00:00")).getTime();
+          const arr = existingByKey.get(key) || [];
+          arr.push(t);
+          existingByKey.set(key, arr);
+        }
+        const uploadId = `upl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const now2 = (/* @__PURE__ */ new Date()).toISOString();
+        const newDeps = [];
+        const duplicates = [];
+        for (const p of parsed) {
+          const fp = fingerprint(p);
+          if (existing.has(fp)) {
+            duplicates.push(p);
+            continue;
+          }
+          const cents = Math.round((p.amount || 0) * 100);
+          const key = `${p.pc}|${cents}`;
+          const t = (/* @__PURE__ */ new Date(p.date + "T12:00:00")).getTime();
+          const priors = existingByKey.get(key) || [];
+          const isWindowDup = priors.some((pt) => Math.abs(t - pt) <= DUP_WINDOW_MS);
+          if (isWindowDup) {
+            duplicates.push(p);
+            continue;
+          }
+          existing.add(fp);
+          priors.push(t);
+          existingByKey.set(key, priors);
+          const businessDates = getBusinessDatesForDeposit(p.date);
+          newDeps.push({
+            id: `dep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            depositDate: p.date,
+            businessDates,
+            pc: p.pc,
+            llcName: p.llcName,
+            amount: p.amount,
+            uploadId,
+            uploadedAt: now2,
+            uploadedBy: user?.id
+          });
+        }
+        if (newDeps.length > 0) setCashDeposits((prev) => [...prev, ...newDeps]);
+        const totalAmount = newDeps.reduce((a, d) => a + d.amount, 0);
+        const upload = {
+          id: uploadId,
+          filename: file.name,
+          uploadedAt: now2,
+          uploadedBy: user?.id,
+          uploadedByName: user?.name,
+          totalRows: parsed.length,
+          newDeposits: newDeps.length,
+          duplicatesSkipped: duplicates.length,
+          totalAmount
+        };
+        setCashUploads((prev) => [upload, ...prev]);
+        showAlert2 && showAlert2(
+          "success",
+          `Uploaded ${newDeps.length} new deposit${newDeps.length !== 1 ? "s" : ""}` + (duplicates.length > 0 ? `, ${duplicates.length} duplicate${duplicates.length !== 1 ? "s" : ""} skipped` : "")
+        );
+      } catch (err) {
+        setUploadErr(err.message);
+        showAlert2 && showAlert2("error", err.message);
+      }
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    };
+    const addNote = (pc, businessDate, text, action = null) => {
+      const now2 = (/* @__PURE__ */ new Date()).toISOString();
+      const note = {
+        id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        pc,
+        businessDate,
+        text: text || "",
+        action,
+        // "dm_alerted" | "store_called" | "manager_replied" | "confirmed_en_route" | null
+        createdAt: now2,
+        createdBy: user?.id,
+        createdByName: user?.name
+      };
+      setCashNotes((prev) => [...prev, note]);
+      return note;
+    };
+    const deleteNote = (noteId) => {
+      if (!canEdit) return;
+      setCashNotes((prev) => prev.filter((n) => n.id !== noteId));
+    };
+    const getNotesFor = (pc, businessDate) => {
+      return cashNotes.filter((n) => n.pc === pc && n.businessDate === businessDate).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    };
+    const deleteDeposit = (dep) => {
+      if (!canEdit) return;
+      if (!confirm(`Delete deposit of $${dep.amount.toFixed(2)} for ${dep.llcName} on ${dep.depositDate}?`)) return;
+      setCashDeposits((prev) => prev.filter((d) => d.id !== dep.id));
+      showAlert2 && showAlert2("success", "Deposit deleted");
+    };
+    const startEditDeposit = (dep) => {
+      if (!canEdit) return;
+      setEditDep(dep);
+      setEditForm({ depositDate: dep.depositDate, amount: dep.amount.toString() });
+    };
+    const saveEditDeposit = () => {
+      if (!editDep) return;
+      const amt = parseFloat(editForm.amount);
+      if (isNaN(amt) || amt <= 0) {
+        showAlert2 && showAlert2("error", "Invalid amount");
+        return;
+      }
+      if (!editForm.depositDate) {
+        showAlert2 && showAlert2("error", "Invalid date");
+        return;
+      }
+      const businessDates = getBusinessDatesForDeposit(editForm.depositDate);
+      setCashDeposits((prev) => prev.map((d) => d.id === editDep.id ? { ...d, depositDate: editForm.depositDate, amount: amt, businessDates, editedAt: (/* @__PURE__ */ new Date()).toISOString(), editedBy: user?.id } : d));
+      setEditDep(null);
+      showAlert2 && showAlert2("success", "Deposit updated");
+    };
+    const apiFor = (pc) => pc === "345986" ? "p227" : "p228";
+    const posKey = (pc, date) => `${pc}_${date}`;
+    const loadPOSCash = async (opts = {}) => {
+      const { silent = false, forceRefresh = false } = opts;
+      if (!weekRange) return;
+      setPosLoading(true);
+      setPosProgress(0);
+      const newPOS = forceRefresh ? {} : { ...cashPOS };
+      const todayD = /* @__PURE__ */ new Date(today + "T12:00:00");
+      const priorSun = /* @__PURE__ */ new Date(weekRange.sun + "T12:00:00");
+      priorSun.setDate(priorSun.getDate() - 7);
+      const priorWeekDates = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(priorSun);
+        d.setDate(priorSun.getDate() + i);
+        priorWeekDates.push(localDateStr(d));
+      }
+      const allDates = [...priorWeekDates, ...weekRange.dates];
+      const targets = [];
+      for (const store of visibleStores) {
+        for (const date of allDates) {
+          if (/* @__PURE__ */ new Date(date + "T12:00:00") > todayD) continue;
+          if (newPOS[posKey(store.pc, date)]) continue;
+          targets.push({ pc: store.pc, date });
+        }
+      }
+      if (targets.length === 0) {
+        setPosLoading(false);
+        return;
+      }
+      let done = 0;
+      const batchSize = 6;
+      for (let i = 0; i < targets.length; i += batchSize) {
+        await Promise.all(targets.slice(i, i + batchSize).map(async (t) => {
+          try {
+            const res = await fetch("/.netlify/functions/pulse", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                api: apiFor(t.pc),
+                endpoint: "getTenderMediaDailyTotals",
+                locRef: t.pc,
+                busDt: t.date,
+                include: "revenueCenters.tenderMedias"
+              })
+            });
+            if (res.ok) {
+              const json = await res.json();
+              let cash = 0;
+              for (const rc of json.revenueCenters || []) {
+                for (const tm of rc.tenderMedias || []) {
+                  if (tm.tmedNum === 1) cash += tm.ttl || 0;
+                }
+              }
+              newPOS[posKey(t.pc, t.date)] = { cash, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+            } else {
+              newPOS[posKey(t.pc, t.date)] = { cash: null, error: `HTTP ${res.status}`, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+            }
+          } catch (e) {
+            newPOS[posKey(t.pc, t.date)] = { cash: null, error: e.message, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+          }
+        }));
+        done += batchSize;
+        setPosProgress(Math.min(100, Math.round(done / targets.length * 100)));
+        setCashPOS({ ...newPOS });
+      }
+      setPosLoading(false);
+      if (!silent) showAlert2 && showAlert2("success", `POS cash totals loaded (${targets.length} fetched)`);
+    };
+    const posAutoLoadedRef = useRef7("");
+    useEffect15(() => {
+      if (view !== "recon") return;
+      const key = `${weekOffset}|${distFilter}|${view}`;
+      if (posAutoLoadedRef.current === key) return;
+      posAutoLoadedRef.current = key;
+      loadPOSCash({ silent: true });
+    }, [view, weekOffset, distFilter]);
+    const getPOSCash = (pc, businessDate) => {
+      const entry = cashPOS[posKey(pc, businessDate)];
+      return entry && entry.cash != null ? entry.cash : null;
+    };
+    const getDepositedForBusinessDate = (pc, businessDate) => {
+      return effectiveDeposits.filter((d) => d.pc === pc && (d.businessDates || []).includes(businessDate)).reduce((sum, d) => sum + d.amount, 0);
+    };
+    const matchStoreDeposits = (pc, bizDatesWithCash, storeDeposits) => {
+      const TOL_PENNY = 0.01;
+      const TOL_DOLLAR = 1;
+      const TOL_FIVE = 5;
+      const availableDeposits = storeDeposits.map((d) => ({ ...d, _matched: false }));
+      const bizList = bizDatesWithCash.map((b) => ({ ...b, _matched: false }));
+      const matches = [];
+      for (const biz of bizList) {
+        if (biz._matched) continue;
+        if (biz.posCash == null || biz.posCash === 0) continue;
+        const dep = availableDeposits.find((d) => !d._matched && Math.abs(d.amount - biz.posCash) < TOL_PENNY);
+        if (dep) {
+          dep._matched = true;
+          biz._matched = true;
+          matches.push({ deposit: dep, bizDate: biz.bizDate, posCash: biz.posCash, delta: 0, tolerance: "exact" });
+        }
+      }
+      for (const biz of bizList) {
+        if (biz._matched) continue;
+        if (biz.posCash == null || biz.posCash === 0) continue;
+        const dep = availableDeposits.find((d) => !d._matched && Math.abs(d.amount - biz.posCash) < TOL_DOLLAR);
+        if (dep) {
+          dep._matched = true;
+          biz._matched = true;
+          matches.push({ deposit: dep, bizDate: biz.bizDate, posCash: biz.posCash, delta: dep.amount - biz.posCash, tolerance: "dollar" });
+        }
+      }
+      for (const biz of bizList) {
+        if (biz._matched) continue;
+        if (biz.posCash == null || biz.posCash === 0) continue;
+        const dep = availableDeposits.find((d) => !d._matched && Math.abs(d.amount - biz.posCash) < TOL_FIVE);
+        if (dep) {
+          dep._matched = true;
+          biz._matched = true;
+          matches.push({ deposit: dep, bizDate: biz.bizDate, posCash: biz.posCash, delta: dep.amount - biz.posCash, tolerance: "five" });
+        }
+      }
+      for (const biz of bizList) {
+        if (biz._matched) continue;
+        if (biz.posCash == null || biz.posCash === 0) continue;
+        const byDay = {};
+        for (const d of availableDeposits) {
+          if (d._matched) continue;
+          if (!byDay[d.depositDate]) byDay[d.depositDate] = [];
+          byDay[d.depositDate].push(d);
+        }
+        let found = false;
+        for (const [day2, deps] of Object.entries(byDay)) {
+          for (let i = 0; i < deps.length && !found; i++) {
+            for (let j = i + 1; j < deps.length && !found; j++) {
+              const sum = deps[i].amount + deps[j].amount;
+              if (Math.abs(sum - biz.posCash) < TOL_DOLLAR) {
+                deps[i]._matched = true;
+                deps[j]._matched = true;
+                biz._matched = true;
+                matches.push({ deposit: deps[i], bizDate: biz.bizDate, posCash: biz.posCash, delta: sum - biz.posCash, tolerance: "sum", partnerDeposit: deps[j] });
+                found = true;
+              }
+            }
+          }
+        }
+      }
+      const unmatchedDeposits = availableDeposits.filter((d) => !d._matched);
+      const unmatchedBizDates = bizList.filter((b) => !b._matched && b.posCash != null && b.posCash > 0);
+      return { matches, unmatchedDeposits, unmatchedBizDates };
+    };
+    const today = localDateStr(/* @__PURE__ */ new Date());
+    const weekRange = (() => {
+      const dt = /* @__PURE__ */ new Date(today + "T12:00:00");
+      dt.setDate(dt.getDate() + weekOffset * 7);
+      const sun = new Date(dt);
+      sun.setDate(dt.getDate() - dt.getDay());
+      const sat = new Date(sun);
+      sat.setDate(sun.getDate() + 6);
+      const dates = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(sun);
+        d.setDate(sun.getDate() + i);
+        dates.push(localDateStr(d));
+      }
+      return { sun: localDateStr(sun), sat: localDateStr(sat), dates };
+    })();
+    const visibleStores = stores.filter((s) => {
+      if (isDM && s.district !== dmDistrict) return false;
+      if (!isDM && distFilter && s.district !== distFilter) return false;
+      return s.status === "Open";
+    });
+    const visiblePCs = new Set(visibleStores.map((s) => s.pc));
+    const rangeDeposits = effectiveDeposits.filter((d) => visiblePCs.has(d.pc) && weekRange.dates.includes(d.depositDate)).sort((a, b) => b.depositDate.localeCompare(a.depositDate) || b.uploadedAt.localeCompare(a.uploadedAt));
+    const newestUploadAt = (cashUploads || []).reduce((m, u) => u?.uploadedAt > m ? u.uploadedAt : m, "") || effectiveDeposits.reduce((m, d) => d?.uploadedAt > m ? d.uploadedAt : m, "");
+    const uploadCoversRange = !!newestUploadAt && String(newestUploadAt).slice(0, 10) >= weekRange.dates[0];
+    const uploadStale = !uploadCoversRange;
+    const missing = [];
+    const now = /* @__PURE__ */ new Date(today + "T12:00:00");
+    for (const store of uploadCoversRange ? visibleStores : []) {
+      const storeDeposits = effectiveDeposits.filter((d) => d.pc === store.pc);
+      for (const bizDate of weekRange.dates) {
+        if (/* @__PURE__ */ new Date(bizDate + "T12:00:00") > now) continue;
+        const expectedDep = getExpectedDepositDate(bizDate);
+        const covered = storeDeposits.some((d) => (d.businessDates || []).includes(bizDate));
+        if (!covered) {
+          const depDate = /* @__PURE__ */ new Date(expectedDep + "T12:00:00");
+          if (depDate <= now) {
+            const daysLate = Math.max(0, Math.floor((now - depDate) / (24 * 60 * 60 * 1e3)));
+            missing.push({
+              pc: store.pc,
+              storeName: store.name,
+              city: store.city,
+              district: store.district,
+              dmName: store.dmName,
+              businessDate: bizDate,
+              expectedDepositDate: expectedDep,
+              daysLate,
+              isBaskin: store.isBaskin
+            });
+          }
+        }
+      }
+    }
+    missing.sort((a, b) => b.daysLate - a.daysLate || a.district - b.district || a.storeName.localeCompare(b.storeName));
+    const missingByDist = {};
+    for (const m of missing) {
+      if (!missingByDist[m.district]) missingByDist[m.district] = { district: m.district, dmName: m.dmName, items: [] };
+      missingByDist[m.district].items.push(m);
+    }
+    const missingDistricts = Object.values(missingByDist).sort((a, b) => a.district - b.district);
+    const rangeTotal = rangeDeposits.reduce((a, d) => a + d.amount, 0);
+    const uniqueStoresDeposited = new Set(rangeDeposits.map((d) => d.pc)).size;
+    const lastUpload = cashUploads[0];
+    const distList = Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num);
+    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: {
+      position: "relative",
+      overflow: "hidden",
+      borderRadius: "1rem",
+      marginBottom: "1.25rem",
+      padding: "1.5rem 2rem",
+      background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`,
+      border: `1px solid ${G}33`
+    } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: -40, right: -40, width: 160, height: 160, borderRadius: "50%", background: `${G}10`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text, display: "flex", alignItems: "center", gap: "0.6rem" } }, "\u{1F4B0} Cash Management"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, "Deposit tracking and missing-deposit alerts", lastUpload && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.5rem" } }, "\xB7 Last upload: ", new Date(lastUpload.uploadedAt).toLocaleString())), uploadStale && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", padding: "0.5rem 0.75rem", borderRadius: "0.375rem", background: "rgba(245,158,11,0.14)", color: "#d97706", fontSize: "0.78rem", fontWeight: 600 } }, "No deposit file has been uploaded since ", newestUploadAt ? new Date(newestUploadAt).toLocaleDateString() : "the last period", " \u2014 missing deposits for this week can't be judged until this week's file is uploaded.")), canUpload && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: ".xlsx,.xls", style: { display: "none" }, onChange: handleUpload, disabled: uploading }), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => fileRef.current?.click(),
+        disabled: uploading,
+        style: btn(th, { background: G, color: "#fff", padding: "0.6rem 1.2rem", fontSize: "0.85rem", fontWeight: 700 })
+      },
+      uploading ? "\u23F3 Parsing..." : "\u2B06 Upload Spreadsheet"
+    ))), uploadErr && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", padding: "0.5rem 0.75rem", borderRadius: "0.375rem", background: `${R3}18`, color: R3, fontSize: "0.75rem", fontWeight: 600 } }, "\u26A0\uFE0F ", uploadErr)), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
+      { label: "Week Total Deposits", value: fmtUSDRound(rangeTotal), color: G, glow: true },
+      { label: "Missing Deposits", value: missing.length, color: missing.length > 0 ? R3 : G, glow: missing.length > 0 },
+      { label: "Stores Deposited", value: `${uniqueStoresDeposited}/${visibleStores.length}`, color: "#74c0fc" },
+      { label: "Transactions", value: rangeDeposits.length, color: "#b197fc" }
+    ].map((k) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: k.label,
+        style: {
+          position: "relative",
+          background: th.card,
+          borderRadius: "0.75rem",
+          padding: "1rem 1.15rem 0.95rem",
+          border: `1px solid ${th.cardBorder}`,
+          overflow: "hidden",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+          transition: "all .2s cubic-bezier(.4,0,.2,1)"
+        },
+        onMouseEnter: (e) => {
+          e.currentTarget.style.transform = "translateY(-2px)";
+          e.currentTarget.style.borderColor = `${k.color}55`;
+          e.currentTarget.style.boxShadow = `0 10px 24px rgba(0,0,0,0.08), 0 0 0 1px ${k.color}33, 0 0 18px ${k.color}22`;
+        },
+        onMouseLeave: (e) => {
+          e.currentTarget.style.transform = "none";
+          e.currentTarget.style.borderColor = th.cardBorder;
+          e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.04)";
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 3,
+        background: `linear-gradient(90deg, ${k.color}, ${k.color}88 40%, transparent)`
+      } }),
+      /* @__PURE__ */ React.createElement("div", { style: {
+        fontFamily: "'Raleway'",
+        fontWeight: 900,
+        fontSize: "1.55rem",
+        color: k.color,
+        letterSpacing: -0.5,
+        lineHeight: 1,
+        textShadow: k.glow ? `0 0 18px ${k.color}55` : "none"
+      } }, k.value),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.9, fontWeight: 800, marginTop: "0.4rem" } }, k.label)
+    ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: {
+      display: "inline-flex",
+      gap: "0.25rem",
+      background: th.card2,
+      padding: "0.3rem",
+      border: `1px solid ${th.cardBorder}`,
+      borderRadius: "0.625rem",
+      flexWrap: "wrap"
+    } }, [
+      { key: "alerts", label: `\u{1F6A8} Alerts${missing.length > 0 ? " (" + missing.length + ")" : ""}` },
+      { key: "grid", label: "\u{1F4CA} Deposit Grid" },
+      { key: "recon", label: "\u{1F4B5} POS Cash Match" },
+      { key: "history", label: "\u{1F4CB} Upload History" }
+    ].map((t) => {
+      const active = view === t.key;
+      return /* @__PURE__ */ React.createElement("button", { key: t.key, onClick: () => setView(t.key), style: {
+        padding: "0.5rem 0.9rem",
+        fontSize: "0.7rem",
+        fontWeight: 800,
+        textTransform: "uppercase",
+        letterSpacing: 0.6,
+        fontFamily: "'Source Sans 3'",
+        background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
+        color: active ? "#fff" : th.muted,
+        border: "none",
+        borderRadius: "0.4rem",
+        cursor: "pointer",
+        transition: "all .2s",
+        boxShadow: active ? `0 4px 12px ${O}55` : "none",
+        whiteSpace: "nowrap"
+      } }, t.label);
+    })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, !isDM && /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        style: { ...inp(th), width: "auto", padding: "0.55rem 0.75rem", fontSize: "0.75rem", borderRadius: "0.625rem" },
+        value: distFilter,
+        onChange: (e) => setDistFilter(+e.target.value)
+      },
+      /* @__PURE__ */ React.createElement("option", { value: 0 }, "All Districts"),
+      distList.map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: "0.625rem", padding: "0.25rem" } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setWeekOffset((w) => w - 1),
+        style: {
+          background: "transparent",
+          border: "none",
+          color: th.text,
+          cursor: "pointer",
+          padding: "0.4rem 0.55rem",
+          fontSize: "0.9rem",
+          fontWeight: 800,
+          borderRadius: "0.375rem",
+          transition: "all .15s"
+        },
+        onMouseEnter: (e) => {
+          e.currentTarget.style.background = `${O}22`;
+          e.currentTarget.style.color = O;
+        },
+        onMouseLeave: (e) => {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = th.text;
+        }
+      },
+      "\u2039"
+    ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.text, fontWeight: 800, padding: "0.35rem 0.6rem", textTransform: "uppercase", letterSpacing: 0.7, whiteSpace: "nowrap" } }, weekOffset === 0 ? "This Week" : weekOffset === -1 ? "Last Week" : `${Math.abs(weekOffset)} Weeks Ago`), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setWeekOffset((w) => Math.min(0, w + 1)),
+        disabled: weekOffset === 0,
+        style: {
+          background: "transparent",
+          border: "none",
+          color: weekOffset === 0 ? th.muted : th.text,
+          cursor: weekOffset === 0 ? "default" : "pointer",
+          padding: "0.4rem 0.55rem",
+          fontSize: "0.9rem",
+          fontWeight: 800,
+          opacity: weekOffset === 0 ? 0.4 : 1,
+          borderRadius: "0.375rem",
+          transition: "all .15s"
+        },
+        onMouseEnter: (e) => {
+          if (weekOffset !== 0) {
+            e.currentTarget.style.background = `${O}22`;
+            e.currentTarget.style.color = O;
+          }
+        },
+        onMouseLeave: (e) => {
+          if (weekOffset !== 0) {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color = th.text;
+          }
+        }
+      },
+      "\u203A"
+    )))), view === "alerts" && /* @__PURE__ */ React.createElement(React.Fragment, null, missing.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center", borderLeft: `3px solid ${G}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem" } }, "\u2705"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.2rem", color: G, marginBottom: "0.375rem" } }, "All Caught Up"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted } }, "Every store has deposited on time for the current week. Great work.")) : /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: {
+      padding: "1rem 1.25rem",
+      marginBottom: "1rem",
+      borderRadius: "0.75rem",
+      background: `${R3}12`,
+      border: `1px solid ${R3}44`,
+      borderLeft: `4px solid ${R3}`,
+      display: "flex",
+      alignItems: "center",
+      gap: "1rem",
+      flexWrap: "wrap"
+    } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem" } }, "\u{1F6A8}"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: R3 } }, missing.length, " Missing Deposit", missing.length !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.2rem" } }, "Across ", missingDistricts.length, " district", missingDistricts.length !== 1 ? "s" : "", " \xB7 ", new Set(missing.map((m) => m.pc)).size, " store", new Set(missing.map((m) => m.pc)).size !== 1 ? "s" : "", " affected"))), missingDistricts.map((dist) => /* @__PURE__ */ React.createElement("div", { key: dist.district, style: { ...card(th), padding: "1.25rem", marginBottom: "0.875rem", borderLeft: `3px solid ${R3}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, districtLabel(dist.district)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.15rem" } }, "DM: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, dist.dmName || "Unassigned"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, color: R3, background: `${R3}18`, padding: "0.25rem 0.625rem", borderRadius: "1rem" } }, dist.items.length, " missing")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.5rem" } }, dist.items.map((m, i) => {
+      const itemNotes = getNotesFor(m.pc, m.businessDate);
+      const lastAction = itemNotes.filter((n) => n.action).pop();
+      return /* @__PURE__ */ React.createElement("div", { key: i, style: {
+        background: th.card2,
+        borderRadius: "0.5rem",
+        padding: "0.75rem 0.875rem",
+        borderLeft: `3px solid ${m.daysLate >= 2 ? R3 : m.daysLate >= 1 ? Y : R3 + "88"}`
+      } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: th.text } }, m.storeName), /* @__PURE__ */ React.createElement("div", { style: {
+        fontSize: "0.62rem",
+        fontWeight: 700,
+        padding: "0.15rem 0.5rem",
+        borderRadius: "0.25rem",
+        background: m.daysLate >= 2 ? `${R3}22` : m.daysLate >= 1 ? `${Y}22` : `${R3}11`,
+        color: m.daysLate >= 2 ? R3 : m.daysLate >= 1 ? "#d97706" : R3,
+        whiteSpace: "nowrap"
+      } }, m.daysLate === 0 ? "Due Today" : m.daysLate === 1 ? "1 Day Late" : `${m.daysLate} Days Late`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.15rem" } }, "PC# ", m.pc, m.city ? " \xB7 " + m.city : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted } }, "Business date: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, (/* @__PURE__ */ new Date(m.businessDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: itemNotes.length > 0 ? "0.4rem" : 0 } }, "Expected deposit: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, (/* @__PURE__ */ new Date(m.expectedDepositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))), itemNotes.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: `1px dashed ${th.cardBorder}` } }, itemNotes.slice(-2).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { fontSize: "0.62rem", color: th.muted, marginBottom: "0.2rem", lineHeight: 1.4, display: "flex", alignItems: "flex-start", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: n.action ? "#74c0fc" : th.muted, flexShrink: 0 } }, n.action === "dm_alerted" ? "\u{1F4E2}" : n.action === "store_called" ? "\u{1F4DE}" : n.action === "manager_replied" ? "\u{1F4AC}" : n.action === "confirmed_en_route" ? "\u{1F69A}" : "\u270E"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.createdByName), " \xB7 ", /* @__PURE__ */ React.createElement("span", null, new Date(n.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })), n.text && /* @__PURE__ */ React.createElement("div", { style: { color: th.text, marginTop: "0.1rem" } }, n.text)))), itemNotes.length > 2 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, fontStyle: "italic" } }, "+", itemNotes.length - 2, " earlier note", itemNotes.length - 2 !== 1 ? "s" : "")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", display: "flex", gap: "0.35rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            addNote(m.pc, m.businessDate, "DM alerted", "dm_alerted");
+          },
+          style: { background: "#74c0fc22", color: "#74c0fc", border: "1px solid #74c0fc55", padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+        },
+        "\u{1F4E2} DM Alerted"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            addNote(m.pc, m.businessDate, "Store called", "store_called");
+          },
+          style: { background: `${Y}22`, color: "#d97706", border: `1px solid ${Y}55`, padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+        },
+        "\u{1F4DE} Store Called"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            addNote(m.pc, m.businessDate, "Manager replied", "manager_replied");
+          },
+          style: { background: `${G}22`, color: G, border: `1px solid ${G}55`, padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+        },
+        "\u{1F4AC} Manager Replied"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            addNote(m.pc, m.businessDate, "Deposit confirmed en route", "confirmed_en_route");
+          },
+          style: { background: "#b197fc22", color: "#b197fc", border: "1px solid #b197fc55", padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+        },
+        "\u{1F69A} En Route"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            setNoteModal(m);
+            setNoteText("");
+          },
+          style: { background: "none", color: th.muted, border: `1px solid ${th.cardBorder}`, padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
+        },
+        "\u270E Add Note"
+      )));
+    })))))), view === "grid" && (() => {
+      const DIST_COLORS = {
+        1: "#74c0fc",
+        // sky blue
+        2: "#ffd43b",
+        // amber
+        3: "#69db7c",
+        // lime green
+        4: "#f06595",
+        // pink
+        5: "#b197fc",
+        // lavender
+        6: "#ff922b",
+        // orange
+        7: "#20c997",
+        // teal
+        8: "#e599f7",
+        // light purple
+        9: "#4dabf7",
+        // blue (v22.21)
+        10: "#a9e34b"
+        // green-yellow
+      };
+      const distColor = (n) => DIST_COLORS[n] || "#94a3b8";
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", overflowX: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "Deposit Grid \u2014 Week of ", (/* @__PURE__ */ new Date(weekRange.sun + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" }), " to ", (/* @__PURE__ */ new Date(weekRange.sat + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, duplicatesRemoved > 0 && /* @__PURE__ */ React.createElement("div", { title: "Deposits with the same store + same amount (penny-exact) within a 14-day window are treated as duplicates and excluded.", style: { fontSize: "0.62rem", color: Y, fontWeight: 700, padding: "0.25rem 0.55rem", background: `${Y}15`, border: `1px solid ${Y}55`, borderRadius: "0.4rem" } }, "\u26A0 ", duplicatesRemoved, " duplicate", duplicatesRemoved !== 1 ? "s" : "", " removed"), canEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, fontStyle: "italic" } }, "\u{1F4A1} Click any deposit cell to edit or delete"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.875rem", fontSize: "0.65rem" } }, districtNumbers(stores).map((n) => {
+        const d = (districts || DISTRICTS_SEED)[n] || { num: n };
+        if (!d) return null;
+        return /* @__PURE__ */ React.createElement("div", { key: n, style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: distColor(n) } }), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "D", n, " \xB7 ", /* @__PURE__ */ React.createElement("strong", { style: { color: distColor(n) } }, (d.name || "").split(" ")[0])));
+      })), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `2px solid ${th.cardBorder}`, background: th.card } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.65rem", textAlign: "left", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7, whiteSpace: "nowrap" } }, "Store"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.4rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7 } }, "Dist"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.65rem", textAlign: "left", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7, whiteSpace: "nowrap" } }, "District Mgr"), weekRange.dates.map((date, i) => {
+        const d = /* @__PURE__ */ new Date(date + "T12:00:00");
+        const closed = isBankClosed(date);
+        return /* @__PURE__ */ React.createElement("th", { key: date, style: { padding: "0.5rem 0.4rem", textAlign: "center", color: closed ? th.muted : th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.62rem", letterSpacing: 0.5, opacity: closed ? 0.5 : 1 } }, /* @__PURE__ */ React.createElement("div", null, d.toLocaleDateString("en-US", { weekday: "short" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 500 } }, d.getMonth() + 1, "/", d.getDate()), closed && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.55rem", color: th.muted, fontWeight: 400 } }, "closed"));
+      }), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.65rem", textAlign: "right", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7, whiteSpace: "nowrap" } }, "Week Total"))), /* @__PURE__ */ React.createElement("tbody", null, visibleStores.sort((a, b) => a.district - b.district || a.name.localeCompare(b.name)).map((store, idx) => {
+        const storeDeps = effectiveDeposits.filter((d) => d.pc === store.pc);
+        const weekTotal = weekRange.dates.reduce((sum, date) => {
+          return sum + storeDeps.filter((d) => d.depositDate === date).reduce((a, d) => a + d.amount, 0);
+        }, 0);
+        const dColor = distColor(store.district);
+        return /* @__PURE__ */ React.createElement("tr", { key: store.pc, style: { borderBottom: `1px solid ${th.cardBorder}`, background: idx % 2 ? `${th.card2}50` : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.65rem", borderLeft: `3px solid ${dColor}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: dColor, fontSize: "0.82rem" } }, store.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, store.pc)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.4rem", textAlign: "center", fontSize: "0.72rem", fontWeight: 700, color: dColor } }, store.district), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.65rem", fontSize: "0.72rem", color: th.text, whiteSpace: "nowrap" } }, store.dmName || "\u2014"), weekRange.dates.map((date) => {
+          const dayDeps = storeDeps.filter((d) => d.depositDate === date).sort((a, b) => b.amount - a.amount);
+          const closed = isBankClosed(date);
+          const isFuture = /* @__PURE__ */ new Date(date + "T12:00:00") > now;
+          return /* @__PURE__ */ React.createElement("td", { key: date, style: { padding: "0.45rem 0.4rem", textAlign: "center", opacity: closed ? 0.3 : 1, verticalAlign: "top" } }, dayDeps.length > 0 ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", alignItems: "center" } }, dayDeps.map((dep, di) => /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              key: dep.id,
+              onClick: () => canEdit && startEditDeposit(dep),
+              title: canEdit ? "Click to edit" : `Deposit ${di + 1} of ${dayDeps.length}`,
+              style: {
+                fontWeight: 700,
+                color: G,
+                fontSize: "0.7rem",
+                whiteSpace: "nowrap",
+                cursor: canEdit ? "pointer" : "default",
+                padding: dayDeps.length > 1 ? "0.1rem 0.35rem" : 0,
+                borderRadius: dayDeps.length > 1 ? "0.25rem" : 0,
+                background: dayDeps.length > 1 ? `${G}12` : "transparent"
+              }
+            },
+            fmtUSD(dep.amount)
+          ))) : closed ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2014") : isFuture ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2014") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: R3, fontWeight: 700 } }, "\u2717"));
+        }), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.65rem", textAlign: "right", fontWeight: 800, color: weekTotal > 0 ? G : th.muted, fontSize: "0.85rem" } }, weekTotal > 0 ? fmtUSD(weekTotal) : "\u2014"));
+      }))));
+    })(), view === "recon" && (() => {
+      const todayD = /* @__PURE__ */ new Date(today + "T12:00:00");
+      const priorSun = /* @__PURE__ */ new Date(weekRange.sun + "T12:00:00");
+      priorSun.setDate(priorSun.getDate() - 7);
+      const priorWeekDates = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(priorSun);
+        d.setDate(priorSun.getDate() + i);
+        priorWeekDates.push(localDateStr(d));
+      }
+      const allBizDates = [...priorWeekDates, ...weekRange.dates].filter((d) => /* @__PURE__ */ new Date(d + "T12:00:00") <= todayD);
+      const storeReports = visibleStores.map((store) => {
+        const bizDatesWithCash = allBizDates.map((bizDate) => ({ bizDate, posCash: getPOSCash(store.pc, bizDate) })).filter((b) => b.posCash != null);
+        const windowStart = priorWeekDates[0];
+        const storeDeposits = effectiveDeposits.filter((d) => d.pc === store.pc && d.depositDate >= windowStart).sort((a, b) => a.depositDate.localeCompare(b.depositDate) || b.amount - a.amount);
+        const { matches, unmatchedDeposits, unmatchedBizDates } = matchStoreDeposits(store.pc, bizDatesWithCash, storeDeposits);
+        const currentWeekSet = new Set(weekRange.dates);
+        const priorWeekSet = new Set(priorWeekDates);
+        const relevantMatches = matches.filter((m) => currentWeekSet.has(m.bizDate) || currentWeekSet.has(m.deposit.depositDate));
+        const missingThisWeek = unmatchedBizDates.filter((b) => {
+          if (!currentWeekSet.has(b.bizDate)) return false;
+          const expectedDep = getExpectedDepositDate(b.bizDate);
+          const expectedDepDate = /* @__PURE__ */ new Date(expectedDep + "T12:00:00");
+          return expectedDepDate < todayD;
+        });
+        const unmatchedDepsThisWeek = unmatchedDeposits.filter((d) => currentWeekSet.has(d.depositDate));
+        return {
+          store,
+          matches: relevantMatches,
+          missingBizDates: missingThisWeek,
+          unmatchedDeposits: unmatchedDepsThisWeek,
+          bizDatesWithCash: bizDatesWithCash.filter((b) => currentWeekSet.has(b.bizDate)),
+          hasPOSLoaded: bizDatesWithCash.length > 0
+        };
+      });
+      const storesWithPOS = storeReports.filter((r) => r.hasPOSLoaded);
+      const totalMatches = storeReports.reduce((a, r) => a + r.matches.length, 0);
+      const totalExactMatches = storeReports.reduce((a, r) => a + r.matches.filter((m) => m.tolerance === "exact").length, 0);
+      const totalVarianceMatches = storeReports.reduce((a, r) => a + r.matches.filter((m) => m.tolerance !== "exact").length, 0);
+      const totalMissing = storeReports.reduce((a, r) => a + r.missingBizDates.length, 0);
+      const totalUnmatchedDeps = storeReports.reduce((a, r) => a + r.unmatchedDeposits.length, 0);
+      const totalVarianceAmt = storeReports.reduce((a, r) => a + r.matches.reduce((s, m) => s + (m.delta || 0), 0), 0);
+      const totalMissingAmt = storeReports.reduce((a, r) => a + r.missingBizDates.reduce((s, b) => s + (b.posCash || 0), 0), 0);
+      const loaded = storesWithPOS.length > 0;
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.25rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, "POS Cash Reconciliation"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.2rem" } }, "Matches deposit amounts to POS cash totals. Handles multi-deposit days and prior-week catch-ups automatically.")), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => loadPOSCash({ forceRefresh: true }),
+          disabled: posLoading,
+          style: btn(th, { background: "#74c0fc22", color: "#74c0fc", border: "1px solid #74c0fc55", padding: "0.5rem 1rem", fontSize: "0.8rem", fontWeight: 700 })
+        },
+        posLoading ? `\u23F3 Loading ${posProgress}%` : "\u26A1 Refresh POS Cash"
+      )), posLoading && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card3, borderRadius: 4, height: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: "#74c0fc", width: posProgress + "%", transition: "width .3s" } }))), !loaded && !posLoading ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.5rem", marginBottom: "0.75rem" } }, "\u{1F4B5}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Loading Reconciliation\u2026"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted } }, "Fetching POS cash totals for the current and prior week\u2026")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalExactMatches), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Exact Matches")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${Y}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: Y, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalVarianceMatches), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Variance Matches")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${totalMissing > 0 ? R3 : G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: totalMissing > 0 ? R3 : G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalMissing), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Unmatched Cash Days")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${totalUnmatchedDeps > 0 ? "#b197fc" : G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: totalUnmatchedDeps > 0 ? "#b197fc" : G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalUnmatchedDeps), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Unmatched Deposits")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${R3}`, minWidth: 0, gridColumn: "span 2" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: R3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, fmtUSD(totalMissingAmt)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Missing Cash $")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${Math.abs(totalVarianceAmt) < 0.01 ? G : Y}`, minWidth: 0, gridColumn: "span 2" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: Math.abs(totalVarianceAmt) < 0.01 ? G : Y, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalVarianceAmt >= 0 ? "+" : "", fmtUSD(totalVarianceAmt)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Net Match Variance"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, storeReports.filter((r) => r.hasPOSLoaded && (r.matches.length > 0 || r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0)).sort((a, b) => {
+        const aProblems = a.missingBizDates.length + a.unmatchedDeposits.length;
+        const bProblems = b.missingBizDates.length + b.unmatchedDeposits.length;
+        if (aProblems !== bProblems) return bProblems - aProblems;
+        return a.store.district - b.store.district || a.store.name.localeCompare(b.store.name);
+      }).map((r) => {
+        const hasProblems = r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0;
+        const allExact = r.matches.every((m) => m.tolerance === "exact");
+        const borderColor = hasProblems ? R3 : allExact ? G : Y;
+        return /* @__PURE__ */ React.createElement("div", { key: r.store.pc, style: { ...card(th), padding: "1rem 1.25rem", borderLeft: `3px solid ${borderColor}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, r.store.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, "PC# ", r.store.pc, " \xB7 D", r.store.district, " \xB7 ", r.store.dmName)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.375rem", flexWrap: "wrap" } }, r.matches.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: `${G}22`, color: G } }, "\u2713 ", r.matches.length, " matched"), r.missingBizDates.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: `${R3}22`, color: R3 } }, "\u26A0\uFE0F ", r.missingBizDates.length, " missing"), r.unmatchedDeposits.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#b197fc22", color: "#b197fc" } }, "? ", r.unmatchedDeposits.length, " unmatched"))), r.matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "Matched Pairs"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.matches.sort((a, b) => a.bizDate.localeCompare(b.bizDate)).map((m, i) => {
+          const tolColor = m.tolerance === "exact" ? G : m.tolerance === "dollar" ? Y : m.tolerance === "sum" ? "#74c0fc" : Y;
+          const tolLabel = m.tolerance === "exact" ? "\u2713 Exact" : m.tolerance === "dollar" ? "~ Within $1" : m.tolerance === "sum" ? "\u2211 Sum" : "~ Within $5";
+          return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: th.card2, borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: "0.25rem", background: tolColor + "22", color: tolColor, whiteSpace: "nowrap" } }, tolLabel), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(m.bizDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " cash"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(m.posCash)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2194"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(m.deposit.depositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " deposit"), /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, fmtUSD(m.deposit.amount), m.partnerDeposit ? " + " + fmtUSD(m.partnerDeposit.amount) : ""), Math.abs(m.delta) >= 0.01 && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.65rem", fontWeight: 700, color: m.delta < 0 ? R3 : Y } }, m.delta > 0 ? "+" : "", fmtUSD(m.delta)));
+        }))), r.missingBizDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: r.unmatchedDeposits.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: R3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "\u26A0\uFE0F Unmatched Cash (needs a deposit)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.missingBizDates.sort((a, b) => a.bizDate.localeCompare(b.bizDate)).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: `${R3}11`, borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: R3, fontWeight: 700 } }, "MISSING"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(b.bizDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " cash"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(b.posCash)), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", color: th.muted, fontSize: "0.65rem" } }, "No deposit matched this amount"))))), r.unmatchedDeposits.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: "#b197fc", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "? Unmatched Deposits (possibly from outside 2-week window)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.unmatchedDeposits.map((d, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: "#b197fc11", borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#b197fc", fontWeight: 700 } }, "NO MATCH"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(d.depositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " deposit"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(d.amount)), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", color: th.muted, fontSize: "0.65rem" } }, "No POS cash matches this amount"))))));
+      }), storeReports.filter((r) => r.hasPOSLoaded).every((r) => r.matches.length === 0 && r.missingBizDates.length === 0 && r.unmatchedDeposits.length === 0) && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No cash activity found in the current week."))));
+    })(), view === "history" && /* @__PURE__ */ React.createElement("div", null, cashUploads.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center", color: th.muted } }, 'No uploads yet. Click "Upload Spreadsheet" to get started.') : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.625rem" } }, cashUploads.map((u) => /* @__PURE__ */ React.createElement("div", { key: u.id, style: { ...card(th), padding: "1rem 1.25rem", borderLeft: `3px solid ${G}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: th.text } }, u.filename), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.2rem" } }, "Uploaded by ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, u.uploadedByName || "Unknown"), " \xB7 ", new Date(u.uploadedAt).toLocaleString())), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: G, fontSize: "0.95rem" } }, u.newDeposits), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "New")), u.duplicatesSkipped > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.muted, fontSize: "0.95rem" } }, u.duplicatesSkipped), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Dupes")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, fontSize: "0.95rem" } }, fmtUSDRound(u.totalAmount)), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Total")))))))), noteModal && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "1rem" },
+        onClick: () => setNoteModal(null)
+      },
+      /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: {
+        background: th.card,
+        borderRadius: "0.875rem",
+        padding: "1.5rem",
+        width: "100%",
+        maxWidth: 520,
+        border: `1px solid ${th.cardBorder}`,
+        boxShadow: "0 24px 64px rgba(0,0,0,0.5)"
+      } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.25rem" } }, "Add Note \u2014 ", noteModal.storeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "1rem" } }, "PC# ", noteModal.pc, " \xB7 Business date ", (/* @__PURE__ */ new Date(noteModal.businessDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })), getNotesFor(noteModal.pc, noteModal.businessDate).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem", maxHeight: 200, overflowY: "auto", background: th.card2, borderRadius: "0.5rem", padding: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.5rem" } }, "Existing Notes"), getNotesFor(noteModal.pc, noteModal.businessDate).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { fontSize: "0.72rem", marginBottom: "0.5rem", paddingBottom: "0.5rem", borderBottom: `1px dashed ${th.cardBorder}`, display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, n.action === "dm_alerted" ? "\u{1F4E2}" : n.action === "store_called" ? "\u{1F4DE}" : n.action === "manager_replied" ? "\u{1F4AC}" : n.action === "confirmed_en_route" ? "\u{1F69A}" : "\u270E"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.text } }, n.text), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, marginTop: "0.15rem" } }, n.createdByName, " \xB7 ", new Date(n.createdAt).toLocaleString())), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: () => deleteNote(n.id), style: { background: "none", border: "none", color: R3, cursor: "pointer", fontSize: "0.7rem", padding: 0 } }, "\xD7")))), /* @__PURE__ */ React.createElement(
+        "textarea",
+        {
+          value: noteText,
+          onChange: (e) => setNoteText(e.target.value),
+          placeholder: "Enter a note...",
+          style: { ...inp(th), minHeight: 80, resize: "vertical", marginBottom: "1rem" }
+        }
+      ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setNoteModal(null),
+          style: btn(th, { background: th.card3, color: th.muted })
+        },
+        "Cancel"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            if (noteText.trim()) addNote(noteModal.pc, noteModal.businessDate, noteText.trim());
+            setNoteModal(null);
+            setNoteText("");
+          },
+          disabled: !noteText.trim(),
+          style: btn(th, { background: O, color: "#fff", opacity: noteText.trim() ? 1 : 0.5 })
+        },
+        "Save Note"
+      )))
+    ), editDep && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "1rem" },
+        onClick: () => setEditDep(null)
+      },
+      /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: {
+        background: th.card,
+        borderRadius: "0.875rem",
+        padding: "1.5rem",
+        width: "100%",
+        maxWidth: 480,
+        border: `1px solid ${th.cardBorder}`,
+        boxShadow: "0 24px 64px rgba(0,0,0,0.5)"
+      } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.25rem" } }, "Edit Deposit"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "1rem" } }, editDep.llcName, " \xB7 PC# ", editDep.pc), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: "0.25rem" } }, "Deposit Date"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "date",
+          value: editForm.depositDate,
+          onChange: (e) => setEditForm((f) => ({ ...f, depositDate: e.target.value })),
+          style: inp(th)
+        }
+      )), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: "0.25rem" } }, "Amount"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "number",
+          step: "0.01",
+          value: editForm.amount,
+          onChange: (e) => setEditForm((f) => ({ ...f, amount: e.target.value })),
+          style: inp(th)
+        }
+      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            deleteDeposit(editDep);
+            setEditDep(null);
+          },
+          style: btn(th, { background: `${R3}22`, color: R3, border: `1px solid ${R3}55` })
+        },
+        "\u{1F5D1} Delete"
+      ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setEditDep(null),
+          style: btn(th, { background: th.card3, color: th.muted })
+        },
+        "Cancel"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: saveEditDeposit,
+          style: btn(th, { background: G, color: "#fff" })
+        },
+        "Save"
+      ))))
+    ));
+  }
+
+  // src/screens/AdminDeals.jsx
+  var { useEffect: useEffect16, useState: useState19 } = React;
+  function AdminDeals({ th, user, dealAuth }) {
+    const { token, role } = dealAuth;
+    const canEdit = role === "edit" || role === "admin";
+    const relTime = (ts) => {
+      const t = new Date(ts).getTime();
+      if (Number.isNaN(t)) return "";
+      const s = Math.floor((Date.now() - t) / 1e3);
+      if (s < 45) return "just now";
+      if (s < 5400) {
+        const m = Math.round(s / 60);
+        return `${m}m ago`;
+      }
+      if (s < 86400) {
+        const h = Math.round(s / 3600);
+        return `${h}h ago`;
+      }
+      if (s < 7 * 86400) {
+        const d = Math.round(s / 86400);
+        return `${d}d ago`;
+      }
+      return new Date(ts).toLocaleDateString();
+    };
+    const STAGES = [
+      { id: "sourcing", label: "Sourcing" },
+      { id: "loi_out", label: "LOI Out" },
+      { id: "loi_executed", label: "LOI Executed" },
+      { id: "due_diligence", label: "Due Diligence" },
+      { id: "negotiating", label: "Lease/PSA Negotiating" },
+      { id: "executed", label: "Executed" },
+      { id: "closing", label: "Closing/Possession" },
+      { id: "ready_for_construction", label: "Ready for Construction" }
+    ];
+    const STAGE_MAP = Object.fromEntries(STAGES.map((s) => [s.id, s.label]));
+    const STAGE_COLORS = {
+      sourcing: "#64748b",
+      loi_out: "#3b82f6",
+      loi_executed: "#6366f1",
+      due_diligence: "#f59e0b",
+      negotiating: "#f97316",
+      executed: "#22c55e",
+      closing: "#14b8a6",
+      ready_for_construction: "#a855f7"
+    };
+    const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
+    const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
+    const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
+    const [deals, setDeals] = useState19([]);
+    const [loading, setLoading] = useState19(true);
+    const [error, setError] = useState19(null);
+    const [view, setView] = useState19("kanban");
+    const [filterBrand, setFilterBrand] = useState19("all");
+    const [filterType, setFilterType] = useState19("all");
+    const [filterState, setFilterState] = useState19("all");
+    const [filterStage, setFilterStage] = useState19("all");
+    const [filterLead, setFilterLead] = useState19("all");
+    const [sortCol, setSortCol] = useState19("name");
+    const [sortDir, setSortDir] = useState19("asc");
+    const [selectedDeal, setSelectedDeal] = useState19(null);
+    const [detailDeal, setDetailDeal] = useState19(null);
+    const [detailDates, setDetailDates] = useState19([]);
+    const [detailNotes, setDetailNotes] = useState19([]);
+    const [detailLoading, setDetailLoading] = useState19(false);
+    const [detailError, setDetailError] = useState19(null);
+    const [editFields, setEditFields] = useState19({});
+    const [saving, setSaving] = useState19(false);
+    const [saveMsg, setSaveMsg] = useState19(null);
+    const [newNote, setNewNote] = useState19("");
+    const [addingNote, setAddingNote] = useState19(false);
+    const [noteErr, setNoteErr] = useState19(null);
+    const [actionErr, setActionErr] = useState19(null);
+    const [showCreate, setShowCreate] = useState19(false);
+    const [createForm, setCreateForm] = useState19({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
+    const [creating, setCreating] = useState19(false);
+    const [createError, setCreateError] = useState19(null);
+    const [docs, setDocs] = useState19([]);
+    const [docVersions, setDocVersions] = useState19([]);
+    const [docBusy, setDocBusy] = useState19(false);
+    const [docErr, setDocErr] = useState19(null);
+    const [newDocType, setNewDocType] = useState19("loi");
+    const [allDates, setAllDates] = useState19([]);
+    const [newDateType, setNewDateType] = useState19(DATE_TYPES[0]?.id || "");
+    const [newDateDue, setNewDateDue] = useState19("");
+    const [newDateTiers, setNewDateTiers] = useState19(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
+    const [newDateNotes, setNewDateNotes] = useState19("");
+    const [newDateRecurring, setNewDateRecurring] = useState19("");
+    const [dateAdding, setDateAdding] = useState19(false);
+    const [dateErr, setDateErr] = useState19(null);
+    const [showAccess, setShowAccess] = useState19(false);
+    const [accessRows, setAccessRows] = useState19(null);
+    const [accessInput, setAccessInput] = useState19("");
+    const [accessRole, setAccessRole] = useState19("view");
+    const [accessBusy, setAccessBusy] = useState19(false);
+    const [accessErr, setAccessErr] = useState19(null);
+    const [dealLeads, setDealLeads] = useState19([]);
+    const [newLeadName, setNewLeadName] = useState19("");
+    const [deadFor, setDeadFor] = useState19(null);
+    const [deadReason, setDeadReason] = useState19(DEAD_REASONS[0]);
+    const [deadNote, setDeadNote] = useState19("");
+    const [deadBusy, setDeadBusy] = useState19(false);
+    const [deadErr, setDeadErr] = useState19(null);
+    const [remindFor, setRemindFor] = useState19(null);
+    const [remindPhone, setRemindPhone] = useState19("");
+    const [remindMsg, setRemindMsg] = useState19("");
+    const [remindBusy, setRemindBusy] = useState19(false);
+    const [remindStatus, setRemindStatus] = useState19(null);
+    const loadList = () => {
+      setLoading(true);
+      return dealApi(token, { action: "list", status: "active" }).then((r) => {
+        setDeals(r.deals || []);
+        setAllDates(r.dates || []);
+        setError(null);
+      }).catch((e) => setError(e.message)).finally(() => setLoading(false));
+    };
+    useEffect16(() => {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      loadList();
+      dealApi(token, { action: "listLeads" }).then((r) => setDealLeads(r.leads || [])).catch(() => {
+      });
+    }, [token]);
+    const loadAccess = () => {
+      setAccessErr(null);
+      dealApi(token, { action: "listAccess" }).then((r) => setAccessRows(r.access || [])).catch((e) => setAccessErr(e.message));
+    };
+    useEffect16(() => {
+      if (showAccess) loadAccess();
+    }, [showAccess]);
+    const doSetAccess = (key, r) => {
+      setAccessBusy(true);
+      setAccessErr(null);
+      dealApi(token, { action: "setAccess", user_key: key, role: r }).then(() => loadAccess()).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
+    };
+    const doRemoveAccess = (key) => {
+      setAccessBusy(true);
+      setAccessErr(null);
+      dealApi(token, { action: "removeAccess", user_key: key }).then(() => loadAccess()).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
+    };
+    const loadDocs = (dealId) => {
+      setDocErr(null);
+      dealDocsApi(token, { action: "list", deal_id: dealId }).then((r) => {
+        setDocs(r.docs || []);
+        setDocVersions(r.versions || []);
+      }).catch((e) => setDocErr(e.message));
+    };
+    const openDetail = (deal) => {
+      setSelectedDeal(deal);
+      setDetailDeal(deal);
+      setDetailDates([]);
+      setDetailNotes([]);
+      setDocs([]);
+      setDocVersions([]);
+      setDocErr(null);
+      setEditFields({});
+      setSaveMsg(null);
+      setDetailLoading(true);
+      setDetailError(null);
+      dealApi(token, { action: "get", id: deal.id }).then((r) => {
+        setDetailDeal(r.deal);
+        setDetailDates(r.dates || []);
+        setDetailNotes(r.notes || []);
+        setEditFields({});
+      }).catch((e) => setDetailError(e.message)).finally(() => setDetailLoading(false));
+      loadDocs(deal.id);
+    };
+    const closeDetail = () => {
+      setSelectedDeal(null);
+      setDetailDeal(null);
+    };
+    const leads = Array.from(new Set(deals.map((d) => d.deal_lead).filter(Boolean))).sort();
+    const filtered = deals.filter((d) => {
+      if (filterBrand !== "all" && d.brand !== filterBrand) return false;
+      if (filterType !== "all" && d.deal_type !== filterType) return false;
+      if (filterState !== "all" && d.state !== filterState) return false;
+      if (filterStage !== "all" && d.stage !== filterStage) return false;
+      if (filterLead !== "all" && d.deal_lead !== filterLead) return false;
+      return true;
+    });
+    const datesByDeal = React.useMemo(() => {
+      const m = {};
+      for (const d of allDates) (m[d.deal_id] = m[d.deal_id] || []).push(d);
+      return m;
+    }, [allDates]);
+    const totalActive = deals.length;
+    const totalPurchaseCapital = deals.filter((d) => d.deal_type === "purchase").reduce((s, d) => s + (Number(d.purchase_price) || 0), 0);
+    const totalBaseRent = deals.filter((d) => d.deal_type === "lease").reduce((s, d) => s + (Number(d.base_rent) || 0), 0);
+    const leaseCount = deals.filter((d) => d.deal_type === "lease").length;
+    const purchaseCount = deals.filter((d) => d.deal_type === "purchase").length;
+    const nowMs = Date.now();
+    const dealFlagMap = React.useMemo(() => {
+      const m = {};
+      for (const deal of deals) m[deal.id] = dealDeadlineFlag(datesByDeal[deal.id], nowMs);
+      return m;
+    }, [deals, datesByDeal, nowMs]);
+    const within30 = deals.filter((d) => {
+      const nd = nextDeadline(datesByDeal[d.id], nowMs);
+      return nd && nd.daysOut <= 30 && nd.daysOut >= 0;
+    }).length;
+    const within60 = deals.filter((d) => {
+      const nd = nextDeadline(datesByDeal[d.id], nowMs);
+      return nd && nd.daysOut <= 60 && nd.daysOut >= 0;
+    }).length;
+    const within90 = deals.filter((d) => {
+      const nd = nextDeadline(datesByDeal[d.id], nowMs);
+      return nd && nd.daysOut <= 90 && nd.daysOut >= 0;
+    }).length;
+    const overdueCount = deals.filter((d) => dealFlagMap[d.id]?.level === "overdue").length;
+    const warningCount = deals.filter((d) => dealFlagMap[d.id]?.level === "warning").length;
+    const kpiCards = [
+      { label: "Active Deals", value: totalActive, color: "#3b82f6" },
+      { label: "Leases", value: leaseCount, color: "#22c55e" },
+      { label: "Purchases", value: purchaseCount, color: "#f59e0b" },
+      { label: "Pipeline Base Rent", value: fmtDollars(totalBaseRent), color: "#a855f7" },
+      { label: "Committed Capital", value: fmtDollars(totalPurchaseCapital), color: "#ef4444" },
+      { label: "Due \u226430d", value: within30, color: within30 > 0 ? "#ef4444" : "#64748b" },
+      { label: "Due \u226460d", value: within60, color: "#f59e0b" },
+      { label: "Due \u226490d", value: within90, color: "#64748b" },
+      { label: "Overdue / Warning", value: `${overdueCount > 0 ? "\u{1F534}" : ""}${overdueCount} / ${warningCount > 0 ? "\u{1F7E1}" : ""}${warningCount}`, color: overdueCount > 0 ? "#ef4444" : warningCount > 0 ? "#f59e0b" : "#64748b" }
+    ];
+    const Chip = ({ label, color, small }) => /* @__PURE__ */ React.createElement("span", { style: {
+      display: "inline-block",
+      padding: small ? "1px 6px" : "2px 8px",
+      borderRadius: 999,
+      background: `${color}22`,
+      color,
+      fontSize: small ? "0.62rem" : "0.68rem",
+      fontWeight: 700,
+      letterSpacing: 0.3
+    } }, label);
+    const BrandChip = ({ brand }) => brand ? /* @__PURE__ */ React.createElement(Chip, { label: BRAND_LABELS[brand] || brand, color: BRAND_COLORS[brand] || "#64748b", small: true }) : null;
+    const TypeChip = ({ type }) => /* @__PURE__ */ React.createElement(Chip, { label: type === "lease" ? "Lease" : "Purchase", color: type === "lease" ? "#22c55e" : "#f59e0b", small: true });
+    const StageChip = ({ stage }) => /* @__PURE__ */ React.createElement(Chip, { label: STAGE_MAP[stage] || stage, color: STAGE_COLORS[stage] || "#64748b", small: true });
+    const doMoveStage = (deal, newStage) => {
+      setActionErr(null);
+      setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, stage: newStage } : d));
+      if (detailDeal?.id === deal.id) setDetailDeal((prev) => ({ ...prev, stage: newStage }));
+      dealApi(token, { action: "moveStage", id: deal.id, stage: newStage }).catch((e) => {
+        setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, stage: deal.stage } : d));
+        setActionErr(`Could not move "${deal.name}": ${e.message}`);
+      });
+    };
+    const doHandoff = (deal) => {
+      if (!window.confirm(`Hand off "${deal.name}" to construction?`)) return;
+      setActionErr(null);
+      dealApi(token, { action: "handoff", id: deal.id }).then(() => {
+        setDeals((prev) => prev.filter((d) => d.id !== deal.id));
+        if (detailDeal?.id === deal.id) closeDetail();
+      }).catch((e) => setActionErr(`Handoff failed: ${e.message}`));
+    };
+    const doMarkDead = (deal) => {
+      if (!canEdit) return;
+      setDeadFor(deal);
+      setDeadReason(DEAD_REASONS[0]);
+      setDeadNote("");
+      setDeadErr(null);
+    };
+    const confirmMarkDead = () => {
+      if (!canEdit || !deadFor) return;
+      const note = deadNote.trim();
+      const reason = note ? `${deadReason} \u2014 ${note}` : deadReason;
+      const deal = deadFor;
+      setDeadBusy(true);
+      setDeadErr(null);
+      dealApi(token, { action: "markDead", id: deal.id, reason }).then(() => {
+        setDeals((prev) => prev.filter((d) => d.id !== deal.id));
+        setDeadFor(null);
+        if (detailDeal?.id === deal.id) closeDetail();
+      }).catch((e) => setDeadErr(e.message)).finally(() => setDeadBusy(false));
+    };
+    const doSave = () => {
+      if (!Object.keys(editFields).length) return;
+      setSaving(true);
+      setSaveMsg(null);
+      dealApi(token, { action: "update", id: detailDeal.id, deal: editFields }).then((r) => {
+        setDetailDeal(r.deal);
+        setDeals((prev) => prev.map((d) => d.id === r.deal.id ? r.deal : d));
+        setEditFields({});
+        setSaveMsg("Saved!");
+        setTimeout(() => setSaveMsg(null), 2e3);
+      }).catch((e) => setSaveMsg("Error: " + e.message)).finally(() => setSaving(false));
+    };
+    const doAddNote = () => {
+      if (!newNote.trim()) return;
+      setAddingNote(true);
+      setNoteErr(null);
+      dealApi(token, { action: "addNote", id: detailDeal.id, note: newNote.trim() }).then((r) => {
+        setDetailNotes(r.notes || []);
+        setNewNote("");
+      }).catch((e) => setNoteErr(e.message)).finally(() => setAddingNote(false));
+    };
+    const doCreate = () => {
+      if (!createForm.name.trim()) {
+        setCreateError("Name is required");
+        return;
+      }
+      setCreating(true);
+      setCreateError(null);
+      dealApi(token, { action: "create", deal: createForm }).then((r) => {
+        setDeals((prev) => [r.deal, ...prev]);
+        setShowCreate(false);
+        setCreateForm({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
+        openDetail(r.deal);
+      }).catch((e) => setCreateError(e.message)).finally(() => setCreating(false));
+    };
+    const sorted = [...filtered].sort((a, b) => {
+      const va = a[sortCol] ?? "", vb = b[sortCol] ?? "";
+      const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    const toggleSort = (col) => {
+      if (sortCol === col) setSortDir((d) => d === "asc" ? "desc" : "asc");
+      else {
+        setSortCol(col);
+        setSortDir("asc");
+      }
+    };
+    if (!token || !role) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: th.muted } }, "You don't have access to the Deal Pipeline.");
+    if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: th.muted } }, "Loading deals\u2026");
+    if (error) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: "#ef4444" } }, "Error: ", error);
+    const selLabel = inp(th);
+    const KanbanView = () => {
+      const stageOrder = STAGES.map((s) => s.id);
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", overflowX: "auto", paddingBottom: "1rem", alignItems: "flex-start", WebkitOverflowScrolling: "touch", scrollSnapType: "x proximity" } }, stageOrder.map((stageId, si) => {
+        const stageDeals = filtered.filter((d) => d.stage === stageId);
+        const color = STAGE_COLORS[stageId] || "#64748b";
+        const isLast = si === stageOrder.length - 1;
+        return /* @__PURE__ */ React.createElement("div", { key: stageId, style: { minWidth: 220, maxWidth: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.5rem", scrollSnapAlign: "start" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.5rem", borderRadius: "0.5rem", background: `${color}18`, borderBottom: `2px solid ${color}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" } }, STAGE_MAP[stageId]), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.68rem", background: `${color}33`, color, borderRadius: 999, padding: "1px 7px", fontWeight: 700 } }, stageDeals.length)), stageDeals.map((deal) => {
+          const prevStage = stageOrder[si - 1];
+          const nextStage = stageOrder[si + 1];
+          const flag = dealDeadlineFlag(datesByDeal[deal.id], Date.now());
+          return /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              key: deal.id,
+              onClick: () => openDetail(deal),
+              style: { ...card(th), padding: "0.65rem 0.75rem", cursor: "pointer", borderLeft: `3px solid ${color}` }
+            },
+            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, marginBottom: "0.25rem", lineHeight: 1.3 } }, deal.name),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.25rem", marginBottom: "0.3rem" } }, deal.brand && /* @__PURE__ */ React.createElement(BrandChip, { brand: deal.brand }), /* @__PURE__ */ React.createElement(TypeChip, { type: deal.deal_type })),
+            deal.deal_lead && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted } }, deal.deal_lead),
+            deal.deal_type === "lease" && deal.base_rent ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.2rem" } }, fmtDollars(deal.base_rent), "/mo") : deal.purchase_price ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.2rem" } }, fmtDollars(deal.purchase_price)) : null,
+            flag.level === "overdue" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700 } }, "\u26A0 overdue")),
+            flag.level === "warning" && flag.nearest && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#f59e0b", fontWeight: 700 } }, "next: ", dateLabel(flag.nearest.date_type), " in ", flag.nearest.daysOut, "d")),
+            canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", marginTop: "0.4rem" }, onClick: (e) => e.stopPropagation() }, prevStage && /* @__PURE__ */ React.createElement("button", { onClick: () => doMoveStage(deal, prevStage), style: { ...btn(th), padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1 } }, "\u25C0"), nextStage && !isLast && /* @__PURE__ */ React.createElement("button", { onClick: () => doMoveStage(deal, nextStage), style: { ...btn(th), padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1 } }, "\u25B6"), isLast && /* @__PURE__ */ React.createElement("button", { onClick: () => doHandoff(deal), style: { ...btn(th), background: "#a855f71f", border: "1px solid #a855f755", padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1, color: "#a855f7" } }, "Hand off \u2192"))
+          );
+        }));
+      }));
+    };
+    const TableView = () => {
+      const cols = [
+        { key: "name", label: "Name" },
+        { key: "brand", label: "Brand" },
+        { key: "deal_type", label: "Type" },
+        { key: "state", label: "State" },
+        { key: "stage", label: "Stage" },
+        { key: "deal_lead", label: "Lead" },
+        { key: "base_rent", label: "Base Rent" },
+        { key: "purchase_price", label: "Purchase $" },
+        { key: "_deadline", label: "Deadline", noSort: true }
+      ];
+      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.sidebar, color: th.muted, textAlign: "left" } }, cols.map((c) => /* @__PURE__ */ React.createElement(
+        "th",
+        {
+          key: c.key,
+          onClick: () => !c.noSort && toggleSort(c.key),
+          style: { padding: "0.6rem 0.75rem", fontWeight: 700, cursor: c.noSort ? "default" : "pointer", whiteSpace: "nowrap", userSelect: "none" }
+        },
+        c.label,
+        !c.noSort && sortCol === c.key ? sortDir === "asc" ? " \u2191" : " \u2193" : ""
+      )))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => {
+        const tf = dealDeadlineFlag(datesByDeal[d.id], Date.now());
+        return /* @__PURE__ */ React.createElement(
+          "tr",
+          {
+            key: d.id,
+            onClick: () => openDetail(d),
+            style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}`, color: th.text }
+          },
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", fontWeight: 600 } }, d.name),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(BrandChip, { brand: d.brand })),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(TypeChip, { type: d.deal_type })),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted } }, d.state),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(StageChip, { stage: d.stage })),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted } }, d.deal_lead || "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, d.base_rent ? fmtDollars(d.base_rent) : "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, d.purchase_price ? fmtDollars(d.purchase_price) : "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, tf.level === "overdue" && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#ef4444", fontWeight: 700 } }, "overdue")), tf.level === "warning" && tf.nearest && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#f59e0b", fontWeight: 700 } }, tf.nearest.daysOut, "d")), tf.level === "none" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.68rem" } }, "\u2014"))
+        );
+      }), sorted.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 9, style: { padding: "1.5rem", textAlign: "center", color: th.muted } }, "No deals match filters.")))));
+    };
+    const DetailModal = () => {
+      if (!selectedDeal) return null;
+      const d = detailDeal || selectedDeal;
+      const fv = (key) => editFields[key] !== void 0 ? editFields[key] : d[key] ?? "";
+      const set = (key, val) => setEditFields((prev) => ({ ...prev, [key]: val }));
+      const Field = ({ label, fkey, type = "text", readOnly = false }) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, label), canEdit && !readOnly ? /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type,
+          value: fv(fkey),
+          onChange: (e) => set(fkey, e.target.value),
+          style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+        }
+      ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, padding: "0.2rem 0" } }, d[fkey] ?? "\u2014"));
+      const SelectField = ({ label, fkey, options }) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, label), canEdit ? /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: fv(fkey),
+          onChange: (e) => set(fkey, e.target.value),
+          style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+        },
+        options.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.v, value: o.v }, o.l))
+      ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, padding: "0.2rem 0" } }, d[fkey] ?? "\u2014"));
+      return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 9999, display: "flex", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("div", { onClick: closeDetail, style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", width: "100%", maxWidth: 640, background: th.bg, overflowY: "auto", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem", boxShadow: "-8px 0 30px rgba(0,0,0,0.4)", zIndex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0, fontSize: "1.2rem" } }, d.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginTop: "0.4rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(BrandChip, { brand: d.brand }), /* @__PURE__ */ React.createElement(TypeChip, { type: d.deal_type }), /* @__PURE__ */ React.createElement(StageChip, { stage: d.stage }), d.state && /* @__PURE__ */ React.createElement(Chip, { label: d.state, color: "#64748b", small: true }))), /* @__PURE__ */ React.createElement("button", { onClick: closeDetail, style: { ...btn(th), padding: "0.3rem 0.7rem", fontSize: "0.8rem", flexShrink: 0 } }, "\u2715")), detailLoading && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), detailError && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.85rem" } }, "Error: ", detailError), canEdit && !detailLoading && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: d.stage,
+          onChange: (e) => doMoveStage(d, e.target.value),
+          style: { ...selLabel, padding: "0.35rem 0.6rem", fontSize: "0.8rem" }
+        },
+        STAGES.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.label))
+      ), /* @__PURE__ */ React.createElement("button", { onClick: () => doHandoff(d), style: { ...btn(th), background: "#a855f71f", border: "1px solid #a855f755", padding: "0.35rem 0.8rem", fontSize: "0.8rem", color: "#a855f7" } }, "Hand off \u2192"), /* @__PURE__ */ React.createElement("button", { onClick: () => doMarkDead(d), style: { ...btn(th), background: "#ef44441f", border: "1px solid #ef444455", padding: "0.35rem 0.8rem", fontSize: "0.8rem", color: "#ef4444" } }, "Mark Dead")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Core"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Name", fkey: "name" }), Field({ label: "Address", fkey: "address" }), Field({ label: "City", fkey: "city" }), SelectField({ label: "State", fkey: "state", options: [{ v: "PA", l: "PA" }, { v: "NJ", l: "NJ" }] }), SelectField({ label: "Brand", fkey: "brand", options: [{ v: "dunkin", l: "Dunkin'" }, { v: "papajohns", l: "Papa Johns" }, { v: "bww_go", l: "BWW Go" }, { v: "dual", l: "Dual" }] }), SelectField({ label: "Deal Type", fkey: "deal_type", options: [{ v: "lease", l: "Lease" }, { v: "purchase", l: "Purchase" }] }), (() => {
+        const currentVal = fv("deal_lead");
+        const inList = dealLeads.some((l) => l.name === currentVal);
+        return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Deal Lead"), canEdit ? /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: currentVal,
+            onChange: (e) => set("deal_lead", e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          },
+          /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select Lead \u2014"),
+          !inList && currentVal && /* @__PURE__ */ React.createElement("option", { value: currentVal }, currentVal),
+          dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.name }, l.name))
+        ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, padding: "0.2rem 0" } }, d["deal_lead"] ?? "\u2014"));
+      })(), Field({ label: "Broker Source", fkey: "broker_source" }), Field({ label: "PC Number", fkey: "pc_number" }), Field({ label: "Sq Ft", fkey: "sqft", type: "number" }))), d.deal_type === "lease" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Lease Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Landlord Entity", fkey: "landlord_entity" }), Field({ label: "Landlord Contact", fkey: "landlord_contact" }), Field({ label: "Lease Structure", fkey: "lease_structure" }), Field({ label: "Base Rent ($/mo)", fkey: "base_rent", type: "number" }), Field({ label: "Rent PSF", fkey: "rent_psf", type: "number" }), Field({ label: "Term (years)", fkey: "term_years", type: "number" }), Field({ label: "TI Allowance", fkey: "ti_allowance", type: "number" }), Field({ label: "Free Rent (mo)", fkey: "free_rent", type: "number" }), Field({ label: "Est NNN/CAM", fkey: "est_nnn_cam", type: "number" }), Field({ label: "CAM Cap", fkey: "cam_cap" }), Field({ label: "Guaranty Type", fkey: "guaranty_type" }), Field({ label: "Use Clause", fkey: "use_clause" }), Field({ label: "Exclusivity", fkey: "exclusivity" }), Field({ label: "Escalations", fkey: "escalations" }), Field({ label: "Renewal Options", fkey: "renewal_options" }), Field({ label: "Security Deposit", fkey: "security_deposit", type: "number" }))), d.deal_type === "purchase" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Purchase Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Seller Entity", fkey: "seller_entity" }), Field({ label: "Seller Contact", fkey: "seller_contact" }), Field({ label: "Purchase Price", fkey: "purchase_price", type: "number" }), Field({ label: "Earnest Money", fkey: "earnest_money", type: "number" }), Field({ label: "EMD Hard Date", fkey: "emd_hard" }), Field({ label: "Title/Escrow Co", fkey: "title_escrow_co" }), Field({ label: "Lender", fkey: "lender" }), Field({ label: "Loan Terms", fkey: "loan_terms" }), Field({ label: "Appraisal Status", fkey: "appraisal_status" }), Field({ label: "Phase 1 Status", fkey: "phase1_status" }), Field({ label: "Survey Status", fkey: "survey_status" }), Field({ label: "Zoning Status", fkey: "zoning_status" }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "SPE Entity", fkey: "spe_entity" })), canEdit && Object.keys(editFields).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: doSave, disabled: saving, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, saving ? "Saving\u2026" : "Save Changes"), saveMsg && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: saveMsg.startsWith("Error") ? "#ef4444" : "#22c55e" } }, saveMsg)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Activity Log"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, detailNotes.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No activity yet."), detailNotes.map((n, i) => {
+        const isSys = n.kind === "system";
+        return /* @__PURE__ */ React.createElement("div", { key: i, style: {
+          ...card(th),
+          padding: "0.6rem 0.75rem",
+          ...isSys ? { borderLeft: `3px solid ${O}`, background: th.bg, opacity: 0.95 } : {}
+        } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.2rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, isSys && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, color: O, background: O + "22", padding: "0.05rem 0.35rem", borderRadius: 4 } }, "System"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.author || "Unknown"), n.created_at ? /* @__PURE__ */ React.createElement("span", null, " \xB7 ", relTime(n.created_at)) : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, fontStyle: isSys ? "italic" : "normal" } }, n.body || n.note));
+      })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: newNote,
+          onChange: (e) => setNewNote(e.target.value),
+          placeholder: "Add a note\u2026",
+          style: { ...selLabel, flex: 1, padding: "0.4rem 0.6rem", fontSize: "0.82rem" },
+          onKeyDown: (e) => e.key === "Enter" && doAddNote()
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: doAddNote,
+          disabled: addingNote || !newNote.trim(),
+          style: { ...btn(th), padding: "0.4rem 0.8rem", fontSize: "0.8rem" }
+        },
+        addingNote ? "\u2026" : "Add"
+      )), noteErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#ef4444", marginTop: "0.4rem" } }, "Error: ", noteErr)), (() => {
+        const nowMsD = Date.now();
+        const sortedDates = [...detailDates].sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
+        const doAck = (dateId) => {
+          dealApi(token, { action: "ackDate", id: dateId }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
+            setDetailDates(r.dates || []);
+            setDetailNotes(r.notes || []);
+          }).then(() => loadList()).catch((e) => alert("Ack failed: " + e.message));
+        };
+        const doDelDate = (dateId) => {
+          if (!window.confirm("Delete this date?")) return;
+          dealApi(token, { action: "deleteDate", id: dateId }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
+            setDetailDates(r.dates || []);
+            setDetailNotes(r.notes || []);
+          }).then(() => loadList()).catch((e) => alert("Delete failed: " + e.message));
+        };
+        const doAddDate = () => {
+          if (!newDateDue) {
+            setDateErr("Due date is required");
+            return;
+          }
+          const parsedTiers = newDateTiers.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
+          setDateAdding(true);
+          setDateErr(null);
+          dealApi(token, { action: "addDate", deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, recurring: newDateRecurring || null, notes: newDateNotes }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
+            setDetailDates(r.dates || []);
+            setNewDateDue("");
+            setNewDateNotes("");
+            setNewDateRecurring("");
+            const dt = DATE_TYPES.find((t) => t.id === newDateType);
+            setNewDateTiers(dt?.defaultTiers?.join(",") || "");
+          }).then(() => loadList()).catch((e) => setDateErr(e.message)).finally(() => setDateAdding(false));
+        };
+        const doIcs = () => {
+          const ics = icsForDeal(d, detailDates);
+          const blob = new Blob([ics], { type: "text/calendar" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = (d.name || "deal") + "-dates.ics";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        };
+        const gcalUrl = (dt) => {
+          const ymd = String(dt.due_date || "").slice(0, 10).replace(/-/g, "");
+          if (ymd.length !== 8) return "#";
+          const start = ymd;
+          const dd = new Date(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8) + 1);
+          const end = `${dd.getFullYear()}${String(dd.getMonth() + 1).padStart(2, "0")}${String(dd.getDate()).padStart(2, "0")}`;
+          const title = `${detailDeal.name ? detailDeal.name + " \u2014 " : ""}${dateLabel(dt.date_type)}`;
+          const details = dt.notes || "";
+          return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${start}/${end}&details=${encodeURIComponent(details)}`;
+        };
+        return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Critical Dates"), detailDates.length > 0 && /* @__PURE__ */ React.createElement("button", { onClick: doIcs, style: { ...btn(th), padding: "2px 8px", fontSize: "0.7rem" } }, "\u{1F4C5} Add to Calendar (.ics)")), sortedDates.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" } }, "No dates yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, sortedDates.map((dt) => {
+          const ws = warningStatus(dt.due_date, dt.warning_tiers, nowMsD);
+          const statusColor = ws.level === "overdue" ? "#ef4444" : ws.level === "warning" ? "#f59e0b" : th.muted;
+          const statusText = ws.level === "overdue" ? "\u26A0 overdue" : ws.level === "warning" ? `in ${ws.daysOut}d` : `in ${ws.daysOut}d`;
+          const tiers = Array.isArray(dt.warning_tiers) ? dt.warning_tiers : [];
+          const isRemindOpen = remindFor && remindFor.id === dt.id;
+          const fmtDealDate = (s) => {
+            const ymd = String(s || "").slice(0, 10);
+            const p = ymd.split("-");
+            return p.length === 3 ? `${p[1]}/${p[2]}/${p[0]}` : ymd;
+          };
+          const openReminder = (dateRow) => {
+            const due = dateRow.due_date || "";
+            const dueFmt = fmtDealDate(due);
+            const days = daysUntil(due, Date.now());
+            const tail = days < 0 ? `\u2014 OVERDUE by ${Math.abs(days)} days` : `\u2014 in ${days} days`;
+            const autoMsg = `${detailDeal.name} \u2014 ${dateLabel(dateRow.date_type)} needed on ${dueFmt} ${tail}`;
+            setRemindFor(dateRow);
+            setRemindPhone("");
+            setRemindMsg(autoMsg);
+            setRemindStatus(null);
+          };
+          const doSendReminder = async () => {
+            setRemindBusy(true);
+            setRemindStatus(null);
+            try {
+              const r = await dealApi(token, { action: "sendReminder", deal_id: detailDeal.id, phone: remindPhone, message: remindMsg });
+              if (r.notes) setDetailNotes(r.notes);
+              setRemindStatus(r.ok ? "\u2705 Sent" : "\u26A0 Logged but SMS failed");
+              if (r.ok) setTimeout(() => {
+                setRemindFor(null);
+                setRemindStatus(null);
+              }, 1800);
+            } catch (e) {
+              setRemindStatus("\u274C Error: " + e.message);
+            } finally {
+              setRemindBusy(false);
+            }
+          };
+          return /* @__PURE__ */ React.createElement("div", { key: dt.id }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, fmtDealDate(dt.due_date)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), dt.recurring && /* @__PURE__ */ React.createElement("span", { title: `Recurring (${dt.recurring})`, style: { fontSize: "0.72rem", color: th.muted, fontWeight: 700 } }, "\u{1F501} ", dt.recurring), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("a", { href: gcalUrl(dt), target: "_blank", rel: "noopener noreferrer", style: { ...btn(th), background: "#4285f41f", border: "1px solid #4285f455", color: "#4285f4", padding: "2px 8px", fontSize: "0.68rem", textDecoration: "none", display: "inline-flex", alignItems: "center" } }, "\u{1F4C5} Google"), canEdit && /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => isRemindOpen ? setRemindFor(null) : openReminder(dt),
+              style: { ...btn(th), background: "#a855f71f", border: "1px solid #a855f755", padding: "2px 8px", fontSize: "0.68rem", color: "#a855f7" }
+            },
+            "\u{1F4F1} Remind"
+          ), canEdit && !dt.acknowledged_at && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => doAck(dt.id), style: { ...btn(th), background: "#22c55e1f", border: "1px solid #22c55e55", padding: "2px 8px", fontSize: "0.68rem", color: "#22c55e" } }, "Acknowledge"), /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), background: "#ef44441f", border: "1px solid #ef444455", padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")), canEdit && dt.acknowledged_at && /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), background: "#ef44441f", border: "1px solid #ef444455", padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")))), isRemindOpen && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", marginTop: "0.25rem", display: "flex", flexDirection: "column", gap: "0.5rem", borderLeft: "3px solid #a855f7" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: "#a855f7", textTransform: "uppercase", letterSpacing: 0.5 } }, "Send reminder \u2014 ", detailDeal.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 600 } }, "Recipient"), /* @__PURE__ */ React.createElement(
+            "select",
+            {
+              value: remindPhone,
+              onChange: (e) => setRemindPhone(e.target.value),
+              style: { ...inp(th), fontSize: "0.82rem", padding: "0.35rem 0.5rem" }
+            },
+            /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select recipient \u2014"),
+            dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.phone || "", disabled: !l.phone }, l.name, l.phone ? ` \u2014 ${formatPhone(l.phone)}` : " (no number on file)"))
+          )), /* @__PURE__ */ React.createElement(
+            "textarea",
+            {
+              value: remindMsg,
+              onChange: (e) => setRemindMsg(e.target.value),
+              rows: 3,
+              style: { ...inp(th), fontSize: "0.8rem", padding: "0.35rem 0.5rem", resize: "vertical" }
+            }
+          ), remindStatus && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: remindStatus.startsWith("\u2705") ? "#22c55e" : remindStatus.startsWith("\u26A0") ? "#f59e0b" : "#ef4444" } }, remindStatus), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: doSendReminder,
+              disabled: remindBusy || !remindPhone,
+              style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem", background: "#a855f7", color: "#fff", border: "none", fontWeight: 700, opacity: !remindPhone || remindBusy ? 0.5 : 1 }
+            },
+            remindBusy ? "Sending\u2026" : "Send"
+          ), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => {
+                setRemindFor(null);
+                setRemindStatus(null);
+              },
+              style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem" }
+            },
+            "Cancel"
+          ))));
+        })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Add Date"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: newDateType,
+            onChange: (e) => {
+              setNewDateType(e.target.value);
+              const dt2 = DATE_TYPES.find((t) => t.id === e.target.value);
+              setNewDateTiers(dt2?.defaultTiers?.join(",") || "");
+            },
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          },
+          DATE_TYPES.map((t) => /* @__PURE__ */ React.createElement("option", { key: t.id, value: t.id }, t.label))
+        ), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "date",
+            value: newDateDue,
+            onChange: (e) => setNewDateDue(e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          }
+        ), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            value: newDateTiers,
+            onChange: (e) => setNewDateTiers(e.target.value),
+            placeholder: "Warning tiers (e.g. 30,14,7)",
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          }
+        ), /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: newDateRecurring,
+            onChange: (e) => setNewDateRecurring(e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          },
+          /* @__PURE__ */ React.createElement("option", { value: "" }, "Does not recur"),
+          /* @__PURE__ */ React.createElement("option", { value: "monthly" }, "\u{1F501} Recurring \u2014 Monthly"),
+          /* @__PURE__ */ React.createElement("option", { value: "quarterly" }, "\u{1F501} Recurring \u2014 Quarterly"),
+          /* @__PURE__ */ React.createElement("option", { value: "annual" }, "\u{1F501} Recurring \u2014 Annual")
+        ), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            value: newDateNotes,
+            onChange: (e) => setNewDateNotes(e.target.value),
+            placeholder: "Notes (optional)",
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
+          }
+        )), dateErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#ef4444" } }, dateErr), /* @__PURE__ */ React.createElement("button", { onClick: doAddDate, disabled: dateAdding, style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem", alignSelf: "flex-start", background: "#3b82f6", color: "#fff", border: "none", fontWeight: 700 } }, dateAdding ? "Adding\u2026" : "Add Date")));
+      })(), (() => {
+        const DOC_TYPE_LABELS = {
+          loi: "LOI",
+          lease_psa: "Lease / PSA",
+          amendment: "Amendment",
+          estoppel: "Estoppel",
+          snda: "SNDA",
+          title: "Title",
+          survey: "Survey",
+          phase1: "Phase I",
+          zoning: "Zoning",
+          appraisal: "Appraisal",
+          guaranty: "Guaranty",
+          closing: "Closing",
+          other: "Other"
+        };
+        const DOC_TYPE_OPTIONS = Object.entries(DOC_TYPE_LABELS);
+        const fmtBytes = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? (n / 1024).toFixed(0) + " KB" : (n || 0) + " B";
+        const fmtDate2 = (s) => s ? new Date(s).toLocaleDateString() : "";
+        const doUploadNew = async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          e.target.value = "";
+          setDocBusy(true);
+          setDocErr(null);
+          try {
+            await dealUploadDoc(token, { deal_id: d.id, doc_type: newDocType, file });
+            loadDocs(d.id);
+          } catch (err) {
+            setDocErr(err.message);
+          } finally {
+            setDocBusy(false);
+          }
+        };
+        const doUploadVersion = async (doc, e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          e.target.value = "";
+          setDocBusy(true);
+          setDocErr(null);
+          try {
+            await dealUploadDoc(token, { deal_id: d.id, document_id: doc.id, doc_type: doc.doc_type, file });
+            loadDocs(d.id);
+          } catch (err) {
+            setDocErr(err.message);
+          } finally {
+            setDocBusy(false);
+          }
+        };
+        const sortedDocs = [...docs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Documents"), docErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.5rem" } }, "Error: ", docErr), sortedDocs.length === 0 && !docBusy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" } }, "No documents yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "0.75rem" } }, sortedDocs.map((doc) => {
+          const versions = [...docVersions.filter((v) => v.document_id === doc.id)].sort((a, b) => b.version_no - a.version_no);
+          return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { ...card(th), padding: "0.65rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 7px", borderRadius: 999, background: "#3b82f622", color: "#3b82f6", fontSize: "0.62rem", fontWeight: 700, letterSpacing: 0.3 } }, DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, doc.title || "\u2014")), canEdit && /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", opacity: docBusy ? 0.5 : 1 } }, "\u2191 New version"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv", style: { display: "none" }, disabled: docBusy, onChange: (e) => doUploadVersion(doc, e) }))), versions.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No versions uploaded."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, versions.map((v) => /* @__PURE__ */ React.createElement("div", { key: v.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 6px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.62rem", fontWeight: 700 } }, "v", v.version_no), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 500 } }, v.filename), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtBytes(v.size)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, v.uploaded_by), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtDate2(v.uploaded_at)), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => dealDownloadVersion(token, v.id),
+              style: { ...btn(th), padding: "1px 8px", fontSize: "0.68rem", marginLeft: "auto" }
+            },
+            "Download"
+          )))));
+        })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+          "select",
+          {
+            value: newDocType,
+            onChange: (e) => setNewDocType(e.target.value),
+            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem", minWidth: 130 }
+          },
+          DOC_TYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))
+        ), /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", opacity: docBusy ? 0.5 : 1, display: "inline-block" } }, docBusy ? "Uploading\u2026" : "Upload Document"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv", style: { display: "none" }, disabled: docBusy, onChange: doUploadNew }))));
+      })()));
+    };
+    const CreateModal = () => {
+      if (!showCreate) return null;
+      return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setShowCreate(false), style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", background: th.bg, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 480, boxShadow: "0 8px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "New Deal"), [
+        { label: "Name", key: "name", type: "text" },
+        { label: "Address", key: "address", type: "text" }
+      ].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key, style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, f.label), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: f.type,
+          value: createForm[f.key],
+          onChange: (e) => setCreateForm((p) => ({ ...p, [f.key]: e.target.value })),
+          style: { ...selLabel, padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
+        }
+      ))), [
+        { label: "Deal Type", key: "deal_type", options: [{ v: "lease", l: "Lease" }, { v: "purchase", l: "Purchase" }] },
+        { label: "Brand", key: "brand", options: [{ v: "dunkin", l: "Dunkin'" }, { v: "papajohns", l: "Papa Johns" }, { v: "bww_go", l: "BWW Go" }, { v: "dual", l: "Dual" }] },
+        { label: "State", key: "state", options: [{ v: "PA", l: "PA" }, { v: "NJ", l: "NJ" }] }
+      ].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key, style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, f.label), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: createForm[f.key],
+          onChange: (e) => setCreateForm((p) => ({ ...p, [f.key]: e.target.value })),
+          style: { ...selLabel, padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
+        },
+        f.options.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.v, value: o.v }, o.l))
+      ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Deal Lead"), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: createForm.deal_lead,
+          onChange: (e) => setCreateForm((p) => ({ ...p, deal_lead: e.target.value })),
+          style: { ...selLabel, padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select Lead \u2014"),
+        dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.name }, l.name))
+      )), createError && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem" } }, createError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCreate(false), style: { ...btn(th), padding: "0.45rem 0.9rem" } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: doCreate, disabled: creating, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, creating ? "Creating\u2026" : "Create Deal"))));
+    };
+    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "Deal Pipeline"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.25rem", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", padding: "0.2rem" } }, ["kanban", "table"].map((v) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: v,
+        onClick: () => setView(v),
+        style: {
+          padding: "0.3rem 0.75rem",
+          borderRadius: "0.35rem",
+          border: "none",
+          cursor: "pointer",
+          fontWeight: 700,
+          fontSize: "0.78rem",
+          background: view === v ? "#3b82f6" : "transparent",
+          color: view === v ? "#fff" : th.muted,
+          transition: "all .15s"
+        }
+      },
+      v === "kanban" ? "Dealboard" : "Table"
+    ))), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCreate(true), style: { ...btn(th), padding: "0.4rem 0.9rem", fontWeight: 700, background: "#22c55e", color: "#fff", border: "none", fontSize: "0.82rem" } }, "+ New Deal"), role === "admin" && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAccess(true), style: { ...btn(th), padding: "0.4rem 0.9rem", fontWeight: 700, background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.82rem" } }, "\u{1F512} Manage Access"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${k.color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.45rem", color: th.text } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "1rem" } }, STAGES.map((s) => {
+      const cnt = deals.filter((d) => d.stage === s.id).length;
+      if (!cnt) return null;
+      return /* @__PURE__ */ React.createElement(Chip, { key: s.id, label: `${s.label}: ${cnt}`, color: STAGE_COLORS[s.id], small: true });
+    })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" } }, [
+      { label: "Brand", val: filterBrand, set: setFilterBrand, opts: [["all", "All Brands"], ["dunkin", "Dunkin'"], ["papajohns", "Papa Johns"], ["bww_go", "BWW Go"], ["dual", "Dual"]] },
+      { label: "Type", val: filterType, set: setFilterType, opts: [["all", "All Types"], ["lease", "Lease"], ["purchase", "Purchase"]] },
+      { label: "State", val: filterState, set: setFilterState, opts: [["all", "All States"], ["PA", "PA"], ["NJ", "NJ"]] },
+      { label: "Stage", val: filterStage, set: setFilterStage, opts: [["all", "All Stages"], ...STAGES.map((s) => [s.id, s.label])] },
+      { label: "Lead", val: filterLead, set: setFilterLead, opts: [["all", "All Leads"], ...leads.map((l) => [l, l])] }
+    ].map((f) => /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        key: f.label,
+        value: f.val,
+        onChange: (e) => f.set(e.target.value),
+        style: { ...selLabel, padding: "0.35rem 0.6rem", fontSize: "0.8rem", minWidth: 110 }
+      },
+      f.opts.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))
+    )), (filterBrand !== "all" || filterType !== "all" || filterState !== "all" || filterStage !== "all" || filterLead !== "all") && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => {
+          setFilterBrand("all");
+          setFilterType("all");
+          setFilterState("all");
+          setFilterStage("all");
+          setFilterLead("all");
+        },
+        style: { ...btn(th), background: "#ef44441f", border: "1px solid #ef444455", padding: "0.35rem 0.7rem", fontSize: "0.78rem", color: "#ef4444" }
+      },
+      "Clear"
+    )), actionErr && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", background: "#ef444418", border: "1px solid #ef444455", color: "#ef4444", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", marginBottom: "0.75rem", fontSize: "0.8rem", fontWeight: 600 } }, /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, actionErr), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionErr(null), style: { background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "0.9rem", lineHeight: 1 } }, "\xD7")), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), canEdit && deadFor && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: { position: "fixed", inset: 0, zIndex: 1e4, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
+        onClick: (e) => {
+          if (e.target === e.currentTarget && !deadBusy) setDeadFor(null);
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)" }, onClick: () => {
+        if (!deadBusy) setDeadFor(null);
+      } }),
+      /* @__PURE__ */ React.createElement("div", { style: { position: "relative", background: th.bg, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 440, boxShadow: "0 8px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "Mark Deal Dead"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, '"', deadFor.name, '" will be marked dead and removed from the active pipeline.'), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Reason"), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: deadReason,
+          onChange: (e) => setDeadReason(e.target.value),
+          style: { ...selLabel, padding: "0.45rem 0.6rem", fontSize: "0.85rem" }
+        },
+        DEAD_REASONS.map((r) => /* @__PURE__ */ React.createElement("option", { key: r, value: r }, r))
+      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Note (optional)"), /* @__PURE__ */ React.createElement(
+        "textarea",
+        {
+          value: deadNote,
+          onChange: (e) => setDeadNote(e.target.value),
+          rows: 3,
+          placeholder: "Additional detail\u2026",
+          style: { ...inp(th), fontSize: "0.82rem", padding: "0.4rem 0.6rem", resize: "vertical" }
+        }
+      )), deadErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444" } }, "Error: ", deadErr), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setDeadFor(null),
+          disabled: deadBusy,
+          style: { ...btn(th), padding: "0.45rem 1rem", fontSize: "0.82rem" }
+        },
+        "Cancel"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: confirmMarkDead,
+          disabled: deadBusy,
+          style: { ...btn(th), padding: "0.45rem 1.1rem", fontSize: "0.82rem", fontWeight: 700, background: "#ef4444", color: "#fff", border: "none" }
+        },
+        deadBusy ? "Marking\u2026" : "Mark Dead"
+      )))
+    ), showAccess && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
+        onClick: (e) => {
+          if (e.target === e.currentTarget) setShowAccess(false);
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { ...card(th), width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto", padding: "1.5rem", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.15rem", color: th.text } }, "\u{1F512} Manage Deal Pipeline Access"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.25rem" } }, "Who can see and edit the Deal Pipeline. Admins manage this list.")), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAccess(false), style: { ...btn(th), padding: "0.25rem 0.6rem", fontSize: "0.78rem", color: th.muted, background: "transparent", border: "none" } }, "\u2715")), accessErr && /* @__PURE__ */ React.createElement("div", { style: { background: "#fee2e2", color: "#991b1b", borderRadius: "0.4rem", padding: "0.5rem 0.75rem", marginBottom: "0.75rem", fontSize: "0.82rem" } }, accessErr), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, accessRows === null ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026") : accessRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No access entries yet.") : /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "User"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "Role"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "Added by"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.35rem 0.5rem" } }))), /* @__PURE__ */ React.createElement("tbody", null, accessRows.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.user_key, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.text, fontWeight: 600 } }, row.user_key), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem" } }, /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: row.role,
+          disabled: accessBusy,
+          onChange: (e) => doSetAccess(row.user_key, e.target.value),
+          style: { ...inp(th), padding: "0.2rem 0.4rem", fontSize: "0.78rem", width: "auto" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "view" }, "view"),
+        /* @__PURE__ */ React.createElement("option", { value: "edit" }, "edit"),
+        /* @__PURE__ */ React.createElement("option", { value: "admin" }, "admin")
+      )), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.muted, fontSize: "0.75rem" } }, row.added_by || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: accessBusy,
+          onClick: () => doRemoveAccess(row.user_key),
+          style: { ...btn(th), padding: "0.2rem 0.5rem", fontSize: "0.75rem", color: "#ef4444", background: "transparent", border: `1px solid #ef4444` }
+        },
+        "Remove"
+      ))))))), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Grant Access"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: accessInput,
+          onChange: (e) => setAccessInput(e.target.value),
+          placeholder: "email or username",
+          style: { ...inp(th), flex: 1, minWidth: 160, padding: "0.35rem 0.6rem", fontSize: "0.82rem" }
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: accessRole,
+          onChange: (e) => setAccessRole(e.target.value),
+          style: { ...inp(th), padding: "0.35rem 0.5rem", fontSize: "0.82rem", width: "auto" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "view" }, "view"),
+        /* @__PURE__ */ React.createElement("option", { value: "edit" }, "edit"),
+        /* @__PURE__ */ React.createElement("option", { value: "admin" }, "admin")
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: accessBusy || !accessInput.trim(),
+          onClick: () => {
+            doSetAccess(accessInput.trim(), accessRole);
+            setAccessInput("");
+          },
+          style: { ...btn(th), padding: "0.35rem 0.9rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", fontSize: "0.82rem", opacity: accessBusy || !accessInput.trim() ? 0.5 : 1 }
+        },
+        "Grant Access"
+      )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.4rem" } }, "Tip: add by the person's login email or username (case-insensitive).")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Deal Leads"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.75rem" } }, dealLeads.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No leads yet."), dealLeads.map((l) => /* @__PURE__ */ React.createElement("div", { key: l.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", padding: "0.3rem 0.5rem", background: th.card, borderRadius: "0.35rem", border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, l.name), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: accessBusy,
+          onClick: () => {
+            setAccessBusy(true);
+            dealApi(token, { action: "removeLead", id: l.id }).then((r) => setDealLeads(r.leads || [])).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
+          },
+          style: { ...btn(th), padding: "0.15rem 0.5rem", fontSize: "0.75rem", color: "#ef4444", background: "transparent", border: `1px solid #ef4444` }
+        },
+        "\xD7"
+      )))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: newLeadName,
+          onChange: (e) => setNewLeadName(e.target.value),
+          placeholder: "New lead name",
+          style: { ...inp(th), flex: 1, padding: "0.35rem 0.6rem", fontSize: "0.82rem" },
+          onKeyDown: (e) => {
+            if (e.key === "Enter" && newLeadName.trim()) {
+              setAccessBusy(true);
+              dealApi(token, { action: "addLead", name: newLeadName.trim() }).then((r) => {
+                setDealLeads(r.leads || []);
+                setNewLeadName("");
+              }).catch((e2) => setAccessErr(e2.message)).finally(() => setAccessBusy(false));
+            }
+          }
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          disabled: accessBusy || !newLeadName.trim(),
+          onClick: () => {
+            if (!newLeadName.trim()) return;
+            setAccessBusy(true);
+            dealApi(token, { action: "addLead", name: newLeadName.trim() }).then((r) => {
+              setDealLeads(r.leads || []);
+              setNewLeadName("");
+            }).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
+          },
+          style: { ...btn(th), padding: "0.35rem 0.9rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", fontSize: "0.82rem", opacity: accessBusy || !newLeadName.trim() ? 0.5 : 1 }
+        },
+        "Add Lead"
+      ))))
+    ));
+  }
+
+  // src/screens/TipsReportBuilder.jsx
+  var { useEffect: useEffect17, useState: useState20 } = React;
+  function TipsReportBuilder({ th, stores, user }) {
+    const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
+    const [periodStart, setPeriodStart] = useState20("");
+    const [loading, setLoading] = useState20(false);
+    const [error, setError] = useState20(null);
+    const [dayInfo, setDayInfo] = useState20(null);
+    const [snapshots, setSnapshots] = useState20(null);
+    const [grandTotal, setGrandTotal] = useState20(0);
+    const canPushToPaycor = canPaycorPush(user);
+    const [paycorCfg, setPaycorCfg] = useState20({});
+    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState20(false);
+    const [paycorPush, setPaycorPush] = useState20(null);
+    const [singleSendPc, setSingleSendPc] = useState20("");
+    const [singleSending, setSingleSending] = useState20(false);
+    const [refreshingDates, setRefreshingDates] = useState20(() => /* @__PURE__ */ new Set());
+    const [refreshingStores, setRefreshingStores] = useState20(() => /* @__PURE__ */ new Set());
+    useEffect17(() => {
+      if (!canPushToPaycor || paycorCfgLoaded) return;
+      cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
+      }).finally(() => setPaycorCfgLoaded(true));
+    }, [canPushToPaycor, paycorCfgLoaded]);
+    const fillAllEarningCodeWithTips = (storePcs) => {
+      setPaycorCfg((prev) => {
+        const next = { ...prev };
+        storePcs.forEach((pc) => {
+          if (!next[pc]?.earningCode) next[pc] = { earningCode: "Tips " };
+        });
+        cloudSave("pcg_paycor_tips_config", { earningCodes: next }).catch(() => {
+        });
+        return next;
+      });
+    };
+    useEffect17(() => {
+      if (!canPushToPaycor || !paycorCfgLoaded || !snapshots) return;
+      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+      fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc));
+    }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
+    const [missingCheck, setMissingCheck] = useState20(null);
+    const start = periodStart ? tipsParseISODate(periodStart) : null;
+    const end = start ? tipsAddDays(start, 13) : null;
+    const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 864e5) : 0;
+    const tooOld = start && daysOld > TIPS_SNAPSHOT_RETENTION_DAYS;
+    const load = async () => {
+      if (!start) return;
+      setLoading(true);
+      setError(null);
+      setSnapshots(null);
+      setDayInfo(null);
+      setMissingCheck(null);
+      try {
+        const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+        const loaded = await Promise.all(dates.map((d) => cloudLoad("pcg_tips_snapshot_" + d).catch(() => null)));
+        const info = dates.map((d, i) => tipsComputeDayInfo(d, loaded[i]));
+        setSnapshots(loaded);
+        setDayInfo(info);
+        setGrandTotal(tipsRound2(info.reduce((sum, d) => sum + (d.total || 0), 0)));
+      } catch (e) {
+        setError(e.message || "Failed to load tips data.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    const refreshOneDay = async (date, storePc = null) => {
+      if (!start) return;
+      const dayKey = date, storeKey = storePc ? `${storePc}|${date}` : null;
+      setRefreshingDates((prev) => storePc ? prev : new Set(prev).add(dayKey));
+      setRefreshingStores((prev) => storePc ? new Set(prev).add(storeKey) : prev);
+      const before = await cloudLoad("pcg_tips_snapshot_" + date).catch(() => null);
+      const fingerprintOf = (data) => storePc ? JSON.stringify((data || []).find((s) => String(s.pc) === String(storePc)) || null) : JSON.stringify(data);
+      const beforeFingerprint = fingerprintOf(before);
+      try {
+        await fetch("/.netlify/functions/tips-report-refresh-background", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(storePc ? { busDt: date, storePc } : { busDt: date })
+        }).catch(() => {
+        });
+        await new Promise((r) => setTimeout(r, storePc ? 3e3 : 15e3));
+        let fresh = null;
+        for (let attempt = 0; attempt < 30; attempt++) {
+          const candidate = await cloudLoad("pcg_tips_snapshot_" + date).catch(() => null);
+          if (candidate && fingerprintOf(candidate) !== beforeFingerprint) {
+            fresh = candidate;
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 8e3));
+        }
+        if (!fresh) {
+          setError(`Refresh for ${date} didn't finish in time (or came back with the exact same data) \u2014 check back in a minute and reload the period.`);
+          return;
+        }
+        const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+        const dateIdx = dates.indexOf(date);
+        if (dateIdx < 0) return;
+        setSnapshots((prev) => {
+          const next = [...prev || []];
+          next[dateIdx] = fresh;
+          return next;
+        });
+        setDayInfo((prev) => {
+          const next = [...prev || []];
+          next[dateIdx] = tipsComputeDayInfo(date, fresh);
+          setGrandTotal(tipsRound2(next.reduce((sum, d) => sum + (d.total || 0), 0)));
+          return next;
+        });
+      } finally {
+        setRefreshingDates((prev) => {
+          const next = new Set(prev);
+          next.delete(dayKey);
+          return next;
+        });
+        if (storeKey) setRefreshingStores((prev) => {
+          const next = new Set(prev);
+          next.delete(storeKey);
+          return next;
+        });
+      }
+    };
+    const download = () => {
+      const XLSX = window.XLSX;
+      if (!XLSX) {
+        setError("SheetJS library not loaded \u2014 please refresh the page.");
+        return;
+      }
+      if (!snapshots || !start) return;
+      const dates = Array.from({ length: 14 }, (_, i) => tipsAddDays(start, i));
+      const wb = XLSX.utils.book_new();
+      const { rows: periodRows } = tipsBuildPeriodTotalsAOA(start, end, snapshots);
+      XLSX.utils.book_append_sheet(wb, tipsAoaToSheet(XLSX, periodRows), "Pay Period Totals");
+      dates.forEach((dt, i) => {
+        const dayResults = snapshots[i];
+        const rows = dayResults ? tipsBuildDaySheetAOA(dt, dayResults) : [[`${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${dt.getUTCFullYear()} \u2014 no data saved for this day`]];
+        XLSX.utils.book_append_sheet(wb, tipsAoaToSheet(XLSX, rows), tipsSheetNameFor(dt, start));
+      });
+      XLSX.writeFile(wb, `Biweekly_Tips_Report_${tipsFormatISODate(start)}_to_${tipsFormatISODate(end)}.xlsx`);
+    };
+    const stageOneStoreForPaycor = async (storeKey, byStore, flaggedByPc2) => {
+      const recs = byStore[storeKey];
+      const storePc = recs?.[0]?.pc;
+      const storeMeta = (stores || []).find((s) => s.pc === storePc);
+      const cfg = paycorCfg[storePc];
+      const fail = (status, detail) => ({ pc: storePc, store: storeKey, status, detail });
+      if (flaggedByPc2[storePc]?.length) {
+        return fail("blocked", `Unresolved data gap \u2014 re-fetch before sending: ${flaggedByPc2[storePc].map((f) => f.detail).join("; ")}`);
+      }
+      if (!storeMeta?.paycor) return fail("error", "No Paycor legal entity ID configured for this store");
+      if (!cfg?.earningCode) return fail("skipped", "Earning code not auto-filled yet for this store \u2014 try Send again in a moment");
+      const toSend = recs.filter((r) => r.payrollId && r.tips > 0);
+      const missingPayrollId = recs.filter((r) => !r.payrollId && r.tips > 0).length;
+      if (toSend.length === 0) return fail("skipped", missingPayrollId ? `${missingPayrollId} employee(s) missing a payroll ID, nothing else to send` : "No employees with tips this period");
+      const titleByPayrollId = {};
+      const idByPayrollId = {};
+      let rosterFetchFailed = false;
+      try {
+        let employees = [], continuationToken;
+        do {
+          const res = await fetch("/.netlify/functions/paycor", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "employees", legalEntityId: storeMeta.paycor, ...continuationToken ? { continuationToken } : {} })
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json().catch(() => null);
+          const page = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
+          employees = employees.concat(page);
+          continuationToken = json?.continuationToken || null;
+          if (!page.length) continuationToken = null;
+        } while (continuationToken);
+        employees.forEach((e) => {
+          const num2 = e?.employeeNumber || e?.alternateEmployeeNumber;
+          if (num2) {
+            titleByPayrollId[String(num2)] = e?.positionData?.jobTitle;
+            if (e?.id) idByPayrollId[String(num2)] = e.id;
+          }
+        });
+      } catch (e) {
+        rosterFetchFailed = true;
+      }
+      let payGroupId = null;
+      try {
+        const res = await fetch("/.netlify/functions/paycor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "payGroups", legalEntityId: storeMeta.paycor })
+        });
+        const json = await res.json().catch(() => null);
+        const records = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
+        payGroupId = records[0]?.payGroupId || null;
+      } catch (e) {
+      }
+      if (!payGroupId) return fail("error", "Couldn't look up this store's Paycor pay group \u2014 required for every submission");
+      const businessStartDate = `${tipsFormatISODate(start)}T00:00:00Z`;
+      const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
+      let defaultedCount = 0;
+      const noLiveIdCount = toSend.filter((r) => !idByPayrollId[String(r.payrollId)]).length;
+      const importEmployees = toSend.filter((r) => idByPayrollId[String(r.payrollId)]).map((r) => {
+        const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
+        if (!hasLiveMatch) defaultedCount++;
+        const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
+        return {
+          employeeId: idByPayrollId[String(r.payrollId)],
+          importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }]
+        };
+      });
+      if (importEmployees.length === 0) return fail("skipped", `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ""}`);
+      try {
+        const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
+        const res = await fetch("/.netlify/functions/paycor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "stagePayrollHours", legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          const notes = [];
+          if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
+          if (noLiveIdCount) notes.push(`skipped ${noLiveIdCount} not found on current roster (no Paycor ID to send)`);
+          if (rosterFetchFailed) notes.push(`couldn't fetch current roster \u2014 all defaulted to Cust Svc (101)`);
+          else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
+          return { pc: storePc, store: storeKey, status: "ok", detail: `Staged ${importEmployees.length} employee(s)${notes.length ? ", " + notes.join(", ") : ""} \u2014 still needs human review/submit in Paycor` };
+        }
+        return fail("error", data?.Detail || data?.message || data?.error || `HTTP ${res.status}`);
+      } catch (e) {
+        return fail("error", e.message || "Request failed");
+      }
+    };
+    const sendToPaycor = async () => {
+      if (!snapshots || !start) return;
+      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+      const periodDates2 = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const flaggedByPc2 = tipsFindFlaggedStorePcs(snapshots, periodDates2, stores, todayStr);
+      const results = storeOrder.map((store) => ({ pc: byStore[store][0]?.pc, store, status: "pending", detail: null }));
+      setPaycorPush({ running: true, results });
+      for (const store of storeOrder) {
+        const result = await stageOneStoreForPaycor(store, byStore, flaggedByPc2);
+        const idx = results.findIndex((r) => r.pc === result.pc);
+        if (idx >= 0) results[idx] = result;
+        setPaycorPush({ running: true, results: [...results] });
+      }
+      setPaycorPush({ running: false, results });
+    };
+    const sendOneStoreToPaycor = async () => {
+      if (!snapshots || !start || !singleSendPc) return;
+      setSingleSending(true);
+      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
+      const storeKey = storeOrder.find((k) => String(byStore[k][0]?.pc) === String(singleSendPc));
+      const periodDates2 = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
+      const flaggedByPc2 = tipsFindFlaggedStorePcs(snapshots, periodDates2, stores, todayStr);
+      let result;
+      if (!storeKey) {
+        const storeMeta = (stores || []).find((s) => String(s.pc) === String(singleSendPc));
+        result = { pc: singleSendPc, store: storeMeta?.name || singleSendPc, status: "skipped", detail: "No tips data for this store in the loaded period" };
+      } else {
+        result = await stageOneStoreForPaycor(storeKey, byStore, flaggedByPc2);
+      }
+      setSingleSending(false);
+      setPaycorPush((prev) => {
+        const results = prev ? [...prev.results] : [];
+        const idx = results.findIndex((r) => r.pc === result.pc);
+        if (idx >= 0) results[idx] = result;
+        else results.push(result);
+        return { running: false, results };
+      });
+    };
+    const filledCount = dayInfo ? dayInfo.filter((d) => d.filled).length : 0;
+    const missingDates = dayInfo ? dayInfo.filter((d) => !d.filled && d.date < todayStr).map((d) => d.date) : [];
+    const notYetCollectedDates = dayInfo ? dayInfo.filter((d) => !d.filled && d.date >= todayStr).map((d) => d.date) : [];
+    const isExcludedManager = (jobTitle) => /general\s*manager|store\s*manager/i.test(jobTitle || "") && !/assist|asst/i.test(jobTitle || "");
+    const checkMissingEmployees = async () => {
+      if (!snapshots || !start) return;
+      setMissingCheck({ loading: true, results: null, error: null });
+      try {
+        const crewNamesByStore = {};
+        for (const dayResults of snapshots || []) {
+          if (!dayResults) continue;
+          for (const s of dayResults) {
+            if (!crewNamesByStore[s.pc]) crewNamesByStore[s.pc] = /* @__PURE__ */ new Set();
+            (s.crew || []).forEach((c) => crewNamesByStore[s.pc].add(c.name));
+          }
+        }
+        const storeList = (stores || []).filter((s) => s.paycor);
+        const results = [];
+        const BATCH = 6;
+        for (let i = 0; i < storeList.length; i += BATCH) {
+          const batch = storeList.slice(i, i + BATCH);
+          await Promise.all(batch.map(async (store) => {
+            try {
+              let records = [], continuationToken;
+              do {
+                const res = await fetch("/.netlify/functions/paycor", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "employees", legalEntityId: store.paycor, ...continuationToken ? { continuationToken } : {} })
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const json = await res.json().catch(() => null);
+                const page = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
+                records = records.concat(page);
+                continuationToken = json?.continuationToken || json?.nextToken || null;
+                if (!page.length) continuationToken = null;
+              } while (continuationToken);
+              const crewNames = crewNamesByStore[store.pc] || /* @__PURE__ */ new Set();
+              const missing = [];
+              records.forEach((e) => {
+                if (e?.statusData?.status !== "Active") return;
+                if (isExcludedManager(e?.positionData?.jobTitle)) return;
+                const name = `${(e.firstName || "").trim()} ${(e.lastName || "").trim()}`.trim();
+                if (name && !crewNames.has(name)) missing.push(name);
+              });
+              if (missing.length) results.push({ pc: store.pc, name: store.name, district: store.district, missing: missing.sort() });
+            } catch (err) {
+              results.push({ pc: store.pc, name: store.name, district: store.district, fetchError: err.message });
+            }
+          }));
+        }
+        results.sort((a, b) => (a.district || 0) - (b.district || 0) || a.name.localeCompare(b.name));
+        setMissingCheck({ loading: false, results, error: null });
+      } catch (e) {
+        setMissingCheck({ loading: false, results: null, error: e.message || "Check failed." });
+      }
+    };
+    const fs = finStyles(th);
+    const periodDates = start ? Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i))) : [];
+    const flaggedByPc = snapshots && start ? tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr) : {};
+    const flaggedPcs = Object.keys(flaggedByPc);
+    const storeNameOf = (pc) => (stores || []).find((s) => String(s.pc) === String(pc))?.name || pc;
+    const maxDay = dayInfo ? Math.max(1, ...dayInfo.map((d) => d.total || 0)) : 1;
+    const shortDate2 = (iso) => {
+      const dt = tipsParseISODate(iso);
+      return `${TIPS_MONTHS[dt.getUTCMonth()].slice(0, 3)} ${dt.getUTCDate()}`;
+    };
+    const longDate = (dt) => `${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}`;
+    return /* @__PURE__ */ React.createElement("div", { className: "fin-root" }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: fs.title }, "Tips Report"), /* @__PURE__ */ React.createElement("p", { style: fs.lede }, "Pulls the pay period\u2019s tip data straight from what\u2019s already saved each night: no files to upload, nothing fetched live. Pick the first day of the pay period below."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: fs.fieldLabel }, "Pay period start date", /* @__PURE__ */ React.createElement("input", { type: "date", className: "fin-input", value: periodStart, max: todayStr, onChange: (e) => {
+      setPeriodStart(e.target.value);
+      setSnapshots(null);
+      setDayInfo(null);
+      setError(null);
+      setMissingCheck(null);
+    }, style: { ...fs.input, width: 200 } })), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: load, disabled: !periodStart || loading, style: { ...fs.primary, opacity: !periodStart || loading ? 0.5 : 1 } }, loading ? "Loading\u2026" : "Load period"), start && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.86rem", color: th.muted, paddingBottom: "0.6rem" } }, "Covers ", longDate(start), " to ", longDate(end), ", ", end.getUTCFullYear())), tooOld && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "That start date is ", daysOld, " days ago. Daily snapshots are only kept for about ", TIPS_SNAPSHOT_RETENTION_DAYS, " days, so some or all of this period\u2019s data may already be gone. Try a more recent pay period."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), loading && !dayInfo && /* @__PURE__ */ React.createElement(FinSkeleton, { th, rows: 2, figures: 3 }), dayInfo && /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Pay period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.muted, marginTop: "0.1rem" } }, shortDate2(periodDates[0]), " to ", shortDate2(periodDates[13]), ", ", end.getUTCFullYear())), /* @__PURE__ */ React.createElement(FinFigures, null, /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Tips so far", value: grandTotal, format: finMoney.format }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Days found", value: filledCount, format: (v) => `${Math.round(v)} of 14` }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Stores with a data gap", value: flaggedPcs.length, format: (v) => finInt.format(v), tone: flaggedPcs.length ? "bad" : void 0 })), /* @__PURE__ */ React.createElement("div", { role: "list", "aria-label": "Tips by day this pay period", style: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "0.45rem" } }, dayInfo.map((d) => {
+      const dt = tipsParseISODate(d.date);
+      const isFuture = d.date >= todayStr;
+      const isRefreshing = refreshingDates.has(d.date);
+      const gap = !d.filled && !isFuture;
+      const frac = d.filled ? (d.total || 0) / maxDay : 0;
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: d.date,
+          role: "listitem",
+          title: d.filled ? `${d.employees} employees, ${d.stores} stores, $${(d.total || 0).toFixed(2)}` : "No data saved for this day",
+          style: { position: "relative", minWidth: 0, borderRadius: "0.6rem", border: `1px solid ${gap ? withAlpha(th.warn, 0.45) : th.cardBorder}`, background: isFuture ? "transparent" : th.card2, padding: "0.5rem 0.45rem 0.45rem", display: "grid", gap: "0.3rem", opacity: isFuture ? 0.55 : 1 }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, TIPS_DOW[dt.getUTCDay()], " ", dt.getUTCMonth() + 1, "/", dt.getUTCDate()), !isFuture && /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            type: "button",
+            className: "fin-btn",
+            onClick: () => !isRefreshing && refreshOneDay(d.date),
+            disabled: isRefreshing,
+            "aria-label": isRefreshing ? `Refreshing ${d.date}` : `Re-fetch ${d.date} from Pulse/Paycor`,
+            title: isRefreshing ? "Refreshing\u2026" : `Re-fetch ${d.date} from Pulse/Paycor`,
+            style: { background: "transparent", border: "none", padding: 4, margin: -4, borderRadius: "0.4rem", cursor: isRefreshing ? "default" : "pointer", display: "inline-flex" }
+          },
+          /* @__PURE__ */ React.createElement(FinRefreshIcon, { color: isRefreshing ? O : th.muted, spinning: isRefreshing })
+        )),
+        /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "relative", height: 46, borderRadius: "0.35rem", overflow: "hidden", background: th.card3 } }, /* @__PURE__ */ React.createElement("div", { className: "fin-col", style: { position: "absolute", inset: 0, background: d.filled ? O : "transparent", transform: `scaleY(${Math.max(d.filled ? 0.04 : 0, frac).toFixed(3)})` } })),
+        /* @__PURE__ */ React.createElement("span", { className: "fin-num", style: { fontSize: "0.8rem", fontWeight: 700, color: gap ? th.warn : isFuture ? th.muted : th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, d.filled ? finMoney0.format(d.total || 0) : isFuture ? "Not yet" : "No data")
+      );
+    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.warn } }, "No saved data for ", missingDates.map(shortDate2).join(", "), ". Either before the nightly report existed, or that night\u2019s run didn\u2019t complete."), notYetCollectedDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, notYetCollectedDates.map(shortDate2).join(", "), " ", notYetCollectedDates.length === 1 ? "hasn\u2019t" : "haven\u2019t", " happened yet or ", notYetCollectedDates.length === 1 ? "isn\u2019t" : "aren\u2019t", " closed out for the night, so there\u2019s nothing to collect yet.")), flaggedPcs.length > 0 && /* @__PURE__ */ React.createElement("div", { role: "alert", style: { borderTop: `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${th.danger}`, padding: "0.9rem 1.1rem", background: withAlpha(th.danger, 0.06) } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "flex-start", fontSize: "0.88rem", fontWeight: 700, color: th.danger } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "blocked" }), /* @__PURE__ */ React.createElement("span", null, flaggedPcs.length, " store", flaggedPcs.length === 1 ? " has" : "s have", " an unresolved data gap this period. They\u2019ll be skipped if you send to Paycor now, not silently included wrong.")), /* @__PURE__ */ React.createElement("ul", { style: { margin: "0.5rem 0 0", paddingLeft: "1.6rem", display: "grid", gap: "0.35rem" } }, flaggedPcs.map((pc) => {
+      const uniqueDates = [...new Set(flaggedByPc[pc].map((f) => f.date))];
+      return /* @__PURE__ */ React.createElement("li", { key: pc, style: { fontSize: "0.84rem", color: th.text } }, /* @__PURE__ */ React.createElement("strong", null, storeNameOf(pc)), ": ", flaggedByPc[pc].map((f) => f.detail).join("; "), uniqueDates.map((d) => {
+        const isRefreshing = refreshingStores.has(`${pc}|${d}`);
+        return /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            key: d,
+            type: "button",
+            className: "fin-btn",
+            onClick: () => !isRefreshing && refreshOneDay(d, pc),
+            disabled: isRefreshing,
+            style: { marginLeft: "0.5rem", display: "inline-flex", alignItems: "center", gap: "0.3rem", background: "transparent", border: `1px solid ${withAlpha(th.danger, 0.4)}`, borderRadius: "0.45rem", padding: "0.15rem 0.5rem", fontSize: "0.78rem", fontWeight: 700, color: isRefreshing ? th.muted : th.danger, cursor: isRefreshing ? "default" : "pointer", fontFamily: FONTS.body }
+          },
+          /* @__PURE__ */ React.createElement(FinRefreshIcon, { color: isRefreshing ? th.muted : th.danger, size: 12, spinning: isRefreshing }),
+          isRefreshing ? `Refreshing ${shortDate2(d)}\u2026` : `Retry ${shortDate2(d)}`
+        );
+      }));
+    }))), canPushToPaycor && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.84rem", color: th.muted } }, "Just fixed one store (e.g. in the Tips Editor)? Resend only that store:"), /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: singleSendPc, onChange: (e) => setSingleSendPc(e.target.value), style: { ...fs.input, width: "auto", minWidth: 210 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), (stores || []).filter((s) => s.paycor).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")"))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: sendOneStoreToPaycor, disabled: !singleSendPc || singleSending || paycorPush?.running, style: { ...fs.ghost, opacity: !singleSendPc || singleSending || paycorPush?.running ? 0.5 : 1 } }, singleSending ? "Sending\u2026" : "Send Just This Store")), /* @__PURE__ */ React.createElement("div", { style: fs.footer }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.muted, marginRight: "auto", maxWidth: 520 } }, "The workbook\u2019s first sheet, \u201CPay Period Totals,\u201D adds up each employee\u2019s tips across the whole period; that\u2019s the one to key into Paycor. The other 14 sheets are the day-by-day breakdown."), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...fs.ghost, opacity: missingCheck?.loading ? 0.5 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: download, style: canPushToPaycor ? fs.ghost : fs.primary }, "Download workbook"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...fs.primary, opacity: paycorPush?.running ? 0.5 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), paycorPush && (() => {
+      const doneCount = paycorPush.results.filter((r) => r.status !== "pending").length;
+      const total = paycorPush.results.length;
+      const okCount = paycorPush.results.filter((r) => r.status === "ok").length;
+      const problemCount = paycorPush.results.filter((r) => r.status === "error" || r.status === "blocked").length;
+      return /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Paycor send progress"), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.86rem", color: th.muted } }, /* @__PURE__ */ React.createElement(FinTicker, { value: doneCount, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " of ", total, " stores ", paycorPush.running ? "so far" : "done")), /* @__PURE__ */ React.createElement(FinBar, { th, frac: total ? doneCount / total : 0, height: 8 }), /* @__PURE__ */ React.createElement(FinFigures, null, /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Staged", value: okCount, format: (v) => finInt.format(v), tone: okCount ? "good" : void 0 }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Need attention", value: problemCount, format: (v) => finInt.format(v), tone: problemCount ? "bad" : void 0 }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.5rem 1rem", padding: "0 1.1rem 1.1rem" } }, paycorPush.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, title: r.detail || "", style: { display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.84rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: r.status }), /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, r.store), r.detail && r.status !== "pending" && /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: r.status === "ok" ? th.muted : r.status === "skipped" ? th.muted : th.danger, fontSize: "0.78rem", lineHeight: 1.35 } }, r.status === "blocked" ? "Blocked: " : "", r.detail))))));
+    })(), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.5, maxWidth: 720 } }, "Compares each store\u2019s live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn\u2019t work at all this period, or worked but their punches are missing. Worth a quick check before finalizing.")), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "pending" }), "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { role: "alert", style: { fontSize: "0.86rem", color: th.danger } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.success, display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "ok" }), "Every active employee has recorded hours somewhere in this period. Nothing to flag.")), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderTop: `1px solid ${th.cardBorder}`, padding: "0.7rem 1.1rem", display: "grid", gridTemplateColumns: "minmax(0, 220px) minmax(0, 1fr)", gap: "0.25rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", fontWeight: 700, color: th.text } }, r.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400 } }, "(PC# ", r.pc, ", District ", r.district, ")")), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.warn } }, "Couldn\u2019t check this store\u2019s roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.text } }, r.missing.join(", ")))))));
+  }
+
+  // src/screens/DistrictAlignmentTool.jsx
+  function DistrictAlignmentTool({ user, th, stores, users, onBack, setStores, districts, setDistricts, setUsers }) {
+    const [draft, setDraft] = React.useState(null);
+    const [metrics, setMetrics] = React.useState({});
+    const [loading, setLoading] = React.useState(true);
+    const [error, setError] = React.useState("");
+    const [actionError, setActionError] = React.useState("");
+    const [hoverHoursPc, setHoverHoursPc] = React.useState(null);
+    React.useEffect(() => {
+      if (!hoverHoursPc) return;
+      const close = () => setHoverHoursPc(null);
+      window.addEventListener("scroll", close, { passive: true, capture: true });
+      return () => window.removeEventListener("scroll", close, { capture: true });
+    }, [hoverHoursPc]);
+    const [dragPc, setDragPc] = React.useState(null);
+    const [dragOverDistrict, setDragOverDistrict] = React.useState(null);
+    const dragFromControlRef = React.useRef(false);
+    React.useEffect(() => {
+      if (!dragPc) return;
+      let y = null;
+      let raf = 0;
+      const onOver = (e) => {
+        y = e.clientY;
+      };
+      const tick = () => {
+        if (y != null) {
+          const edge = 90;
+          if (y < edge) window.scrollBy(0, -Math.ceil((edge - y) / 4));
+          else if (y > window.innerHeight - edge) window.scrollBy(0, Math.ceil((y - (window.innerHeight - edge)) / 4));
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      document.addEventListener("dragover", onOver);
+      raf = requestAnimationFrame(tick);
+      return () => {
+        document.removeEventListener("dragover", onOver);
+        cancelAnimationFrame(raf);
+      };
+    }, [dragPc]);
+    const isAdmin = isFullAdmin(user);
+    const activeStores = React.useMemo(
+      () => (stores || []).filter((s) => s.status !== "Permanently Closed"),
+      [stores]
+    );
+    const loadDraft = React.useCallback(() => {
+      setLoading(true);
+      setError("");
+      fetch("/.netlify/functions/district-alignment", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "get", liveStores: activeStores })
+      }).then((r) => r.json()).then((j) => {
+        if (!j?.ok) {
+          setError(j?.error || "Could not load District Alignment.");
+          return;
+        }
+        setDraft(j.draft);
+      }).catch(() => setError("Network error \u2014 please try again.")).finally(() => setLoading(false));
+    }, [activeStores]);
+    const [saving, setSaving] = React.useState(false);
+    const [showAddDm, setShowAddDm] = React.useState(null);
+    const [showNewDistrict, setShowNewDistrict] = React.useState(false);
+    const [newDistrictNum, setNewDistrictNum] = React.useState("");
+    const [newDmName, setNewDmName] = React.useState("");
+    const [newDmEmail, setNewDmEmail] = React.useState("");
+    const callAction = (body) => {
+      setSaving(true);
+      return fetch("/.netlify/functions/district-alignment", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify(body)
+      }).then((r) => r.json()).then((j) => {
+        if (!j?.ok) {
+          setActionError(j?.error || "That action failed \u2014 please try again.");
+          return;
+        }
+        setDraft(j.draft);
+        setActionError("");
+      }).catch(() => setActionError("Network error \u2014 please try again.")).finally(() => setSaving(false));
+    };
+    const reassignStore = (pc, district) => callAction({ action: "reassignStore", pc, district });
+    const addDm = (district) => {
+      if (!newDmName.trim() || !Number.isFinite(district) || district <= 0) return;
+      callAction({ action: "addDm", name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
+        setShowAddDm(null);
+        setShowNewDistrict(false);
+        setNewDistrictNum("");
+        setNewDmName("");
+        setNewDmEmail("");
+      });
+    };
+    const replaceDm = (district) => {
+      if (!newDmName.trim() || !Number.isFinite(district) || district <= 0) return;
+      callAction({ action: "replaceDm", name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
+        setShowAddDm(null);
+        setNewDmName("");
+        setNewDmEmail("");
+      });
+    };
+    const dmAccounts = (users || []).filter((u) => u.userType === "dm" && u.active !== false).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    const [confirmAction, setConfirmAction] = React.useState(null);
+    const [applyPlan, setApplyPlan] = React.useState(null);
+    const [applying, setApplying] = React.useState(false);
+    const [applyResult, setApplyResult] = React.useState(null);
+    const removeDm = (dmId) => setConfirmAction({
+      title: "Remove this DM?",
+      message: "Their stores will show as Unassigned until reassigned.",
+      confirmLabel: "Remove",
+      run: () => callAction({ action: "removeDm", dmId })
+    });
+    const resetToLive = () => setConfirmAction({
+      title: "Reset to live data?",
+      message: "This overwrites the draft with a fresh copy of the real Locations data. Any unsaved sandbox changes will be lost.",
+      confirmLabel: "Reset",
+      run: () => callAction({ action: "reset", liveStores: activeStores })
+    });
+    const openApply = () => {
+      setApplyResult(null);
+      const plan = planDistrictApply({ draft, liveStores: activeStores, users });
+      const nameChanges = Object.entries(plan.districtDms).filter(([n, dm]) => (districts?.[n]?.name || "") !== dm.name);
+      if (!plan.hasChanges && nameChanges.length === 0) {
+        setActionError("Nothing to apply \u2014 the draft already matches live Locations.");
+        return;
+      }
+      setApplyPlan({ ...plan, nameChanges });
+    };
+    const runApply = async () => {
+      const plan = applyPlan;
+      setApplying(true);
+      const userChanges = [...plan.dmLinks.map((l) => ({ id: l.userId, name: l.name, district: l.to })), ...plan.dmUnlinks.map((u) => ({ id: u.userId, name: u.name, district: null }))];
+      const done = [];
+      for (const ch of userChanges) {
+        try {
+          const res = await fetch("/.netlify/functions/users", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ action: "update", id: ch.id, patch: { district: ch.district } })
+          });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+          done.push(ch);
+          if (setUsers && j.user) setUsers((us) => us.map((u) => u.id === ch.id ? { ...u, ...j.user } : u));
+        } catch (e) {
+          setApplying(false);
+          setApplyPlan(null);
+          setApplyResult({ ok: false, text: `Stopped \u2014 couldn't update ${ch.name}'s account (${e.message}). ${done.length ? `Already updated: ${done.map((d) => d.name).join(", ")}. ` : ""}No stores were moved. Fix the issue and press Apply to live again.` });
+          return;
+        }
+      }
+      if (setStores) setStores((ss) => applyPlanToStores(ss, plan));
+      if (setDistricts) setDistricts((d) => applyPlanToDistricts(d, plan));
+      logClientEvent(user?.id, user?.userType, "district_alignment_applied", {
+        moves: plan.storeMoves.map((m) => `${m.pc}:${m.from}->${m.to}`),
+        links: plan.dmLinks.map((l) => `${l.name}->${l.to}`),
+        unlinks: plan.dmUnlinks.map((u) => u.name)
+      });
+      setApplying(false);
+      setApplyPlan(null);
+      setApplyResult({ ok: true, text: `Applied: ${plan.storeMoves.length} store${plan.storeMoves.length === 1 ? "" : "s"} moved, ${plan.dmLinks.length} DM${plan.dmLinks.length === 1 ? "" : "s"} linked, ${plan.dmUnlinks.length} unlinked. Alerts and reports follow the new districts from their next run.` });
+    };
+    React.useEffect(() => {
+      loadDraft();
+    }, [loadDraft]);
+    React.useEffect(() => {
+      if (activeStores.length === 0) return;
+      fetch("/.netlify/functions/district-alignment", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "metrics", pcs: activeStores.map((s) => s.pc) })
+      }).then((r) => r.json()).then((j) => {
+        if (j?.ok) setMetrics(j.metrics);
+      }).catch(() => {
+      });
+    }, [activeStores]);
+    if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: th.muted } }, "Loading District Alignment\u2026");
+    if (error) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: "#ef4444" } }, error);
+    if (!draft) return null;
+    const storeByPc = Object.fromEntries(activeStores.map((s) => [s.pc, s]));
+    const byDistrict = {};
+    Object.entries(draft.stores).forEach(([pc, { district }]) => {
+      const d = district ?? 0;
+      (byDistrict[d] ||= []).push(pc);
+    });
+    const districtNums = Object.keys(byDistrict).map(Number).sort((a, b) => a - b);
+    const selectableDistrictNums = Array.from(/* @__PURE__ */ new Set([...districtNums, ...draft.dms.map((d) => d.district)])).sort((a, b) => a - b);
+    const nearestSiblingMiles = (pc, districtPcs) => {
+      const coord = STORE_COORDS[pc];
+      if (!coord) return null;
+      let min = null;
+      districtPcs.forEach((otherPc) => {
+        if (otherPc === pc) return;
+        const d = haversineMiles(coord, STORE_COORDS[otherPc]);
+        if (Number.isFinite(d) && (min == null || d < min)) min = d;
+      });
+      return min;
+    };
+    const districtSpread = (districtPcs) => {
+      const coords = districtPcs.map((pc) => STORE_COORDS[pc]).filter(Boolean);
+      if (coords.length < 2) return { avg: null, max: null };
+      let total = 0, count = 0, max = 0;
+      for (let i = 0; i < coords.length; i++) {
+        for (let j = i + 1; j < coords.length; j++) {
+          const d = haversineMiles(coords[i], coords[j]);
+          total += d;
+          count++;
+          if (d > max) max = d;
+        }
+      }
+      return { avg: Math.round(total / count * 10) / 10, max: Math.round(max * 10) / 10 };
+    };
+    const fmtMoney = (n) => n == null ? "\u2014" : `$${n.toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
+    const fmtHour = (h) => {
+      const d = /* @__PURE__ */ new Date();
+      d.setHours(h, 0, 0, 0);
+      return d.toLocaleTimeString(void 0, { hour: "numeric" });
+    };
+    const fmtWeekRange = (m) => {
+      if (!m.weekStart || !m.weekEnd) return "";
+      const f = (iso) => (/* @__PURE__ */ new Date(`${iso}T12:00:00`)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return `${f(m.weekStart)} \u2013 ${f(m.weekEnd)}${m.weekComplete ? "" : " (partial)"}`;
+    };
+    const fmtHourRange = (h) => `${fmtHour(h)}\u2013${fmtHour((h + 1) % 24)}`;
+    const assetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "\u2014"}`;
+    const exportDistrictAlignmentPdf = () => {
+      const cell = "padding:2px 6px;font-size:8.5px;color:#1a1a1a;border-bottom:0.5px solid #ddd;";
+      const rowsHtml = (pcs, bg) => pcs.map((pc) => {
+        const s = storeByPc[pc];
+        if (!s) return "";
+        const m = metrics[pc] || {};
+        const nearest = nearestSiblingMiles(pc, pcs);
+        const maxAvg = Math.max(1, ...(m.hourlyAvg || []).map((h) => h.avgSales));
+        const topSet = new Set((m.topHours || []).map((t) => t.h));
+        const barsHtml = (m.hourlyAvg || []).map((h) => `<div style="display:inline-block;width:3px;height:${Math.max(1, Math.round(h.avgSales / maxAvg * 16))}px;background:${topSet.has(h.h) ? "#b8430f" : O + "99"};margin-right:1px;vertical-align:bottom;"></div>`).join("") + ((m.topHours || []).length ? `<div style="font-size:6.5px;color:#555;white-space:normal;">${m.topHours.map((t) => `${fmtHourRange(t.h)} ${fmtMoney(t.avgSales)}`).join(" \xB7 ")}</div>` : "");
+        return `
+        <tr style="background:${bg};">
+          <td style="${cell}font-weight:700;color:#c2540c;">${s.pc}</td>
+          <td style="${cell}">${s.paycor || "\u2014"}</td>
+          <td style="${cell}">${s.legal || "\u2014"}</td>
+          <td style="${cell}font-weight:700;">${s.name || "\u2014"}</td>
+          <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
+          <td style="${cell}">${assetCombined(s)}</td>
+          <td style="${cell}">${storeMgrName(s, users) || "Unassigned"}</td>
+          <td style="${cell}">${s.email || "\u2014"}</td>
+          <td style="${cell}">${fmtMoney(m.weeklySales)}${m.weekStart ? `<div style="font-size:6.5px;color:#888;">${fmtWeekRange(m)}</div>` : ""}</td>
+          <td style="${cell}white-space:nowrap;height:16px;">${barsHtml}</td>
+          <td style="${cell}">${nearest != null ? `${Math.round(nearest * 10) / 10} mi` : "\u2014"}</td>
+        </tr>`;
+      }).join("");
+      const districtsHtml = selectableDistrictNums.map((dNum) => {
+        const pcs = byDistrict[dNum] || [];
+        const dm = draft.dms.find((d) => d.district === dNum);
+        const dc = DISTRICT_COLORS[dNum] || { bg: "#e5e7eb", text: "#111" };
+        const spread = districtSpread(pcs);
+        return `
+        <tr style="background:${dc.bg};">
+          <td colspan="8" style="padding:3px 6px;font-size:9.5px;font-weight:800;color:${dc.text};">${dNum ? `District #${dNum}${dm ? " " + dm.name : " \u2014 Unassigned"}` : "Unassigned"}</td>
+          <td colspan="3" style="padding:3px 6px;font-size:8.5px;font-weight:700;color:${dc.text};text-align:right;">${spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : ""}</td>
+        </tr>
+        ${pcs.length === 0 ? `<tr><td colspan="11" style="${cell}font-style:italic;color:#888;">No stores assigned yet</td></tr>` : rowsHtml(pcs, districtTint(dc.bg))}`;
+      }).join("");
+      const el = document.createElement("div");
+      el.innerHTML = `
+      <div style="font-family:'Source Sans 3',sans-serif;background:#fff;padding:2px;">
+        <div style="font-family:'Raleway',sans-serif;font-weight:800;font-size:14px;color:#1a1a1a;margin-bottom:1px;">People Capital Group \u2014 District Alignment (Draft)</div>
+        <div style="font-size:8px;color:#888;margin-bottom:5px;">Generated ${(/* @__PURE__ */ new Date()).toLocaleDateString()} \u2014 sandbox draft only; never reflects or affects the real Locations data.</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#e5e7eb;">
+              ${["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Weekly Sales", "Busiest Hours", "Nearest Sibling"].map((h) => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>${districtsHtml}</tbody>
+        </table>
+      </div>`;
+      const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      html2pdf().set({ margin: 0.15, filename: `PCG-District-Alignment-Draft-${dateStr}.pdf`, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: "in", format: "letter", orientation: "landscape" }, pagebreak: { mode: ["css", "legacy"] } }).from(el).save();
+    };
+    const COLS2 = ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Weekly Sales", "Busiest Hours", "Nearest Sibling"];
+    const thStyle = { position: "sticky", top: 0, zIndex: 2, textAlign: "left", padding: "0.8rem 0.5rem", fontSize: "0.64rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "normal", verticalAlign: "bottom", color: th.muted, background: th.card, borderBottom: `1px solid ${th.cardBorder}` };
+    const tdStyle = { padding: "0.8rem 0.5rem", fontSize: "0.78rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: "middle", transition: "background 0.15s ease" };
+    const mutedTd = { ...tdStyle, color: th.muted };
+    const textLink = { background: "none", border: "none", padding: 0, marginLeft: "1rem", fontSize: "0.72rem", fontWeight: 600, color: O, cursor: "pointer", fontFamily: "'Source Sans 3'" };
+    const outlineBtn = (accent) => ({ display: "inline-flex", alignItems: "center", gap: "0.5rem", padding: "0.62rem 1.1rem", borderRadius: "0.6rem", border: `1px solid ${accent ? O + "88" : th.cardBorder}`, background: th.card, color: accent ? O : th.text, fontSize: "0.8rem", fontWeight: 600, fontFamily: "'Source Sans 3'", cursor: "pointer" });
+    const solidBtn = { ...outlineBtn(false), background: O, border: `1px solid ${O}`, color: "#fff" };
+    const Ico = ({ d, c = th.muted, s = 16 }) => /* @__PURE__ */ React.createElement("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, d);
+    const realDistricts = selectableDistrictNums.filter((n) => n > 0);
+    const storesShown = Object.keys(draft.stores).filter((pc) => storeByPc[pc]).length;
+    const siblingDistances = Object.entries(byDistrict).flatMap(([, pcs]) => pcs.map((pc) => nearestSiblingMiles(pc, pcs)).filter((v) => v != null));
+    const avgSibling = siblingDistances.length ? Math.round(siblingDistances.reduce((a, b) => a + b, 0) / siblingDistances.length * 10) / 10 : null;
+    const StatTile = ({ icon, value, label }) => /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 170px", display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.85rem 1rem", borderRadius: "0.7rem", border: `1px solid ${th.cardBorder}`, background: th.card, minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { display: "flex", flexShrink: 0 } }, icon), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.05rem", fontWeight: 800, color: th.text, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, label)));
+    const dropOn = (dNum) => {
+      const pc = dragPc;
+      setDragPc(null);
+      setDragOverDistrict(null);
+      if (!pc || draft.stores[pc]?.district === dNum) return;
+      reassignStore(pc, dNum);
+    };
+    const dropHandlers = (dNum) => isAdmin ? {
+      onDragOver: (e) => {
+        if (!dragPc) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (dragOverDistrict !== dNum) setDragOverDistrict(dNum);
+      },
+      onDrop: (e) => {
+        e.preventDefault();
+        dropOn(dNum);
+      }
+    } : {};
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap", marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.75rem" } }, onBack && /* @__PURE__ */ React.createElement("button", { onClick: onBack, "aria-label": "Back to Tools", style: { background: "none", border: "none", cursor: "pointer", padding: "0.35rem 0.2rem 0 0", display: "flex" } }, /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement("path", { d: "m15 18-6-6 6-6" }), c: th.text, s: 22 })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.75rem", color: th.text } }, "District Alignment"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.88rem", color: th.muted, marginTop: "0.2rem" } }, "Plan district groupings without changing live Locations data."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: exportDistrictAlignmentPdf, style: outlineBtn(false) }, /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 4v11" }), /* @__PURE__ */ React.createElement("path", { d: "m7 10 5 5 5-5" }), /* @__PURE__ */ React.createElement("path", { d: "M5 20h14" })), c: th.text }), "Download PDF"), isAdmin && (showNewDistrict ? /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.35rem", alignItems: "center", background: th.card, padding: "0.35rem 0.5rem", borderRadius: "0.6rem", border: `1px solid ${th.cardBorder}`, animation: "daPopIn 0.18s ease-out both" } }, /* @__PURE__ */ React.createElement("input", { type: "number", placeholder: "District #", value: newDistrictNum, onChange: (e) => setNewDistrictNum(e.target.value), style: { ...inp(th, { width: 80, fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) } }), /* @__PURE__ */ React.createElement("input", { placeholder: "DM name", value: newDmName, onChange: (e) => setNewDmName(e.target.value), style: { ...inp(th, { width: 140, fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) } }), /* @__PURE__ */ React.createElement("input", { placeholder: "DM email", value: newDmEmail, onChange: (e) => setNewDmEmail(e.target.value), style: { ...inp(th, { width: 170, fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) } }), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => addDm(Number(newDistrictNum)), disabled: saving || !newDistrictNum || !newDmName.trim(), style: { ...solidBtn, padding: "0.4rem 0.8rem" } }, "Save"), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
+      setShowNewDistrict(false);
+      setNewDistrictNum("");
+      setNewDmName("");
+      setNewDmEmail("");
+    }, style: { ...outlineBtn(false), padding: "0.4rem 0.8rem" } }, "Cancel")) : /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "da-btn",
+        disabled: saving,
+        onClick: () => {
+          setNewDistrictNum(String(Math.max(0, ...districtNums.filter((n) => n > 0)) + 1));
+          setShowNewDistrict(true);
+        },
+        style: { ...solidBtn, opacity: saving ? 0.6 : 1 }
+      },
+      /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement("path", { d: "M12 5v14M5 12h14" }), c: "#fff" }),
+      "New District"
+    )), isAdmin && setStores && /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: openApply, disabled: saving || applying, style: { ...solidBtn, opacity: saving || applying ? 0.6 : 1 } }, /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement("path", { d: "m5 12.5 4.5 4.5L19 7.5" }), c: "#fff" }), "Apply to live"), isAdmin && /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: resetToLive, disabled: saving, style: { ...outlineBtn(true), opacity: saving ? 0.6 : 1 } }, /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 12a9 9 0 1 0 3-6.7" }), /* @__PURE__ */ React.createElement("path", { d: "M3 4v5h5" })), c: O }), "Reset to live data"))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: "0.9rem", padding: "0.75rem", display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "1.4 1 220px", display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.85rem 1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: O, flexShrink: 0, boxShadow: `0 0 0 4px ${O}22` } }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text } }, "Draft"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "Changes are not live yet"))), /* @__PURE__ */ React.createElement(StatTile, { icon: /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10", r: "2.5" })), s: 20 }), value: realDistricts.length, label: "Districts" }), /* @__PURE__ */ React.createElement(StatTile, { icon: /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M9 20v-6h6v6" })), s: 20 }), value: storesShown, label: "Stores shown" }), /* @__PURE__ */ React.createElement(StatTile, { icon: /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" })), s: 20 }), value: avgSibling != null ? `${avgSibling} mi` : "\u2014", label: "Avg. sibling distance" }), /* @__PURE__ */ React.createElement(
+      StatTile,
+      {
+        icon: /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 2v5h5M9 13h6M9 17h6" })), s: 20 }),
+        value: draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "\u2014",
+        label: "Draft started from live data"
+      }
+    )), actionError && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", marginBottom: "0.6rem", borderRadius: 8, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", fontSize: "0.78rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", animation: "daPopIn 0.2s ease-out both" } }, /* @__PURE__ */ React.createElement("span", null, actionError), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionError(""), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), applyResult && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.6rem 0.85rem", marginBottom: "0.6rem", borderRadius: 8, background: applyResult.ok ? "rgba(22,163,74,0.10)" : "rgba(239,68,68,0.12)", border: `1px solid ${applyResult.ok ? "rgba(22,163,74,0.35)" : "rgba(239,68,68,0.35)"}`, color: applyResult.ok ? "#16a34a" : "#ef4444", fontSize: "0.8rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", animation: "daPopIn 0.2s ease-out both" } }, /* @__PURE__ */ React.createElement("span", null, applyResult.text), /* @__PURE__ */ React.createElement("button", { onClick: () => setApplyResult(null), style: { background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), isAdmin && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, margin: "0 0 0.5rem 0.25rem" } }, "Tip: press and hold a store row, then drag it onto another district to move it. Hold near the top or bottom of the window to scroll."), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: "0.9rem", padding: "0 0.5rem 0.5rem", overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 900 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, COLS2.map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, selectableDistrictNums.map((dNum, dIdx) => {
+      const pcs = byDistrict[dNum] || [];
+      const dm = draft.dms.find((d) => d.district === dNum);
+      const dc = DISTRICT_COLORS[dNum] || { bg: th.muted, text: th.text };
+      const spread = districtSpread(pcs);
+      const isTarget = !!dragPc && dragOverDistrict === dNum && draft.stores[dragPc]?.district !== dNum;
+      const rowEnterStyle = (extra) => ({ ...extra, animation: `daRowIn 0.35s ease-out both`, animationDelay: `${Math.min(dIdx, 10) * 40}ms` });
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: rowEnterStyle({}), ...dropHandlers(dNum) }, /* @__PURE__ */ React.createElement("td", { colSpan: COLS2.length, style: { padding: "0.6rem 0.15rem 0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem 1rem", padding: "0.6rem 0.9rem", borderRadius: "0.6rem", background: districtTint(dc.bg, isTarget ? 0.32 : 0.14), outline: isTarget ? `2px dashed ${dc.bg}` : "none", transition: "background 0.15s ease" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: dc.bg, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, dNum ? `District ${dNum}` : "Unassigned"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, dm ? dm.name : dNum ? "No district manager" : ""), dNum > 0 && (users || []).filter((u) => u.userType === "director" && u.active !== false && (u.districts || []).map(Number).includes(dNum)).map((u) => /* @__PURE__ */ React.createElement("span", { key: u.id, title: "Director of Operations \u2014 change in Admin \u2192 Users", style: { fontSize: "0.75rem", fontWeight: 700, color: "#ca8a04", background: withAlpha("#ca8a04", 0.12), padding: "0.12rem 0.5rem", borderRadius: 999, whiteSpace: "nowrap" } }, "Director: ", u.name)), isTarget && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text } }, "\xB7 Drop to move ", storeByPc[dragPc]?.name || dragPc, " here"), isAdmin && dNum > 0 && !isTarget && showAddDm === dNum && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap", animation: "daPopIn 0.18s ease-out both" } }, /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: "",
+          onChange: (e) => {
+            const u = dmAccounts.find((x) => String(x.id) === e.target.value);
+            if (u) {
+              setNewDmName(u.name || "");
+              setNewDmEmail(u.email || "");
+            }
+          },
+          style: { ...inp(th, { fontSize: "0.72rem", padding: "0.25rem 0.5rem", width: 170 }), cursor: "pointer" }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick a DM account\u2026"),
+        dmAccounts.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id, value: u.id }, u.name, u.district ? ` (now District ${u.district})` : " (no district)"))
+      ), /* @__PURE__ */ React.createElement("input", { placeholder: "Name", value: newDmName, onChange: (e) => setNewDmName(e.target.value), style: { ...inp(th, { fontSize: "0.72rem", padding: "0.25rem 0.5rem", width: 130 }) } }), /* @__PURE__ */ React.createElement("input", { placeholder: "Email", value: newDmEmail, onChange: (e) => setNewDmEmail(e.target.value), style: { ...inp(th, { fontSize: "0.72rem", padding: "0.25rem 0.5rem", width: 160 }) } }), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => dm ? replaceDm(dNum) : addDm(dNum), disabled: saving || !newDmName.trim(), style: { ...solidBtn, padding: "0.25rem 0.7rem", fontSize: "0.72rem" } }, "Save"), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
+        setShowAddDm(null);
+        setNewDmName("");
+        setNewDmEmail("");
+      }, style: { ...outlineBtn(false), padding: "0.25rem 0.7rem", fontSize: "0.72rem" } }, "Cancel")), isAdmin && dm && !isTarget && showAddDm !== dNum && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
+        setNewDmName("");
+        setNewDmEmail("");
+        setShowAddDm(dNum);
+      }, disabled: saving, style: textLink }, "Change district manager"), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => removeDm(dm.id), disabled: saving, style: textLink }, "Remove district manager")), isAdmin && !dm && dNum > 0 && !isTarget && showAddDm !== dNum && /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
+        setNewDmName("");
+        setNewDmEmail("");
+        setShowAddDm(dNum);
+      }, style: textLink }, "+ Add district manager")), spread.avg != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 600, color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.25rem 0.75rem", whiteSpace: "nowrap" } }, "Avg. distance ", /* @__PURE__ */ React.createElement("strong", null, spread.avg, " mi"), " \xB7 Max ", /* @__PURE__ */ React.createElement("strong", null, spread.max, " mi"))))), pcs.length === 0 && /* @__PURE__ */ React.createElement("tr", { style: rowEnterStyle({}), ...dropHandlers(dNum) }, /* @__PURE__ */ React.createElement("td", { colSpan: COLS2.length, style: { padding: "0.5rem 0.75rem 0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { border: `1.5px dashed ${isTarget ? dc.bg : th.cardBorder}`, borderRadius: 8, padding: "0.7rem 0.75rem", fontSize: "0.74rem", color: th.muted, textAlign: "center" } }, "No stores yet. Drag a store here, or use a store's district dropdown."))), pcs.map((pc) => {
+        const s = storeByPc[pc];
+        if (!s) return null;
+        const m = metrics[pc] || {};
+        const nearest = nearestSiblingMiles(pc, pcs);
+        const maxAvg = Math.max(1, ...(m.hourlyAvg || []).map((h) => h.avgSales));
+        const dragging = dragPc === pc;
+        const baseBg = isTarget ? districtTint(dc.bg, 0.1) : "transparent";
+        return /* @__PURE__ */ React.createElement(
+          "tr",
+          {
+            key: pc,
+            draggable: isAdmin && !saving,
+            onMouseDownCapture: (e) => {
+              dragFromControlRef.current = !!e.target.closest("select, input, button, textarea");
+            },
+            onDragStart: (e) => {
+              if (dragFromControlRef.current) {
+                e.preventDefault();
+                return;
+              }
+              e.dataTransfer.effectAllowed = "move";
+              try {
+                e.dataTransfer.setData("text/plain", pc);
+              } catch {
+              }
+              setDragPc(pc);
+            },
+            onDragEnd: () => {
+              setDragPc(null);
+              setDragOverDistrict(null);
+            },
+            ...dropHandlers(dNum),
+            style: rowEnterStyle({ background: baseBg, opacity: dragging ? 0.45 : 1, cursor: isAdmin ? "grab" : "default" }),
+            onMouseEnter: (e) => {
+              if (!dragPc) e.currentTarget.style.background = th.card2;
+            },
+            onMouseLeave: (e) => {
+              e.currentTarget.style.background = baseBg;
+            }
+          },
+          /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, isAdmin && /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "6", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "15", cy: "6", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "12", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "15", cy: "12", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "18", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "15", cy: "18", r: "1" })), c: th.muted, s: 14 }), pc)),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: mutedTd }, s.legal || "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014", isAdmin && /* @__PURE__ */ React.createElement(
+            "select",
+            {
+              value: dNum,
+              disabled: saving,
+              onChange: (e) => reassignStore(pc, Number(e.target.value)),
+              style: { ...inp(th, { fontSize: "0.72rem", padding: "0.35rem 0.6rem", borderRadius: 8 }), display: "block", marginTop: "0.35rem", minWidth: 120, cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1, background: th.card }
+            },
+            selectableDistrictNums.map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n }, n ? `District ${n}` : "Unassigned"))
+          )),
+          /* @__PURE__ */ React.createElement("td", { style: { ...mutedTd, maxWidth: 220 } }, [s.address, s.city, s.state].filter(Boolean).join(", ")),
+          /* @__PURE__ */ React.createElement("td", { style: mutedTd }, assetCombined(s)),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, storeMgrName(s, users) || "Unassigned"),
+          /* @__PURE__ */ React.createElement("td", { style: { ...mutedTd, overflowWrap: "anywhere" } }, s.email || "\u2014"),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, fmtMoney(m.weeklySales)), m.weekStart && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted, whiteSpace: "nowrap" } }, fmtWeekRange(m))),
+          /* @__PURE__ */ React.createElement(
+            "td",
+            {
+              style: tdStyle,
+              onMouseEnter: (e) => setHoverHoursPc({ pc, rect: e.currentTarget.getBoundingClientRect() }),
+              onMouseLeave: () => setHoverHoursPc(null)
+            },
+            hoverHoursPc?.pc === pc && !dragPc && (m.topHours || []).length > 0 && ReactDOM.createPortal(
+              // Rendered into <body> (v21.93): each row's entry animation leaves a transform on
+              // the <tr>, which traps any z-index inside it — the card was painting UNDER the
+              // next rows. A fixed-position portal sits above everything.
+              /* @__PURE__ */ React.createElement("div", { role: "tooltip", style: { position: "fixed", top: hoverHoursPc.rect.top + hoverHoursPc.rect.height / 2, left: hoverHoursPc.rect.left - 8, transform: "translate(-100%, -50%)", zIndex: 1e3, minWidth: 190, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem", boxShadow: "0 10px 28px rgba(0,0,0,0.18)", padding: "0.6rem 0.75rem", pointerEvents: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.35rem" } }, "Busiest hours \xB7 avg last ", m.hourlyDays || 7, " days"), m.topHours.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: t.h, style: { display: "flex", justifyContent: "space-between", gap: "1rem", fontSize: "0.8rem", padding: "0.12rem 0", color: th.text } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 800, marginRight: "0.35rem" } }, i + 1), fmtHourRange(t.h)), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700 } }, fmtMoney(t.avgSales))))),
+              document.body
+            ),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 2, height: 26, cursor: (m.topHours || []).length ? "help" : "default" } }, (m.hourlyAvg || []).map((h, hIdx) => /* @__PURE__ */ React.createElement(
+              "div",
+              {
+                key: h.h,
+                style: {
+                  width: 3,
+                  height: Math.max(2, h.avgSales / maxAvg * 26),
+                  background: (m.topHours || []).some((t) => t.h === h.h) ? "#c2410c" : O + "99",
+                  borderRadius: 1.5,
+                  transformOrigin: "bottom",
+                  animation: "daBarGrow 0.4s ease-out both",
+                  animationDelay: `${hIdx * 12}ms`
+                }
+              }
+            )))
+          ),
+          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, nearest != null ? `${Math.round(nearest * 10) / 10} mi` : "\u2014")
+        );
+      }));
+    })))), /* @__PURE__ */ React.createElement("style", null, `
+        .da-btn { transition: transform 0.12s ease, box-shadow 0.15s ease; }
+        .da-btn:hover:not(:disabled) { box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+        .da-btn:active:not(:disabled) { transform: scale(0.95); }
+        @keyframes daRowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes daPopIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        @keyframes daBarGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+        @media (prefers-reduced-motion: reduce) {
+          .da-btn, .da-btn:active:not(:disabled) { transition: none !important; transform: none !important; }
+        }
+      `), applyPlan && (() => {
+      const dLabel = (n) => n ? `District ${n}` : "Unassigned";
+      const dmOf = (n) => applyPlan.districtDms[n]?.name;
+      const noDm = Object.entries(applyPlan.districtDms).filter(([n, dm]) => !dm.name && !applyPlan.keptLinks.some((k) => k.district === Number(n)) && Object.values(draft.stores).some((r) => Number(r?.district) === Number(n))).map(([n]) => Number(n));
+      const section = (title, rows, color) => rows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: color || th.muted, marginBottom: "0.35rem" } }, title), rows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.83rem", color: th.text, padding: "0.28rem 0", borderBottom: i === rows.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, r)));
+      return /* @__PURE__ */ React.createElement("div", { onClick: () => !applying && setApplyPlan(null), style: { position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "1rem", width: "min(560px, 94vw)", maxHeight: "86vh", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1.2rem 1.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: "1.05rem" } }, "Apply this plan to live?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.5 } }, "These changes go to the real Locations data and DM accounts. Alerts, reports and DM views follow the new districts from their next run.")), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.4rem 1.4rem", overflowY: "auto" } }, section(`Stores moving (${applyPlan.storeMoves.length})`, applyPlan.storeMoves.map((m) => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, m.name), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", m.pc, ")"), " \xB7 ", dLabel(m.from), " \u2192 ", /* @__PURE__ */ React.createElement("strong", null, dLabel(m.to)), dmOf(m.to) ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " (", dmOf(m.to), ")") : null, m.editedSinceDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#d97706", fontWeight: 600 } }, " \xB7 edited in Locations after this draft") : null))), section("DM accounts", [
+        ...applyPlan.dmLinks.map((l) => /* @__PURE__ */ React.createElement(React.Fragment, null, "Link ", /* @__PURE__ */ React.createElement("strong", null, l.name), " to ", /* @__PURE__ */ React.createElement("strong", null, dLabel(l.to)), l.from ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " (was ", dLabel(l.from), ")") : null)),
+        ...applyPlan.dmUnlinks.map((u) => /* @__PURE__ */ React.createElement(React.Fragment, null, "Unlink ", /* @__PURE__ */ React.createElement("strong", null, u.name), " from ", dLabel(u.from), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2014 the account stays active; deactivate it in Admin \u2192 Users if they've left"))),
+        ...applyPlan.keptLinks.map((k) => /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, k.name), " stays linked to ", dLabel(k.district), " \u2014 the plan has no DM there, so nothing changes for them"))
+      ]), section("District DM names in Locations", applyPlan.nameChanges.map(([n, dm]) => /* @__PURE__ */ React.createElement(React.Fragment, null, dLabel(Number(n)), ": ", districts?.[n]?.name || /* @__PURE__ */ React.createElement("em", { style: { color: th.muted } }, "none"), " \u2192 ", /* @__PURE__ */ React.createElement("strong", null, dm.name || "none")))), section("Needs attention", [
+        ...applyPlan.storeMoves.some((m) => m.editedSinceDraft) ? [/* @__PURE__ */ React.createElement(React.Fragment, null, "Some stores were changed in Locations ", /* @__PURE__ */ React.createElement("strong", null, "after this draft was started"), " (marked above). Applying puts them where the draft has them \u2014 if that's not what you want, Cancel and press ", /* @__PURE__ */ React.createElement("strong", null, "Reset to live data"), " to start from today's Locations.")] : [],
+        ...applyPlan.noAccount.map((a) => a.keeps ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, a.name), " doesn't match any DM account, so ", /* @__PURE__ */ React.createElement("strong", null, a.keeps), " stays linked to ", dLabel(a.district), ". If ", a.name, ' is a new DM, create their account in Admin \u2192 Users first, then pick them with "Change district manager".') : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, a.name), " (", dLabel(a.district), ") has no DM account \u2014 create one in Admin \u2192 Users and link it to ", dLabel(a.district), ", or DM alerts for those stores reach nobody.")),
+        ...noDm.map((n) => /* @__PURE__ */ React.createElement(React.Fragment, null, dLabel(n), " has no DM \u2014 DM alerts for its stores reach nobody until one is assigned."))
+      ], "#d97706")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", padding: "0.9rem 1.4rem 1.2rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setApplyPlan(null), disabled: applying, style: { ...outlineBtn(false) } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: runApply, disabled: applying, style: { ...solidBtn, opacity: applying ? 0.6 : 1 } }, applying ? "Applying\u2026" : "Apply to live"))));
+    })(), confirmAction && /* @__PURE__ */ React.createElement(
+      PortalConfirmModal,
+      {
+        th,
+        title: confirmAction.title,
+        message: confirmAction.message,
+        confirmLabel: confirmAction.confirmLabel,
+        onConfirm: () => {
+          confirmAction.run();
+          setConfirmAction(null);
+        },
+        onCancel: () => setConfirmAction(null)
+      }
+    ));
+  }
+
+  // src/screens/StoreMap.jsx
+  function StoreMap({ stores, th, setTab, users, height }) {
+    const O2 = "#FF671F";
+    const [selectedStore, setSelectedStore] = React.useState(null);
+    const [laborData, setLaborData] = React.useState(null);
+    const [allTickets, setAllTickets] = React.useState([]);
+    const [weatherData, setWeatherData] = React.useState(null);
+    const [filterPerf, setFilterPerf] = React.useState(null);
+    const [storeEmps, setStoreEmps] = React.useState(null);
+    const [storeEmpsLoading, setStoreEmpsLoading] = React.useState(false);
+    const [teamExpanded, setTeamExpanded] = React.useState(false);
+    const [storeHourly, setStoreHourly] = React.useState(null);
+    const [storeHourlyLoading, setStoreHourlyLoading] = React.useState(false);
+    const [storeSched, setStoreSched] = React.useState(null);
+    const [peerHourly, setPeerHourly] = React.useState(null);
+    const [liveHeat, setLiveHeat] = React.useState({});
+    const [heatLoading, setHeatLoading] = React.useState(true);
+    const containerRef = React.useRef(null);
+    const mapRef = React.useRef(null);
+    const markersRef = React.useRef([]);
+    const heatRef = React.useRef([]);
+    const storesFingerprint = React.useMemo(() => stores.map((s) => `${s.pc}:${s.status}`).join("|"), [stores]);
+    const tileRef = React.useRef(null);
+    const selectRef = React.useRef(null);
+    const tileSwapReady = React.useRef(false);
+    selectRef.current = setSelectedStore;
+    React.useEffect(() => {
+      setSelectedStore(null);
+    }, [filterPerf]);
+    React.useEffect(() => {
+      cloudLoad("pcg_labor_v1").then((d) => {
+        if (d?.stores) setLaborData(d.stores);
+      }).catch(() => {
+      });
+      cloudLoad("pcg_weather_forecast").then((d) => {
+        if (d) setWeatherData(d);
+      }).catch(() => {
+      });
+      cloudLoad("pcg_tickets_v1").then((tix) => {
+        if (Array.isArray(tix)) setAllTickets(tix);
+      }).catch(() => {
+      });
+    }, []);
+    React.useEffect(() => {
+      if (!selectedStore) {
+        setStoreEmps(null);
+        return;
+      }
+      setStoreEmps(null);
+      setTeamExpanded(false);
+      setStoreEmpsLoading(true);
+      const todayStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      cloudLoad(`pcg_labor_store_${selectedStore.pc}`).then((d) => {
+        if (d?.daily?.length) {
+          const entry = d.daily.find((e) => e.date === todayStr) || d.daily[0];
+          setStoreEmps(entry?.employees || []);
+        } else setStoreEmps([]);
+        setStoreEmpsLoading(false);
+      }).catch(() => {
+        setStoreEmps([]);
+        setStoreEmpsLoading(false);
+      });
+    }, [selectedStore?.pc]);
+    React.useEffect(() => {
+      let cancelled = false;
+      const fetchLiveHeat = async () => {
+        const now = /* @__PURE__ */ new Date();
+        const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+        const today = `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
+        const pcs = stores.filter((s) => s.status === "Open").map((s) => String(s.pc));
+        const BATCH = 6;
+        for (let i = 0; i < pcs.length; i += BATCH) {
+          if (cancelled) return;
+          const results = {};
+          await Promise.all(pcs.slice(i, i + BATCH).map(async (pc) => {
+            try {
+              const res = await fetch("/.netlify/functions/pulse", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ api: pc === "345986" ? "p227" : "p228", endpoint: "getGuestChecks", locRef: pc, busDt: today, include: "guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl" })
+              });
+              if (!res.ok) return;
+              const j = await res.json();
+              const hours = Array(24).fill(0);
+              for (const c of j.guestChecks || []) {
+                const raw = c.opnUTC || "";
+                if (!raw) continue;
+                const dt = new Date(raw.endsWith("Z") ? raw : raw + "Z");
+                if (isNaN(dt.getTime())) continue;
+                const h = parseInt(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }).format(dt), 10) % 24;
+                hours[h] += c.subTtl != null ? c.subTtl : c.chkTtl || 0;
+              }
+              results[pc] = hours;
+            } catch {
+            }
+          }));
+          if (cancelled) return;
+          setLiveHeat((prev) => ({ ...prev, ...results }));
+        }
+        if (!cancelled) setHeatLoading(false);
+      };
+      fetchLiveHeat();
+      const id = setInterval(fetchLiveHeat, 15 * 60 * 1e3);
+      return () => {
+        cancelled = true;
+        clearInterval(id);
+      };
+    }, [storesFingerprint]);
+    React.useEffect(() => {
+      if (!selectedStore) {
+        setStoreHourly(null);
+        return;
+      }
+      setStoreHourly(null);
+      setStoreHourlyLoading(true);
+      cloudLoad(`pcg_hourly_history_${selectedStore.pc}`).then((d) => {
+        setStoreHourly(Array.isArray(d) ? d.slice(0, 7) : []);
+        setStoreHourlyLoading(false);
+      }).catch(() => {
+        setStoreHourly([]);
+        setStoreHourlyLoading(false);
+      });
+    }, [selectedStore?.pc]);
+    React.useEffect(() => {
+      if (!selectedStore) {
+        setStoreSched(null);
+        setPeerHourly(null);
+        return;
+      }
+      setStoreSched(null);
+      setPeerHourly(null);
+      cloudLoad(`pcg_schedule_${selectedStore.pc}`).then((d) => setStoreSched(d?.shifts || [])).catch(() => setStoreSched([]));
+      const mates = stores.filter((s) => s.district === selectedStore.district && s.pc !== selectedStore.pc && s.status === "Open").slice(0, 8);
+      Promise.all(mates.map(
+        (m) => cloudLoad(`pcg_hourly_history_${m.pc}`).then((d) => Array.isArray(d) && d.length ? d.slice(0, 7) : null).catch(() => null)
+      )).then((all) => setPeerHourly(all.filter(Boolean)));
+    }, [selectedStore?.pc]);
+    const hourLabel = (h) => h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : h - 12 + "p";
+    const heatmap = React.useMemo(() => {
+      if (!storeHourly || storeHourly.length === 0) return null;
+      const sums = {};
+      storeHourly.forEach((d) => (d.hours || []).forEach((h) => {
+        sums[h.h] = (sums[h.h] || 0) + (h.sales || 0);
+      }));
+      const active = Object.keys(sums).map(Number).filter((h) => sums[h] > 0);
+      if (!active.length) return null;
+      const minH = Math.min(...active), maxH = Math.max(...active);
+      const hours = [];
+      for (let h = minH; h <= maxH; h++) hours.push(h);
+      let max = 0;
+      const days = storeHourly.map((d) => {
+        const byHour = {};
+        (d.hours || []).forEach((h) => {
+          byHour[h.h] = h.sales || 0;
+          if ((h.sales || 0) > max) max = h.sales;
+        });
+        const values = hours.map((h) => byHour[h] ?? 0);
+        return { date: d.date, values, total: values.reduce((a, b) => a + b, 0) };
+      }).reverse();
+      let peakHour = hours[0];
+      hours.forEach((h) => {
+        if ((sums[h] || 0) > (sums[peakHour] || 0)) peakHour = h;
+      });
+      return { hours, days, max, peakHour };
+    }, [storeHourly]);
+    const SPLH_OVER = 35, SPLH_UNDER = 110;
+    const schedFit = React.useMemo(() => {
+      if (!storeSched?.length || !storeHourly?.length || !heatmap) return null;
+      const byDow = {};
+      const avg = Array(24).fill(0);
+      let nDays = 0;
+      storeHourly.forEach((d) => {
+        if (!d.date) return;
+        const a = Array(24).fill(0);
+        (d.hours || []).forEach((h) => {
+          a[h.h] = h.sales || 0;
+        });
+        byDow[(/* @__PURE__ */ new Date(d.date + "T12:00:00")).getDay()] = a;
+        a.forEach((v, h) => {
+          avg[h] += v;
+        });
+        nDays++;
+      });
+      if (!nDays) return null;
+      for (let h = 0; h < 24; h++) avg[h] /= nDays;
+      const now = /* @__PURE__ */ new Date();
+      const tStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const dates = [...new Set(storeSched.map((s) => s.date).filter((d) => d && d >= tStr))].sort().slice(0, 7);
+      if (!dates.length) return null;
+      const hours = heatmap.hours;
+      const rows = dates.map((date) => {
+        const exp = byDow[(/* @__PURE__ */ new Date(date + "T12:00:00")).getDay()] || avg;
+        const heads = hours.map(() => 0);
+        storeSched.forEach((sh) => {
+          if (sh.date !== date || !sh.startDateTime || !sh.endDateTime) return;
+          const st = new Date(sh.startDateTime), en = new Date(sh.endDateTime);
+          if (isNaN(st.getTime()) || isNaN(en.getTime()) || en <= st) return;
+          const sH = st.getHours() + st.getMinutes() / 60;
+          const eH = en.getHours() + en.getMinutes() / 60 + (en.getDate() !== st.getDate() ? 24 : 0);
+          hours.forEach((h, i) => {
+            if (sH <= h + 0.5 && h + 0.5 < eH) heads[i]++;
+          });
+        });
+        const cells = hours.map((h, i) => {
+          const n = heads[i], expSales = exp[h] || 0;
+          let fit = "ok";
+          if (n === 0) fit = expSales > 50 ? "under" : "off";
+          else {
+            const splh = expSales / n;
+            if (n >= 2 && splh < SPLH_OVER) fit = "over";
+            else if (splh > SPLH_UNDER) fit = "under";
+          }
+          return { n, exp: expSales, fit };
+        });
+        return { date, isToday: date === tStr, cells };
+      });
+      return { hours, rows };
+    }, [storeSched, storeHourly, heatmap]);
+    const deadZone = React.useMemo(() => {
+      if (!storeHourly?.length || !peerHourly?.length) return null;
+      const DAYPARTS = [
+        { label: "5\u20138a", hs: [5, 6, 7] },
+        { label: "8\u201311a", hs: [8, 9, 10] },
+        { label: "11a\u20132p", hs: [11, 12, 13] },
+        { label: "2\u20135p", hs: [14, 15, 16] },
+        { label: "5\u20139p", hs: [17, 18, 19, 20] }
+      ];
+      const sumHours = (days) => {
+        const a = Array(24).fill(0);
+        days.forEach((d) => (d.hours || []).forEach((h) => {
+          a[h.h] += h.sales || 0;
+        }));
+        return a;
+      };
+      const mine = sumHours(storeHourly);
+      const myTotal = mine.reduce((x, y) => x + y, 0);
+      if (myTotal <= 0) return null;
+      const peerShare = Array(24).fill(0);
+      let peers = 0;
+      peerHourly.forEach((hist) => {
+        const a = sumHours(hist);
+        const t = a.reduce((x, y) => x + y, 0);
+        if (t > 0) {
+          a.forEach((v, h) => {
+            peerShare[h] += v / t;
+          });
+          peers++;
+        }
+      });
+      if (!peers) return null;
+      let worst = null;
+      for (const dp of DAYPARTS) {
+        const mineShare = dp.hs.reduce((x, h) => x + mine[h], 0) / myTotal * 100;
+        const theirs = dp.hs.reduce((x, h) => x + peerShare[h], 0) / peers * 100;
+        const gap = mineShare - theirs;
+        if (!worst || gap < worst.gap) worst = { label: dp.label, mine: mineShare, peers: theirs, gap };
+      }
+      return { ...worst, peerCount: peers };
+    }, [storeHourly, peerHourly]);
+    const ticketCounts = React.useMemo(() => {
+      const counts = {};
+      allTickets.forEach((t) => {
+        if (t.status !== "Closed" && t.storePC) counts[t.storePC] = (counts[t.storePC] || 0) + 1;
+      });
+      return counts;
+    }, [allTickets]);
+    React.useEffect(() => {
+      setTimeout(() => mapRef.current && mapRef.current.invalidateSize(), 350);
+    }, [!!selectedStore]);
+    React.useEffect(() => {
+      const L3 = window.L;
+      if (!L3 || !containerRef.current || mapRef.current) return;
+      mapRef.current = L3.map(containerRef.current, { zoomControl: true, scrollWheelZoom: true, attributionControl: false }).setView([40.12, -75.18], 11);
+      tileRef.current = L3.tileLayer(
+        th.dark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        th.dark ? { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \xA9 <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 19, subdomains: "abcd", detectRetina: true } : { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18 }
+      ).addTo(mapRef.current);
+      return () => {
+        if (mapRef.current) {
+          mapRef.current.remove();
+          mapRef.current = null;
+        }
+      };
+    }, []);
+    React.useEffect(() => {
+      if (!tileSwapReady.current) {
+        tileSwapReady.current = true;
+        return;
+      }
+      const L3 = window.L;
+      if (!L3 || !mapRef.current) return;
+      if (tileRef.current) {
+        tileRef.current.remove();
+        tileRef.current = null;
+      }
+      tileRef.current = L3.tileLayer(
+        th.dark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        th.dark ? { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \xA9 <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 19, subdomains: "abcd", detectRetina: true } : { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18 }
+      ).addTo(mapRef.current);
+    }, [th.dark]);
+    React.useEffect(() => {
+      const L3 = window.L;
+      if (!L3 || !mapRef.current) return;
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
+      heatRef.current.forEach((m) => m.remove());
+      heatRef.current = [];
+      const etNow = new Date((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const curHr = etNow.getHours(), curMin = etNow.getMinutes();
+      stores.forEach((s) => {
+        const c = STORE_COORDS[s.pc];
+        if (!c) return;
+        const lPct = laborData?.[s.pc]?.today?.laborPct ?? null;
+        if (filterPerf) {
+          if (filterPerf === "green" && !(lPct !== null && lPct < 23)) return;
+          if (filterPerf === "yellow" && !(lPct !== null && lPct >= 23 && lPct < 26)) return;
+          if (filterPerf === "red" && !(lPct !== null && lPct >= 26)) return;
+        }
+        const heatHours = liveHeat[String(s.pc)];
+        if (heatHours && s.status === "Open") {
+          const useHr = curMin < 15 && curHr > 0 ? curHr - 1 : curHr;
+          let raw = heatHours[useHr] || 0;
+          if (useHr === curHr && curMin >= 15) raw = raw / (curMin / 60);
+          const peak = Math.max(...heatHours);
+          const intensity = peak > 0 ? Math.min(raw / peak, 1) : 0;
+          let rgb, a1, a2, size;
+          if (intensity >= 0.65) {
+            rgb = "239,68,68";
+            a1 = 0.55;
+            a2 = 0.26;
+            size = Math.round(80 + intensity * 30);
+          } else if (intensity >= 0.3) {
+            rgb = "255,103,31";
+            a1 = 0.42;
+            a2 = 0.18;
+            size = Math.round(64 + intensity * 30);
+          } else {
+            rgb = "148,163,184";
+            a1 = 0.3;
+            a2 = 0.12;
+            size = 52;
+          }
+          const pulse = intensity >= 0.3 ? `animation:heatCloudPulse 3.4s ease-in-out infinite;` : "";
+          const cloudHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;pointer-events:none;background:radial-gradient(circle, rgba(${rgb},${a1}) 0%, rgba(${rgb},${a2}) 45%, rgba(${rgb},0) 72%);${pulse}"></div>`;
+          const cloudIcon = L3.divIcon({ className: "", html: cloudHtml, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+          const cloud = L3.marker([c.lat, c.lng], { icon: cloudIcon, interactive: false, keyboard: false, zIndexOffset: -1e3 }).addTo(mapRef.current);
+          heatRef.current.push(cloud);
+        }
+        let color;
+        if (s.status !== "Open" && s.status !== "Remodel") {
+          color = "#6b7280";
+        } else if (lPct === null) {
+          color = "#94a3b8";
+        } else if (lPct < 23) {
+          color = "#22c55e";
+        } else if (lPct < 26) {
+          color = "#f59e0b";
+        } else {
+          color = "#ef4444";
+        }
+        const hasAlert = (ticketCounts[s.pc] || 0) > 0;
+        const pinHtml = `<div style="position:relative;width:16px;height:16px;">
+        <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.5);"></div>
+        ${hasAlert ? `<div style="position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:#ef4444;border:1.5px solid #fff;"></div>` : ""}
+      </div>`;
+        const icon = L3.divIcon({ className: "", html: pinHtml, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -12] });
+        const marker = L3.marker([c.lat, c.lng], { icon }).addTo(mapRef.current).on("click", () => {
+          if (selectRef.current) selectRef.current(s);
+          mapRef.current.panTo([c.lat, c.lng], { animate: true, duration: 0.4 });
+        });
+        markersRef.current.push(marker);
+      });
+    }, [storesFingerprint, ticketCounts, laborData, filterPerf, liveHeat]);
+    React.useEffect(() => {
+      const id = "pcg-leaflet-zoom-theme";
+      let s = document.getElementById(id);
+      if (!s) {
+        s = document.createElement("style");
+        s.id = id;
+        document.head.appendChild(s);
+      }
+      s.textContent = `
+      .leaflet-bar { border: 1px solid ${th.cardBorder} !important; box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important; border-radius: 0.5rem !important; overflow: hidden; }
+      .leaflet-control-zoom-in, .leaflet-control-zoom-out { background: ${th.card} !important; color: ${th.text} !important; border-bottom: 1px solid ${th.cardBorder} !important; }
+      .leaflet-control-zoom-in:hover, .leaflet-control-zoom-out:hover { background: ${th.card2} !important; color: #FF671F !important; }
+      @keyframes heatCloudPulse { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.12); opacity: 1; } }
+    `;
+    }, [th.dark]);
+    const legend = laborData ? (() => {
+      let green = 0, yellow = 0, red = 0, noData = 0, notOp = 0;
+      stores.forEach((s) => {
+        if (s.status !== "Open" && s.status !== "Remodel") {
+          notOp++;
+          return;
+        }
+        const lPct = laborData?.[s.pc]?.today?.laborPct ?? null;
+        if (lPct === null) {
+          noData++;
+          return;
+        }
+        if (lPct < 23) green++;
+        else if (lPct < 26) yellow++;
+        else red++;
+      });
+      return [
+        { color: "#22c55e", label: "On Target", sublabel: "<23%", count: green, filter: "green" },
+        { color: "#f59e0b", label: "Watch", sublabel: "23\u201326%", count: yellow, filter: "yellow" },
+        { color: "#ef4444", label: "Intervention", sublabel: "\u226526%", count: red, filter: "red" },
+        { color: "#94a3b8", label: "No Data", sublabel: null, count: noData, filter: null },
+        { color: "#6b7280", label: "Not Operational", sublabel: null, count: notOp, filter: null }
+      ].filter((l) => l.count > 0);
+    })() : [{ color: "#94a3b8", label: "Loading\u2026", sublabel: null, count: stores.length, filter: null }];
+    const storeTickets = selectedStore ? allTickets.filter((t) => t.storePC === selectedStore.pc && t.status !== "Closed") : [];
+    const PRIORITY_COLOR = { Emergency: "#ef4444", High: "#f97316", Medium: "#3b82f6", Low: "#22c55e" };
+    const detailLd = selectedStore ? laborData?.[selectedStore.pc]?.today : null;
+    const detailLPct = detailLd?.laborPct ?? null;
+    const detailLColor = detailLPct === null ? th.muted : detailLPct < 23 ? "#22c55e" : detailLPct < 26 ? "#f59e0b" : "#ef4444";
+    const detailSColor = !selectedStore ? "#6b7280" : selectedStore.status === "Open" ? "#22c55e" : selectedStore.status === "Remodel" ? "#f59e0b" : "#6b7280";
+    const detailWeather = selectedStore ? weatherData?.[selectedStore.district]?.days?.[0] : null;
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", height: height || "calc(100vh - 80px)", overflow: "hidden", borderRadius: "0.875rem", border: `1px solid ${th.cardBorder}`, background: th.card } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.6rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, fontFamily: "'Source Sans 3'", marginRight: 4 } }, "Filter"), legend.map((l) => {
+      const isActive = filterPerf === l.filter && l.filter !== null;
+      const isClickable = l.filter !== null;
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: l.label,
+          onClick: isClickable ? () => setFilterPerf((p) => p === l.filter ? null : l.filter) : void 0,
+          style: { display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.72rem", fontFamily: "'Source Sans 3'", fontWeight: isActive ? 700 : 500, background: isActive ? l.color + "22" : th.card2, border: isActive ? `1px solid ${l.color}66` : `1px solid ${th.cardBorder}`, borderRadius: "2rem", padding: "0.25rem 0.7rem", cursor: isClickable ? "pointer" : "default", color: isActive ? l.color : th.text, transition: "all 0.15s" }
+        },
+        /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: l.color, flexShrink: 0 } }),
+        l.count,
+        " ",
+        l.label,
+        l.sublabel && /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.7 } }, " ", l.sublabel)
+      );
+    }), filterPerf && /* @__PURE__ */ React.createElement("button", { onClick: () => setFilterPerf(null), style: { fontSize: "0.68rem", color: th.muted, background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "2rem", padding: "0.22rem 0.65rem", cursor: "pointer", fontFamily: "'Source Sans 3'" } }, "\u2715 Show all"), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "0.55rem", fontSize: "0.68rem", color: th.muted, fontFamily: "'Source Sans 3'" } }, heatLoading ? "loading live heat\u2026" : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(239,68,68,0.8) 0%, rgba(239,68,68,0.35) 45%, rgba(239,68,68,0) 72%)" } }), "Busy"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(255,103,31,0.7) 0%, rgba(255,103,31,0.3) 45%, rgba(255,103,31,0) 72%)" } }), "Steady"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(148,163,184,0.6) 0%, rgba(148,163,184,0.25) 45%, rgba(148,163,184,0) 72%)" } }), "Slow"), /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.75 } }, "\xB7 this hour, live")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flex: 1, minHeight: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, position: "relative", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { ref: containerRef, style: { width: "100%", height: "100%" } })), selectedStore && /* @__PURE__ */ React.createElement("div", { style: { width: 400, flexShrink: 0, borderLeft: `1px solid ${th.cardBorder}`, display: "flex", flexDirection: "column", overflow: "hidden", background: th.card } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.25rem 0.875rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, selectedStore.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: detailSColor, background: detailSColor + "22", padding: "0.15rem 0.5rem", borderRadius: "1rem", border: `1px solid ${detailSColor}44` } }, selectedStore.status)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.77rem", color: th.muted } }, selectedStore.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginTop: "0.1rem" } }, selectedStore.city, ", ", selectedStore.state, selectedStore.zip ? " " + selectedStore.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.71rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", null, "District ", selectedStore.district || "\u2014"), /* @__PURE__ */ React.createElement("span", null, "PC# ", selectedStore.pc), storeMgrName(selectedStore, users) && /* @__PURE__ */ React.createElement("span", null, "MGR: ", storeMgrName(selectedStore, users)), selectedStore.mgrPhone && /* @__PURE__ */ React.createElement("span", null, selectedStore.mgrPhone)), detailWeather && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.71rem", color: th.muted, marginTop: "0.3rem", display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", null, WEATHER_EMOJI[detailWeather.condition] || "\u{1F324}\uFE0F"), /* @__PURE__ */ React.createElement("span", { style: { textTransform: "capitalize" } }, detailWeather.condition), /* @__PURE__ */ React.createElement("span", null, "\xB7"), /* @__PURE__ */ React.createElement("span", null, detailWeather.tempHighF, "\xB0 / ", detailWeather.tempLowF, "\xB0F"), detailWeather.precipMm > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#60a5fa" } }, "\u{1F4A7} ", detailWeather.precipMm, "mm"))), /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedStore(null), style: { background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "1.1rem", padding: "0.1rem 0.3rem", lineHeight: 1, flexShrink: 0 } }, "\u2715"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(5,1fr)", padding: "0.75rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0, gap: "0.25rem" } }, [
+      { label: "Sales", value: detailLd ? fmtDollars(detailLd.sales) : "\u2014", color: "#FF671F" },
+      { label: "Labor %", value: detailLPct !== null ? detailLPct.toFixed(1) + "%" : "\u2014", color: detailLColor },
+      { label: "Clocked", value: detailLd ? String(detailLd.employeesOnClock ?? "\u2014") : "\u2014", color: "#22c55e" },
+      { label: "Sched", value: detailLd ? String(detailLd.scheduledNow ?? "\u2014") : "\u2014", color: "#74c0fc" },
+      { label: "Tickets", value: String(storeTickets.length), color: storeTickets.length > 0 ? "#ef4444" : th.muted }
+    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: k.color, lineHeight: 1 } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: "0.2rem", fontWeight: 600 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text } }, "Today's Team"), storeEmpsLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "Loading\u2026"), storeEmps && !storeEmpsLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, storeEmps.length, " employee", storeEmps.length !== 1 ? "s" : "")), storeEmpsLoading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "Fetching team data\u2026"), storeEmps && storeEmps.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No data available for today"), storeEmps && storeEmps.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 2 } }, (teamExpanded ? storeEmps : storeEmps.slice(0, 5)).map((e, i) => {
+      const eName = typeof e.name === "string" ? e.name : "Unknown";
+      const eRole = typeof e.role === "string" ? e.role : "Crew";
+      const eHours = typeof e.hoursToday === "number" ? e.hoursToday.toFixed(1) + "h" : "\u2014";
+      const initials = eName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase() || "?";
+      return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.45rem", padding: "0.2rem 0.4rem", borderRadius: "0.4rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 20, height: 20, borderRadius: "50%", background: "#FF671F22", color: "#FF671F", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.52rem", flexShrink: 0 } }, initials), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, minWidth: 0, fontSize: "0.74rem", color: th.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eName, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.62rem" } }, "\xB7 ", eRole)), e.overtime === "ot" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.52rem", color: "#ef4444", fontWeight: 700, flexShrink: 0 } }, "OT"), e.overtime === "approaching" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.52rem", color: "#f59e0b", fontWeight: 700, flexShrink: 0 } }, "~OT"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, color: th.text, flexShrink: 0 } }, eHours));
+    }), storeEmps.length > 5 && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setTeamExpanded((x) => !x),
+        style: { background: "none", border: "none", color: th.muted, fontSize: "0.66rem", fontWeight: 600, cursor: "pointer", padding: "0.25rem 0", fontFamily: "'Source Sans 3'" }
+      },
+      teamExpanded ? "\u25B2 Show less" : `\u25BC Show all ${storeEmps.length}`
+    ))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.65rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text } }, "Hourly Traffic"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: th.muted } }, "last 7 days", heatmap ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 peak ", /* @__PURE__ */ React.createElement("span", { style: { color: O2, fontWeight: 700 } }, hourLabel(heatmap.peakHour))) : "")), storeHourlyLoading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "Loading\u2026"), storeHourly && storeHourly.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No history available yet"), heatmap && (() => {
+      const cellColor = (v) => {
+        const t = heatmap.max > 0 ? v / heatmap.max : 0;
+        if (t <= 0) return th.card2;
+        const alpha = t <= 0.15 ? "26" : t <= 0.35 ? "59" : t <= 0.6 ? "8c" : t <= 0.85 ? "bf" : "ff";
+        return `${O2}${alpha}`;
+      };
+      const fmtTotal = (t) => t >= 1e3 ? `$${(t / 1e3).toFixed(1)}k` : `$${Math.round(t)}`;
+      const cols = `32px repeat(${heatmap.hours.length}, 1fr) 42px`;
+      const lastIdx = heatmap.days.length - 1;
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: cols, gap: 3, marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", null), heatmap.hours.map((h) => /* @__PURE__ */ React.createElement("span", { key: h, style: { fontSize: "0.56rem", color: th.muted, textAlign: "center", whiteSpace: "nowrap" } }, h % 3 === 0 ? hourLabel(h) : "")), /* @__PURE__ */ React.createElement("span", null)), heatmap.days.map((d, di) => /* @__PURE__ */ React.createElement("div", { key: d.date, style: { display: "grid", gridTemplateColumns: cols, gap: 3, alignItems: "center", marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: di === lastIdx ? 700 : 500, color: di === lastIdx ? th.text : th.muted } }, (/* @__PURE__ */ new Date(d.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" })), d.values.map((v, i) => /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: i,
+          title: `${hourLabel(heatmap.hours[i])} \u2014 ${fmtDollars(v)}`,
+          style: { height: 16, borderRadius: 4, background: cellColor(v) }
+        }
+      )), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", color: th.muted, textAlign: "right", whiteSpace: "nowrap" } }, fmtTotal(d.total)))), deadZone && (deadZone.gap < -2.5 ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.4rem", marginTop: "0.55rem", padding: "0.4rem 0.6rem", borderRadius: "0.5rem", background: "#ef444412", border: "1px solid #ef444433", fontSize: "0.66rem", color: th.text, lineHeight: 1.45 } }, /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0 } }, "\u26A0\uFE0F"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", null, "Dead zone ", deadZone.label), " \u2014 ", deadZone.mine.toFixed(1), "% of daily sales vs ", deadZone.peers.toFixed(1), "% for ", deadZone.peerCount, " district peers. Market issue or ops issue?")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.55rem", fontSize: "0.64rem", color: "#22c55e" } }, "\u2713 Daypart mix tracks district peers")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: "0.5rem", fontSize: "0.58rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Less"), ["26", "59", "8c", "bf", "ff"].map((a) => /* @__PURE__ */ React.createElement("div", { key: a, style: { width: 11, height: 11, borderRadius: 3, background: `${O2}${a}` } })), /* @__PURE__ */ React.createElement("span", { style: { marginRight: 2 } }, "More")), schedFit && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.45rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.74rem", color: th.text } }, "Staffing Fit"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", color: th.muted } }, "scheduled heads vs typical traffic")), schedFit.rows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.date, style: { display: "grid", gridTemplateColumns: cols, gap: 3, alignItems: "center", marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: r.isToday ? 700 : 500, color: r.isToday ? th.text : th.muted } }, (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" })), r.cells.map((cell, i) => {
+        const c = cell.fit === "over" ? "#ef4444" : cell.fit === "under" ? "#f59e0b" : null;
+        let tip = `${hourLabel(schedFit.hours[i])} \u2014 ${cell.n} scheduled \xB7 typical ${fmtDollars(cell.exp)}`;
+        if (cell.fit === "over") tip += " \xB7 OVERSTAFFED";
+        if (cell.fit === "under") tip += cell.n === 0 ? " \xB7 NO COVERAGE" : " \xB7 UNDERSTAFFED";
+        return /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            key: i,
+            title: tip,
+            style: {
+              height: 16,
+              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: c ? `${c}22` : th.card2,
+              color: c || th.muted,
+              fontSize: "0.55rem",
+              fontWeight: 700
+            }
+          },
+          cell.fit === "off" ? "" : cell.n
+        );
+      }), /* @__PURE__ */ React.createElement("span", null))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.6rem", marginTop: "0.4rem", fontSize: "0.58rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 11, height: 11, borderRadius: 3, background: "#ef444422", border: "1px solid #ef444455" } }), " overstaffed"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 11, height: 11, borderRadius: 3, background: "#f59e0b22", border: "1px solid #f59e0b55" } }), " understaffed"))));
+    })()), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, "Open Tickets", storeTickets.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700, background: "#ef444420", padding: "0.1rem 0.4rem", borderRadius: "1rem" } }, storeTickets.length)), storeTickets.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#22c55e", display: "flex", alignItems: "center", gap: "0.35rem" } }, "\u2713 No open tickets"), storeTickets.map((t, i) => {
+      const tTitle = typeof t.title === "string" ? t.title : typeof t.description === "string" ? t.description.slice(0, 50) : "Untitled";
+      const tPriority = typeof t.priority === "string" ? t.priority : "\u2014";
+      const tStatus = typeof t.status === "string" ? t.status : "\u2014";
+      const pColor = PRIORITY_COLOR[tPriority] || "#6b7280";
+      return /* @__PURE__ */ React.createElement("div", { key: t.id || i, style: { padding: "0.5rem 0.625rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.3rem", border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.text, fontWeight: 600, lineHeight: 1.3, flex: 1 } }, tTitle), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.4rem", borderRadius: "0.3rem", background: pColor + "22", color: pColor, flexShrink: 0 } }, tPriority)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, tStatus), t.createdAt && /* @__PURE__ */ React.createElement("span", null, "\xB7 ", new Date(t.createdAt).toLocaleDateString())));
+    }))), setTab && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1.25rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", gap: "0.5rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("labor"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u{1F4CA} Labor"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("pulse"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u26A1 Pulse"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("tickets"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u{1F527} Tickets")))));
+  }
+
   // app.jsx
-  var { useState: useState18, useRef: useRef7, useCallback, useEffect: useEffect15 } = React;
+  var { useState: useState21, useRef: useRef8, useCallback, useEffect: useEffect18 } = React;
   var Guard = class extends React.Component {
     constructor(props) {
       super(props);
@@ -8174,8 +11417,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var GOOGLE_CLIENT_ID = "450079580275-s9db563vj8npg93e15gdgrlkvcsu0n52.apps.googleusercontent.com";
   var GOOGLE_ALLOWED_DOMAINS = ["peoplecapitalgroup.com", "rgi.life", "Raogroupinc.com"];
   function useIsMobile() {
-    const [isMobile, setIsMobile] = useState18(() => window.innerWidth <= 768);
-    useEffect15(() => {
+    const [isMobile, setIsMobile] = useState21(() => window.innerWidth <= 768);
+    useEffect18(() => {
       const handler = () => setIsMobile(window.innerWidth <= 768);
       window.addEventListener("resize", handler);
       return () => window.removeEventListener("resize", handler);
@@ -8183,8 +11426,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return isMobile;
   }
   function useNoHoverDevice() {
-    const [noHover, setNoHover] = useState18(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
-    useEffect15(() => {
+    const [noHover, setNoHover] = useState21(() => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches);
+    useEffect18(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mq = window.matchMedia("(hover: none)");
       const handler = () => setNoHover(mq.matches);
@@ -8196,8 +11439,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     return noHover;
   }
   function useFrameHeight(frameRef, min = 360, gutter = 20, dep) {
-    const [frameH, setFrameH] = useState18(null);
-    useEffect15(() => {
+    const [frameH, setFrameH] = useState21(null);
+    useEffect18(() => {
       const measure = () => {
         const el = frameRef.current;
         if (!el) return;
@@ -9295,50 +12538,50 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Login({ onLogin, dark, toggleDark, users }) {
     const th = getTheme(dark);
-    const [form, setForm] = useState18({ u: (() => {
+    const [form, setForm] = useState21({ u: (() => {
       try {
         return localStorage.getItem("pcg_remember_username") || "";
       } catch {
         return "";
       }
     })(), p: "" });
-    const [rememberMe, setRememberMe] = useState18(() => {
+    const [rememberMe, setRememberMe] = useState21(() => {
       try {
         return !!localStorage.getItem("pcg_remember_username");
       } catch {
         return false;
       }
     });
-    const [authStage, setAuthStage] = useState18("password");
-    const [pendingUser, setPendingUser] = useState18(null);
-    const [twoFactorCode, setTwoFactorCode] = useState18("");
-    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState18("");
-    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState18(false);
-    const [trustDevice, setTrustDevice] = useState18(true);
-    const [err, setErr] = useState18("");
-    const [show, setShow] = useState18(false);
-    const [logoAnim, setLogoAnim] = useState18(false);
-    const [shake, setShake] = useState18(false);
-    const [loading, setLoading] = useState18(false);
-    const [exiting, setExiting] = useState18(false);
-    const [focusField, setFocusField] = useState18(null);
-    const [now, setNow] = useState18(/* @__PURE__ */ new Date());
-    const [mounted, setMounted] = useState18(false);
-    const [showItModal, setShowItModal] = useState18(false);
-    const [narrow, setNarrow] = useState18(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
-    const [tinyScreen, setTinyScreen] = useState18(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
-    const toggleBtnRef = useRef7(null);
-    const logoRef = useRef7(null);
-    const googleBtnRef = useRef7(null);
-    const tokenClientRef = useRef7(null);
-    const [bioAvailable, setBioAvailable] = useState18(false);
-    const [bioLoading, setBioLoading] = useState18(false);
-    const [bioAutoPrompting, setBioAutoPrompting] = useState18(false);
-    const bioAutoTriedRef = useRef7(false);
-    useEffect15(() => {
+    const [authStage, setAuthStage] = useState21("password");
+    const [pendingUser, setPendingUser] = useState21(null);
+    const [twoFactorCode, setTwoFactorCode] = useState21("");
+    const [twoFactorSetupSecret, setTwoFactorSetupSecret] = useState21("");
+    const [twoFactorSetupReady, setTwoFactorSetupReady] = useState21(false);
+    const [trustDevice, setTrustDevice] = useState21(true);
+    const [err, setErr] = useState21("");
+    const [show, setShow] = useState21(false);
+    const [logoAnim, setLogoAnim] = useState21(false);
+    const [shake, setShake] = useState21(false);
+    const [loading, setLoading] = useState21(false);
+    const [exiting, setExiting] = useState21(false);
+    const [focusField, setFocusField] = useState21(null);
+    const [now, setNow] = useState21(/* @__PURE__ */ new Date());
+    const [mounted, setMounted] = useState21(false);
+    const [showItModal, setShowItModal] = useState21(false);
+    const [narrow, setNarrow] = useState21(() => typeof window !== "undefined" ? window.innerWidth < 900 : false);
+    const [tinyScreen, setTinyScreen] = useState21(() => typeof window !== "undefined" ? window.innerWidth < 420 : false);
+    const toggleBtnRef = useRef8(null);
+    const logoRef = useRef8(null);
+    const googleBtnRef = useRef8(null);
+    const tokenClientRef = useRef8(null);
+    const [bioAvailable, setBioAvailable] = useState21(false);
+    const [bioLoading, setBioLoading] = useState21(false);
+    const [bioAutoPrompting, setBioAutoPrompting] = useState21(false);
+    const bioAutoTriedRef = useRef8(false);
+    useEffect18(() => {
       webauthnAvailable().then(setBioAvailable);
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       const onResize = () => {
         setNarrow(window.innerWidth < 900);
         setTinyScreen(window.innerWidth < 420);
@@ -9350,15 +12593,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         window.removeEventListener("orientationchange", onResize);
       };
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       const t = setInterval(() => setNow(/* @__PURE__ */ new Date()), 1e3);
       return () => clearInterval(t);
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       const t = setTimeout(() => setMounted(true), 30);
       return () => clearTimeout(t);
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       fetch("/.netlify/functions/portal-auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -9554,7 +12797,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setBioLoading(false);
       await handleBiometricResult(res, false);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (bioAutoTriedRef.current) return;
       if (!bioAvailable || !webauthnDeviceEnrolled()) return;
       bioAutoTriedRef.current = true;
@@ -9565,7 +12808,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         await handleBiometricResult(res, true);
       })();
     }, [bioAvailable]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === "YOUR_CLIENT_ID_HERE") return;
       let tries = 0;
       const init = () => {
@@ -10426,15 +13669,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     ))));
   }
   function LinksHub({ links, setLinks, th, user }) {
-    const [search, setSearch] = useState18("");
-    const [editMode, setEditMode] = useState18(false);
-    const [addMode, setAddMode] = useState18(false);
-    const [editingLink, setEditingLink] = useState18(null);
-    const [newLink, setNewLink] = useState18({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
-    const [editForm, setEditForm] = useState18({ name: "", url: "", desc: "", cat: "", visibility: "all" });
-    const [dragId, setDragId] = useState18(null);
-    const [dragCat, setDragCat] = useState18(null);
-    const [dragOverId, setDragOverId] = useState18(null);
+    const [search, setSearch] = useState21("");
+    const [editMode, setEditMode] = useState21(false);
+    const [addMode, setAddMode] = useState21(false);
+    const [editingLink, setEditingLink] = useState21(null);
+    const [newLink, setNewLink] = useState21({ name: "", url: "", desc: "", cat: "Other", visibility: "all" });
+    const [editForm, setEditForm] = useState21({ name: "", url: "", desc: "", cat: "", visibility: "all" });
+    const [dragId, setDragId] = useState21(null);
+    const [dragCat, setDragCat] = useState21(null);
+    const [dragOverId, setDragOverId] = useState21(null);
     const canAdmin = isFullAdmin(user) || user?.userType === "office_staff";
     const isFieldUser = user?.userType === "dm" || user?.userType === "manager";
     const allCats = Object.keys(links);
@@ -10707,15 +13950,15 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         [user.id]: typeof updater === "function" ? updater(prev[user.id] || []) : updater
       }));
     };
-    const [editing, setEditing] = useState18(null);
-    const [form, setForm] = useState18({ title: "", body: "" });
-    const [adding, setAdding] = useState18(false);
-    const [recording, setRecording] = useState18(false);
-    const [interimText, setInterimText] = useState18("");
-    const [recordError, setRecordError] = useState18("");
-    const recognitionRef = useRef7(null);
-    const baseBodyRef = useRef7("");
-    const finalChunksRef = useRef7("");
+    const [editing, setEditing] = useState21(null);
+    const [form, setForm] = useState21({ title: "", body: "" });
+    const [adding, setAdding] = useState21(false);
+    const [recording, setRecording] = useState21(false);
+    const [interimText, setInterimText] = useState21("");
+    const [recordError, setRecordError] = useState21("");
+    const recognitionRef = useRef8(null);
+    const baseBodyRef = useRef8("");
+    const finalChunksRef = useRef8("");
     const SpeechRecognition = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
     const recordingSupported = !!SpeechRecognition;
     const nextId = () => Date.now();
@@ -10783,8 +14026,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setForm((f) => ({ ...f, title: firstLine || "Voice Note " + (/* @__PURE__ */ new Date()).toLocaleDateString() }));
       }
     };
-    const recordingRef = useRef7(false);
-    useEffect15(() => {
+    const recordingRef = useRef8(false);
+    useEffect18(() => {
       return () => {
         recordingRef.current = false;
         try {
@@ -11109,13 +14352,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function Todos({ todos, setTodos, user, users, th, deepLinkRef }) {
     const emptyForm = { text: "", priority: "Medium", assigneeIds: [user.id], dueDate: "", note: "" };
-    const [form, setForm] = useState18(emptyForm);
-    const [addOpen, setAddOpen] = useState18(false);
-    const [viewTab, setViewTab] = useState18("mine");
-    const [detailId, setDetailId] = useState18(null);
-    const [assignDropOpen, setAssignDropOpen] = useState18(false);
+    const [form, setForm] = useState21(emptyForm);
+    const [addOpen, setAddOpen] = useState21(false);
+    const [viewTab, setViewTab] = useState21("mine");
+    const [detailId, setDetailId] = useState21(null);
+    const [assignDropOpen, setAssignDropOpen] = useState21(false);
     const getUserById = (id) => users.find((u) => u.id === id);
-    useEffect15(() => {
+    useEffect18(() => {
       if (deepLinkRef?.current) {
         const task = todos.find((t) => t.id === deepLinkRef.current);
         if (task) {
@@ -11127,7 +14370,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         deepLinkRef.current = null;
       }
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       const needsMigration = todos.some((t) => t.assigneeId !== void 0 && !t.assigneeIds);
       if (needsMigration) {
         setTodos((ts) => ts.map((t) => {
@@ -11559,21 +14802,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         return st;
       }));
     };
-    const [view, setView] = useState18("list");
-    const [editId, setEditId] = useState18(null);
-    const [showPw, setShowPw] = useState18(false);
-    const [form, setForm] = useState18({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
-    const [search, setSearch] = useState18("");
-    const [welcomeSent, setWelcomeSent] = useState18(null);
-    const [saveFlash, setSaveFlash] = useState18(false);
-    const [confirmDeleteId, setConfirmDeleteId] = useState18(null);
+    const [view, setView] = useState21("list");
+    const [editId, setEditId] = useState21(null);
+    const [showPw, setShowPw] = useState21(false);
+    const [form, setForm] = useState21({ username: "", password: "", name: "", role: "", initials: "", isAdmin: false, region: "PA", active: true, email: "", phone: "", twoFactorRequired: false, auditsAccess: null });
+    const [search, setSearch] = useState21("");
+    const [welcomeSent, setWelcomeSent] = useState21(null);
+    const [saveFlash, setSaveFlash] = useState21(false);
+    const [confirmDeleteId, setConfirmDeleteId] = useState21(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const canLinkTimeOff = isFullAdmin(currentUser);
-    const [timeOff, setTimeOff] = useState18({});
-    const [timeOffSync, setTimeOffSync] = useState18(null);
-    const [timeOffSyncing, setTimeOffSyncing] = useState18(false);
-    const [linkTarget, setLinkTarget] = useState18(null);
+    const [timeOff, setTimeOff] = useState21({});
+    const [timeOffSync, setTimeOffSync] = useState21(null);
+    const [timeOffSyncing, setTimeOffSyncing] = useState21(false);
+    const [linkTarget, setLinkTarget] = useState21(null);
     const loadTimeOff = useCallback(() => {
       timeOffApi("users").then((j) => setTimeOff(j.users || {})).catch(() => {
       });
@@ -11604,7 +14847,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       loadTimeOff();
       setTimeOffSyncing(false);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       loadTimeOff().then((last) => {
         if (!canLinkTimeOff || last === void 0) return;
         const now = Date.now();
@@ -11616,12 +14859,12 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     }, [loadTimeOff]);
     const nextId = () => Math.max(0, ...users.map((u) => u.id)) + 1;
     const initials = (name) => name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-    const [emailAction, setEmailAction] = useState18(null);
-    const [revokeAction, setRevokeAction] = useState18(null);
-    const [statusFilter, setStatusFilter] = useState18("all");
-    const [flashUserKey, setFlashUserKey] = useState18(null);
-    const [leavingUserIds, setLeavingUserIds] = useState18([]);
-    const prevUserIdsRef = useRef7(/* @__PURE__ */ new Set());
+    const [emailAction, setEmailAction] = useState21(null);
+    const [revokeAction, setRevokeAction] = useState21(null);
+    const [statusFilter, setStatusFilter] = useState21("all");
+    const [flashUserKey, setFlashUserKey] = useState21(null);
+    const [leavingUserIds, setLeavingUserIds] = useState21([]);
+    const prevUserIdsRef = useRef8(/* @__PURE__ */ new Set());
     const signOutAllSessions = async (u) => {
       if (currentUser?.userType !== "it") return;
       if (!window.confirm(`Sign ${u.name} out of ALL devices now? They'll need to log in again (and re-verify 2FA).`)) return;
@@ -11859,8 +15102,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const filtered = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()));
     const ROLE_OPTIONS = isFullAdmin(currentUser) ? ["Vice President", "Chief Executive Officer", "Chief Operating Officer", "Chief Financial Officer", "Chief of Staff", "IT Administrator", "HR / IT Staff", "Office Staff", "District Manager", "Store Manager", "Construction & Development", "Field Operations Auditor"] : ["District Manager", "Store Manager", "Construction & Development"];
     const USERTYPE_OPTIONS = isFullAdmin(currentUser) ? [["executive", "Executive Team"], ["it", "IT Team"], ["office_staff", "Office Staff"], ["auditor", "Field Operations Auditor"], ["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]] : [["director", "Director of Operations"], ["dm", "District Manager"], ["manager", "Store Manager"], ["store_tablet", "Store Tablet"], ["vendor", "Vendor"], ["construction", "Construction & Development"], ["maintenance", "Maintenance"]];
-    const [roleFilter, setRoleFilter] = useState18("all");
-    const [isMobileUsers, setIsMobileUsers] = useState18(() => window.innerWidth < 700);
+    const [roleFilter, setRoleFilter] = useState21("all");
+    const [isMobileUsers, setIsMobileUsers] = useState21(() => window.innerWidth < 700);
     React.useEffect(() => {
       const fn = () => setIsMobileUsers(window.innerWidth < 700);
       window.addEventListener("resize", fn);
@@ -11871,7 +15114,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const roleColor = (ut) => ROLE_COLOR[ut] || "#9ca3af";
     const roleLabel = (ut) => ROLE_LABEL[ut] || ut || "User";
     const displayUsers = users.filter((u) => !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || (u.username || "").toLowerCase().includes(search.toLowerCase())).filter((u) => roleFilter === "all" || u.userType === roleFilter).filter((u) => statusFilter === "all" || (statusFilter === "active" ? u.active !== false : statusFilter === "inactive" ? u.active === false : !!u.locked)).sort((a, b) => (b.active === false ? 1 : 0) - (a.active === false ? 1 : 0));
-    useEffect15(() => {
+    useEffect18(() => {
       prevUserIdsRef.current = new Set(displayUsers.map((u) => u.id));
     });
     const rc = roleColor(form.userType || "manager");
@@ -12166,509 +15409,6 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const base = short ? `D${num2}` : `District ${num2}`;
     return first ? `${base} - ${first}` : base;
   }
-  function StoreMap({ stores, th, setTab, users, height }) {
-    const O2 = "#FF671F";
-    const [selectedStore, setSelectedStore] = React.useState(null);
-    const [laborData, setLaborData] = React.useState(null);
-    const [allTickets, setAllTickets] = React.useState([]);
-    const [weatherData, setWeatherData] = React.useState(null);
-    const [filterPerf, setFilterPerf] = React.useState(null);
-    const [storeEmps, setStoreEmps] = React.useState(null);
-    const [storeEmpsLoading, setStoreEmpsLoading] = React.useState(false);
-    const [teamExpanded, setTeamExpanded] = React.useState(false);
-    const [storeHourly, setStoreHourly] = React.useState(null);
-    const [storeHourlyLoading, setStoreHourlyLoading] = React.useState(false);
-    const [storeSched, setStoreSched] = React.useState(null);
-    const [peerHourly, setPeerHourly] = React.useState(null);
-    const [liveHeat, setLiveHeat] = React.useState({});
-    const [heatLoading, setHeatLoading] = React.useState(true);
-    const containerRef = React.useRef(null);
-    const mapRef = React.useRef(null);
-    const markersRef = React.useRef([]);
-    const heatRef = React.useRef([]);
-    const storesFingerprint = React.useMemo(() => stores.map((s) => `${s.pc}:${s.status}`).join("|"), [stores]);
-    const tileRef = React.useRef(null);
-    const selectRef = React.useRef(null);
-    const tileSwapReady = React.useRef(false);
-    selectRef.current = setSelectedStore;
-    React.useEffect(() => {
-      setSelectedStore(null);
-    }, [filterPerf]);
-    React.useEffect(() => {
-      cloudLoad("pcg_labor_v1").then((d) => {
-        if (d?.stores) setLaborData(d.stores);
-      }).catch(() => {
-      });
-      cloudLoad("pcg_weather_forecast").then((d) => {
-        if (d) setWeatherData(d);
-      }).catch(() => {
-      });
-      cloudLoad("pcg_tickets_v1").then((tix) => {
-        if (Array.isArray(tix)) setAllTickets(tix);
-      }).catch(() => {
-      });
-    }, []);
-    React.useEffect(() => {
-      if (!selectedStore) {
-        setStoreEmps(null);
-        return;
-      }
-      setStoreEmps(null);
-      setTeamExpanded(false);
-      setStoreEmpsLoading(true);
-      const todayStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      cloudLoad(`pcg_labor_store_${selectedStore.pc}`).then((d) => {
-        if (d?.daily?.length) {
-          const entry = d.daily.find((e) => e.date === todayStr) || d.daily[0];
-          setStoreEmps(entry?.employees || []);
-        } else setStoreEmps([]);
-        setStoreEmpsLoading(false);
-      }).catch(() => {
-        setStoreEmps([]);
-        setStoreEmpsLoading(false);
-      });
-    }, [selectedStore?.pc]);
-    React.useEffect(() => {
-      let cancelled = false;
-      const fetchLiveHeat = async () => {
-        const now = /* @__PURE__ */ new Date();
-        const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-        const today = `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
-        const pcs = stores.filter((s) => s.status === "Open").map((s) => String(s.pc));
-        const BATCH = 6;
-        for (let i = 0; i < pcs.length; i += BATCH) {
-          if (cancelled) return;
-          const results = {};
-          await Promise.all(pcs.slice(i, i + BATCH).map(async (pc) => {
-            try {
-              const res = await fetch("/.netlify/functions/pulse", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ api: pc === "345986" ? "p227" : "p228", endpoint: "getGuestChecks", locRef: pc, busDt: today, include: "guestChecks.opnUTC,guestChecks.subTtl,guestChecks.chkTtl" })
-              });
-              if (!res.ok) return;
-              const j = await res.json();
-              const hours = Array(24).fill(0);
-              for (const c of j.guestChecks || []) {
-                const raw = c.opnUTC || "";
-                if (!raw) continue;
-                const dt = new Date(raw.endsWith("Z") ? raw : raw + "Z");
-                if (isNaN(dt.getTime())) continue;
-                const h = parseInt(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }).format(dt), 10) % 24;
-                hours[h] += c.subTtl != null ? c.subTtl : c.chkTtl || 0;
-              }
-              results[pc] = hours;
-            } catch {
-            }
-          }));
-          if (cancelled) return;
-          setLiveHeat((prev) => ({ ...prev, ...results }));
-        }
-        if (!cancelled) setHeatLoading(false);
-      };
-      fetchLiveHeat();
-      const id = setInterval(fetchLiveHeat, 15 * 60 * 1e3);
-      return () => {
-        cancelled = true;
-        clearInterval(id);
-      };
-    }, [storesFingerprint]);
-    React.useEffect(() => {
-      if (!selectedStore) {
-        setStoreHourly(null);
-        return;
-      }
-      setStoreHourly(null);
-      setStoreHourlyLoading(true);
-      cloudLoad(`pcg_hourly_history_${selectedStore.pc}`).then((d) => {
-        setStoreHourly(Array.isArray(d) ? d.slice(0, 7) : []);
-        setStoreHourlyLoading(false);
-      }).catch(() => {
-        setStoreHourly([]);
-        setStoreHourlyLoading(false);
-      });
-    }, [selectedStore?.pc]);
-    React.useEffect(() => {
-      if (!selectedStore) {
-        setStoreSched(null);
-        setPeerHourly(null);
-        return;
-      }
-      setStoreSched(null);
-      setPeerHourly(null);
-      cloudLoad(`pcg_schedule_${selectedStore.pc}`).then((d) => setStoreSched(d?.shifts || [])).catch(() => setStoreSched([]));
-      const mates = stores.filter((s) => s.district === selectedStore.district && s.pc !== selectedStore.pc && s.status === "Open").slice(0, 8);
-      Promise.all(mates.map(
-        (m) => cloudLoad(`pcg_hourly_history_${m.pc}`).then((d) => Array.isArray(d) && d.length ? d.slice(0, 7) : null).catch(() => null)
-      )).then((all) => setPeerHourly(all.filter(Boolean)));
-    }, [selectedStore?.pc]);
-    const hourLabel = (h) => h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : h - 12 + "p";
-    const heatmap = React.useMemo(() => {
-      if (!storeHourly || storeHourly.length === 0) return null;
-      const sums = {};
-      storeHourly.forEach((d) => (d.hours || []).forEach((h) => {
-        sums[h.h] = (sums[h.h] || 0) + (h.sales || 0);
-      }));
-      const active = Object.keys(sums).map(Number).filter((h) => sums[h] > 0);
-      if (!active.length) return null;
-      const minH = Math.min(...active), maxH = Math.max(...active);
-      const hours = [];
-      for (let h = minH; h <= maxH; h++) hours.push(h);
-      let max = 0;
-      const days = storeHourly.map((d) => {
-        const byHour = {};
-        (d.hours || []).forEach((h) => {
-          byHour[h.h] = h.sales || 0;
-          if ((h.sales || 0) > max) max = h.sales;
-        });
-        const values = hours.map((h) => byHour[h] ?? 0);
-        return { date: d.date, values, total: values.reduce((a, b) => a + b, 0) };
-      }).reverse();
-      let peakHour = hours[0];
-      hours.forEach((h) => {
-        if ((sums[h] || 0) > (sums[peakHour] || 0)) peakHour = h;
-      });
-      return { hours, days, max, peakHour };
-    }, [storeHourly]);
-    const SPLH_OVER = 35, SPLH_UNDER = 110;
-    const schedFit = React.useMemo(() => {
-      if (!storeSched?.length || !storeHourly?.length || !heatmap) return null;
-      const byDow = {};
-      const avg = Array(24).fill(0);
-      let nDays = 0;
-      storeHourly.forEach((d) => {
-        if (!d.date) return;
-        const a = Array(24).fill(0);
-        (d.hours || []).forEach((h) => {
-          a[h.h] = h.sales || 0;
-        });
-        byDow[(/* @__PURE__ */ new Date(d.date + "T12:00:00")).getDay()] = a;
-        a.forEach((v, h) => {
-          avg[h] += v;
-        });
-        nDays++;
-      });
-      if (!nDays) return null;
-      for (let h = 0; h < 24; h++) avg[h] /= nDays;
-      const now = /* @__PURE__ */ new Date();
-      const tStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      const dates = [...new Set(storeSched.map((s) => s.date).filter((d) => d && d >= tStr))].sort().slice(0, 7);
-      if (!dates.length) return null;
-      const hours = heatmap.hours;
-      const rows = dates.map((date) => {
-        const exp = byDow[(/* @__PURE__ */ new Date(date + "T12:00:00")).getDay()] || avg;
-        const heads = hours.map(() => 0);
-        storeSched.forEach((sh) => {
-          if (sh.date !== date || !sh.startDateTime || !sh.endDateTime) return;
-          const st = new Date(sh.startDateTime), en = new Date(sh.endDateTime);
-          if (isNaN(st.getTime()) || isNaN(en.getTime()) || en <= st) return;
-          const sH = st.getHours() + st.getMinutes() / 60;
-          const eH = en.getHours() + en.getMinutes() / 60 + (en.getDate() !== st.getDate() ? 24 : 0);
-          hours.forEach((h, i) => {
-            if (sH <= h + 0.5 && h + 0.5 < eH) heads[i]++;
-          });
-        });
-        const cells = hours.map((h, i) => {
-          const n = heads[i], expSales = exp[h] || 0;
-          let fit = "ok";
-          if (n === 0) fit = expSales > 50 ? "under" : "off";
-          else {
-            const splh = expSales / n;
-            if (n >= 2 && splh < SPLH_OVER) fit = "over";
-            else if (splh > SPLH_UNDER) fit = "under";
-          }
-          return { n, exp: expSales, fit };
-        });
-        return { date, isToday: date === tStr, cells };
-      });
-      return { hours, rows };
-    }, [storeSched, storeHourly, heatmap]);
-    const deadZone = React.useMemo(() => {
-      if (!storeHourly?.length || !peerHourly?.length) return null;
-      const DAYPARTS = [
-        { label: "5\u20138a", hs: [5, 6, 7] },
-        { label: "8\u201311a", hs: [8, 9, 10] },
-        { label: "11a\u20132p", hs: [11, 12, 13] },
-        { label: "2\u20135p", hs: [14, 15, 16] },
-        { label: "5\u20139p", hs: [17, 18, 19, 20] }
-      ];
-      const sumHours = (days) => {
-        const a = Array(24).fill(0);
-        days.forEach((d) => (d.hours || []).forEach((h) => {
-          a[h.h] += h.sales || 0;
-        }));
-        return a;
-      };
-      const mine = sumHours(storeHourly);
-      const myTotal = mine.reduce((x, y) => x + y, 0);
-      if (myTotal <= 0) return null;
-      const peerShare = Array(24).fill(0);
-      let peers = 0;
-      peerHourly.forEach((hist) => {
-        const a = sumHours(hist);
-        const t = a.reduce((x, y) => x + y, 0);
-        if (t > 0) {
-          a.forEach((v, h) => {
-            peerShare[h] += v / t;
-          });
-          peers++;
-        }
-      });
-      if (!peers) return null;
-      let worst = null;
-      for (const dp of DAYPARTS) {
-        const mineShare = dp.hs.reduce((x, h) => x + mine[h], 0) / myTotal * 100;
-        const theirs = dp.hs.reduce((x, h) => x + peerShare[h], 0) / peers * 100;
-        const gap = mineShare - theirs;
-        if (!worst || gap < worst.gap) worst = { label: dp.label, mine: mineShare, peers: theirs, gap };
-      }
-      return { ...worst, peerCount: peers };
-    }, [storeHourly, peerHourly]);
-    const ticketCounts = React.useMemo(() => {
-      const counts = {};
-      allTickets.forEach((t) => {
-        if (t.status !== "Closed" && t.storePC) counts[t.storePC] = (counts[t.storePC] || 0) + 1;
-      });
-      return counts;
-    }, [allTickets]);
-    React.useEffect(() => {
-      setTimeout(() => mapRef.current && mapRef.current.invalidateSize(), 350);
-    }, [!!selectedStore]);
-    React.useEffect(() => {
-      const L3 = window.L;
-      if (!L3 || !containerRef.current || mapRef.current) return;
-      mapRef.current = L3.map(containerRef.current, { zoomControl: true, scrollWheelZoom: true, attributionControl: false }).setView([40.12, -75.18], 11);
-      tileRef.current = L3.tileLayer(
-        th.dark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        th.dark ? { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \xA9 <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 19, subdomains: "abcd", detectRetina: true } : { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18 }
-      ).addTo(mapRef.current);
-      return () => {
-        if (mapRef.current) {
-          mapRef.current.remove();
-          mapRef.current = null;
-        }
-      };
-    }, []);
-    React.useEffect(() => {
-      if (!tileSwapReady.current) {
-        tileSwapReady.current = true;
-        return;
-      }
-      const L3 = window.L;
-      if (!L3 || !mapRef.current) return;
-      if (tileRef.current) {
-        tileRef.current.remove();
-        tileRef.current = null;
-      }
-      tileRef.current = L3.tileLayer(
-        th.dark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        th.dark ? { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \xA9 <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 19, subdomains: "abcd", detectRetina: true } : { attribution: '\xA9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18 }
-      ).addTo(mapRef.current);
-    }, [th.dark]);
-    React.useEffect(() => {
-      const L3 = window.L;
-      if (!L3 || !mapRef.current) return;
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
-      heatRef.current.forEach((m) => m.remove());
-      heatRef.current = [];
-      const etNow = new Date((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/New_York" }));
-      const curHr = etNow.getHours(), curMin = etNow.getMinutes();
-      stores.forEach((s) => {
-        const c = STORE_COORDS[s.pc];
-        if (!c) return;
-        const lPct = laborData?.[s.pc]?.today?.laborPct ?? null;
-        if (filterPerf) {
-          if (filterPerf === "green" && !(lPct !== null && lPct < 23)) return;
-          if (filterPerf === "yellow" && !(lPct !== null && lPct >= 23 && lPct < 26)) return;
-          if (filterPerf === "red" && !(lPct !== null && lPct >= 26)) return;
-        }
-        const heatHours = liveHeat[String(s.pc)];
-        if (heatHours && s.status === "Open") {
-          const useHr = curMin < 15 && curHr > 0 ? curHr - 1 : curHr;
-          let raw = heatHours[useHr] || 0;
-          if (useHr === curHr && curMin >= 15) raw = raw / (curMin / 60);
-          const peak = Math.max(...heatHours);
-          const intensity = peak > 0 ? Math.min(raw / peak, 1) : 0;
-          let rgb, a1, a2, size;
-          if (intensity >= 0.65) {
-            rgb = "239,68,68";
-            a1 = 0.55;
-            a2 = 0.26;
-            size = Math.round(80 + intensity * 30);
-          } else if (intensity >= 0.3) {
-            rgb = "255,103,31";
-            a1 = 0.42;
-            a2 = 0.18;
-            size = Math.round(64 + intensity * 30);
-          } else {
-            rgb = "148,163,184";
-            a1 = 0.3;
-            a2 = 0.12;
-            size = 52;
-          }
-          const pulse = intensity >= 0.3 ? `animation:heatCloudPulse 3.4s ease-in-out infinite;` : "";
-          const cloudHtml = `<div style="width:${size}px;height:${size}px;border-radius:50%;pointer-events:none;background:radial-gradient(circle, rgba(${rgb},${a1}) 0%, rgba(${rgb},${a2}) 45%, rgba(${rgb},0) 72%);${pulse}"></div>`;
-          const cloudIcon = L3.divIcon({ className: "", html: cloudHtml, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
-          const cloud = L3.marker([c.lat, c.lng], { icon: cloudIcon, interactive: false, keyboard: false, zIndexOffset: -1e3 }).addTo(mapRef.current);
-          heatRef.current.push(cloud);
-        }
-        let color;
-        if (s.status !== "Open" && s.status !== "Remodel") {
-          color = "#6b7280";
-        } else if (lPct === null) {
-          color = "#94a3b8";
-        } else if (lPct < 23) {
-          color = "#22c55e";
-        } else if (lPct < 26) {
-          color = "#f59e0b";
-        } else {
-          color = "#ef4444";
-        }
-        const hasAlert = (ticketCounts[s.pc] || 0) > 0;
-        const pinHtml = `<div style="position:relative;width:16px;height:16px;">
-        <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.5);"></div>
-        ${hasAlert ? `<div style="position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:#ef4444;border:1.5px solid #fff;"></div>` : ""}
-      </div>`;
-        const icon = L3.divIcon({ className: "", html: pinHtml, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -12] });
-        const marker = L3.marker([c.lat, c.lng], { icon }).addTo(mapRef.current).on("click", () => {
-          if (selectRef.current) selectRef.current(s);
-          mapRef.current.panTo([c.lat, c.lng], { animate: true, duration: 0.4 });
-        });
-        markersRef.current.push(marker);
-      });
-    }, [storesFingerprint, ticketCounts, laborData, filterPerf, liveHeat]);
-    React.useEffect(() => {
-      const id = "pcg-leaflet-zoom-theme";
-      let s = document.getElementById(id);
-      if (!s) {
-        s = document.createElement("style");
-        s.id = id;
-        document.head.appendChild(s);
-      }
-      s.textContent = `
-      .leaflet-bar { border: 1px solid ${th.cardBorder} !important; box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important; border-radius: 0.5rem !important; overflow: hidden; }
-      .leaflet-control-zoom-in, .leaflet-control-zoom-out { background: ${th.card} !important; color: ${th.text} !important; border-bottom: 1px solid ${th.cardBorder} !important; }
-      .leaflet-control-zoom-in:hover, .leaflet-control-zoom-out:hover { background: ${th.card2} !important; color: #FF671F !important; }
-      @keyframes heatCloudPulse { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.12); opacity: 1; } }
-    `;
-    }, [th.dark]);
-    const legend = laborData ? (() => {
-      let green = 0, yellow = 0, red = 0, noData = 0, notOp = 0;
-      stores.forEach((s) => {
-        if (s.status !== "Open" && s.status !== "Remodel") {
-          notOp++;
-          return;
-        }
-        const lPct = laborData?.[s.pc]?.today?.laborPct ?? null;
-        if (lPct === null) {
-          noData++;
-          return;
-        }
-        if (lPct < 23) green++;
-        else if (lPct < 26) yellow++;
-        else red++;
-      });
-      return [
-        { color: "#22c55e", label: "On Target", sublabel: "<23%", count: green, filter: "green" },
-        { color: "#f59e0b", label: "Watch", sublabel: "23\u201326%", count: yellow, filter: "yellow" },
-        { color: "#ef4444", label: "Intervention", sublabel: "\u226526%", count: red, filter: "red" },
-        { color: "#94a3b8", label: "No Data", sublabel: null, count: noData, filter: null },
-        { color: "#6b7280", label: "Not Operational", sublabel: null, count: notOp, filter: null }
-      ].filter((l) => l.count > 0);
-    })() : [{ color: "#94a3b8", label: "Loading\u2026", sublabel: null, count: stores.length, filter: null }];
-    const storeTickets = selectedStore ? allTickets.filter((t) => t.storePC === selectedStore.pc && t.status !== "Closed") : [];
-    const PRIORITY_COLOR = { Emergency: "#ef4444", High: "#f97316", Medium: "#3b82f6", Low: "#22c55e" };
-    const detailLd = selectedStore ? laborData?.[selectedStore.pc]?.today : null;
-    const detailLPct = detailLd?.laborPct ?? null;
-    const detailLColor = detailLPct === null ? th.muted : detailLPct < 23 ? "#22c55e" : detailLPct < 26 ? "#f59e0b" : "#ef4444";
-    const detailSColor = !selectedStore ? "#6b7280" : selectedStore.status === "Open" ? "#22c55e" : selectedStore.status === "Remodel" ? "#f59e0b" : "#6b7280";
-    const detailWeather = selectedStore ? weatherData?.[selectedStore.district]?.days?.[0] : null;
-    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", height: height || "calc(100vh - 80px)", overflow: "hidden", borderRadius: "0.875rem", border: `1px solid ${th.cardBorder}`, background: th.card } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.6rem 1rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, fontFamily: "'Source Sans 3'", marginRight: 4 } }, "Filter"), legend.map((l) => {
-      const isActive = filterPerf === l.filter && l.filter !== null;
-      const isClickable = l.filter !== null;
-      return /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          key: l.label,
-          onClick: isClickable ? () => setFilterPerf((p) => p === l.filter ? null : l.filter) : void 0,
-          style: { display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.72rem", fontFamily: "'Source Sans 3'", fontWeight: isActive ? 700 : 500, background: isActive ? l.color + "22" : th.card2, border: isActive ? `1px solid ${l.color}66` : `1px solid ${th.cardBorder}`, borderRadius: "2rem", padding: "0.25rem 0.7rem", cursor: isClickable ? "pointer" : "default", color: isActive ? l.color : th.text, transition: "all 0.15s" }
-        },
-        /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: l.color, flexShrink: 0 } }),
-        l.count,
-        " ",
-        l.label,
-        l.sublabel && /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.7 } }, " ", l.sublabel)
-      );
-    }), filterPerf && /* @__PURE__ */ React.createElement("button", { onClick: () => setFilterPerf(null), style: { fontSize: "0.68rem", color: th.muted, background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "2rem", padding: "0.22rem 0.65rem", cursor: "pointer", fontFamily: "'Source Sans 3'" } }, "\u2715 Show all"), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "0.55rem", fontSize: "0.68rem", color: th.muted, fontFamily: "'Source Sans 3'" } }, heatLoading ? "loading live heat\u2026" : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(239,68,68,0.8) 0%, rgba(239,68,68,0.35) 45%, rgba(239,68,68,0) 72%)" } }), "Busy"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(255,103,31,0.7) 0%, rgba(255,103,31,0.3) 45%, rgba(255,103,31,0) 72%)" } }), "Steady"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 15, height: 15, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle, rgba(148,163,184,0.6) 0%, rgba(148,163,184,0.25) 45%, rgba(148,163,184,0) 72%)" } }), "Slow"), /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.75 } }, "\xB7 this hour, live")))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flex: 1, minHeight: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, position: "relative", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { ref: containerRef, style: { width: "100%", height: "100%" } })), selectedStore && /* @__PURE__ */ React.createElement("div", { style: { width: 400, flexShrink: 0, borderLeft: `1px solid ${th.cardBorder}`, display: "flex", flexDirection: "column", overflow: "hidden", background: th.card } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem 1.25rem 0.875rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, selectedStore.name), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 700, color: detailSColor, background: detailSColor + "22", padding: "0.15rem 0.5rem", borderRadius: "1rem", border: `1px solid ${detailSColor}44` } }, selectedStore.status)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.77rem", color: th.muted } }, selectedStore.address), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginTop: "0.1rem" } }, selectedStore.city, ", ", selectedStore.state, selectedStore.zip ? " " + selectedStore.zip : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.71rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", null, "District ", selectedStore.district || "\u2014"), /* @__PURE__ */ React.createElement("span", null, "PC# ", selectedStore.pc), storeMgrName(selectedStore, users) && /* @__PURE__ */ React.createElement("span", null, "MGR: ", storeMgrName(selectedStore, users)), selectedStore.mgrPhone && /* @__PURE__ */ React.createElement("span", null, selectedStore.mgrPhone)), detailWeather && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.71rem", color: th.muted, marginTop: "0.3rem", display: "flex", alignItems: "center", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", null, WEATHER_EMOJI[detailWeather.condition] || "\u{1F324}\uFE0F"), /* @__PURE__ */ React.createElement("span", { style: { textTransform: "capitalize" } }, detailWeather.condition), /* @__PURE__ */ React.createElement("span", null, "\xB7"), /* @__PURE__ */ React.createElement("span", null, detailWeather.tempHighF, "\xB0 / ", detailWeather.tempLowF, "\xB0F"), detailWeather.precipMm > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#60a5fa" } }, "\u{1F4A7} ", detailWeather.precipMm, "mm"))), /* @__PURE__ */ React.createElement("button", { onClick: () => setSelectedStore(null), style: { background: "none", border: "none", cursor: "pointer", color: th.muted, fontSize: "1.1rem", padding: "0.1rem 0.3rem", lineHeight: 1, flexShrink: 0 } }, "\u2715"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(5,1fr)", padding: "0.75rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}`, flexShrink: 0, gap: "0.25rem" } }, [
-      { label: "Sales", value: detailLd ? fmtDollars(detailLd.sales) : "\u2014", color: "#FF671F" },
-      { label: "Labor %", value: detailLPct !== null ? detailLPct.toFixed(1) + "%" : "\u2014", color: detailLColor },
-      { label: "Clocked", value: detailLd ? String(detailLd.employeesOnClock ?? "\u2014") : "\u2014", color: "#22c55e" },
-      { label: "Sched", value: detailLd ? String(detailLd.scheduledNow ?? "\u2014") : "\u2014", color: "#74c0fc" },
-      { label: "Tickets", value: String(storeTickets.length), color: storeTickets.length > 0 ? "#ef4444" : th.muted }
-    ].map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.25rem", color: k.color, lineHeight: 1 } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.58rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: "0.2rem", fontWeight: 600 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text } }, "Today's Team"), storeEmpsLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, "Loading\u2026"), storeEmps && !storeEmpsLoading && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: th.muted } }, storeEmps.length, " employee", storeEmps.length !== 1 ? "s" : "")), storeEmpsLoading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "Fetching team data\u2026"), storeEmps && storeEmps.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No data available for today"), storeEmps && storeEmps.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 2 } }, (teamExpanded ? storeEmps : storeEmps.slice(0, 5)).map((e, i) => {
-      const eName = typeof e.name === "string" ? e.name : "Unknown";
-      const eRole = typeof e.role === "string" ? e.role : "Crew";
-      const eHours = typeof e.hoursToday === "number" ? e.hoursToday.toFixed(1) + "h" : "\u2014";
-      const initials = eName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase() || "?";
-      return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.45rem", padding: "0.2rem 0.4rem", borderRadius: "0.4rem", background: th.card2 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 20, height: 20, borderRadius: "50%", background: "#FF671F22", color: "#FF671F", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "0.52rem", flexShrink: 0 } }, initials), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, minWidth: 0, fontSize: "0.74rem", color: th.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, eName, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400, fontSize: "0.62rem" } }, "\xB7 ", eRole)), e.overtime === "ot" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.52rem", color: "#ef4444", fontWeight: 700, flexShrink: 0 } }, "OT"), e.overtime === "approaching" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.52rem", color: "#f59e0b", fontWeight: 700, flexShrink: 0 } }, "~OT"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", fontWeight: 600, color: th.text, flexShrink: 0 } }, eHours));
-    }), storeEmps.length > 5 && /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => setTeamExpanded((x) => !x),
-        style: { background: "none", border: "none", color: th.muted, fontSize: "0.66rem", fontWeight: 600, cursor: "pointer", padding: "0.25rem 0", fontFamily: "'Source Sans 3'" }
-      },
-      teamExpanded ? "\u25B2 Show less" : `\u25BC Show all ${storeEmps.length}`
-    ))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.65rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text } }, "Hourly Traffic"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", color: th.muted } }, "last 7 days", heatmap ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 peak ", /* @__PURE__ */ React.createElement("span", { style: { color: O2, fontWeight: 700 } }, hourLabel(heatmap.peakHour))) : "")), storeHourlyLoading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "Loading\u2026"), storeHourly && storeHourly.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, fontStyle: "italic" } }, "No history available yet"), heatmap && (() => {
-      const cellColor = (v) => {
-        const t = heatmap.max > 0 ? v / heatmap.max : 0;
-        if (t <= 0) return th.card2;
-        const alpha = t <= 0.15 ? "26" : t <= 0.35 ? "59" : t <= 0.6 ? "8c" : t <= 0.85 ? "bf" : "ff";
-        return `${O2}${alpha}`;
-      };
-      const fmtTotal = (t) => t >= 1e3 ? `$${(t / 1e3).toFixed(1)}k` : `$${Math.round(t)}`;
-      const cols = `32px repeat(${heatmap.hours.length}, 1fr) 42px`;
-      const lastIdx = heatmap.days.length - 1;
-      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: cols, gap: 3, marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", null), heatmap.hours.map((h) => /* @__PURE__ */ React.createElement("span", { key: h, style: { fontSize: "0.56rem", color: th.muted, textAlign: "center", whiteSpace: "nowrap" } }, h % 3 === 0 ? hourLabel(h) : "")), /* @__PURE__ */ React.createElement("span", null)), heatmap.days.map((d, di) => /* @__PURE__ */ React.createElement("div", { key: d.date, style: { display: "grid", gridTemplateColumns: cols, gap: 3, alignItems: "center", marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: di === lastIdx ? 700 : 500, color: di === lastIdx ? th.text : th.muted } }, (/* @__PURE__ */ new Date(d.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" })), d.values.map((v, i) => /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          key: i,
-          title: `${hourLabel(heatmap.hours[i])} \u2014 ${fmtDollars(v)}`,
-          style: { height: 16, borderRadius: 4, background: cellColor(v) }
-        }
-      )), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", color: th.muted, textAlign: "right", whiteSpace: "nowrap" } }, fmtTotal(d.total)))), deadZone && (deadZone.gap < -2.5 ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.4rem", marginTop: "0.55rem", padding: "0.4rem 0.6rem", borderRadius: "0.5rem", background: "#ef444412", border: "1px solid #ef444433", fontSize: "0.66rem", color: th.text, lineHeight: 1.45 } }, /* @__PURE__ */ React.createElement("span", { style: { flexShrink: 0 } }, "\u26A0\uFE0F"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", null, "Dead zone ", deadZone.label), " \u2014 ", deadZone.mine.toFixed(1), "% of daily sales vs ", deadZone.peers.toFixed(1), "% for ", deadZone.peerCount, " district peers. Market issue or ops issue?")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.55rem", fontSize: "0.64rem", color: "#22c55e" } }, "\u2713 Daypart mix tracks district peers")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: "0.5rem", fontSize: "0.58rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, "Less"), ["26", "59", "8c", "bf", "ff"].map((a) => /* @__PURE__ */ React.createElement("div", { key: a, style: { width: 11, height: 11, borderRadius: 3, background: `${O2}${a}` } })), /* @__PURE__ */ React.createElement("span", { style: { marginRight: 2 } }, "More")), schedFit && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.45rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.74rem", color: th.text } }, "Staffing Fit"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", color: th.muted } }, "scheduled heads vs typical traffic")), schedFit.rows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.date, style: { display: "grid", gridTemplateColumns: cols, gap: 3, alignItems: "center", marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: r.isToday ? 700 : 500, color: r.isToday ? th.text : th.muted } }, (/* @__PURE__ */ new Date(r.date + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short" })), r.cells.map((cell, i) => {
-        const c = cell.fit === "over" ? "#ef4444" : cell.fit === "under" ? "#f59e0b" : null;
-        let tip = `${hourLabel(schedFit.hours[i])} \u2014 ${cell.n} scheduled \xB7 typical ${fmtDollars(cell.exp)}`;
-        if (cell.fit === "over") tip += " \xB7 OVERSTAFFED";
-        if (cell.fit === "under") tip += cell.n === 0 ? " \xB7 NO COVERAGE" : " \xB7 UNDERSTAFFED";
-        return /* @__PURE__ */ React.createElement(
-          "div",
-          {
-            key: i,
-            title: tip,
-            style: {
-              height: 16,
-              borderRadius: 4,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: c ? `${c}22` : th.card2,
-              color: c || th.muted,
-              fontSize: "0.55rem",
-              fontWeight: 700
-            }
-          },
-          cell.fit === "off" ? "" : cell.n
-        );
-      }), /* @__PURE__ */ React.createElement("span", null))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.6rem", marginTop: "0.4rem", fontSize: "0.58rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 11, height: 11, borderRadius: 3, background: "#ef444422", border: "1px solid #ef444455" } }), " overstaffed"), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 11, height: 11, borderRadius: 3, background: "#f59e0b22", border: "1px solid #f59e0b55" } }), " understaffed"))));
-    })()), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.875rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 700, fontSize: "0.8rem", color: th.text, marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, "Open Tickets", storeTickets.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700, background: "#ef444420", padding: "0.1rem 0.4rem", borderRadius: "1rem" } }, storeTickets.length)), storeTickets.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#22c55e", display: "flex", alignItems: "center", gap: "0.35rem" } }, "\u2713 No open tickets"), storeTickets.map((t, i) => {
-      const tTitle = typeof t.title === "string" ? t.title : typeof t.description === "string" ? t.description.slice(0, 50) : "Untitled";
-      const tPriority = typeof t.priority === "string" ? t.priority : "\u2014";
-      const tStatus = typeof t.status === "string" ? t.status : "\u2014";
-      const pColor = PRIORITY_COLOR[tPriority] || "#6b7280";
-      return /* @__PURE__ */ React.createElement("div", { key: t.id || i, style: { padding: "0.5rem 0.625rem", borderRadius: "0.5rem", background: th.card2, marginBottom: "0.3rem", border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.78rem", color: th.text, fontWeight: 600, lineHeight: 1.3, flex: 1 } }, tTitle), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.4rem", borderRadius: "0.3rem", background: pColor + "22", color: pColor, flexShrink: 0 } }, tPriority)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, marginTop: "0.2rem", display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, tStatus), t.createdAt && /* @__PURE__ */ React.createElement("span", null, "\xB7 ", new Date(t.createdAt).toLocaleDateString())));
-    }))), setTab && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.75rem 1.25rem", borderTop: `1px solid ${th.cardBorder}`, display: "flex", gap: "0.5rem", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("labor"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u{1F4CA} Labor"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("pulse"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u26A1 Pulse"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("tickets"), style: { flex: 1, ...btn(th, { fontSize: "0.73rem", padding: "0.4rem", background: th.card2 }) } }, "\u{1F527} Tickets")))));
-  }
   var LOCATION_TOOLS = [
     { id: "closest", label: "Closest to an address", icon: "\u{1F4CD}" }
   ];
@@ -12676,21 +15416,21 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   var openStoreList = () => LIVE_OPEN_STORES || STORES_SEED.filter((s) => s.status !== PERMANENTLY_CLOSED);
   function ClosestToFinder({ th, onClose }) {
     const O2 = "#FF671F";
-    const [addr, setAddr] = useState18("");
-    const [origin, setOrigin] = useState18(null);
-    const [ranked, setRanked] = useState18([]);
-    const [drive, setDrive] = useState18({});
-    const [busy, setBusy] = useState18(false);
-    const [status, setStatus] = useState18("");
-    const [hoverPc, setHoverPc] = useState18(null);
-    const [suggestions, setSuggestions] = useState18([]);
-    const [showSuggestions, setShowSuggestions] = useState18(false);
-    const [suggestLoading, setSuggestLoading] = useState18(false);
-    const [activeSugIdx, setActiveSugIdx] = useState18(-1);
-    const suggestTimer = useRef7(null);
-    const mapDiv = useRef7(null);
-    const mapRef = useRef7(null);
-    const markersRef = useRef7({});
+    const [addr, setAddr] = useState21("");
+    const [origin, setOrigin] = useState21(null);
+    const [ranked, setRanked] = useState21([]);
+    const [drive, setDrive] = useState21({});
+    const [busy, setBusy] = useState21(false);
+    const [status, setStatus] = useState21("");
+    const [hoverPc, setHoverPc] = useState21(null);
+    const [suggestions, setSuggestions] = useState21([]);
+    const [showSuggestions, setShowSuggestions] = useState21(false);
+    const [suggestLoading, setSuggestLoading] = useState21(false);
+    const [activeSugIdx, setActiveSugIdx] = useState21(-1);
+    const suggestTimer = useRef8(null);
+    const mapDiv = useRef8(null);
+    const mapRef = useRef8(null);
+    const markersRef = useRef8({});
     function handleAddrChange(val) {
       setAddr(val);
       setActiveSugIdx(-1);
@@ -12806,7 +15546,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         setDrive((d) => ({ ...d, [row.pc]: "err" }));
       }
     }
-    useEffect15(() => {
+    useEffect18(() => {
       if (!mapDiv.current || !window.L) return;
       const L3 = window.L;
       if (!mapRef.current) {
@@ -12839,11 +15579,11 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setTimeout(() => map.invalidateSize(), 60);
     }, [ranked, origin]);
-    useEffect15(() => {
+    useEffect18(() => {
       const m = hoverPc && markersRef.current[hoverPc];
       if (m && m.openPopup) m.openPopup();
     }, [hoverPc]);
-    useEffect15(() => () => {
+    useEffect18(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -12890,30 +15630,30 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function AdminLocations({ stores, setStores, districts, user, th, setTab, users, onMapModeChange }) {
     const mgrOf = (s) => storeMgrName(s, users);
-    const [laborData, setLaborData] = useState18(null);
-    useEffect15(() => {
+    const [laborData, setLaborData] = useState21(null);
+    useEffect18(() => {
       cloudLoad("pcg_labor_v1").then((d) => {
         if (d?.stores) setLaborData(d.stores);
       }).catch(() => {
       });
     }, []);
     const employeeCountOf = (s) => laborData?.[s.pc]?.today?.employees;
-    const [filterState, setFilterState] = useState18("All");
-    const [filterStatus, setFilterStatus] = useState18("All");
-    const [filterDistrict, setFilterDistrict] = useState18("All");
-    const [filterNxt, setFilterNxt] = useState18(false);
-    const [filterBaskin, setFilterBaskin] = useState18(false);
-    const [search, setSearch] = useState18("");
-    const [editStore, setEditStore] = useState18(null);
-    const [addMode, setAddMode] = useState18(false);
-    const [selectedStore, setSelectedStore] = useState18(null);
-    const [sortCol, setSortCol] = useState18("pc");
-    const [sortDir, setSortDir] = useState18("asc");
-    const [copiedId, setCopiedId] = useState18(null);
-    const [cityData, setCityData] = useState18(null);
-    const [cityLoading, setCityLoading] = useState18(false);
-    const [foodLicenses, setFoodLicenses] = useState18({});
-    const [foodLicensesLoading, setFoodLicensesLoading] = useState18(false);
+    const [filterState, setFilterState] = useState21("All");
+    const [filterStatus, setFilterStatus] = useState21("All");
+    const [filterDistrict, setFilterDistrict] = useState21("All");
+    const [filterNxt, setFilterNxt] = useState21(false);
+    const [filterBaskin, setFilterBaskin] = useState21(false);
+    const [search, setSearch] = useState21("");
+    const [editStore, setEditStore] = useState21(null);
+    const [addMode, setAddMode] = useState21(false);
+    const [selectedStore, setSelectedStore] = useState21(null);
+    const [sortCol, setSortCol] = useState21("pc");
+    const [sortDir, setSortDir] = useState21("asc");
+    const [copiedId, setCopiedId] = useState21(null);
+    const [cityData, setCityData] = useState21(null);
+    const [cityLoading, setCityLoading] = useState21(false);
+    const [foodLicenses, setFoodLicenses] = useState21({});
+    const [foodLicensesLoading, setFoodLicensesLoading] = useState21(false);
     const loadFoodLicenses = async () => {
       setFoodLicensesLoading(true);
       try {
@@ -12929,17 +15669,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
       setFoodLicensesLoading(false);
     };
-    const [toolsOpen, setToolsOpen] = useState18(false);
-    const [activeTool, setActiveTool] = useState18(null);
-    const [viewMode, setViewMode] = useState18("list");
-    useEffect15(() => {
+    const [toolsOpen, setToolsOpen] = useState21(false);
+    const [activeTool, setActiveTool] = useState21(null);
+    const [viewMode, setViewMode] = useState21("list");
+    useEffect18(() => {
       onMapModeChange?.(viewMode === "map");
       return () => onMapModeChange?.(false);
     }, [viewMode]);
-    const [isNarrow, setIsNarrow] = useState18(() => typeof window !== "undefined" && window.innerWidth < 760);
-    const frameRef = useRef7(null);
+    const [isNarrow, setIsNarrow] = useState21(() => typeof window !== "undefined" && window.innerWidth < 760);
+    const frameRef = useRef8(null);
     const frameH = useFrameHeight(frameRef, 340, 16);
-    useEffect15(() => {
+    useEffect18(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -12978,7 +15718,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       }
     };
     const emptyStore = { pc: "", paycor: "", legal: "", name: "", address: "", city: "", state: "PA", zip: "", isNextGen: false, baseAsset: "DT", isBaskin: false, isBridge: false, mgr: "", mgrPhone: "", email: "", district: "", dmName: "", dmEmail: "", status: "Coming Soon", closedDate: "", employees: 0, sales: 0 };
-    const [newStore, setNewStore] = useState18(emptyStore);
+    const [newStore, setNewStore] = useState21(emptyStore);
     const isAdmin = isFullAdmin(user);
     const isOfficeStaff = user?.userType === "office_staff";
     const isDM = user?.userType === "dm";
@@ -13682,515 +16422,13 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       );
     }), filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: th.muted } }, "No stores match filters.")))))));
   }
-  function DistrictAlignmentTool({ user, th, stores, users, onBack, setStores, districts, setDistricts, setUsers }) {
-    const [draft, setDraft] = React.useState(null);
-    const [metrics, setMetrics] = React.useState({});
-    const [loading, setLoading] = React.useState(true);
-    const [error, setError] = React.useState("");
-    const [actionError, setActionError] = React.useState("");
-    const [hoverHoursPc, setHoverHoursPc] = React.useState(null);
-    React.useEffect(() => {
-      if (!hoverHoursPc) return;
-      const close = () => setHoverHoursPc(null);
-      window.addEventListener("scroll", close, { passive: true, capture: true });
-      return () => window.removeEventListener("scroll", close, { capture: true });
-    }, [hoverHoursPc]);
-    const [dragPc, setDragPc] = React.useState(null);
-    const [dragOverDistrict, setDragOverDistrict] = React.useState(null);
-    const dragFromControlRef = React.useRef(false);
-    React.useEffect(() => {
-      if (!dragPc) return;
-      let y = null;
-      let raf = 0;
-      const onOver = (e) => {
-        y = e.clientY;
-      };
-      const tick = () => {
-        if (y != null) {
-          const edge = 90;
-          if (y < edge) window.scrollBy(0, -Math.ceil((edge - y) / 4));
-          else if (y > window.innerHeight - edge) window.scrollBy(0, Math.ceil((y - (window.innerHeight - edge)) / 4));
-        }
-        raf = requestAnimationFrame(tick);
-      };
-      document.addEventListener("dragover", onOver);
-      raf = requestAnimationFrame(tick);
-      return () => {
-        document.removeEventListener("dragover", onOver);
-        cancelAnimationFrame(raf);
-      };
-    }, [dragPc]);
-    const isAdmin = isFullAdmin(user);
-    const activeStores = React.useMemo(
-      () => (stores || []).filter((s) => s.status !== "Permanently Closed"),
-      [stores]
-    );
-    const loadDraft = React.useCallback(() => {
-      setLoading(true);
-      setError("");
-      fetch("/.netlify/functions/district-alignment", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({ action: "get", liveStores: activeStores })
-      }).then((r) => r.json()).then((j) => {
-        if (!j?.ok) {
-          setError(j?.error || "Could not load District Alignment.");
-          return;
-        }
-        setDraft(j.draft);
-      }).catch(() => setError("Network error \u2014 please try again.")).finally(() => setLoading(false));
-    }, [activeStores]);
-    const [saving, setSaving] = React.useState(false);
-    const [showAddDm, setShowAddDm] = React.useState(null);
-    const [showNewDistrict, setShowNewDistrict] = React.useState(false);
-    const [newDistrictNum, setNewDistrictNum] = React.useState("");
-    const [newDmName, setNewDmName] = React.useState("");
-    const [newDmEmail, setNewDmEmail] = React.useState("");
-    const callAction = (body) => {
-      setSaving(true);
-      return fetch("/.netlify/functions/district-alignment", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify(body)
-      }).then((r) => r.json()).then((j) => {
-        if (!j?.ok) {
-          setActionError(j?.error || "That action failed \u2014 please try again.");
-          return;
-        }
-        setDraft(j.draft);
-        setActionError("");
-      }).catch(() => setActionError("Network error \u2014 please try again.")).finally(() => setSaving(false));
-    };
-    const reassignStore = (pc, district) => callAction({ action: "reassignStore", pc, district });
-    const addDm = (district) => {
-      if (!newDmName.trim() || !Number.isFinite(district) || district <= 0) return;
-      callAction({ action: "addDm", name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
-        setShowAddDm(null);
-        setShowNewDistrict(false);
-        setNewDistrictNum("");
-        setNewDmName("");
-        setNewDmEmail("");
-      });
-    };
-    const replaceDm = (district) => {
-      if (!newDmName.trim() || !Number.isFinite(district) || district <= 0) return;
-      callAction({ action: "replaceDm", name: newDmName.trim(), email: newDmEmail.trim(), district }).then(() => {
-        setShowAddDm(null);
-        setNewDmName("");
-        setNewDmEmail("");
-      });
-    };
-    const dmAccounts = (users || []).filter((u) => u.userType === "dm" && u.active !== false).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-    const [confirmAction, setConfirmAction] = React.useState(null);
-    const [applyPlan, setApplyPlan] = React.useState(null);
-    const [applying, setApplying] = React.useState(false);
-    const [applyResult, setApplyResult] = React.useState(null);
-    const removeDm = (dmId) => setConfirmAction({
-      title: "Remove this DM?",
-      message: "Their stores will show as Unassigned until reassigned.",
-      confirmLabel: "Remove",
-      run: () => callAction({ action: "removeDm", dmId })
-    });
-    const resetToLive = () => setConfirmAction({
-      title: "Reset to live data?",
-      message: "This overwrites the draft with a fresh copy of the real Locations data. Any unsaved sandbox changes will be lost.",
-      confirmLabel: "Reset",
-      run: () => callAction({ action: "reset", liveStores: activeStores })
-    });
-    const openApply = () => {
-      setApplyResult(null);
-      const plan = planDistrictApply({ draft, liveStores: activeStores, users });
-      const nameChanges = Object.entries(plan.districtDms).filter(([n, dm]) => (districts?.[n]?.name || "") !== dm.name);
-      if (!plan.hasChanges && nameChanges.length === 0) {
-        setActionError("Nothing to apply \u2014 the draft already matches live Locations.");
-        return;
-      }
-      setApplyPlan({ ...plan, nameChanges });
-    };
-    const runApply = async () => {
-      const plan = applyPlan;
-      setApplying(true);
-      const userChanges = [...plan.dmLinks.map((l) => ({ id: l.userId, name: l.name, district: l.to })), ...plan.dmUnlinks.map((u) => ({ id: u.userId, name: u.name, district: null }))];
-      const done = [];
-      for (const ch of userChanges) {
-        try {
-          const res = await fetch("/.netlify/functions/users", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json", ...authHeader() },
-            body: JSON.stringify({ action: "update", id: ch.id, patch: { district: ch.district } })
-          });
-          const j = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
-          done.push(ch);
-          if (setUsers && j.user) setUsers((us) => us.map((u) => u.id === ch.id ? { ...u, ...j.user } : u));
-        } catch (e) {
-          setApplying(false);
-          setApplyPlan(null);
-          setApplyResult({ ok: false, text: `Stopped \u2014 couldn't update ${ch.name}'s account (${e.message}). ${done.length ? `Already updated: ${done.map((d) => d.name).join(", ")}. ` : ""}No stores were moved. Fix the issue and press Apply to live again.` });
-          return;
-        }
-      }
-      if (setStores) setStores((ss) => applyPlanToStores(ss, plan));
-      if (setDistricts) setDistricts((d) => applyPlanToDistricts(d, plan));
-      logClientEvent(user?.id, user?.userType, "district_alignment_applied", {
-        moves: plan.storeMoves.map((m) => `${m.pc}:${m.from}->${m.to}`),
-        links: plan.dmLinks.map((l) => `${l.name}->${l.to}`),
-        unlinks: plan.dmUnlinks.map((u) => u.name)
-      });
-      setApplying(false);
-      setApplyPlan(null);
-      setApplyResult({ ok: true, text: `Applied: ${plan.storeMoves.length} store${plan.storeMoves.length === 1 ? "" : "s"} moved, ${plan.dmLinks.length} DM${plan.dmLinks.length === 1 ? "" : "s"} linked, ${plan.dmUnlinks.length} unlinked. Alerts and reports follow the new districts from their next run.` });
-    };
-    React.useEffect(() => {
-      loadDraft();
-    }, [loadDraft]);
-    React.useEffect(() => {
-      if (activeStores.length === 0) return;
-      fetch("/.netlify/functions/district-alignment", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({ action: "metrics", pcs: activeStores.map((s) => s.pc) })
-      }).then((r) => r.json()).then((j) => {
-        if (j?.ok) setMetrics(j.metrics);
-      }).catch(() => {
-      });
-    }, [activeStores]);
-    if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: th.muted } }, "Loading District Alignment\u2026");
-    if (error) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: "#ef4444" } }, error);
-    if (!draft) return null;
-    const storeByPc = Object.fromEntries(activeStores.map((s) => [s.pc, s]));
-    const byDistrict = {};
-    Object.entries(draft.stores).forEach(([pc, { district }]) => {
-      const d = district ?? 0;
-      (byDistrict[d] ||= []).push(pc);
-    });
-    const districtNums = Object.keys(byDistrict).map(Number).sort((a, b) => a - b);
-    const selectableDistrictNums = Array.from(/* @__PURE__ */ new Set([...districtNums, ...draft.dms.map((d) => d.district)])).sort((a, b) => a - b);
-    const nearestSiblingMiles = (pc, districtPcs) => {
-      const coord = STORE_COORDS[pc];
-      if (!coord) return null;
-      let min = null;
-      districtPcs.forEach((otherPc) => {
-        if (otherPc === pc) return;
-        const d = haversineMiles(coord, STORE_COORDS[otherPc]);
-        if (Number.isFinite(d) && (min == null || d < min)) min = d;
-      });
-      return min;
-    };
-    const districtSpread = (districtPcs) => {
-      const coords = districtPcs.map((pc) => STORE_COORDS[pc]).filter(Boolean);
-      if (coords.length < 2) return { avg: null, max: null };
-      let total = 0, count = 0, max = 0;
-      for (let i = 0; i < coords.length; i++) {
-        for (let j = i + 1; j < coords.length; j++) {
-          const d = haversineMiles(coords[i], coords[j]);
-          total += d;
-          count++;
-          if (d > max) max = d;
-        }
-      }
-      return { avg: Math.round(total / count * 10) / 10, max: Math.round(max * 10) / 10 };
-    };
-    const fmtMoney = (n) => n == null ? "\u2014" : `$${n.toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
-    const fmtHour = (h) => {
-      const d = /* @__PURE__ */ new Date();
-      d.setHours(h, 0, 0, 0);
-      return d.toLocaleTimeString(void 0, { hour: "numeric" });
-    };
-    const fmtWeekRange = (m) => {
-      if (!m.weekStart || !m.weekEnd) return "";
-      const f = (iso) => (/* @__PURE__ */ new Date(`${iso}T12:00:00`)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      return `${f(m.weekStart)} \u2013 ${f(m.weekEnd)}${m.weekComplete ? "" : " (partial)"}`;
-    };
-    const fmtHourRange = (h) => `${fmtHour(h)}\u2013${fmtHour((h + 1) % 24)}`;
-    const assetCombined = (s) => `${s.isNextGen ? "NXT-" : ""}${s.baseAsset || "\u2014"}`;
-    const exportDistrictAlignmentPdf = () => {
-      const cell = "padding:2px 6px;font-size:8.5px;color:#1a1a1a;border-bottom:0.5px solid #ddd;";
-      const rowsHtml = (pcs, bg) => pcs.map((pc) => {
-        const s = storeByPc[pc];
-        if (!s) return "";
-        const m = metrics[pc] || {};
-        const nearest = nearestSiblingMiles(pc, pcs);
-        const maxAvg = Math.max(1, ...(m.hourlyAvg || []).map((h) => h.avgSales));
-        const topSet = new Set((m.topHours || []).map((t) => t.h));
-        const barsHtml = (m.hourlyAvg || []).map((h) => `<div style="display:inline-block;width:3px;height:${Math.max(1, Math.round(h.avgSales / maxAvg * 16))}px;background:${topSet.has(h.h) ? "#b8430f" : O + "99"};margin-right:1px;vertical-align:bottom;"></div>`).join("") + ((m.topHours || []).length ? `<div style="font-size:6.5px;color:#555;white-space:normal;">${m.topHours.map((t) => `${fmtHourRange(t.h)} ${fmtMoney(t.avgSales)}`).join(" \xB7 ")}</div>` : "");
-        return `
-        <tr style="background:${bg};">
-          <td style="${cell}font-weight:700;color:#c2540c;">${s.pc}</td>
-          <td style="${cell}">${s.paycor || "\u2014"}</td>
-          <td style="${cell}">${s.legal || "\u2014"}</td>
-          <td style="${cell}font-weight:700;">${s.name || "\u2014"}</td>
-          <td style="${cell}">${[s.address, s.city, s.state].filter(Boolean).join(", ")}</td>
-          <td style="${cell}">${assetCombined(s)}</td>
-          <td style="${cell}">${storeMgrName(s, users) || "Unassigned"}</td>
-          <td style="${cell}">${s.email || "\u2014"}</td>
-          <td style="${cell}">${fmtMoney(m.weeklySales)}${m.weekStart ? `<div style="font-size:6.5px;color:#888;">${fmtWeekRange(m)}</div>` : ""}</td>
-          <td style="${cell}white-space:nowrap;height:16px;">${barsHtml}</td>
-          <td style="${cell}">${nearest != null ? `${Math.round(nearest * 10) / 10} mi` : "\u2014"}</td>
-        </tr>`;
-      }).join("");
-      const districtsHtml = selectableDistrictNums.map((dNum) => {
-        const pcs = byDistrict[dNum] || [];
-        const dm = draft.dms.find((d) => d.district === dNum);
-        const dc = DISTRICT_COLORS[dNum] || { bg: "#e5e7eb", text: "#111" };
-        const spread = districtSpread(pcs);
-        return `
-        <tr style="background:${dc.bg};">
-          <td colspan="8" style="padding:3px 6px;font-size:9.5px;font-weight:800;color:${dc.text};">${dNum ? `District #${dNum}${dm ? " " + dm.name : " \u2014 Unassigned"}` : "Unassigned"}</td>
-          <td colspan="3" style="padding:3px 6px;font-size:8.5px;font-weight:700;color:${dc.text};text-align:right;">${spread.avg != null ? `spread: ${spread.avg} mi avg, ${spread.max} mi max` : ""}</td>
-        </tr>
-        ${pcs.length === 0 ? `<tr><td colspan="11" style="${cell}font-style:italic;color:#888;">No stores assigned yet</td></tr>` : rowsHtml(pcs, districtTint(dc.bg))}`;
-      }).join("");
-      const el = document.createElement("div");
-      el.innerHTML = `
-      <div style="font-family:'Source Sans 3',sans-serif;background:#fff;padding:2px;">
-        <div style="font-family:'Raleway',sans-serif;font-weight:800;font-size:14px;color:#1a1a1a;margin-bottom:1px;">People Capital Group \u2014 District Alignment (Draft)</div>
-        <div style="font-size:8px;color:#888;margin-bottom:5px;">Generated ${(/* @__PURE__ */ new Date()).toLocaleDateString()} \u2014 sandbox draft only; never reflects or affects the real Locations data.</div>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:#e5e7eb;">
-              ${["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Weekly Sales", "Busiest Hours", "Nearest Sibling"].map((h) => `<th style="text-align:left;padding:2px 6px;font-size:7.5px;font-weight:800;color:#555;text-transform:uppercase;">${h}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>${districtsHtml}</tbody>
-        </table>
-      </div>`;
-      const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      html2pdf().set({ margin: 0.15, filename: `PCG-District-Alignment-Draft-${dateStr}.pdf`, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: "in", format: "letter", orientation: "landscape" }, pagebreak: { mode: ["css", "legacy"] } }).from(el).save();
-    };
-    const COLS2 = ["PC#", "Paycor Client ID", "Legal Name", "Property Name", "Address", "Asset Type", "Manager", "Store Email", "Weekly Sales", "Busiest Hours", "Nearest Sibling"];
-    const thStyle = { position: "sticky", top: 0, zIndex: 2, textAlign: "left", padding: "0.8rem 0.5rem", fontSize: "0.64rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "normal", verticalAlign: "bottom", color: th.muted, background: th.card, borderBottom: `1px solid ${th.cardBorder}` };
-    const tdStyle = { padding: "0.8rem 0.5rem", fontSize: "0.78rem", color: th.text, borderBottom: `1px solid ${th.cardBorder}`, verticalAlign: "middle", transition: "background 0.15s ease" };
-    const mutedTd = { ...tdStyle, color: th.muted };
-    const textLink = { background: "none", border: "none", padding: 0, marginLeft: "1rem", fontSize: "0.72rem", fontWeight: 600, color: O, cursor: "pointer", fontFamily: "'Source Sans 3'" };
-    const outlineBtn = (accent) => ({ display: "inline-flex", alignItems: "center", gap: "0.5rem", padding: "0.62rem 1.1rem", borderRadius: "0.6rem", border: `1px solid ${accent ? O + "88" : th.cardBorder}`, background: th.card, color: accent ? O : th.text, fontSize: "0.8rem", fontWeight: 600, fontFamily: "'Source Sans 3'", cursor: "pointer" });
-    const solidBtn = { ...outlineBtn(false), background: O, border: `1px solid ${O}`, color: "#fff" };
-    const Ico = ({ d, c = th.muted, s = 16 }) => /* @__PURE__ */ React.createElement("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, d);
-    const realDistricts = selectableDistrictNums.filter((n) => n > 0);
-    const storesShown = Object.keys(draft.stores).filter((pc) => storeByPc[pc]).length;
-    const siblingDistances = Object.entries(byDistrict).flatMap(([, pcs]) => pcs.map((pc) => nearestSiblingMiles(pc, pcs)).filter((v) => v != null));
-    const avgSibling = siblingDistances.length ? Math.round(siblingDistances.reduce((a, b) => a + b, 0) / siblingDistances.length * 10) / 10 : null;
-    const StatTile = ({ icon, value, label }) => /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 170px", display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.85rem 1rem", borderRadius: "0.7rem", border: `1px solid ${th.cardBorder}`, background: th.card, minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { display: "flex", flexShrink: 0 } }, icon), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.05rem", fontWeight: 800, color: th.text, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, label)));
-    const dropOn = (dNum) => {
-      const pc = dragPc;
-      setDragPc(null);
-      setDragOverDistrict(null);
-      if (!pc || draft.stores[pc]?.district === dNum) return;
-      reassignStore(pc, dNum);
-    };
-    const dropHandlers = (dNum) => isAdmin ? {
-      onDragOver: (e) => {
-        if (!dragPc) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        if (dragOverDistrict !== dNum) setDragOverDistrict(dNum);
-      },
-      onDrop: (e) => {
-        e.preventDefault();
-        dropOn(dNum);
-      }
-    } : {};
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap", marginBottom: "1.1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: "0.75rem" } }, onBack && /* @__PURE__ */ React.createElement("button", { onClick: onBack, "aria-label": "Back to Tools", style: { background: "none", border: "none", cursor: "pointer", padding: "0.35rem 0.2rem 0 0", display: "flex" } }, /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement("path", { d: "m15 18-6-6 6-6" }), c: th.text, s: 22 })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.75rem", color: th.text } }, "District Alignment"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.88rem", color: th.muted, marginTop: "0.2rem" } }, "Plan district groupings without changing live Locations data."))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: exportDistrictAlignmentPdf, style: outlineBtn(false) }, /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 4v11" }), /* @__PURE__ */ React.createElement("path", { d: "m7 10 5 5 5-5" }), /* @__PURE__ */ React.createElement("path", { d: "M5 20h14" })), c: th.text }), "Download PDF"), isAdmin && (showNewDistrict ? /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.35rem", alignItems: "center", background: th.card, padding: "0.35rem 0.5rem", borderRadius: "0.6rem", border: `1px solid ${th.cardBorder}`, animation: "daPopIn 0.18s ease-out both" } }, /* @__PURE__ */ React.createElement("input", { type: "number", placeholder: "District #", value: newDistrictNum, onChange: (e) => setNewDistrictNum(e.target.value), style: { ...inp(th, { width: 80, fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) } }), /* @__PURE__ */ React.createElement("input", { placeholder: "DM name", value: newDmName, onChange: (e) => setNewDmName(e.target.value), style: { ...inp(th, { width: 140, fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) } }), /* @__PURE__ */ React.createElement("input", { placeholder: "DM email", value: newDmEmail, onChange: (e) => setNewDmEmail(e.target.value), style: { ...inp(th, { width: 170, fontSize: "0.75rem", padding: "0.35rem 0.5rem" }) } }), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => addDm(Number(newDistrictNum)), disabled: saving || !newDistrictNum || !newDmName.trim(), style: { ...solidBtn, padding: "0.4rem 0.8rem" } }, "Save"), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
-      setShowNewDistrict(false);
-      setNewDistrictNum("");
-      setNewDmName("");
-      setNewDmEmail("");
-    }, style: { ...outlineBtn(false), padding: "0.4rem 0.8rem" } }, "Cancel")) : /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: "da-btn",
-        disabled: saving,
-        onClick: () => {
-          setNewDistrictNum(String(Math.max(0, ...districtNums.filter((n) => n > 0)) + 1));
-          setShowNewDistrict(true);
-        },
-        style: { ...solidBtn, opacity: saving ? 0.6 : 1 }
-      },
-      /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement("path", { d: "M12 5v14M5 12h14" }), c: "#fff" }),
-      "New District"
-    )), isAdmin && setStores && /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: openApply, disabled: saving || applying, style: { ...solidBtn, opacity: saving || applying ? 0.6 : 1 } }, /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement("path", { d: "m5 12.5 4.5 4.5L19 7.5" }), c: "#fff" }), "Apply to live"), isAdmin && /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: resetToLive, disabled: saving, style: { ...outlineBtn(true), opacity: saving ? 0.6 : 1 } }, /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 12a9 9 0 1 0 3-6.7" }), /* @__PURE__ */ React.createElement("path", { d: "M3 4v5h5" })), c: O }), "Reset to live data"))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: "0.9rem", padding: "0.75rem", display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: "1.4 1 220px", display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.85rem 1rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: O, flexShrink: 0, boxShadow: `0 0 0 4px ${O}22` } }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.9rem", fontWeight: 700, color: th.text } }, "Draft"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted } }, "Changes are not live yet"))), /* @__PURE__ */ React.createElement(StatTile, { icon: /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "10", r: "2.5" })), s: 20 }), value: realDistricts.length, label: "Districts" }), /* @__PURE__ */ React.createElement(StatTile, { icon: /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M9 20v-6h6v6" })), s: 20 }), value: storesShown, label: "Stores shown" }), /* @__PURE__ */ React.createElement(StatTile, { icon: /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" })), s: 20 }), value: avgSibling != null ? `${avgSibling} mi` : "\u2014", label: "Avg. sibling distance" }), /* @__PURE__ */ React.createElement(
-      StatTile,
-      {
-        icon: /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z" }), /* @__PURE__ */ React.createElement("path", { d: "M14 2v5h5M9 13h6M9 17h6" })), s: 20 }),
-        value: draft.seededFromLiveAt ? new Date(draft.seededFromLiveAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "\u2014",
-        label: "Draft started from live data"
-      }
-    )), actionError && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.5rem 0.75rem", marginBottom: "0.6rem", borderRadius: 8, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", fontSize: "0.78rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", animation: "daPopIn 0.2s ease-out both" } }, /* @__PURE__ */ React.createElement("span", null, actionError), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionError(""), style: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), applyResult && /* @__PURE__ */ React.createElement("div", { style: { padding: "0.6rem 0.85rem", marginBottom: "0.6rem", borderRadius: 8, background: applyResult.ok ? "rgba(22,163,74,0.10)" : "rgba(239,68,68,0.12)", border: `1px solid ${applyResult.ok ? "rgba(22,163,74,0.35)" : "rgba(239,68,68,0.35)"}`, color: applyResult.ok ? "#16a34a" : "#ef4444", fontSize: "0.8rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", animation: "daPopIn 0.2s ease-out both" } }, /* @__PURE__ */ React.createElement("span", null, applyResult.text), /* @__PURE__ */ React.createElement("button", { onClick: () => setApplyResult(null), style: { background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }, "aria-label": "Dismiss" }, "\xD7")), isAdmin && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, margin: "0 0 0.5rem 0.25rem" } }, "Tip: press and hold a store row, then drag it onto another district to move it. Hold near the top or bottom of the window to scroll."), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), borderRadius: "0.9rem", padding: "0 0.5rem 0.5rem", overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 900 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, COLS2.map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: thStyle }, h)))), /* @__PURE__ */ React.createElement("tbody", null, selectableDistrictNums.map((dNum, dIdx) => {
-      const pcs = byDistrict[dNum] || [];
-      const dm = draft.dms.find((d) => d.district === dNum);
-      const dc = DISTRICT_COLORS[dNum] || { bg: th.muted, text: th.text };
-      const spread = districtSpread(pcs);
-      const isTarget = !!dragPc && dragOverDistrict === dNum && draft.stores[dragPc]?.district !== dNum;
-      const rowEnterStyle = (extra) => ({ ...extra, animation: `daRowIn 0.35s ease-out both`, animationDelay: `${Math.min(dIdx, 10) * 40}ms` });
-      return /* @__PURE__ */ React.createElement(React.Fragment, { key: dNum }, /* @__PURE__ */ React.createElement("tr", { style: rowEnterStyle({}), ...dropHandlers(dNum) }, /* @__PURE__ */ React.createElement("td", { colSpan: COLS2.length, style: { padding: "0.6rem 0.15rem 0.35rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem 1rem", padding: "0.6rem 0.9rem", borderRadius: "0.6rem", background: districtTint(dc.bg, isTarget ? 0.32 : 0.14), outline: isTarget ? `2px dashed ${dc.bg}` : "none", transition: "background 0.15s ease" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: "50%", background: dc.bg, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: th.text } }, dNum ? `District ${dNum}` : "Unassigned"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: th.muted } }, dm ? dm.name : dNum ? "No district manager" : ""), dNum > 0 && (users || []).filter((u) => u.userType === "director" && u.active !== false && (u.districts || []).map(Number).includes(dNum)).map((u) => /* @__PURE__ */ React.createElement("span", { key: u.id, title: "Director of Operations \u2014 change in Admin \u2192 Users", style: { fontSize: "0.75rem", fontWeight: 700, color: "#ca8a04", background: withAlpha("#ca8a04", 0.12), padding: "0.12rem 0.5rem", borderRadius: 999, whiteSpace: "nowrap" } }, "Director: ", u.name)), isTarget && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.text } }, "\xB7 Drop to move ", storeByPc[dragPc]?.name || dragPc, " here"), isAdmin && dNum > 0 && !isTarget && showAddDm === dNum && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap", animation: "daPopIn 0.18s ease-out both" } }, /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: "",
-          onChange: (e) => {
-            const u = dmAccounts.find((x) => String(x.id) === e.target.value);
-            if (u) {
-              setNewDmName(u.name || "");
-              setNewDmEmail(u.email || "");
-            }
-          },
-          style: { ...inp(th, { fontSize: "0.72rem", padding: "0.25rem 0.5rem", width: 170 }), cursor: "pointer" }
-        },
-        /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick a DM account\u2026"),
-        dmAccounts.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id, value: u.id }, u.name, u.district ? ` (now District ${u.district})` : " (no district)"))
-      ), /* @__PURE__ */ React.createElement("input", { placeholder: "Name", value: newDmName, onChange: (e) => setNewDmName(e.target.value), style: { ...inp(th, { fontSize: "0.72rem", padding: "0.25rem 0.5rem", width: 130 }) } }), /* @__PURE__ */ React.createElement("input", { placeholder: "Email", value: newDmEmail, onChange: (e) => setNewDmEmail(e.target.value), style: { ...inp(th, { fontSize: "0.72rem", padding: "0.25rem 0.5rem", width: 160 }) } }), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => dm ? replaceDm(dNum) : addDm(dNum), disabled: saving || !newDmName.trim(), style: { ...solidBtn, padding: "0.25rem 0.7rem", fontSize: "0.72rem" } }, "Save"), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
-        setShowAddDm(null);
-        setNewDmName("");
-        setNewDmEmail("");
-      }, style: { ...outlineBtn(false), padding: "0.25rem 0.7rem", fontSize: "0.72rem" } }, "Cancel")), isAdmin && dm && !isTarget && showAddDm !== dNum && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
-        setNewDmName("");
-        setNewDmEmail("");
-        setShowAddDm(dNum);
-      }, disabled: saving, style: textLink }, "Change district manager"), /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => removeDm(dm.id), disabled: saving, style: textLink }, "Remove district manager")), isAdmin && !dm && dNum > 0 && !isTarget && showAddDm !== dNum && /* @__PURE__ */ React.createElement("button", { className: "da-btn", onClick: () => {
-        setNewDmName("");
-        setNewDmEmail("");
-        setShowAddDm(dNum);
-      }, style: textLink }, "+ Add district manager")), spread.avg != null && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 600, color: th.text, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 999, padding: "0.25rem 0.75rem", whiteSpace: "nowrap" } }, "Avg. distance ", /* @__PURE__ */ React.createElement("strong", null, spread.avg, " mi"), " \xB7 Max ", /* @__PURE__ */ React.createElement("strong", null, spread.max, " mi"))))), pcs.length === 0 && /* @__PURE__ */ React.createElement("tr", { style: rowEnterStyle({}), ...dropHandlers(dNum) }, /* @__PURE__ */ React.createElement("td", { colSpan: COLS2.length, style: { padding: "0.5rem 0.75rem 0.85rem" } }, /* @__PURE__ */ React.createElement("div", { style: { border: `1.5px dashed ${isTarget ? dc.bg : th.cardBorder}`, borderRadius: 8, padding: "0.7rem 0.75rem", fontSize: "0.74rem", color: th.muted, textAlign: "center" } }, "No stores yet. Drag a store here, or use a store's district dropdown."))), pcs.map((pc) => {
-        const s = storeByPc[pc];
-        if (!s) return null;
-        const m = metrics[pc] || {};
-        const nearest = nearestSiblingMiles(pc, pcs);
-        const maxAvg = Math.max(1, ...(m.hourlyAvg || []).map((h) => h.avgSales));
-        const dragging = dragPc === pc;
-        const baseBg = isTarget ? districtTint(dc.bg, 0.1) : "transparent";
-        return /* @__PURE__ */ React.createElement(
-          "tr",
-          {
-            key: pc,
-            draggable: isAdmin && !saving,
-            onMouseDownCapture: (e) => {
-              dragFromControlRef.current = !!e.target.closest("select, input, button, textarea");
-            },
-            onDragStart: (e) => {
-              if (dragFromControlRef.current) {
-                e.preventDefault();
-                return;
-              }
-              e.dataTransfer.effectAllowed = "move";
-              try {
-                e.dataTransfer.setData("text/plain", pc);
-              } catch {
-              }
-              setDragPc(pc);
-            },
-            onDragEnd: () => {
-              setDragPc(null);
-              setDragOverDistrict(null);
-            },
-            ...dropHandlers(dNum),
-            style: rowEnterStyle({ background: baseBg, opacity: dragging ? 0.45 : 1, cursor: isAdmin ? "grab" : "default" }),
-            onMouseEnter: (e) => {
-              if (!dragPc) e.currentTarget.style.background = th.card2;
-            },
-            onMouseLeave: (e) => {
-              e.currentTarget.style.background = baseBg;
-            }
-          },
-          /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, color: O, fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.4rem" } }, isAdmin && /* @__PURE__ */ React.createElement(Ico, { d: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "6", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "15", cy: "6", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "12", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "15", cy: "12", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "18", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "15", cy: "18", r: "1" })), c: th.muted, s: 14 }), pc)),
-          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, s.paycor || "\u2014"),
-          /* @__PURE__ */ React.createElement("td", { style: mutedTd }, s.legal || "\u2014"),
-          /* @__PURE__ */ React.createElement("td", { style: { ...tdStyle, fontWeight: 700 } }, s.name || "\u2014", isAdmin && /* @__PURE__ */ React.createElement(
-            "select",
-            {
-              value: dNum,
-              disabled: saving,
-              onChange: (e) => reassignStore(pc, Number(e.target.value)),
-              style: { ...inp(th, { fontSize: "0.72rem", padding: "0.35rem 0.6rem", borderRadius: 8 }), display: "block", marginTop: "0.35rem", minWidth: 120, cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1, background: th.card }
-            },
-            selectableDistrictNums.map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n }, n ? `District ${n}` : "Unassigned"))
-          )),
-          /* @__PURE__ */ React.createElement("td", { style: { ...mutedTd, maxWidth: 220 } }, [s.address, s.city, s.state].filter(Boolean).join(", ")),
-          /* @__PURE__ */ React.createElement("td", { style: mutedTd }, assetCombined(s)),
-          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, storeMgrName(s, users) || "Unassigned"),
-          /* @__PURE__ */ React.createElement("td", { style: { ...mutedTd, overflowWrap: "anywhere" } }, s.email || "\u2014"),
-          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, fmtMoney(m.weeklySales)), m.weekStart && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", color: th.muted, whiteSpace: "nowrap" } }, fmtWeekRange(m))),
-          /* @__PURE__ */ React.createElement(
-            "td",
-            {
-              style: tdStyle,
-              onMouseEnter: (e) => setHoverHoursPc({ pc, rect: e.currentTarget.getBoundingClientRect() }),
-              onMouseLeave: () => setHoverHoursPc(null)
-            },
-            hoverHoursPc?.pc === pc && !dragPc && (m.topHours || []).length > 0 && ReactDOM.createPortal(
-              // Rendered into <body> (v21.93): each row's entry animation leaves a transform on
-              // the <tr>, which traps any z-index inside it — the card was painting UNDER the
-              // next rows. A fixed-position portal sits above everything.
-              /* @__PURE__ */ React.createElement("div", { role: "tooltip", style: { position: "fixed", top: hoverHoursPc.rect.top + hoverHoursPc.rect.height / 2, left: hoverHoursPc.rect.left - 8, transform: "translate(-100%, -50%)", zIndex: 1e3, minWidth: 190, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.6rem", boxShadow: "0 10px 28px rgba(0,0,0,0.18)", padding: "0.6rem 0.75rem", pointerEvents: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.66rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.35rem" } }, "Busiest hours \xB7 avg last ", m.hourlyDays || 7, " days"), m.topHours.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: t.h, style: { display: "flex", justifyContent: "space-between", gap: "1rem", fontSize: "0.8rem", padding: "0.12rem 0", color: th.text } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { style: { color: O, fontWeight: 800, marginRight: "0.35rem" } }, i + 1), fmtHourRange(t.h)), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700 } }, fmtMoney(t.avgSales))))),
-              document.body
-            ),
-            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 2, height: 26, cursor: (m.topHours || []).length ? "help" : "default" } }, (m.hourlyAvg || []).map((h, hIdx) => /* @__PURE__ */ React.createElement(
-              "div",
-              {
-                key: h.h,
-                style: {
-                  width: 3,
-                  height: Math.max(2, h.avgSales / maxAvg * 26),
-                  background: (m.topHours || []).some((t) => t.h === h.h) ? "#c2410c" : O + "99",
-                  borderRadius: 1.5,
-                  transformOrigin: "bottom",
-                  animation: "daBarGrow 0.4s ease-out both",
-                  animationDelay: `${hIdx * 12}ms`
-                }
-              }
-            )))
-          ),
-          /* @__PURE__ */ React.createElement("td", { style: tdStyle }, nearest != null ? `${Math.round(nearest * 10) / 10} mi` : "\u2014")
-        );
-      }));
-    })))), /* @__PURE__ */ React.createElement("style", null, `
-        .da-btn { transition: transform 0.12s ease, box-shadow 0.15s ease; }
-        .da-btn:hover:not(:disabled) { box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
-        .da-btn:active:not(:disabled) { transform: scale(0.95); }
-        @keyframes daRowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes daPopIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-        @keyframes daBarGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-        @media (prefers-reduced-motion: reduce) {
-          .da-btn, .da-btn:active:not(:disabled) { transition: none !important; transform: none !important; }
-        }
-      `), applyPlan && (() => {
-      const dLabel = (n) => n ? `District ${n}` : "Unassigned";
-      const dmOf = (n) => applyPlan.districtDms[n]?.name;
-      const noDm = Object.entries(applyPlan.districtDms).filter(([n, dm]) => !dm.name && !applyPlan.keptLinks.some((k) => k.district === Number(n)) && Object.values(draft.stores).some((r) => Number(r?.district) === Number(n))).map(([n]) => Number(n));
-      const section = (title, rows, color) => rows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: color || th.muted, marginBottom: "0.35rem" } }, title), rows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.83rem", color: th.text, padding: "0.28rem 0", borderBottom: i === rows.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, r)));
-      return /* @__PURE__ */ React.createElement("div", { onClick: () => !applying && setApplyPlan(null), style: { position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "1rem", width: "min(560px, 94vw)", maxHeight: "86vh", display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "1.2rem 1.4rem 0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontFamily: "'Raleway'", color: th.text, fontSize: "1.05rem" } }, "Apply this plan to live?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.5 } }, "These changes go to the real Locations data and DM accounts. Alerts, reports and DM views follow the new districts from their next run.")), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.4rem 1.4rem", overflowY: "auto" } }, section(`Stores moving (${applyPlan.storeMoves.length})`, applyPlan.storeMoves.map((m) => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, m.name), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "(", m.pc, ")"), " \xB7 ", dLabel(m.from), " \u2192 ", /* @__PURE__ */ React.createElement("strong", null, dLabel(m.to)), dmOf(m.to) ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " (", dmOf(m.to), ")") : null, m.editedSinceDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#d97706", fontWeight: 600 } }, " \xB7 edited in Locations after this draft") : null))), section("DM accounts", [
-        ...applyPlan.dmLinks.map((l) => /* @__PURE__ */ React.createElement(React.Fragment, null, "Link ", /* @__PURE__ */ React.createElement("strong", null, l.name), " to ", /* @__PURE__ */ React.createElement("strong", null, dLabel(l.to)), l.from ? /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " (was ", dLabel(l.from), ")") : null)),
-        ...applyPlan.dmUnlinks.map((u) => /* @__PURE__ */ React.createElement(React.Fragment, null, "Unlink ", /* @__PURE__ */ React.createElement("strong", null, u.name), " from ", dLabel(u.from), " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2014 the account stays active; deactivate it in Admin \u2192 Users if they've left"))),
-        ...applyPlan.keptLinks.map((k) => /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, k.name), " stays linked to ", dLabel(k.district), " \u2014 the plan has no DM there, so nothing changes for them"))
-      ]), section("District DM names in Locations", applyPlan.nameChanges.map(([n, dm]) => /* @__PURE__ */ React.createElement(React.Fragment, null, dLabel(Number(n)), ": ", districts?.[n]?.name || /* @__PURE__ */ React.createElement("em", { style: { color: th.muted } }, "none"), " \u2192 ", /* @__PURE__ */ React.createElement("strong", null, dm.name || "none")))), section("Needs attention", [
-        ...applyPlan.storeMoves.some((m) => m.editedSinceDraft) ? [/* @__PURE__ */ React.createElement(React.Fragment, null, "Some stores were changed in Locations ", /* @__PURE__ */ React.createElement("strong", null, "after this draft was started"), " (marked above). Applying puts them where the draft has them \u2014 if that's not what you want, Cancel and press ", /* @__PURE__ */ React.createElement("strong", null, "Reset to live data"), " to start from today's Locations.")] : [],
-        ...applyPlan.noAccount.map((a) => a.keeps ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, a.name), " doesn't match any DM account, so ", /* @__PURE__ */ React.createElement("strong", null, a.keeps), " stays linked to ", dLabel(a.district), ". If ", a.name, ' is a new DM, create their account in Admin \u2192 Users first, then pick them with "Change district manager".') : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("strong", null, a.name), " (", dLabel(a.district), ") has no DM account \u2014 create one in Admin \u2192 Users and link it to ", dLabel(a.district), ", or DM alerts for those stores reach nobody.")),
-        ...noDm.map((n) => /* @__PURE__ */ React.createElement(React.Fragment, null, dLabel(n), " has no DM \u2014 DM alerts for its stores reach nobody until one is assigned."))
-      ], "#d97706")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", padding: "0.9rem 1.4rem 1.2rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setApplyPlan(null), disabled: applying, style: { ...outlineBtn(false) } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: runApply, disabled: applying, style: { ...solidBtn, opacity: applying ? 0.6 : 1 } }, applying ? "Applying\u2026" : "Apply to live"))));
-    })(), confirmAction && /* @__PURE__ */ React.createElement(
-      PortalConfirmModal,
-      {
-        th,
-        title: confirmAction.title,
-        message: confirmAction.message,
-        confirmLabel: confirmAction.confirmLabel,
-        onConfirm: () => {
-          confirmAction.run();
-          setConfirmAction(null);
-        },
-        onCancel: () => setConfirmAction(null)
-      }
-    ));
-  }
   function AdminDistricts({ districts, setDistricts, stores, setStores, users, th }) {
-    const [editDist, setEditDist] = useState18(null);
-    const [distForm, setDistForm] = useState18({});
-    const [addMode, setAddMode] = useState18(false);
-    const [newDist, setNewDist] = useState18({ num: "", name: "", email: "" });
-    const [expandedDist, setExpandedDist] = useState18(null);
-    const [moveStore, setMoveStore] = useState18(null);
+    const [editDist, setEditDist] = useState21(null);
+    const [distForm, setDistForm] = useState21({});
+    const [addMode, setAddMode] = useState21(false);
+    const [newDist, setNewDist] = useState21({ num: "", name: "", email: "" });
+    const [expandedDist, setExpandedDist] = useState21(null);
+    const [moveStore, setMoveStore] = useState21(null);
     const distList = Object.values(districts).sort((a, b) => a.num - b.num);
     const mgrOf = (s) => storeMgrName(s, users);
     const saveEdit = () => {
@@ -14590,16 +16828,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const canUpload = user?.username === "mike.bahm";
     const isDMViewer = user?.userType === "dm";
     const dmDistrict = isDMViewer ? user?.district || null : null;
-    const [uploading, setUploading] = useState18(false);
-    const [uploadErr, setUploadErr] = useState18(null);
-    const [selWeek, setSelWeek] = useState18(0);
-    const [sortCol, setSortCol] = useState18("lwSale");
-    const [sortDir, setSortDir] = useState18(-1);
-    const [distFilter, setDistFilter] = useState18(isDMViewer ? dmDistrict || 0 : 0);
-    const [debugLines, setDebugLines] = useState18(null);
-    const [showDebug, setShowDebug] = useState18(false);
-    const fileRef = useRef7(null);
-    const detailTableRef = useRef7(null);
+    const [uploading, setUploading] = useState21(false);
+    const [uploadErr, setUploadErr] = useState21(null);
+    const [selWeek, setSelWeek] = useState21(0);
+    const [sortCol, setSortCol] = useState21("lwSale");
+    const [sortDir, setSortDir] = useState21(-1);
+    const [distFilter, setDistFilter] = useState21(isDMViewer ? dmDistrict || 0 : 0);
+    const [debugLines, setDebugLines] = useState21(null);
+    const [showDebug, setShowDebug] = useState21(false);
+    const fileRef = useRef8(null);
+    const detailTableRef = useRef8(null);
     const fmtSales = (n) => {
       if (!n) return "\u2014";
       if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
@@ -14861,33 +17099,33 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     "Other": { color: "#aaa", bg: "#aaa18" }
   };
   function ContactsPage({ contacts, setContacts, vendors, setVendors, isAdmin, currentUser, th }) {
-    const [search, setSearch] = useState18("");
-    const [modal, setModal] = useState18(null);
-    const [editItem, setEditItem] = useState18(null);
-    const [form, setForm] = useState18({});
-    const [deptDropOpen, setDeptDropOpen] = useState18(false);
-    const [showInternal, setShowInternal] = useState18(() => {
+    const [search, setSearch] = useState21("");
+    const [modal, setModal] = useState21(null);
+    const [editItem, setEditItem] = useState21(null);
+    const [form, setForm] = useState21({});
+    const [deptDropOpen, setDeptDropOpen] = useState21(false);
+    const [showInternal, setShowInternal] = useState21(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_internal") ?? "true");
       } catch {
         return true;
       }
     });
-    const [showVendors, setShowVendors] = useState18(() => {
+    const [showVendors, setShowVendors] = useState21(() => {
       try {
         return JSON.parse(localStorage.getItem("pcg_show_vendors") ?? "true");
       } catch {
         return true;
       }
     });
-    const [dragId, setDragId] = useState18(null);
-    useEffect15(() => {
+    const [dragId, setDragId] = useState21(null);
+    useEffect18(() => {
       localStorage.setItem("pcg_show_internal", JSON.stringify(showInternal));
     }, [showInternal]);
-    useEffect15(() => {
+    useEffect18(() => {
       localStorage.setItem("pcg_show_vendors", JSON.stringify(showVendors));
     }, [showVendors]);
-    useEffect15(() => {
+    useEffect18(() => {
       const needsMigration = contacts.some((c) => c.dept !== void 0 && !c.depts);
       if (needsMigration) {
         setContacts((cs) => cs.map((c) => {
@@ -15526,10 +17764,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   }
   function ReportPhotoImg({ photo, size = "med", style, alt, onClick }) {
     const inline = photo && typeof photo.data === "string" && photo.data.length > 32 && (size === "med" || !isRefPhoto(photo)) ? photo.data : null;
-    const [src, setSrc] = useState18(inline);
-    const [failed, setFailed] = useState18(false);
+    const [src, setSrc] = useState21(inline);
+    const [failed, setFailed] = useState21(false);
     const idKey = photo ? (photo.photoId || photo._localId || "") + "|" + size : "";
-    useEffect15(() => {
+    useEffect18(() => {
       if (inline) {
         setSrc(inline);
         setFailed(false);
@@ -15567,17 +17805,17 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     );
   }
   function useReportPhotoUploads(setRForm, getCtx) {
-    const ctxRef = useRef7(getCtx);
+    const ctxRef = useRef8(getCtx);
     ctxRef.current = getCtx;
-    const files = useRef7(/* @__PURE__ */ new Map());
-    const dropped = useRef7(/* @__PURE__ */ new Set());
-    const idByLocal = useRef7(/* @__PURE__ */ new Map());
-    const uploaded = useRef7([]);
-    const removed = useRef7([]);
-    const queue = useRef7([]);
-    const active = useRef7(0);
-    const rid = useRef7(null);
-    const captioned = useRef7(false);
+    const files = useRef8(/* @__PURE__ */ new Map());
+    const dropped = useRef8(/* @__PURE__ */ new Set());
+    const idByLocal = useRef8(/* @__PURE__ */ new Map());
+    const uploaded = useRef8([]);
+    const removed = useRef8([]);
+    const queue = useRef8([]);
+    const active = useRef8(0);
+    const rid = useRef8(null);
+    const captioned = useRef8(false);
     const noteReport = () => {
       const id = ctxRef.current()?.reportId;
       if (id != null) rid.current = id;
@@ -15769,7 +18007,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
   function ReportPhotoConvert({ th, project, reports, allReports, setDailyReports }) {
     const todo = (reports || []).filter(needsLegacyConversion);
     const todoAll = (allReports || []).filter(needsLegacyConversion);
-    const [run, setRun] = useState18(null);
+    const [run, setRun] = useState21(null);
     if (!todo.length && !todoAll.length && !run) return null;
     const busy = run && !run.finished;
     const start = async (everything) => {
@@ -16348,9 +18586,9 @@ ${pendingEmail.emails.join("\n")}`,
     }, user, standalone: true, txnDeepLinkRef, initialTab: initialTab || "sales" }));
   }
   function AdminSchedule({ stores, th, user }) {
-    const [selectedStore, setSelectedStore] = useState18(null);
-    const [search, setSearch] = useState18("");
-    const [filterDistrict, setFilterDistrict] = useState18("All");
+    const [selectedStore, setSelectedStore] = useState21(null);
+    const [search, setSearch] = useState21("");
+    const [filterDistrict, setFilterDistrict] = useState21("All");
     const isDM = user?.userType === "dm";
     const visibleStores = React.useMemo(() => {
       if (isDM && user?.district != null) return (stores || []).filter((s) => String(s.district) === String(user.district));
@@ -16388,7 +18626,7 @@ ${pendingEmail.emails.join("\n")}`,
     ))));
   }
   function ManagerSchedule({ stores, th, user }) {
-    const [mode, setMode] = useState18("build");
+    const [mode, setMode] = useState21("build");
     const store = getManagerStore(stores, user);
     if (!store?.pc) {
       return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted, maxWidth: 480, margin: "2rem auto" } }, "No store is linked to your account yet. Ask an admin to assign one.");
@@ -19110,7 +21348,7 @@ ${pendingEmail.emails.join("\n")}`,
   function AdminPulse({ stores, districts, th, user, users, drillInStore, onClearDrillIn, txnDeepLinkRef }) {
     const G = "#00d084";
     const isMobile = useIsMobile();
-    const [laborData, setLaborData] = useState18(null);
+    const [laborData, setLaborData] = useState21(null);
     const fetchLaborData = useCallback(async () => {
       try {
         const data = await cloudLoad("pcg_labor_v1");
@@ -19118,10 +21356,10 @@ ${pendingEmail.emails.join("\n")}`,
       } catch {
       }
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect15(() => {
+    useEffect18(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -19129,30 +21367,30 @@ ${pendingEmail.emails.join("\n")}`,
       const d = /* @__PURE__ */ new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     })();
-    const [busDt, setBusDt] = useState18(todayStr);
-    const [storeData, setStoreData] = useState18({});
-    const [loading, setLoading] = useState18(false);
-    const [progress, setProgress] = useState18(0);
-    const [lastRefresh, setLastRefresh] = useState18(null);
-    const [countdown, setCountdown] = useState18(300);
+    const [busDt, setBusDt] = useState21(todayStr);
+    const [storeData, setStoreData] = useState21({});
+    const [loading, setLoading] = useState21(false);
+    const [progress, setProgress] = useState21(0);
+    const [lastRefresh, setLastRefresh] = useState21(null);
+    const [countdown, setCountdown] = useState21(300);
     const isDMUser = user?.userType === "dm";
     const dmDistrict = isDMUser && user?.district ? Number(user.district) : 0;
-    const [distFilter, setDistFilter] = useState18(dmDistrict);
-    const [autoRefresh, setAutoRefresh] = useState18(true);
-    const [testResult, setTestResult] = useState18(null);
-    const [testing, setTesting] = useState18(false);
-    const [dateCache, setDateCache] = useState18({});
-    const [lyCache, setLyCache] = useState18({});
-    const [wtdLoading, setWtdLoading] = useState18(false);
-    const [viewMode, setViewMode] = useState18("day");
-    const [weekStoreData, setWeekStoreData] = useState18({});
-    const [weekLoading, setWeekLoading] = useState18(false);
-    const [dayStoreCache, setDayStoreCache] = useState18({});
-    const [comparisonsLoading, setComparisonsLoading] = useState18(false);
-    const [hourlyHistories, setHourlyHistories] = useState18(null);
-    const [collapsed, setCollapsed] = useState18(/* @__PURE__ */ new Set());
-    const [tipsSnapshot, setTipsSnapshot] = useState18(null);
-    useEffect15(() => {
+    const [distFilter, setDistFilter] = useState21(dmDistrict);
+    const [autoRefresh, setAutoRefresh] = useState21(true);
+    const [testResult, setTestResult] = useState21(null);
+    const [testing, setTesting] = useState21(false);
+    const [dateCache, setDateCache] = useState21({});
+    const [lyCache, setLyCache] = useState21({});
+    const [wtdLoading, setWtdLoading] = useState21(false);
+    const [viewMode, setViewMode] = useState21("day");
+    const [weekStoreData, setWeekStoreData] = useState21({});
+    const [weekLoading, setWeekLoading] = useState21(false);
+    const [dayStoreCache, setDayStoreCache] = useState21({});
+    const [comparisonsLoading, setComparisonsLoading] = useState21(false);
+    const [hourlyHistories, setHourlyHistories] = useState21(null);
+    const [collapsed, setCollapsed] = useState21(/* @__PURE__ */ new Set());
+    const [tipsSnapshot, setTipsSnapshot] = useState21(null);
+    useEffect18(() => {
       let alive = true;
       setTipsSnapshot(null);
       cloudLoad(`pcg_tips_snapshot_${busDt}`).then((d) => {
@@ -19169,8 +21407,8 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [busDt]);
-    const [laborDailyByStore, setLaborDailyByStore] = useState18({});
-    useEffect15(() => {
+    const [laborDailyByStore, setLaborDailyByStore] = useState21({});
+    useEffect18(() => {
       let alive = true;
       Promise.all((stores || []).map(
         (s) => cloudLoad(`pcg_labor_store_${s.pc}`).then((d) => [s.pc, Array.isArray(d?.daily) ? d.daily : []]).catch(() => [s.pc, []])
@@ -19203,16 +21441,16 @@ ${pendingEmail.emails.join("\n")}`,
       if (busDt === todayStr) return laborData?.stores?.[pc]?.today || null;
       return daily ? daily.find((e) => e.date === busDt) || null : null;
     }, [laborDailyByStore, viewMode, busDt, todayStr, laborData]);
-    const [pulseView, setPulseView] = useState18(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
-    const [weatherForecast, setWeatherForecast] = useState18(null);
-    const [networkReviews, setNetworkReviews] = useState18(null);
-    const cdRef = useRef7(null);
+    const [pulseView, setPulseView] = useState21(isDMUser && dmDistrict ? { level: "district", num: dmDistrict } : "network");
+    const [weatherForecast, setWeatherForecast] = useState21(null);
+    const [networkReviews, setNetworkReviews] = useState21(null);
+    const cdRef = useRef8(null);
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef);
     const activePCs = stores.filter((s) => s.status === "Open").filter((s) => !isDMUser || Number(s.district) === dmDistrict).map((s) => s.pc);
     const dmStoreCount = activePCs.length;
     const pulseDistrictNums = districtNumbers(stores.filter((s) => s.status === "Open"));
-    useEffect15(() => {
+    useEffect18(() => {
       let alive = true;
       Promise.all(activePCs.map(
         (pc) => cloudLoad(`pcg_hourly_history_${pc}`).then((d) => Array.isArray(d) ? d : null).catch(() => null)
@@ -19223,13 +21461,13 @@ ${pendingEmail.emails.join("\n")}`,
         alive = false;
       };
     }, [activePCs.join(",")]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (drillInStore) {
         setPulseView({ level: "store", pc: drillInStore });
         if (onClearDrillIn) onClearDrillIn();
       }
     }, [drillInStore]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (pulseView !== "network") {
         window.scrollTo(0, 0);
         frameRef.current?.scrollTo(0, 0);
@@ -19419,13 +21657,13 @@ ${t2.slice(0, 300)}`);
     const handleManualRefresh = () => {
       loadAll();
     };
-    const wtdAutoLoaded = useRef7(false);
-    const lastWtdWeek = useRef7("");
-    useEffect15(() => {
+    const wtdAutoLoaded = useRef8(false);
+    const lastWtdWeek = useRef8("");
+    useEffect18(() => {
       loadAll();
       if (!drillInStore) setPulseView("network");
     }, [busDt]);
-    useEffect15(() => {
+    useEffect18(() => {
       const d = /* @__PURE__ */ new Date(busDt + "T12:00:00");
       const sun = new Date(d);
       sun.setDate(d.getDate() - d.getDay());
@@ -19435,19 +21673,19 @@ ${t2.slice(0, 300)}`);
         lastWtdWeek.current = weekKey;
       }
     }, [busDt]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!loading && Object.keys(storeData).length > 0 && !wtdAutoLoaded.current) {
         wtdAutoLoaded.current = true;
         loadWTD();
         loadLYWeek();
       }
     }, [loading, storeData]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (loading) return;
       if (!Object.keys(storeData).length) return;
       loadComparisons();
     }, [busDt, viewMode, loading]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (autoRefresh) {
         cdRef.current = setInterval(() => {
           setCountdown((c) => {
@@ -19461,15 +21699,15 @@ ${t2.slice(0, 300)}`);
       }
       return () => clearInterval(cdRef.current);
     }, [autoRefresh, busDt]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (viewMode !== "week") return;
       loadWeekGrid();
     }, [viewMode, busDt]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (viewMode !== "week" || loading) return;
       loadWeekGrid();
     }, [storeData]);
-    useEffect15(() => {
+    useEffect18(() => {
       (async () => {
         try {
           const fRes = await fetch("/.netlify/functions/storage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", key: "pcg_weather_forecast" }) });
@@ -20508,9 +22746,9 @@ ${t2.slice(0, 300)}`);
     return doc;
   }
   function ReportPhotoRestore({ th, showAlert: showAlert2 }) {
-    const [open, setOpen] = useState18(false);
-    const [busy, setBusy] = useState18(null);
-    const [status, setStatus] = useState18(null);
+    const [open, setOpen] = useState21(false);
+    const [busy, setBusy] = useState21(null);
+    const [status, setStatus] = useState21(null);
     const call10 = async (mode, extra = {}) => {
       setBusy(mode);
       let before = null;
@@ -20566,11 +22804,11 @@ ${t2.slice(0, 300)}`);
   }
   function DailyReportSection({ project, dailyReports: _dr2, setDailyReports, user, th, showAlert: showAlert2, editable }) {
     const dailyReports = _dr2 || [];
-    const [drView, setDrView] = useState18("list");
-    const [editReport, setEditReport] = useState18(null);
-    const [rForm, setRForm] = useState18({ ...EMPTY_DAILY_REPORT });
-    const [wxLoading, setWxLoading] = useState18(false);
-    const fileInputRefs = useRef7({});
+    const [drView, setDrView] = useState21("list");
+    const [editReport, setEditReport] = useState21(null);
+    const [rForm, setRForm] = useState21({ ...EMPTY_DAILY_REPORT });
+    const [wxLoading, setWxLoading] = useState21(false);
+    const fileInputRefs = useRef8({});
     const projReports = dailyReports.filter((r) => r.projectId === project.id).sort((a, b) => b.date.localeCompare(a.date));
     const nextId = () => {
       const ts = Date.now();
@@ -20579,7 +22817,7 @@ ${t2.slice(0, 300)}`);
       while (existing.has(id)) id++;
       return id;
     };
-    const pendingIdRef = useRef7(null);
+    const pendingIdRef = useRef8(null);
     const photoUp = useReportPhotoUploads(setRForm, () => ({
       projectId: project.id,
       projectNickname: project.nickname || project.address || project.pc || "",
@@ -20685,13 +22923,13 @@ ${t2.slice(0, 300)}`);
     const totalPhotos = (r) => (r.workLogs || []).reduce((s, w) => s + (w.photos?.length || 0), 0);
     const totalWorkers = (r) => (r.workLogs || []).reduce((s, w) => s + (parseInt(w.quantity) || 0), 0);
     const totalHrs = (r) => (r.workLogs || []).reduce((s, w) => s + (parseFloat(w.totalHours) || 0), 0);
-    const pdfImportRef = useRef7(null);
-    const [pdfImporting, setPdfImporting] = useState18(false);
-    const [forceSyncState, setForceSyncState] = useState18("idle");
-    const [forceSyncMsg, setForceSyncMsg] = useState18("");
-    const [backupState, setBackupState] = useState18("idle");
-    const [lastBackupTime, setLastBackupTime] = useState18(null);
-    useEffect15(() => {
+    const pdfImportRef = useRef8(null);
+    const [pdfImporting, setPdfImporting] = useState21(false);
+    const [forceSyncState, setForceSyncState] = useState21("idle");
+    const [forceSyncMsg, setForceSyncMsg] = useState21("");
+    const [backupState, setBackupState] = useState21("idle");
+    const [lastBackupTime, setLastBackupTime] = useState21(null);
+    useEffect18(() => {
       const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
       cloudLoad(`pcg_daily_reports_backup_${date}`).then((data) => {
         if (data?.[0] || Array.isArray(data)) {
@@ -20842,12 +23080,12 @@ ${t2.slice(0, 300)}`);
         if (pdfImportRef.current) pdfImportRef.current.value = "";
       }
     };
-    const [pdfLoading, setPdfLoading] = useState18(false);
-    const [emailModal, setEmailModal] = useState18(false);
-    const [emailTo, setEmailTo] = useState18("");
-    const [emailSubject, setEmailSubject] = useState18("");
-    const [emailSending, setEmailSending] = useState18(false);
-    const [lightbox, setLightbox] = useState18(null);
+    const [pdfLoading, setPdfLoading] = useState21(false);
+    const [emailModal, setEmailModal] = useState21(false);
+    const [emailTo, setEmailTo] = useState21("");
+    const [emailSubject, setEmailSubject] = useState21("");
+    const [emailSending, setEmailSending] = useState21(false);
+    const [lightbox, setLightbox] = useState21(null);
     const buildNativePdf = (report, projOverride) => buildReportPdf(report, projOverride || project);
     const _legacyPdfBody = async (report, project2) => {
       const _proj = project2;
@@ -22038,32 +24276,32 @@ ${t2.slice(0, 300)}`);
   }
   function AdminProjects({ projects, setProjects, stores, districts, user, th, showAlert: showAlert2, notifications, setNotifications, setTab, dailyReports: _dr, setDailyReports, deepLinkRef, chatChannels, setChatChannels, chatMessages, setChatMessages, chatReadState, setChatReadState, users: allUsers, professionals, setProfessionals }) {
     const dailyReports = _dr || [];
-    const [view, setView] = useState18("table");
-    const tableFrameRef = useRef7(null);
+    const [view, setView] = useState21("table");
+    const tableFrameRef = useRef8(null);
     const isMobile = useIsMobile();
     const tableFrameH = useFrameHeight(tableFrameRef, 320, 16, view + (isMobile ? "|m" : "|d"));
-    const [selectedProject, setSelectedProject] = useState18(null);
-    const [detailTab, setDetailTab] = useState18("checklist");
-    const [addMode, setAddMode] = useState18(false);
-    const [editId, setEditId] = useState18(null);
-    const [form, setForm] = useState18({ ...EMPTY_PROJECT });
-    const [filterType, setFilterType] = useState18("All");
-    const [filterPhase, setFilterPhase] = useState18("All");
-    const [search, setSearch] = useState18("");
-    const [manualAddr, setManualAddr] = useState18(false);
-    const [sortCol, setSortCol] = useState18("priority");
-    const [sortDir, setSortDir] = useState18("asc");
-    const [reorderLocked, setReorderLocked] = useState18(true);
-    const [dragIdx, setDragIdx] = useState18(null);
-    const [dragOverIdx, setDragOverIdx] = useState18(null);
-    const [zoningOverlay, setZoningOverlay] = useState18(null);
-    const [zoningLoading, setZoningLoading] = useState18(false);
-    const [zoningData, setZoningData] = useState18(null);
-    const [permitUploading, setPermitUploading] = useState18(null);
-    const [permitDetailData, setPermitDetailData] = useState18(null);
-    const [docViewerData, setDocViewerData] = useState18(null);
-    const [docBlobUrl, setDocBlobUrl] = useState18(null);
-    useEffect15(() => {
+    const [selectedProject, setSelectedProject] = useState21(null);
+    const [detailTab, setDetailTab] = useState21("checklist");
+    const [addMode, setAddMode] = useState21(false);
+    const [editId, setEditId] = useState21(null);
+    const [form, setForm] = useState21({ ...EMPTY_PROJECT });
+    const [filterType, setFilterType] = useState21("All");
+    const [filterPhase, setFilterPhase] = useState21("All");
+    const [search, setSearch] = useState21("");
+    const [manualAddr, setManualAddr] = useState21(false);
+    const [sortCol, setSortCol] = useState21("priority");
+    const [sortDir, setSortDir] = useState21("asc");
+    const [reorderLocked, setReorderLocked] = useState21(true);
+    const [dragIdx, setDragIdx] = useState21(null);
+    const [dragOverIdx, setDragOverIdx] = useState21(null);
+    const [zoningOverlay, setZoningOverlay] = useState21(null);
+    const [zoningLoading, setZoningLoading] = useState21(false);
+    const [zoningData, setZoningData] = useState21(null);
+    const [permitUploading, setPermitUploading] = useState21(null);
+    const [permitDetailData, setPermitDetailData] = useState21(null);
+    const [docViewerData, setDocViewerData] = useState21(null);
+    const [docBlobUrl, setDocBlobUrl] = useState21(null);
+    useEffect18(() => {
       if (!docViewerData?.data || docViewerData.type && docViewerData.type.startsWith("image/")) {
         setDocBlobUrl(null);
         return;
@@ -22081,15 +24319,15 @@ ${t2.slice(0, 300)}`);
         setDocBlobUrl(null);
       }
     }, [docViewerData]);
-    const [planUploading, setPlanUploading] = useState18(null);
-    const [projCityData, setProjCityData] = useState18(null);
-    const [projCityLoading, setProjCityLoading] = useState18(false);
+    const [planUploading, setPlanUploading] = useState21(null);
+    const [projCityData, setProjCityData] = useState21(null);
+    const [projCityLoading, setProjCityLoading] = useState21(false);
     const pros = professionals || DEFAULT_PROFESSIONALS;
-    useEffect15(() => {
+    useEffect18(() => {
       setProjCityData(null);
       setZoningData(null);
     }, [selectedProject?.id]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (deepLinkRef?.current) {
         const proj = projects.find((p) => p.id === deepLinkRef.current);
         if (proj) {
@@ -23705,12 +25943,12 @@ ${t2.slice(0, 300)}`);
   var accIco = (k, c, s = 18) => /* @__PURE__ */ React.createElement(HubIcon, { d: ACCESS_ICONS[k], color: c, size: s });
   var initialsOf = (name) => String(name || "?").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "?";
   function PnlAccessPanel({ th, user, users, showAlert: showAlert2 }) {
-    const [allowed, setAllowed] = useState18(null);
-    const [query, setQuery] = useState18("");
-    const [adding, setAdding] = useState18(false);
-    const [addQuery, setAddQuery] = useState18("");
-    const [saving, setSaving] = useState18(false);
-    useEffect15(() => {
+    const [allowed, setAllowed] = useState21(null);
+    const [query, setQuery] = useState21("");
+    const [adding, setAdding] = useState21(false);
+    const [addQuery, setAddQuery] = useState21("");
+    const [saving, setSaving] = useState21(false);
+    useEffect18(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => setAllowed(Array.isArray(d?.allowed) ? d.allowed : [...DEFAULT_PNL_ALLOWED])).catch(() => setAllowed([...DEFAULT_PNL_ALLOWED]));
     }, []);
     const persist = async (next) => {
@@ -23813,9 +26051,9 @@ ${t2.slice(0, 300)}`);
     });
     const KIOSK = /* @__PURE__ */ new Set(["kiosk_pulse", "kiosk_upload"]);
     const ov = accessOverrides || {};
-    const [expandedHubs, setExpandedHubs] = useState18(/* @__PURE__ */ new Set());
-    const [openRoles, setOpenRoles] = useState18(/* @__PURE__ */ new Set());
-    const [showMore, setShowMore] = useState18(false);
+    const [expandedHubs, setExpandedHubs] = useState21(/* @__PURE__ */ new Set());
+    const [openRoles, setOpenRoles] = useState21(/* @__PURE__ */ new Set());
+    const [showMore, setShowMore] = useState21(false);
     const toggleHubExpanded = (hubId) => setExpandedHubs((prev) => {
       const next = new Set(prev);
       if (next.has(hubId)) next.delete(hubId);
@@ -23942,7 +26180,7 @@ ${t2.slice(0, 300)}`);
     );
   }
   function WeeklyReportSendNow({ th, showAlert: showAlert2 }) {
-    const [state, setState] = useState18("idle");
+    const [state, setState] = useState21("idle");
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const today = /* @__PURE__ */ new Date();
     const daysSinceSat = (today.getDay() + 1) % 7 || 7;
@@ -23991,21 +26229,21 @@ ${t2.slice(0, 300)}`);
   var irIco = (k, c, s = 16) => /* @__PURE__ */ React.createElement(HubIcon, { d: IR_ICONS[k] || NOTIFY_ICONS[k], color: c, size: s });
   function InterviewRemindersPanel({ th, showAlert: showAlert2, users }) {
     const O2 = "#FF671F";
-    const [data, setData] = useState18(null);
-    const [err, setErr] = useState18(null);
-    const [running, setRunning] = useState18(false);
-    const [ivQ, setIvQ] = useState18("");
-    const [ivStatus, setIvStatus] = useState18("all");
-    const [ivRange, setIvRange] = useState18("today");
-    const [ivShowAll, setIvShowAll] = useState18(false);
-    const [peopleOpen, setPeopleOpen] = useState18(true);
-    const [activityOpen, setActivityOpen] = useState18(false);
-    const [peopleQ, setPeopleQ] = useState18("");
-    const [peopleRole, setPeopleRole] = useState18("all");
-    const [picked, setPicked] = useState18([]);
-    const [savingMuted, setSavingMuted] = useState18(false);
-    const [savingSource, setSavingSource] = useState18(false);
-    const [pxCheck, setPxCheck] = useState18(null);
+    const [data, setData] = useState21(null);
+    const [err, setErr] = useState21(null);
+    const [running, setRunning] = useState21(false);
+    const [ivQ, setIvQ] = useState21("");
+    const [ivStatus, setIvStatus] = useState21("all");
+    const [ivRange, setIvRange] = useState21("today");
+    const [ivShowAll, setIvShowAll] = useState21(false);
+    const [peopleOpen, setPeopleOpen] = useState21(true);
+    const [activityOpen, setActivityOpen] = useState21(false);
+    const [peopleQ, setPeopleQ] = useState21("");
+    const [peopleRole, setPeopleRole] = useState21("all");
+    const [picked, setPicked] = useState21([]);
+    const [savingMuted, setSavingMuted] = useState21(false);
+    const [savingSource, setSavingSource] = useState21(false);
+    const [pxCheck, setPxCheck] = useState21(null);
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -24017,7 +26255,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     const ivSourceNow = data?.config?.source === "paradox" ? "paradox" : "email";
@@ -24191,13 +26429,13 @@ ${t2.slice(0, 300)}`);
     ), activityOpen && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column" } }, (st?.sent || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No reminders sent yet."), (st?.sent || []).slice(0, 25).map((s, i, arr) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.5rem 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, fmtAgo(s.at)), " \xB7 ", s.kind === "hour" ? "1-hour reminder" : "1-day reminder", " \xB7 ", s.store, " \xB7 ", s.candidate || "candidate", " \xB7 ", s.wouldGoTo ? `test mode (would go to ${s.wouldGoTo})` : `to ${s.to}`, " \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { color: s.smsSent ? "#16a34a" : "#dc2626" } }, s.smsSent ? "text sent" : "no text"), s.emails ? " \xB7 email sent" : "")))));
   }
   function NewHiresPanel({ th, showAlert: showAlert2, users }) {
-    const [data, setData] = useState18(null);
-    const [err, setErr] = useState18(null);
-    const [running, setRunning] = useState18(false);
-    const [testing, setTesting] = useState18(null);
-    const [draft, setDraft] = useState18(null);
-    const [savingCfg, setSavingCfg] = useState18(false);
-    const [pickQ, setPickQ] = useState18("");
+    const [data, setData] = useState21(null);
+    const [err, setErr] = useState21(null);
+    const [running, setRunning] = useState21(false);
+    const [testing, setTesting] = useState21(null);
+    const [draft, setDraft] = useState21(null);
+    const [savingCfg, setSavingCfg] = useState21(false);
+    const [pickQ, setPickQ] = useState21("");
     const load = useCallback(async () => {
       try {
         const res = await fetch("/.netlify/functions/interview-reminders", { credentials: "include", headers: { ...authHeader() } });
@@ -24209,7 +26447,7 @@ ${t2.slice(0, 300)}`);
         setErr(e.message);
       }
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     const runNow = async () => {
@@ -24245,7 +26483,7 @@ ${t2.slice(0, 300)}`);
       }
       setTesting(null);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (data?.hiresConfig && draft === null) setDraft({ live: !!data.hiresConfig.live, recipients: data.hiresConfig.recipients || [], source: data.hiresConfig.source || "email" });
     }, [data, draft]);
     const savedCfg = data?.hiresConfig || { live: false, recipients: [], source: "email" };
@@ -24485,16 +26723,16 @@ ${t2.slice(0, 300)}`);
     ), children);
   }
   function ManualNotifyListPanel({ th, user, users, showAlert: showAlert2, blobKey, description, smsLabel, seedUserTypes, tagKey = "mail", onCountChange }) {
-    const [emails, setEmails] = useState18(null);
-    const [phones, setPhones] = useState18(null);
-    const [emailOwners, setEmailOwners] = useState18(null);
-    const [phoneOwners, setPhoneOwners] = useState18(null);
-    const [newEmail, setNewEmail] = useState18("");
-    const [newPhone, setNewPhone] = useState18("");
-    const [nameQuery, setNameQuery] = useState18("");
-    const [showSuggestions, setShowSuggestions] = useState18(false);
-    const [saving, setSaving] = useState18(false);
-    useEffect15(() => {
+    const [emails, setEmails] = useState21(null);
+    const [phones, setPhones] = useState21(null);
+    const [emailOwners, setEmailOwners] = useState21(null);
+    const [phoneOwners, setPhoneOwners] = useState21(null);
+    const [newEmail, setNewEmail] = useState21("");
+    const [newPhone, setNewPhone] = useState21("");
+    const [nameQuery, setNameQuery] = useState21("");
+    const [showSuggestions, setShowSuggestions] = useState21(false);
+    const [saving, setSaving] = useState21(false);
+    useEffect18(() => {
       cloudLoad(blobKey).then((d) => {
         if (!d?.updatedAt && seedUserTypes && (users || []).length) {
           const seed = (users || []).filter((u) => u.active !== false && u.email && seedUserTypes.includes(u.userType));
@@ -24616,7 +26854,7 @@ ${t2.slice(0, 300)}`);
       setNameQuery("");
       setShowSuggestions(false);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (!users || emails === null || phones === null) return;
       let changed = false;
       const nextEmails = (emails || []).map((e, i) => {
@@ -24641,7 +26879,7 @@ ${t2.slice(0, 300)}`);
       });
       if (changed) persist(nextEmails, nextPhones, emailOwners, phoneOwners);
     }, [users, emails, phones, emailOwners, phoneOwners]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (emails !== null && onCountChange) onCountChange(emails.length);
     }, [emails]);
     if (emails === null) return /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "Loading recipients\u2026");
@@ -24701,25 +26939,25 @@ ${t2.slice(0, 300)}`);
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.6rem", marginBottom: "1rem" } }, (emails || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No emails configured."), (emails || []).map((email, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: email, users, tagKey, tagText: NOTIFY_TAGS[tagKey] || "Notifications", onRemove: () => removeEmail(idx), disabled: saving }))), smsLabel && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" } }, nIco("phone", th.muted, 17), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: "0.95rem", color: th.text } }, smsLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted, fontWeight: 500 } }, "(", (phones || []).length, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.5rem", marginBottom: "1rem" } }, (phones || []).length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem", textAlign: "center", color: th.muted, fontSize: "0.8125rem", border: `1px dashed ${th.cardBorder}`, borderRadius: "0.5rem" } }, "No SMS numbers configured."), (phones || []).map((phone, idx) => /* @__PURE__ */ React.createElement(NotifyRecipientRow, { key: idx, th, value: phone, display: formatPhone(phone), users, tagKey: "phone", tagText: "SMS", onRemove: () => removePhone(idx), disabled: saving })))));
   }
   function AdminSettings({ globalNotifyEmails, setGlobalNotifyEmails, ticketNotifyEmails, setTicketNotifyEmails, ticketNotifyPhones, setTicketNotifyPhones, ticketNotifyEmailOwners, setTicketNotifyEmailOwners, ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners, th, showAlert: showAlert2, user, users, setUsers, announcements, setAnnouncements, professionals, setProfessionals, embedSection }) {
-    const [newEmail, setNewEmail] = useState18("");
-    const [newTicketEmail, setNewTicketEmail] = useState18("");
-    const [newTicketPhone, setNewTicketPhone] = useState18("");
-    const [ticketNameQuery, setTicketNameQuery] = useState18("");
-    const [ticketShowSuggestions, setTicketShowSuggestions] = useState18(false);
-    const [notifyLog, setNotifyLog] = useState18(null);
-    const [logLoading, setLogLoading] = useState18(false);
-    const [logOpen, setLogOpen] = useState18(false);
-    const [pushSubs, setPushSubs] = useState18(null);
-    const [notifyInfoOpen, setNotifyInfoOpen] = useState18(false);
-    const [notifSubTab, setNotifSubTab] = useState18("project");
-    const [nfPhone, setNfPhone] = useState18(() => {
+    const [newEmail, setNewEmail] = useState21("");
+    const [newTicketEmail, setNewTicketEmail] = useState21("");
+    const [newTicketPhone, setNewTicketPhone] = useState21("");
+    const [ticketNameQuery, setTicketNameQuery] = useState21("");
+    const [ticketShowSuggestions, setTicketShowSuggestions] = useState21(false);
+    const [notifyLog, setNotifyLog] = useState21(null);
+    const [logLoading, setLogLoading] = useState21(false);
+    const [logOpen, setLogOpen] = useState21(false);
+    const [pushSubs, setPushSubs] = useState21(null);
+    const [notifyInfoOpen, setNotifyInfoOpen] = useState21(false);
+    const [notifSubTab, setNotifSubTab] = useState21("project");
+    const [nfPhone, setNfPhone] = useState21(() => {
       try {
         return window.matchMedia("(max-width: 640px)").matches;
       } catch {
         return false;
       }
     });
-    useEffect15(() => {
+    useEffect18(() => {
       let mq;
       try {
         mq = window.matchMedia("(max-width: 640px)");
@@ -24732,12 +26970,12 @@ ${t2.slice(0, 300)}`);
         mq.removeEventListener ? mq.removeEventListener("change", on) : mq.removeListener(on);
       };
     }, []);
-    const [nfDetail, setNfDetail] = useState18(false);
-    const [nfQuery, setNfQuery] = useState18("");
-    const [nfOpen, setNfOpen] = useState18({ ops: true });
+    const [nfDetail, setNfDetail] = useState21(false);
+    const [nfQuery, setNfQuery] = useState21("");
+    const [nfOpen, setNfOpen] = useState21({ ops: true });
     const NOTIFY_BLOB_KEYS = { fleet: "pcg_fleet_notify_v1", foodLicense: "pcg_food_license_notify_v1", systemHealth: "pcg_system_health_notify_v1", minorTimecard: "pcg_minor_timecard_notify_v1", weeklyHoursSchedule: "pcg_weekly_hours_schedule_notify_v1", transferNotice: "pcg_transfer_notice_notify_v1", payIncrease: "pcg_pay_increase_notify_v1", payIncreaseApprovers: "pcg_pay_increase_approvers_v1", violationNotice: "pcg_violation_notice_notify_v1", timeOffRequest: "pcg_time_off_notify_v1", violationApprovers: "pcg_violation_approvers_v1", resignationLetter: "pcg_resignation_notify_v1", missingHoursApprovers: "pcg_missing_hours_approvers_v1", payIncreaseOffice: "pcg_pay_increase_office_step_v1", payIncreasePaycor: "pcg_pay_increase_paycor_notify_v1", transferApprovers: "pcg_transfer_approvers_v1", leaderTermAsk: "pcg_leader_termination_notify_v1", crewTimeOffOffice: "pcg_crew_time_off_office_v1", leaderTermIt: "pcg_leader_termination_it_v1", timeOffApprovers: "pcg_time_off_approvers_v1" };
-    const [notifCounts, setNotifCounts] = useState18({});
-    useEffect15(() => {
+    const [notifCounts, setNotifCounts] = useState21({});
+    useEffect18(() => {
       Object.entries(NOTIFY_BLOB_KEYS).forEach(([id, key]) => {
         cloudLoad(key).then((d) => {
           let n = Array.isArray(d?.emails) ? d.emails.length : 0;
@@ -24748,11 +26986,11 @@ ${t2.slice(0, 300)}`);
       });
     }, [(users || []).length > 0]);
     const setNotifCount = (id) => (n) => setNotifCounts((c) => c[id] === n ? c : { ...c, [id]: n });
-    const [userNotifsOpen, setUserNotifsOpen] = useState18(false);
-    const [reportSettings, setReportSettings] = useState18(null);
-    const [reportLoading, setReportLoading] = useState18(false);
-    const [reportOpen, setReportOpen] = useState18(false);
-    const [newReportCC, setNewReportCC] = useState18("");
+    const [userNotifsOpen, setUserNotifsOpen] = useState21(false);
+    const [reportSettings, setReportSettings] = useState21(null);
+    const [reportLoading, setReportLoading] = useState21(false);
+    const [reportOpen, setReportOpen] = useState21(false);
+    const [newReportCC, setNewReportCC] = useState21("");
     const loadReportSettings = async () => {
       setReportLoading(true);
       try {
@@ -24809,7 +27047,7 @@ ${t2.slice(0, 300)}`);
       setNewEmail("");
       showAlert2("success", "Email added to global notify list");
     };
-    const [projectShowSuggestions, setProjectShowSuggestions] = useState18(false);
+    const [projectShowSuggestions, setProjectShowSuggestions] = useState21(false);
     const projectTypedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim()) ? newEmail.trim() : null;
     const projectNameMatches = (users || []).filter((u) => newEmail.trim().length > 0 && !projectTypedEmail && (u.name || "").toLowerCase().includes(newEmail.trim().toLowerCase()) && u.email).slice(0, 8);
     const removeEmail = (idx) => {
@@ -24901,7 +27139,7 @@ ${t2.slice(0, 300)}`);
       setTicketNameQuery("");
       setTicketShowSuggestions(false);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (!users) return;
       (ticketNotifyEmailOwners || []).forEach((ownerId, i) => {
         if (ownerId == null) return;
@@ -27815,18 +30053,18 @@ ${t2.slice(0, 300)}`);
   var TASK_TYPES = ["shift", "general"];
   var NEW_TASK = { name: "", task_type: "shift", category: "", label: "Food Safety", input_type: "checklist", frequency: "daily", shift_time: "", recur_days: null, target: null, min_val: null, max_val: null, unit: "", allow_signoff: false, is_master: false, active: true };
   function AdminTaskManager({ th, user, stores, showAlert: showAlert2 }) {
-    const [templates, setTemplates] = useState18(null);
-    const [loading, setLoading] = useState18(false);
-    const [q, setQ] = useState18("");
-    const [catFilter, setCatFilter] = useState18("all");
-    const [activeFilter, setActiveFilter] = useState18("all");
-    const [editing, setEditing] = useState18(null);
-    const [locFor, setLocFor] = useState18(null);
-    const [locPcs, setLocPcs] = useState18([]);
-    const [itemsFor, setItemsFor] = useState18(null);
-    const [templateItems, setTemplateItems] = useState18([]);
-    const [templateEquip, setTemplateEquip] = useState18([]);
-    const [busy, setBusy] = useState18(false);
+    const [templates, setTemplates] = useState21(null);
+    const [loading, setLoading] = useState21(false);
+    const [q, setQ] = useState21("");
+    const [catFilter, setCatFilter] = useState21("all");
+    const [activeFilter, setActiveFilter] = useState21("all");
+    const [editing, setEditing] = useState21(null);
+    const [locFor, setLocFor] = useState21(null);
+    const [locPcs, setLocPcs] = useState21([]);
+    const [itemsFor, setItemsFor] = useState21(null);
+    const [templateItems, setTemplateItems] = useState21([]);
+    const [templateEquip, setTemplateEquip] = useState21([]);
+    const [busy, setBusy] = useState21(false);
     const api3 = useCallback(async (action, payload = {}) => {
       const r = await fetch("/.netlify/functions/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
       return r.json();
@@ -27840,10 +30078,10 @@ ${t2.slice(0, 300)}`);
         setLoading(false);
       }
     }, [api3]);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
-    const frameRef = useRef7(null);
+    const frameRef = useRef8(null);
     const frameH = useFrameHeight(frameRef);
     const categories = Array.from(new Set((templates || []).map((t) => t.category).filter(Boolean))).sort();
     const filtered = (templates || []).filter((t) => {
@@ -28164,16 +30402,16 @@ ${t2.slice(0, 300)}`);
     })));
   }
   function AdminSensors({ th, user, stores }) {
-    const [shellyDevices, setShellyDevices] = useState18(null);
+    const [shellyDevices, setShellyDevices] = useState21(null);
     const loadShellyTemp = () => {
       setShellyDevices(null);
       fetch("/.netlify/functions/shelly").then((r) => r.json()).then((d) => setShellyDevices(d && !d.error ? d.devices : "error")).catch(() => setShellyDevices("error"));
     };
-    useEffect15(() => {
+    useEffect18(() => {
       loadShellyTemp();
     }, []);
-    const [shellyDeviceMap, setShellyDeviceMap] = useState18({});
-    useEffect15(() => {
+    const [shellyDeviceMap, setShellyDeviceMap] = useState21({});
+    useEffect18(() => {
       cloudLoad("pcg_shelly_device_map_v1").then((d) => setShellyDeviceMap(d && typeof d === "object" ? d : {})).catch(() => {
       });
     }, []);
@@ -28261,7 +30499,7 @@ ${t2.slice(0, 300)}`);
     const [acks, setAcks] = React.useState(null);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
-    const reqRef = useRef7(0);
+    const reqRef = useRef8(0);
     const list = [...announcements || []].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const selected = list.find((a) => a.id === selId) || list[0] || null;
     const loadAcks = async (annId) => {
@@ -28450,15 +30688,15 @@ ${t2.slice(0, 300)}`);
     })))), displayed.length > PAGE && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: "0.75rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAll((s) => !s), style: { ...btn(th, { padding: "0.3rem 1rem", fontSize: "0.75rem" }) } }, showAll ? `Show recent ${PAGE}` : `Show all ${displayed.length} events`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.5rem", textAlign: "right" } }, "Showing ", visibleRows.length, " of ", displayed.length, " event", displayed.length !== 1 ? "s" : ""))));
   }
   function AnnouncementsPage({ announcements, setAnnouncements, user, th, showAlert: showAlert2, users }) {
-    const [editingId, setEditingId] = useState18(null);
-    const [editForm, setEditForm] = useState18({ title: "", message: "" });
-    const [addMode, setAddMode] = useState18(false);
-    const [newTitle, setNewTitle] = useState18("");
-    const [newMsg, setNewMsg] = useState18("");
-    const [newTargets, setNewTargets] = useState18([]);
-    const [newUserTargets, setNewUserTargets] = useState18([]);
-    const [newForceAll, setNewForceAll] = useState18(false);
-    const [expandedRole, setExpandedRole] = useState18(null);
+    const [editingId, setEditingId] = useState21(null);
+    const [editForm, setEditForm] = useState21({ title: "", message: "" });
+    const [addMode, setAddMode] = useState21(false);
+    const [newTitle, setNewTitle] = useState21("");
+    const [newMsg, setNewMsg] = useState21("");
+    const [newTargets, setNewTargets] = useState21([]);
+    const [newUserTargets, setNewUserTargets] = useState21([]);
+    const [newForceAll, setNewForceAll] = useState21(false);
+    const [expandedRole, setExpandedRole] = useState21(null);
     const TARGETABLE_ROLES = ["dm", "executive", "construction", "office_staff"];
     const canManage = user?.username === "mike.bahm" || isFullAdmin(user);
     const ANN_ROLES = [
@@ -29680,8 +31918,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     } }, SAFE_VAR_LABEL[st] || st, variance != null ? ` ${fmtSafeMoney(variance)}` : "");
   }
   function SignaturePad({ th, onCapture, label }) {
-    const ref = useRef7(null);
-    const drawing = useRef7(false);
+    const ref = useRef8(null);
+    const drawing = useRef8(false);
     const pos = (e) => {
       const r = ref.current.getBoundingClientRect();
       const t = e.touches ? e.touches[0] : e;
@@ -29732,8 +31970,8 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: save, style: { ...btn(th), minHeight: 40 } }, "Save signature"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: clear, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 40 } }, "Clear")));
   }
   function SafeAuditsPane({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState18("list");
-    const [sel, setSel] = useState18(null);
+    const [view, setView] = useState21("list");
+    const [sel, setSel] = useState21(null);
     const openConduct = (id, storePC) => {
       setSel({ id, storePC });
       setView("conduct");
@@ -29778,11 +32016,11 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
   }
   function SafeAuditList({ user, th, stores, showAlert: showAlert2, onConduct, onViewReport }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState18(null);
-    const [err, setErr] = useState18(false);
-    const [picking, setPicking] = useState18(false);
-    const [pickStore, setPickStore] = useState18("");
-    const [starting, setStarting] = useState18(false);
+    const [audits, setAudits] = useState21(null);
+    const [err, setErr] = useState21(false);
+    const [picking, setPicking] = useState21(false);
+    const [pickStore, setPickStore] = useState21("");
+    const [starting, setStarting] = useState21(false);
     const canConduct = safeCanConduct(user);
     const load = useCallback(() => {
       setErr(false);
@@ -29791,7 +32029,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
         setErr(true);
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -29870,14 +32108,14 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
     const storeName = store?.name || storePC;
     const storeDistrict = store?.district ?? null;
     const localKey = "pcg_safe_draft_" + auditId;
-    const [loading, setLoading] = useState18(true);
-    const [loadErr, setLoadErr] = useState18(false);
-    const [setting, setSetting] = useState18(null);
-    const [savingExpected, setSavingExpected] = useState18(false);
-    const [submitting, setSubmitting] = useState18(false);
-    const [submitted, setSubmitted] = useState18(null);
-    const didHydrate = useRef7(false);
-    const [f, setF] = useState18({
+    const [loading, setLoading] = useState21(true);
+    const [loadErr, setLoadErr] = useState21(false);
+    const [setting, setSetting] = useState21(null);
+    const [savingExpected, setSavingExpected] = useState21(false);
+    const [submitting, setSubmitting] = useState21(false);
+    const [submitted, setSubmitted] = useState21(null);
+    const didHydrate = useRef8(false);
+    const [f, setF] = useState21({
       reason: "",
       safeCode: "",
       codeLastChanged: "",
@@ -29898,7 +32136,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       notes: ""
     });
     const set = (patch) => setF((prev) => ({ ...prev, ...patch }));
-    useEffect15(() => {
+    useEffect18(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -29985,7 +32223,7 @@ ${notifyEmails.join(", ")}`, createdAt: now }] : [];
       managerAckName: f.managerAckName,
       notes: f.notes
     });
-    useEffect15(() => {
+    useEffect18(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -30162,9 +32400,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function SafeSigImage({ sigKey, th, label }) {
-    const [src, setSrc] = useState18(null);
-    const [loading, setLoading] = useState18(!!sigKey);
-    useEffect15(() => {
+    const [src, setSrc] = useState21(null);
+    const [loading, setLoading] = useState21(!!sigKey);
+    useEffect18(() => {
       let cancelled = false;
       if (!sigKey) {
         setSrc(null);
@@ -30814,12 +33052,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const store = stores?.find((s) => String(s.pc) === String(storePC));
     const storeName = store?.name || storePC;
     const storeAddress = store ? [store.address, store.city, store.state, store.zip].filter(Boolean).join(", ") : "";
-    const [audit, setAudit] = useState18(null);
-    const [err, setErr] = useState18(false);
-    const [lightbox, setLightbox] = useState18(null);
-    const [exporting, setExporting] = useState18(false);
-    const printRef = useRef7(null);
-    useEffect15(() => {
+    const [audit, setAudit] = useState21(null);
+    const [err, setErr] = useState21(false);
+    const [lightbox, setLightbox] = useState21(null);
+    const [exporting, setExporting] = useState21(false);
+    const printRef = useRef8(null);
+    useEffect18(() => {
       let cancelled = false;
       setAudit(null);
       setErr(false);
@@ -30875,16 +33113,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 860, margin: "0 auto", paddingBottom: "2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: { ...btn(th, { background: "transparent", color: th.muted, border: "none", padding: "0.25rem 0.25rem" }) } }, "\u2190 Back to safe audits"), /* @__PURE__ */ React.createElement("button", { onClick: exportPdf, disabled: exporting, style: { ...btn(th), minHeight: 44, opacity: exporting ? 0.6 : 1 } }, exporting ? "Exporting\u2026" : "\u2913 Export PDF")), /* @__PURE__ */ React.createElement("div", { ref: printRef }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem 1.5rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "flex-start", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: pageTitle(th) }, storeName, " ", storePC ? `(${storePC})` : ""), storeAddress && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.82rem", marginTop: "0.15rem" } }, storeAddress), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.5rem" } }, "Auditor: ", audit.auditorName || "\u2014", audit.auditorRole ? ` (${audit.auditorRole})` : ""), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.8rem", marginTop: "0.25rem" } }, "Started ", audit.startedAt ? new Date(audit.startedAt).toLocaleString() : "\u2014", " \xB7 Submitted ", audit.submittedAt ? new Date(audit.submittedAt).toLocaleString() : "\u2014", durationLabel ? ` \xB7 Duration ${durationLabel}` : "")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.4rem" } }, "Accounted ", fmtSafeMoney(audit.accountedTotal), " vs Expected ", fmtSafeMoney(audit.expectedPettyCash))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "General Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Reason for audit", value: audit.reason || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Current safe code", value: audit.safeCode || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Code last changed", value: audit.codeLastChanged || "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Store Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store manager", value: audit.storeManagerName || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: audit.district != null ? districtLabel(audit.district) : "\u2014", th }))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Petty Cash Information"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Expected petty cash", value: fmtSafeMoney(audit.expectedPettyCash), th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts in safe", value: audit.hasReceipts ? "Yes" : "No", th }), audit.hasReceipts && /* @__PURE__ */ React.createElement(InfoCell, { label: "Receipts total", value: fmtSafeMoney(audit.receiptsTotal), th })), audit.hasReceipts && audit.receiptPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.9rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Receipt photos (", audit.receiptPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.receiptPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "left" } }, "Denomination"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Count"), /* @__PURE__ */ React.createElement("th", { style: { ...thCell(th), textAlign: "right" } }, "Value"))), /* @__PURE__ */ React.createElement("tbody", null, SAFE_BILLS.map((d) => denomRow(d, "billCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Bills"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.billsTotal))), SAFE_COINS.map((d) => denomRow(d, "coinCounts")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, "Total of Coins"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 800, color: th.text, borderTop: `1px solid ${th.cardBorder}` } }, fmtSafeMoney(audit.coinsTotal))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { ...tdCell(th), fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, "Counted Total"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), textAlign: "right", fontWeight: 900, color: O, borderTop: `2px solid ${th.cardBorder}`, fontSize: "0.92rem" } }, fmtSafeMoney(audit.countedTotal)))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "center", justifyContent: "space-between", marginTop: "0.9rem", paddingTop: "0.75rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, fontWeight: 700 } }, "Accounted total (counted + receipts): ", fmtSafeMoney(audit.accountedTotal)), /* @__PURE__ */ React.createElement(SafeVarBadge, { status: audit.varianceStatus, variance: audit.variance, th })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", paddingTop: "0.9rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.85rem", marginBottom: audit.hasCounterfeit ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit cash found", value: audit.hasCounterfeit ? "Yes" : "No", color: audit.hasCounterfeit ? "#ef4444" : void 0, th }), audit.hasCounterfeit && /* @__PURE__ */ React.createElement(InfoCell, { label: "Counterfeit total", value: fmtSafeMoney(audit.counterfeitTotal), color: "#ef4444", th })), audit.hasCounterfeit && audit.counterfeitPhotoKeys?.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "0.4rem" } }, "Counterfeit photos (", audit.counterfeitPhotoKeys.length, ")"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem" } }, audit.counterfeitPhotoKeys.map((k) => /* @__PURE__ */ React.createElement(AuditPhotoThumb, { key: k, photoKey: k, th, onZoom: setLightbox })))))), /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "Signatures"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "1.5rem" } }, /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.conductorSigKey, th, label: `Conductor \u2014 ${audit.auditorName || "\u2014"}` }), /* @__PURE__ */ React.createElement(SafeSigImage, { sigKey: audit.managerSigKey, th, label: `Store manager / witness${audit.managerAckName ? ` \u2014 ${audit.managerAckName}` : ""}` }))), audit.notes && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.1rem 1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.5rem" } }, "Notes"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.text, whiteSpace: "pre-wrap" } }, audit.notes))), lightbox && /* @__PURE__ */ React.createElement(SimpleLightbox, { src: lightbox, onClose: () => setLightbox(null) }));
   }
   function SystemHealth({ th, user }) {
-    const [snap, setSnap] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const [refreshing, setRefreshing] = useState18(false);
+    const [snap, setSnap] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const [refreshing, setRefreshing] = useState21(false);
     const load = useCallback(async () => {
       setLoading(true);
       const d = await cloudLoad("pcg_system_health_v1");
       setSnap(d || null);
       setLoading(false);
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     const refreshNow = async () => {
@@ -30924,7 +33162,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   function AuditsTab({ user, th, stores, showAlert: showAlert2, setTab }) {
     const canFieldOps = auditCanView(user);
     const canSafe = safeCanView(user);
-    const [mode, setMode] = useState18(canFieldOps ? "field" : "safe");
+    const [mode, setMode] = useState21(canFieldOps ? "field" : "safe");
     const both = canFieldOps && canSafe;
     const effectiveMode = canFieldOps ? mode : "safe";
     const seg = both ? /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", padding: 3, gap: 3, borderRadius: 999, background: th.card2, border: `1px solid ${th.cardBorder}` } }, [["field", "Field Ops"], ["safe", "Safe"]].map(([m, lbl]) => /* @__PURE__ */ React.createElement(
@@ -30939,13 +33177,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, seg, effectiveMode === "safe" ? /* @__PURE__ */ React.createElement(SafeAuditsPane, { user, th, stores, showAlert: showAlert2, setTab }) : /* @__PURE__ */ React.createElement(FieldOpsAudits, { user, th, stores, showAlert: showAlert2, setTab }));
   }
   function FieldOpsAudits({ user, th, stores, showAlert: showAlert2, setTab }) {
-    const [view, setView] = useState18(null);
-    const [conduct, setConduct] = useState18(null);
+    const [view, setView] = useState21(null);
+    const [conduct, setConduct] = useState21(null);
     const canConduct = auditCanAudit(user);
     const canSeeCapBoard = auditCanView(user);
     const canSeeDashboard = canSeeCapBoard;
     const dashboardIsDefault = auditCanAudit(user);
-    useEffect15(() => {
+    useEffect18(() => {
       let cancelled = false;
       if (!dashboardIsDefault) {
         setView("list");
@@ -31040,11 +33278,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function AuditList({ user, th, stores, showAlert: showAlert2, canConduct, canSeeCapBoard, canSeeDashboard, onConduct, onViewReport, onOpenCapBoard, onOpenDashboard }) {
     const isMobile = useIsMobile();
-    const [audits, setAudits] = useState18(null);
-    const [err, setErr] = useState18(false);
-    const [picking, setPicking] = useState18(false);
-    const [pickStore, setPickStore] = useState18("");
-    const [starting, setStarting] = useState18(false);
+    const [audits, setAudits] = useState21(null);
+    const [err, setErr] = useState21(false);
+    const [picking, setPicking] = useState21(false);
+    const [pickStore, setPickStore] = useState21("");
+    const [starting, setStarting] = useState21(false);
     const load = useCallback(() => {
       setErr(false);
       auditsApi("list").then((j) => setAudits(Array.isArray(j.audits) ? j.audits : [])).catch(() => {
@@ -31052,7 +33290,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     const storeName = (pc) => stores?.find((s) => String(s.pc) === String(pc))?.name || pc;
@@ -31116,18 +33354,18 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1100, margin: "0 auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...pageTitle(th), display: "flex", alignItems: "center", gap: "0.6rem" } }, ICONS.audits(O), " Field Audits"), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem", marginTop: "0.25rem" } }, "Store operations audits \u2014 conduct on-site, scored automatically, critical failures cap the result.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem" } }, canSeeDashboard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenDashboard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Dashboard"), canSeeCapBoard && /* @__PURE__ */ React.createElement("button", { onClick: onOpenCapBoard, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "CAP Board"), canConduct && /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(true), style: { ...btn(th), minHeight: 44 } }, "+ New Audit"))), err && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem 1rem", marginBottom: "1rem", color: "#ef4444", fontSize: "0.85rem" } }, "Couldn't load audits. ", /* @__PURE__ */ React.createElement("button", { onClick: load, style: { ...btn(th, { background: "transparent", color: O, border: "none", padding: 0 }), textDecoration: "underline" } }, "Retry")), audits === null ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "Loading audits\u2026") : audits.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No audits yet.", canConduct ? " Start one with \u201C+ New Audit\u201D." : "") : isMobile ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem" } }, audits.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, onClick: () => openRow(a), style: { ...card(th), padding: "0.85rem 1rem", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem", fontSize: "0.78rem", color: th.muted } }, /* @__PURE__ */ React.createElement("span", null, a.auditorName || "\u2014", a.submittedAt ? " \xB7 " + new Date(a.submittedAt).toLocaleDateString() : ""), /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))) : /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Store", "Date", "Auditor", "Score", "Status"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { ...thCell(th), textAlign: "left" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, audits.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id, onClick: () => openRow(a), style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), fontWeight: 700, color: th.text } }, storeName(a.storePC)), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...tdCell(th), color: th.muted } }, a.auditorName || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(ScoreChip, { a })), /* @__PURE__ */ React.createElement("td", { style: tdCell(th) }, /* @__PURE__ */ React.createElement(StatusPill, { status: a.status }))))))), picking && /* @__PURE__ */ React.createElement("div", { onClick: () => !starting && setPicking(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1e3, padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { ...card(th), padding: "1.5rem", width: "100%", maxWidth: 420 } }, /* @__PURE__ */ React.createElement("div", { style: { ...sectionTitle(th), marginBottom: "0.75rem" } }, "New Audit \u2014 pick a store"), /* @__PURE__ */ React.createElement("select", { value: pickStore, onChange: (e) => setPickStore(e.target.value), style: { ...inp(th), width: "100%", minHeight: 44 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), [...stores || []].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (", s.pc, ")"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "1.25rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPicking(false), disabled: starting, style: { ...btn(th, { background: th.card2, color: th.text, border: `1px solid ${th.cardBorder}` }), minHeight: 44 } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: startAudit, disabled: starting || !pickStore, style: { ...btn(th), minHeight: 44, opacity: starting || !pickStore ? 0.6 : 1 } }, starting ? "Starting\u2026" : "Start Audit")))));
   }
   function AuditConduct({ user, th, stores, showAlert: showAlert2, auditId, storePC, onExit, onViewReport }) {
-    const [template, setTemplate] = useState18(null);
-    const [results, setResults] = useState18({});
-    const [secIdx, setSecIdx] = useState18(0);
-    const [loading, setLoading] = useState18(true);
-    const [loadErr, setLoadErr] = useState18(false);
-    const [submitting, setSubmitting] = useState18(false);
-    const [submitted, setSubmitted] = useState18(null);
-    const [gpsStatus, setGpsStatus] = useState18("");
-    const didHydrate = useRef7(false);
+    const [template, setTemplate] = useState21(null);
+    const [results, setResults] = useState21({});
+    const [secIdx, setSecIdx] = useState21(0);
+    const [loading, setLoading] = useState21(true);
+    const [loadErr, setLoadErr] = useState21(false);
+    const [submitting, setSubmitting] = useState21(false);
+    const [submitted, setSubmitted] = useState21(null);
+    const [gpsStatus, setGpsStatus] = useState21("");
+    const didHydrate = useRef8(false);
     const localKey = "pcg_audit_draft_" + auditId;
     const storeName = stores?.find((s) => String(s.pc) === String(storePC))?.name || storePC;
-    useEffect15(() => {
+    useEffect18(() => {
       let cancelled = false;
       (async () => {
         setLoading(true);
@@ -31160,7 +33398,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [auditId]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (loading || submitted) return;
       if (!didHydrate.current) {
         didHydrate.current = true;
@@ -31379,9 +33617,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   };
   var capStatusMeta = (s) => CAP_STATUS_META[s] || { label: s || "\u2014", color: "#6b7280" };
   function AuditPhotoThumb({ photoKey, th, onZoom, size = 64 }) {
-    const [src, setSrc] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    useEffect15(() => {
+    const [src, setSrc] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    useEffect18(() => {
       let cancelled = false;
       setLoading(true);
       cloudLoadFile(photoKey).then((f) => {
@@ -31406,10 +33644,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", cursor: "zoom-out" } }, /* @__PURE__ */ React.createElement("img", { src, alt: "Full size", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "100%", borderRadius: "0.75rem", objectFit: "contain", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" } }), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.25rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"));
   }
   function CapResolveForm({ th, user, cap, showAlert: showAlert2, onDone, onCancel }) {
-    const [note, setNote] = useState18("");
-    const [photoKeys, setPhotoKeys] = useState18([]);
-    const [uploading, setUploading] = useState18(false);
-    const [saving, setSaving] = useState18(false);
+    const [note, setNote] = useState21("");
+    const [photoKeys, setPhotoKeys] = useState21([]);
+    const [uploading, setUploading] = useState21(false);
+    const [saving, setSaving] = useState21(false);
     const addPhotos = async (fileList) => {
       const files = Array.from(fileList || []);
       if (!files.length) return;
@@ -31476,14 +33714,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )));
   }
   function AuditReport({ user, th, stores, showAlert: showAlert2, auditId, storePC, onBack }) {
-    const [audit, setAudit] = useState18(null);
-    const [items, setItems] = useState18([]);
-    const [caps, setCaps] = useState18([]);
-    const [loading, setLoading] = useState18(true);
-    const [err, setErr] = useState18(false);
-    const [lightbox, setLightbox] = useState18(null);
-    const [exporting, setExporting] = useState18(false);
-    const printRef = useRef7(null);
+    const [audit, setAudit] = useState21(null);
+    const [items, setItems] = useState21([]);
+    const [caps, setCaps] = useState21([]);
+    const [loading, setLoading] = useState21(true);
+    const [err, setErr] = useState21(false);
+    const [lightbox, setLightbox] = useState21(null);
+    const [exporting, setExporting] = useState21(false);
+    const printRef = useRef8(null);
     const load = useCallback(() => {
       setLoading(true);
       setErr(false);
@@ -31493,7 +33731,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setCaps(Array.isArray(j.caps) ? j.caps : []);
       }).catch(() => setErr(true)).finally(() => setLoading(false));
     }, [auditId]);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     const store = (stores || []).find((s) => String(s.pc) === String(storePC));
@@ -31569,16 +33807,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function CapBoard({ user, th, stores, showAlert: showAlert2, onBack }) {
     const isMobile = useIsMobile();
-    const [rows, setRows] = useState18(null);
-    const [err, setErr] = useState18(false);
-    const [statusFilter, setStatusFilter] = useState18("all");
-    const [districtFilter, setDistrictFilter] = useState18("all");
-    const [ownerFilter, setOwnerFilter] = useState18("all");
-    const [expanded, setExpanded] = useState18(null);
-    const [rejectFor, setRejectFor] = useState18(null);
-    const [rejectNote, setRejectNote] = useState18("");
-    const [busyId, setBusyId] = useState18(null);
-    const [lightbox, setLightbox] = useState18(null);
+    const [rows, setRows] = useState21(null);
+    const [err, setErr] = useState21(false);
+    const [statusFilter, setStatusFilter] = useState21("all");
+    const [districtFilter, setDistrictFilter] = useState21("all");
+    const [ownerFilter, setOwnerFilter] = useState21("all");
+    const [expanded, setExpanded] = useState21(null);
+    const [rejectFor, setRejectFor] = useState21(null);
+    const [rejectNote, setRejectNote] = useState21("");
+    const [busyId, setBusyId] = useState21(null);
+    const [lightbox, setLightbox] = useState21(null);
     const canAudit = auditCanAudit(user);
     const load = useCallback(() => {
       setErr(false);
@@ -31587,7 +33825,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     const storeInfo = (pc) => (stores || []).find((s) => String(s.pc) === String(pc));
@@ -31703,8 +33941,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var DISTRICT_TREND_COLORS = ["#3b82f6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#14b8a6", "#eab308", "#ec4899"];
   function AuditDashboard({ user, th, stores, showAlert: showAlert2, onOpenReport, onGoList, onGoCaps }) {
-    const [data, setData] = useState18(null);
-    const [err, setErr] = useState18(false);
+    const [data, setData] = useState21(null);
+    const [err, setErr] = useState21(false);
     const isFull = auditCanView(user) && user?.userType !== "dm";
     const isDm = user?.userType === "dm";
     const canSeeManagerRanking = auditCanAudit(user);
@@ -31715,7 +33953,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     const visibleStores = React.useMemo(() => {
@@ -31781,7 +34019,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       for (const m of trend) Object.keys(m.byDistrict || {}).forEach((d) => set.add(d));
       return [...set].sort((a, b) => Number(a) - Number(b));
     }, [trend, isFull]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chartRef.current) {
         chartRef.current.destroy();
         chartRef.current = null;
@@ -31872,9 +34110,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ManagerCapCard({ user, th, stores, showAlert: showAlert2 }) {
     const store = getManagerStore(stores, user);
-    const [caps, setCaps] = useState18(null);
-    const [err, setErr] = useState18(false);
-    const [expanded, setExpanded] = useState18(null);
+    const [caps, setCaps] = useState21(null);
+    const [err, setErr] = useState21(false);
+    const [expanded, setExpanded] = useState21(null);
     const load = useCallback(() => {
       if (!store?.pc) {
         setCaps([]);
@@ -31895,7 +34133,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setErr(true);
       });
     }, [store?.pc]);
-    useEffect15(() => {
+    useEffect18(() => {
       load();
     }, [load]);
     if (!store?.pc) return null;
@@ -32146,9 +34384,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return visible;
   };
   function ManagerOrionBrief({ pc, storeName, th }) {
-    const [brief, setBrief] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const [err, setErr] = useState18(false);
+    const [brief, setBrief] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const [err, setErr] = useState21(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -32168,7 +34406,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect15(() => {
+    useEffect18(() => {
       load(false);
     }, [pc]);
     return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.1rem", borderLeft: "3px solid #b197fc" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", paddingBottom: "0.6rem", borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(OrionIcon, { size: 18 }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.85rem", color: th.text, whiteSpace: "nowrap" } }, "Orion \xB7 Store Brief"), storeName && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", color: th.muted, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "\xB7 ", storeName)), /* @__PURE__ */ React.createElement(
@@ -32183,9 +34421,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Reading your store\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Brief unavailable right now \u2014 try again shortly.") : brief && brief.content ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(brief.content, th)) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "No brief yet \u2014 not enough data for this store."));
   }
   function ForecastPrePlanCard({ pc, storeName, th }) {
-    const [plan, setPlan] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const [err, setErr] = useState18(false);
+    const [plan, setPlan] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const [err, setErr] = useState21(false);
     const load = (refresh) => {
       if (!pc) {
         setLoading(false);
@@ -32205,7 +34443,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setLoading(false);
       });
     };
-    useEffect15(() => {
+    useEffect18(() => {
       load(false);
     }, [pc]);
     const fc = plan && plan.forecast;
@@ -32225,14 +34463,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))), loading ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Building your game plan\u2026") : err ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Pre-plan unavailable right now \u2014 try again shortly.") : !fc ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.74rem", padding: "0.4rem 0" } }, "Not enough history yet \u2014 the model is still collecting data.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.8rem", color: th.text, lineHeight: 1 } }, f(fc.dayTotal)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.66rem" } }, "projected \xB7 range ", f(fc.low), "\u2013", f(fc.high), fc.holidayName ? ` \xB7 \u{1F389} ${fc.holidayName}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginTop: "0.7rem" } }, [["AM rush", fc.dayparts.amRush], ["Mid-morn", fc.dayparts.midMorning], ["Lunch", fc.dayparts.lunch], ["Afternoon", fc.dayparts.afternoon]].map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, style: { textAlign: "center", background: th.card2, borderRadius: 7, padding: "0.4rem 0.2rem" } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.5rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 } }, k), /* @__PURE__ */ React.createElement("div", { style: { color: th.text, fontWeight: 800, fontSize: "0.72rem", marginTop: "0.15rem" } }, f(v))))), par && (par.donut || par.munchkin) && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.55rem", fontSize: "0.62rem", color: th.muted } }, par.donut && /* @__PURE__ */ React.createElement("span", null, "\u{1F369} Donut par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.donut.par)), par.munchkin && /* @__PURE__ */ React.createElement("span", null, "\xB7 Munchkin par ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, par.munchkin.par))), plan && plan.content && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: `1px solid ${th.cardBorder}`, fontSize: "0.78rem", color: th.text, lineHeight: 1.55 } }, renderAnalystMarkdown(plan.content, th))));
   }
   function StoreForecastTab({ pc, date, actualHourly, th }) {
-    const [mode, setMode] = useState18("day");
-    const [data, setData] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const [err, setErr] = useState18(false);
-    const [week, setWeek] = useState18(null);
-    const [weekLoading, setWeekLoading] = useState18(false);
-    const [weekErr, setWeekErr] = useState18(false);
-    useEffect15(() => {
+    const [mode, setMode] = useState21("day");
+    const [data, setData] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const [err, setErr] = useState21(false);
+    const [week, setWeek] = useState21(null);
+    const [weekLoading, setWeekLoading] = useState21(false);
+    const [weekErr, setWeekErr] = useState21(false);
+    useEffect18(() => {
       if (!pc) {
         setLoading(false);
         return;
@@ -32259,7 +34497,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [pc, date]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (mode !== "week" || !pc) return;
       let cancelled = false;
       setWeekLoading(true);
@@ -32429,9 +34667,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return promise;
   }
   function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout, onCrewTimeOff }) {
-    const [crew, setCrew] = useState18(null);
-    const [showQr, setShowQr] = useState18(false);
-    useEffect15(() => {
+    const [crew, setCrew] = useState21(null);
+    const [showQr, setShowQr] = useState21(false);
+    useEffect18(() => {
       const get = () => fetch("/.netlify/functions/crew-time-off?summary=1", { credentials: "include", cache: "no-store", headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).then((b) => {
         if (b) setCrew(b);
       }).catch(() => {
@@ -32471,38 +34709,38 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 364);
       return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     })();
-    const [sales, setSales] = useState18(null);
-    const [tappedHour, setTappedHour] = useState18(null);
-    const [salesYesterday, setSalesYesterday] = useState18(null);
-    const [salesLastYear, setSalesLastYear] = useState18(null);
-    const [labor, setLabor] = useState18(null);
-    const [hourly, setHourly] = useState18(null);
-    const [workers, setWorkers] = useState18([]);
-    const [lwDaySales, setLwDaySales] = useState18(null);
-    const [carouselPage, setCarouselPage] = useState18(0);
-    const touchStartX = useRef7(null);
-    const carouselInnerRef = useRef7(null);
-    const fetchTokenRef = useRef7(0);
-    const [loading, setLoading] = useState18(true);
-    const [refreshing, setRefreshing] = useState18(false);
-    const [lastRefresh, setLastRefresh] = useState18(null);
-    const [showStoreInfo, setShowStoreInfo] = useState18(false);
-    const [showUserMenu, setShowUserMenu] = useState18(false);
-    const [dayOffset, setDayOffset] = useState18(0);
-    const [storeBlob, setStoreBlob] = useState18(null);
-    const [histHourly, setHistHourly] = useState18(null);
-    const [liveHistCache, setLiveHistCache] = useState18({});
-    const [histLoading, setHistLoading] = useState18(false);
-    const [storeTickets, setStoreTickets] = useState18([]);
-    const [taskSummary, setTaskSummary] = useState18(null);
-    const [mgrCaps, setMgrCaps] = useState18(null);
-    const [mgrCapsErr, setMgrCapsErr] = useState18(false);
-    const [expandedCap, setExpandedCap] = useState18(null);
-    const toggleBtnRef = useRef7(null);
-    const [voiceState, setVoiceState] = useState18("idle");
-    const [voiceTranscript, setVoiceTranscript] = useState18("");
-    const [voiceReply, setVoiceReply] = useState18("");
-    const recogRef = useRef7(null);
+    const [sales, setSales] = useState21(null);
+    const [tappedHour, setTappedHour] = useState21(null);
+    const [salesYesterday, setSalesYesterday] = useState21(null);
+    const [salesLastYear, setSalesLastYear] = useState21(null);
+    const [labor, setLabor] = useState21(null);
+    const [hourly, setHourly] = useState21(null);
+    const [workers, setWorkers] = useState21([]);
+    const [lwDaySales, setLwDaySales] = useState21(null);
+    const [carouselPage, setCarouselPage] = useState21(0);
+    const touchStartX = useRef8(null);
+    const carouselInnerRef = useRef8(null);
+    const fetchTokenRef = useRef8(0);
+    const [loading, setLoading] = useState21(true);
+    const [refreshing, setRefreshing] = useState21(false);
+    const [lastRefresh, setLastRefresh] = useState21(null);
+    const [showStoreInfo, setShowStoreInfo] = useState21(false);
+    const [showUserMenu, setShowUserMenu] = useState21(false);
+    const [dayOffset, setDayOffset] = useState21(0);
+    const [storeBlob, setStoreBlob] = useState21(null);
+    const [histHourly, setHistHourly] = useState21(null);
+    const [liveHistCache, setLiveHistCache] = useState21({});
+    const [histLoading, setHistLoading] = useState21(false);
+    const [storeTickets, setStoreTickets] = useState21([]);
+    const [taskSummary, setTaskSummary] = useState21(null);
+    const [mgrCaps, setMgrCaps] = useState21(null);
+    const [mgrCapsErr, setMgrCapsErr] = useState21(false);
+    const [expandedCap, setExpandedCap] = useState21(null);
+    const toggleBtnRef = useRef8(null);
+    const [voiceState, setVoiceState] = useState21("idle");
+    const [voiceTranscript, setVoiceTranscript] = useState21("");
+    const [voiceReply, setVoiceReply] = useState21("");
+    const recogRef = useRef8(null);
     const handleToggle = useCallback(() => {
       const btn2 = toggleBtnRef.current;
       if (btn2) {
@@ -32659,17 +34897,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     }, [pc, todayStr]);
-    useEffect15(() => {
+    useEffect18(() => {
       fetchAll();
       return () => {
         fetchTokenRef.current++;
       };
     }, [fetchAll]);
-    useEffect15(() => {
+    useEffect18(() => {
       const t = setInterval(fetchAll, 10 * 60 * 1e3);
       return () => clearInterval(t);
     }, [fetchAll]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (dayOffset === 0) {
         setHistHourly(null);
         return;
@@ -32716,7 +34954,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [dayOffset, pc]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!pc) return;
       try {
         const raw = localStorage.getItem("pcg_tickets_v1");
@@ -33062,7 +35300,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.35";
+  var APP_VERSION = "v23.36";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -33138,22 +35376,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     reader.readAsText(file);
   }
   function ChatSection({ user, users, projects, channels, setChannels, messages, setMessages, readState, setReadState, th, showAlert: showAlert2, initialChannelId, pendingOrionQuestion, clearPendingOrion, stores, onDrillIn }) {
-    const [chatView, setChatView] = useState18(initialChannelId ? "thread" : "list");
-    const [activeChannelId, setActiveChannelId] = useState18(initialChannelId || null);
-    const [msgText, setMsgText] = useState18("");
-    const [searchTerm, setSearchTerm] = useState18("");
-    const [pendingAttachments, setPendingAttachments] = useState18([]);
-    const [mentionQuery, setMentionQuery] = useState18(null);
-    const [groupName, setGroupName] = useState18("");
-    const [groupMembers, setGroupMembers] = useState18([]);
-    const [dmSearch, setDmSearch] = useState18("");
-    const [orionThinking, setOrionThinking] = useState18(false);
-    const [replyToThread, setReplyToThread] = useState18(null);
-    const [expandedThreads, setExpandedThreads] = useState18(/* @__PURE__ */ new Set());
-    const [orionFeedback, setOrionFeedback] = useState18({});
-    const [editMembers, setEditMembers] = useState18(null);
-    const [chatMenuOpen, setChatMenuOpen] = useState18(false);
-    const [chatConfirm, setChatConfirm] = useState18(null);
+    const [chatView, setChatView] = useState21(initialChannelId ? "thread" : "list");
+    const [activeChannelId, setActiveChannelId] = useState21(initialChannelId || null);
+    const [msgText, setMsgText] = useState21("");
+    const [searchTerm, setSearchTerm] = useState21("");
+    const [pendingAttachments, setPendingAttachments] = useState21([]);
+    const [mentionQuery, setMentionQuery] = useState21(null);
+    const [groupName, setGroupName] = useState21("");
+    const [groupMembers, setGroupMembers] = useState21([]);
+    const [dmSearch, setDmSearch] = useState21("");
+    const [orionThinking, setOrionThinking] = useState21(false);
+    const [replyToThread, setReplyToThread] = useState21(null);
+    const [expandedThreads, setExpandedThreads] = useState21(/* @__PURE__ */ new Set());
+    const [orionFeedback, setOrionFeedback] = useState21({});
+    const [editMembers, setEditMembers] = useState21(null);
+    const [chatMenuOpen, setChatMenuOpen] = useState21(false);
+    const [chatConfirm, setChatConfirm] = useState21(null);
     const sendOrionFeedback = (messageId, rating) => {
       if (!messageId) return;
       setOrionFeedback((prev) => ({ ...prev, [messageId]: rating }));
@@ -33164,7 +35402,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }).catch(() => {
       });
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (!pendingOrionQuestion) return;
       const analystChId = `analyst_${user.id}`;
       setActiveChannelId(analystChId);
@@ -33193,15 +35431,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [pendingOrionQuestion]);
     const isAnalystUser = user && (user.userType === "executive" || user.userType === "it" || user.userType === "dm" || user.userType === "manager");
     const personalAnalystId = `analyst_${user.id}`;
-    useEffect15(() => {
+    useEffect18(() => {
       if (!isAnalystUser) return;
       setChannels((prev) => {
         if (prev.some((c) => c.id === personalAnalystId)) return prev;
         return [{ id: personalAnalystId, type: "analyst", name: "Orion \u2014 My Analyst", members: [user.id], createdAt: "2026-01-01T00:00:00.000Z" }, ...prev];
       });
     }, [user?.id]);
-    const sanitizedRef = useRef7(false);
-    useEffect15(() => {
+    const sanitizedRef = useRef8(false);
+    useEffect18(() => {
       if (sanitizedRef.current || !channels || channels.length === 0) return;
       if (!users || users.length === 0) return;
       const removedIds = /* @__PURE__ */ new Set();
@@ -33372,10 +35610,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setOrionThinking(false);
     };
-    const [logFilters, setLogFilters] = useState18({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
-    const messagesEndRef = useRef7(null);
-    const inputRef = useRef7(null);
-    const fileRef = useRef7(null);
+    const [logFilters, setLogFilters] = useState21({ channel: "all", user: "all", keyword: "", dateFrom: "", dateTo: "" });
+    const messagesEndRef = useRef8(null);
+    const inputRef = useRef8(null);
+    const fileRef = useRef8(null);
     const isAdmin = isChatAdmin(user);
     const activeUsers = users.filter((u) => u.active);
     const resolveMention = (mention) => {
@@ -33708,12 +35946,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const mentionSuggestions = mentionQuery ? activeUsers.filter(
       (u) => u.id !== user.id && (u.username.toLowerCase().includes(mentionQuery.query) || u.name.toLowerCase().includes(mentionQuery.query))
     ).slice(0, 6) : [];
-    useEffect15(() => {
+    useEffect18(() => {
       if (initialChannelId && activeChannelId === initialChannelId) {
         setReadState((prev) => ({ ...prev, [`${user.id}_${initialChannelId}`]: (/* @__PURE__ */ new Date()).toISOString() }));
       }
     }, [initialChannelId]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chatView === "thread") messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, chatView, activeChannelId]);
     const getSeenBy = (msg) => {
@@ -33727,7 +35965,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     };
     const activeChannel = channels.find((ch) => ch.id === activeChannelId);
     const threadMessages = activeChannelId ? messages.filter((m) => m.channelId === activeChannelId).sort((a, b) => a.timestamp.localeCompare(b.timestamp)) : [];
-    useEffect15(() => {
+    useEffect18(() => {
       setReplyToThread(null);
       setChatMenuOpen(false);
     }, [activeChannelId]);
@@ -34156,9 +36394,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { onClick: () => setChatView("list"), style: { color: th.muted, cursor: "pointer" } }, "\u2190 Back to Chat");
   }
   function KioskUpload({ th, salesWeeks, setSalesWeeks }) {
-    const [uploading, setUploading] = useState18(false);
-    const [uploadMsg, setUploadMsg] = useState18(null);
-    const fileRef = useRef7(null);
+    const [uploading, setUploading] = useState21(false);
+    const [uploadMsg, setUploadMsg] = useState21(null);
+    const fileRef = useRef8(null);
     const handleUpload = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -34201,8 +36439,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     } }, uploadMsg.text), currentWeek && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1.5rem", padding: "1rem", background: th.card2, borderRadius: "0.5rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Currently Loaded"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.95rem", color: th.text, fontWeight: 700 } }, "Week #", currentWeek.weekNum, " \u2014 ", currentWeek.weekEnd, currentWeek.isDraft ? /* @__PURE__ */ React.createElement("span", { style: { color: "#ffa94d", fontWeight: 700, marginLeft: "0.4rem", fontSize: "0.65rem", border: "1px solid #ffa94d", borderRadius: "4px", padding: "1px 6px" } }, "DRAFT") : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, currentWeek.stores.length, " stores")), salesWeeks.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem", textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: "0.375rem" } }, "Previous Weeks"), salesWeeks.slice(1).map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.8rem", color: th.muted, padding: "0.25rem 0" } }, "Week #", w.weekNum, " \u2014 ", w.weekEnd, w.isDraft ? " (Draft)" : "", " (", w.stores.length, " stores)")))));
   }
   function BiometricEnrollPrompt({ th, onDone }) {
-    const [busy, setBusy] = useState18(false);
-    const [err, setErr] = useState18("");
+    const [busy, setBusy] = useState21(false);
+    const [err, setErr] = useState21("");
     const enable = async () => {
       setBusy(true);
       setErr("");
@@ -34225,8 +36463,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), maxWidth: 380, width: "100%", padding: "1.75rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: `${O}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" } }, /* @__PURE__ */ React.createElement(FaceIdIcon, { size: 28, color: O })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Enable Face ID / Fingerprint?"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted, lineHeight: 1.5, marginBottom: "1.25rem" } }, "Skip typing your password next time you sign in on this device."), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.75rem" } }, err), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.625rem" } }, /* @__PURE__ */ React.createElement("button", { style: btn(th, { background: th.card3, color: th.muted, flex: 1 }), onClick: decline, disabled: busy }, "Not now"), /* @__PURE__ */ React.createElement("button", { style: btn(th, { flex: 1 }), onClick: enable, disabled: busy }, busy ? "Enabling..." : "Enable"))));
   }
   function FirstLoginSetup({ user, setUser, setUsers, th }) {
-    const [step, setStep] = useState18(1);
-    const [form, setForm] = useState18({
+    const [step, setStep] = useState21(1);
+    const [form, setForm] = useState21({
       newPassword: "",
       confirmPassword: "",
       showNew: false,
@@ -34237,7 +36475,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       smsNotify: false,
       pushNotify: false
     });
-    const [err, setErr] = useState18("");
+    const [err, setErr] = useState21("");
     const handleStep1 = () => {
       setErr("");
       if (!isSharedDeviceType(user.userType)) {
@@ -34362,8 +36600,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return j;
   }
   function MyTimeOffCard({ th }) {
-    const [data, setData] = useState18(null);
-    useEffect15(() => {
+    const [data, setData] = useState21(null);
+    useEffect18(() => {
       timeOffApi("mine").then(setData).catch(() => setData({ linked: false, balances: [] }));
     }, []);
     if (!data || !data.linked) return null;
@@ -34392,10 +36630,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     )), canLink && /* @__PURE__ */ React.createElement("button", { onClick: onLink, title: "Change the linked Paycor employee", style: { fontSize: "0.62rem", color: th.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" } }, "change"));
   }
   function TimeOffLinkPicker({ th, target, onClose, onSaved, showAlert: showAlert2 }) {
-    const [q, setQ] = useState18("");
-    const [list, setList] = useState18(null);
-    const [saving, setSaving] = useState18(false);
-    useEffect15(() => {
+    const [q, setQ] = useState21("");
+    const [list, setList] = useState21(null);
+    const [saving, setSaving] = useState21(false);
+    useEffect18(() => {
       let cancelled = false;
       const t = setTimeout(() => {
         timeOffApi("candidates", { userId: target.id, q }).then((j) => {
@@ -34442,7 +36680,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     );
   }
   function ProfileModal({ user, setUser, setUsers, th, onClose }) {
-    const [profileForm, setProfileForm] = useState18({
+    const [profileForm, setProfileForm] = useState21({
       email: user.email || "",
       phone: user.phone || "",
       emailNotify: user.emailNotify !== false,
@@ -34455,12 +36693,12 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       showNew: false,
       showConfirm: false
     });
-    const [profileMsg, setProfileMsg] = useState18(null);
-    const [bioAvailable, setBioAvailable] = useState18(false);
-    const [bioCreds, setBioCreds] = useState18([]);
-    const [bioBusy, setBioBusy] = useState18(false);
+    const [profileMsg, setProfileMsg] = useState21(null);
+    const [bioAvailable, setBioAvailable] = useState21(false);
+    const [bioCreds, setBioCreds] = useState21([]);
+    const [bioBusy, setBioBusy] = useState21(false);
     const refreshBioCreds = () => webauthnList().then(setBioCreds);
-    useEffect15(() => {
+    useEffect18(() => {
       webauthnAvailable().then(setBioAvailable);
       refreshBioCreds();
     }, []);
@@ -35300,10 +37538,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const firstName2 = (user?.name || "").split(" ")[0];
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    const [weather, setWeather] = useState18(null);
-    const [showWeekWeather, setShowWeekWeather] = useState18(false);
-    const weatherRectRef = useRef7(null);
-    const weatherCloseTimer = useRef7(null);
+    const [weather, setWeather] = useState21(null);
+    const [showWeekWeather, setShowWeekWeather] = useState21(false);
+    const weatherRectRef = useRef8(null);
+    const weatherCloseTimer = useRef8(null);
     const openWeekWeather = (e) => {
       if (weatherCloseTimer.current) {
         clearTimeout(weatherCloseTimer.current);
@@ -35322,13 +37560,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (weatherCloseTimer.current) clearTimeout(weatherCloseTimer.current);
       weatherCloseTimer.current = setTimeout(() => setShowWeekWeather(false), 150);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (!showWeekWeather) return;
       const close = () => setShowWeekWeather(false);
       window.addEventListener("scroll", close, { passive: true });
       return () => window.removeEventListener("scroll", close);
     }, [showWeekWeather]);
-    useEffect15(() => {
+    useEffect18(() => {
       (async () => {
         try {
           let lat = 40.084, lon = -75.0524;
@@ -35499,7 +37737,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ))));
   }
   function DashboardHeadlines({ th, isMobile, dailyFeed }) {
-    const [newsTab, setNewsTab] = useState18("general");
+    const [newsTab, setNewsTab] = useState21("general");
     return /* @__PURE__ */ React.createElement(React.Fragment, null, dailyFeed?.news && Object.values(dailyFeed.news).some((arr) => Array.isArray(arr) && arr.length > 0) && (() => {
       const SOURCE_COLORS = {
         "Fox News": "#003366",
@@ -35665,8 +37903,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       return all;
     }, [stores, user, isDM, isManager]);
     const { actions, acknowledge, delegate, delegating } = useActionQueue({ stores: scopedStores, user, users, showAlert: showAlert2, enabled: opsRole });
-    const [foodSafety, setFoodSafety] = useState18(null);
-    useEffect15(() => {
+    const [foodSafety, setFoodSafety] = useState21(null);
+    useEffect18(() => {
       if (!opsRole) return;
       if (isManager && !scopedStores.length) return;
       const district = isDM ? user?.district : isManager ? scopedStores[0]?.district : null;
@@ -35700,9 +37938,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [opsRole, scopedStores.length]);
-    const [cases, setCases] = useState18(null);
-    const [showAllCases, setShowAllCases] = useState18(false);
-    useEffect15(() => {
+    const [cases, setCases] = useState21(null);
+    const [showAllCases, setShowAllCases] = useState21(false);
+    useEffect18(() => {
       if (!isExecIT) return;
       fetch("/.netlify/functions/analyst", {
         method: "POST",
@@ -35712,15 +37950,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }, [isExecIT]);
     const CLOSED_CASE = /* @__PURE__ */ new Set(["Done", "Dismissed", "Rejected", "Closed"]);
     const openCases = (cases || []).filter((c) => !CLOSED_CASE.has(c.status)).sort((a, b) => (b.dollarOpportunity || 0) - (a.dollarOpportunity || 0));
-    const [dailyFeed, setDailyFeed] = useState18(null);
-    useEffect15(() => {
+    const [dailyFeed, setDailyFeed] = useState21(null);
+    useEffect18(() => {
       fetch("/.netlify/functions/daily-feed").then((r) => r.ok ? r.json() : null).then((d) => {
         if (d) setDailyFeed(d);
       }).catch(() => {
       });
     }, []);
-    const [showAllAttention, setShowAllAttention] = useState18(false);
-    const [showBrief, setShowBrief] = useState18(false);
+    const [showAllAttention, setShowAllAttention] = useState21(false);
+    const [showBrief, setShowBrief] = useState21(false);
     const now = /* @__PURE__ */ new Date();
     const sevRank = { High: 0, Medium: 1, Low: 2 };
     const ICON_STORE = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9 4.5 4h15L21 9" }), /* @__PURE__ */ React.createElement("path", { d: "M4 9v11h16V9" }), /* @__PURE__ */ React.createElement("path", { d: "M3 9h18M9 20v-6h6v6" }));
@@ -35971,19 +38209,19 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return d.getDay() === 0;
   }
   function SalesReconciliation({ th, user, showAlert: showAlert2 }) {
-    const [busDt, setBusDt] = useState18(() => {
+    const [busDt, setBusDt] = useState21(() => {
       const d = /* @__PURE__ */ new Date();
       d.setDate(d.getDate() - 1);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     });
-    const [snapping, setSnapping] = useState18(false);
-    const [comparing, setComparing] = useState18(false);
-    const [result, setResult] = useState18(null);
-    const [history, setHistory] = useState18(null);
-    const [wtdSnapshots, setWtdSnapshots] = useState18(null);
-    const [wtdHistory, setWtdHistory] = useState18(null);
-    const [wtdDetail, setWtdDetail] = useState18(null);
-    const [view, setView] = useState18("main");
+    const [snapping, setSnapping] = useState21(false);
+    const [comparing, setComparing] = useState21(false);
+    const [result, setResult] = useState21(null);
+    const [history, setHistory] = useState21(null);
+    const [wtdSnapshots, setWtdSnapshots] = useState21(null);
+    const [wtdHistory, setWtdHistory] = useState21(null);
+    const [wtdDetail, setWtdDetail] = useState21(null);
+    const [view, setView] = useState21("main");
     const callRecon = async (action, extra = {}) => {
       const res = await fetch("/.netlify/functions/reconciliation", {
         method: "POST",
@@ -36042,7 +38280,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setComparing(false);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       loadHistory();
     }, []);
     const fmtD = (v) => "$" + Math.abs(v || 0).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -36095,888 +38333,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setComparing(false);
     } }, /* @__PURE__ */ React.createElement("td", { style: { ...tdS, fontWeight: 700 } }, h.busDt), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, fontSize: "0.75rem" } }, new Date(h.comparedAt).toLocaleString()), /* @__PURE__ */ React.createElement("td", { style: tdS }, h.hoursSinceSnapshot, "h"), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: h.storesWithDiffs > 0 ? "#f44336" : "#4caf50", fontWeight: 700 } }, h.storesWithDiffs), /* @__PURE__ */ React.createElement("td", { style: { ...tdS, color: Math.abs(h.totalNetDiff) > 10 ? "#f44336" : th.text } }, h.totalNetDiff >= 0 ? "+" : "", fmtD(h.totalNetDiff)), /* @__PURE__ */ React.createElement("td", { style: tdS }, fmtD(h.totalAbsDiff)))))))));
-  }
-  function CashManagement({ user, th, stores, districts, cashDeposits, setCashDeposits, cashUploads, setCashUploads, cashNotes, setCashNotes, cashPOS, setCashPOS, showAlert: showAlert2, isMobile, users }) {
-    const G = "#22c55e";
-    const R3 = "#ef4444";
-    const Y = "#fbbf24";
-    const canUpload = user?.userType === "executive" || user?.userType === "it" || user?.userType === "office_staff";
-    const canEdit = isCashAdmin(user);
-    const isDM = user?.userType === "dm";
-    const dmDistrict = isDM ? user?.district : null;
-    const [noteModal, setNoteModal] = useState18(null);
-    const [noteText, setNoteText] = useState18("");
-    const [editDep, setEditDep] = useState18(null);
-    const [editForm, setEditForm] = useState18({ depositDate: "", amount: "" });
-    const [posLoading, setPosLoading] = useState18(false);
-    const [posProgress, setPosProgress] = useState18(0);
-    const fileRef = useRef7(null);
-    const [uploading, setUploading] = useState18(false);
-    const [uploadErr, setUploadErr] = useState18(null);
-    const [view, setView] = useState18("alerts");
-    const [weekOffset, setWeekOffset] = useState18(0);
-    const [storeFilter, setStoreFilter] = useState18(null);
-    const [distFilter, setDistFilter] = useState18(isDM ? dmDistrict : 0);
-    const fmtUSD = (v) => "$" + (Math.round(v * 100) / 100).toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const fmtUSDRound = (v) => "$" + Math.round(v).toLocaleString();
-    const fmtShort = (v) => v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
-    const effectiveDeposits = React.useMemo(() => {
-      if (!cashDeposits || cashDeposits.length === 0) return [];
-      const DUP_WINDOW_DAYS = 14;
-      const MS_PER_DAY = 864e5;
-      const sorted = [...cashDeposits].sort((a, b) => (a.depositDate || "").localeCompare(b.depositDate || ""));
-      const kept = [];
-      const keptByKey = /* @__PURE__ */ new Map();
-      for (const d of sorted) {
-        const cents = Math.round((d.amount || 0) * 100);
-        const key = `${d.pc}|${cents}`;
-        const t = (/* @__PURE__ */ new Date((d.depositDate || "") + "T12:00:00")).getTime();
-        const priors = keptByKey.get(key) || [];
-        const isDup = priors.some((pt) => Math.abs(t - pt) <= DUP_WINDOW_DAYS * MS_PER_DAY);
-        if (isDup) continue;
-        kept.push(d);
-        priors.push(t);
-        keptByKey.set(key, priors);
-      }
-      return kept;
-    }, [cashDeposits]);
-    const duplicatesRemoved = (cashDeposits?.length || 0) - effectiveDeposits.length;
-    const handleUpload = async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      setUploading(true);
-      setUploadErr(null);
-      try {
-        const XLSX = window.XLSX;
-        if (!XLSX) throw new Error("SheetJS not loaded. Refresh the page.");
-        const ab = await file.arrayBuffer();
-        const wb = XLSX.read(ab, { type: "array" });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-        const parsed = [];
-        for (const row of rows) {
-          if (!row || row.length < 3) continue;
-          const dateRaw = row[0];
-          const pcLLC = String(row[1] || "").trim();
-          const amountRaw = row[2];
-          if (!dateRaw || !pcLLC || amountRaw === "" || amountRaw == null) continue;
-          const date = parseAnyDate(dateRaw);
-          if (!date) continue;
-          const pcMatch = pcLLC.match(/^\s*(\d{5,7})\b/);
-          let pc = pcMatch ? pcMatch[1] : null;
-          const llcName = pcLLC.replace(/^\s*\d{5,7}\s*/, "").trim();
-          if (!pc) {
-            const match = stores.find((s) => {
-              const legal = (s.legal || "").toLowerCase().replace(/[.,]/g, "").trim();
-              const needle = llcName.toLowerCase().replace(/[.,]/g, "").trim();
-              return legal && needle && (legal === needle || legal.includes(needle.split(" ")[0]));
-            });
-            if (match) pc = match.pc;
-          }
-          const amount = parseFloat(amountRaw);
-          if (!pc || isNaN(amount)) continue;
-          parsed.push({ date, pc, llcName, amount });
-        }
-        if (parsed.length === 0) throw new Error("No valid deposit rows found in this file. Expected columns: A=date, B=PC+LLC, C=amount.");
-        const fingerprint = (d) => `${d.date || d.depositDate}|${d.pc}|${(d.amount || 0).toFixed(2)}`;
-        const existing = new Set(cashDeposits.map((d) => `${d.depositDate}|${d.pc}|${(d.amount || 0).toFixed(2)}`));
-        const DUP_WINDOW_MS = 14 * 864e5;
-        const existingByKey = /* @__PURE__ */ new Map();
-        for (const d of cashDeposits) {
-          const cents = Math.round((d.amount || 0) * 100);
-          const key = `${d.pc}|${cents}`;
-          const t = (/* @__PURE__ */ new Date((d.depositDate || "") + "T12:00:00")).getTime();
-          const arr = existingByKey.get(key) || [];
-          arr.push(t);
-          existingByKey.set(key, arr);
-        }
-        const uploadId = `upl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        const now2 = (/* @__PURE__ */ new Date()).toISOString();
-        const newDeps = [];
-        const duplicates = [];
-        for (const p of parsed) {
-          const fp = fingerprint(p);
-          if (existing.has(fp)) {
-            duplicates.push(p);
-            continue;
-          }
-          const cents = Math.round((p.amount || 0) * 100);
-          const key = `${p.pc}|${cents}`;
-          const t = (/* @__PURE__ */ new Date(p.date + "T12:00:00")).getTime();
-          const priors = existingByKey.get(key) || [];
-          const isWindowDup = priors.some((pt) => Math.abs(t - pt) <= DUP_WINDOW_MS);
-          if (isWindowDup) {
-            duplicates.push(p);
-            continue;
-          }
-          existing.add(fp);
-          priors.push(t);
-          existingByKey.set(key, priors);
-          const businessDates = getBusinessDatesForDeposit(p.date);
-          newDeps.push({
-            id: `dep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            depositDate: p.date,
-            businessDates,
-            pc: p.pc,
-            llcName: p.llcName,
-            amount: p.amount,
-            uploadId,
-            uploadedAt: now2,
-            uploadedBy: user?.id
-          });
-        }
-        if (newDeps.length > 0) setCashDeposits((prev) => [...prev, ...newDeps]);
-        const totalAmount = newDeps.reduce((a, d) => a + d.amount, 0);
-        const upload = {
-          id: uploadId,
-          filename: file.name,
-          uploadedAt: now2,
-          uploadedBy: user?.id,
-          uploadedByName: user?.name,
-          totalRows: parsed.length,
-          newDeposits: newDeps.length,
-          duplicatesSkipped: duplicates.length,
-          totalAmount
-        };
-        setCashUploads((prev) => [upload, ...prev]);
-        showAlert2 && showAlert2(
-          "success",
-          `Uploaded ${newDeps.length} new deposit${newDeps.length !== 1 ? "s" : ""}` + (duplicates.length > 0 ? `, ${duplicates.length} duplicate${duplicates.length !== 1 ? "s" : ""} skipped` : "")
-        );
-      } catch (err) {
-        setUploadErr(err.message);
-        showAlert2 && showAlert2("error", err.message);
-      }
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
-    };
-    const addNote = (pc, businessDate, text, action = null) => {
-      const now2 = (/* @__PURE__ */ new Date()).toISOString();
-      const note = {
-        id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        pc,
-        businessDate,
-        text: text || "",
-        action,
-        // "dm_alerted" | "store_called" | "manager_replied" | "confirmed_en_route" | null
-        createdAt: now2,
-        createdBy: user?.id,
-        createdByName: user?.name
-      };
-      setCashNotes((prev) => [...prev, note]);
-      return note;
-    };
-    const deleteNote = (noteId) => {
-      if (!canEdit) return;
-      setCashNotes((prev) => prev.filter((n) => n.id !== noteId));
-    };
-    const getNotesFor = (pc, businessDate) => {
-      return cashNotes.filter((n) => n.pc === pc && n.businessDate === businessDate).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    };
-    const deleteDeposit = (dep) => {
-      if (!canEdit) return;
-      if (!confirm(`Delete deposit of $${dep.amount.toFixed(2)} for ${dep.llcName} on ${dep.depositDate}?`)) return;
-      setCashDeposits((prev) => prev.filter((d) => d.id !== dep.id));
-      showAlert2 && showAlert2("success", "Deposit deleted");
-    };
-    const startEditDeposit = (dep) => {
-      if (!canEdit) return;
-      setEditDep(dep);
-      setEditForm({ depositDate: dep.depositDate, amount: dep.amount.toString() });
-    };
-    const saveEditDeposit = () => {
-      if (!editDep) return;
-      const amt = parseFloat(editForm.amount);
-      if (isNaN(amt) || amt <= 0) {
-        showAlert2 && showAlert2("error", "Invalid amount");
-        return;
-      }
-      if (!editForm.depositDate) {
-        showAlert2 && showAlert2("error", "Invalid date");
-        return;
-      }
-      const businessDates = getBusinessDatesForDeposit(editForm.depositDate);
-      setCashDeposits((prev) => prev.map((d) => d.id === editDep.id ? { ...d, depositDate: editForm.depositDate, amount: amt, businessDates, editedAt: (/* @__PURE__ */ new Date()).toISOString(), editedBy: user?.id } : d));
-      setEditDep(null);
-      showAlert2 && showAlert2("success", "Deposit updated");
-    };
-    const apiFor = (pc) => pc === "345986" ? "p227" : "p228";
-    const posKey = (pc, date) => `${pc}_${date}`;
-    const loadPOSCash = async (opts = {}) => {
-      const { silent = false, forceRefresh = false } = opts;
-      if (!weekRange) return;
-      setPosLoading(true);
-      setPosProgress(0);
-      const newPOS = forceRefresh ? {} : { ...cashPOS };
-      const todayD = /* @__PURE__ */ new Date(today + "T12:00:00");
-      const priorSun = /* @__PURE__ */ new Date(weekRange.sun + "T12:00:00");
-      priorSun.setDate(priorSun.getDate() - 7);
-      const priorWeekDates = [];
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(priorSun);
-        d.setDate(priorSun.getDate() + i);
-        priorWeekDates.push(localDateStr(d));
-      }
-      const allDates = [...priorWeekDates, ...weekRange.dates];
-      const targets = [];
-      for (const store of visibleStores) {
-        for (const date of allDates) {
-          if (/* @__PURE__ */ new Date(date + "T12:00:00") > todayD) continue;
-          if (newPOS[posKey(store.pc, date)]) continue;
-          targets.push({ pc: store.pc, date });
-        }
-      }
-      if (targets.length === 0) {
-        setPosLoading(false);
-        return;
-      }
-      let done = 0;
-      const batchSize = 6;
-      for (let i = 0; i < targets.length; i += batchSize) {
-        await Promise.all(targets.slice(i, i + batchSize).map(async (t) => {
-          try {
-            const res = await fetch("/.netlify/functions/pulse", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                api: apiFor(t.pc),
-                endpoint: "getTenderMediaDailyTotals",
-                locRef: t.pc,
-                busDt: t.date,
-                include: "revenueCenters.tenderMedias"
-              })
-            });
-            if (res.ok) {
-              const json = await res.json();
-              let cash = 0;
-              for (const rc of json.revenueCenters || []) {
-                for (const tm of rc.tenderMedias || []) {
-                  if (tm.tmedNum === 1) cash += tm.ttl || 0;
-                }
-              }
-              newPOS[posKey(t.pc, t.date)] = { cash, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-            } else {
-              newPOS[posKey(t.pc, t.date)] = { cash: null, error: `HTTP ${res.status}`, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-            }
-          } catch (e) {
-            newPOS[posKey(t.pc, t.date)] = { cash: null, error: e.message, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-          }
-        }));
-        done += batchSize;
-        setPosProgress(Math.min(100, Math.round(done / targets.length * 100)));
-        setCashPOS({ ...newPOS });
-      }
-      setPosLoading(false);
-      if (!silent) showAlert2 && showAlert2("success", `POS cash totals loaded (${targets.length} fetched)`);
-    };
-    const posAutoLoadedRef = useRef7("");
-    useEffect15(() => {
-      if (view !== "recon") return;
-      const key = `${weekOffset}|${distFilter}|${view}`;
-      if (posAutoLoadedRef.current === key) return;
-      posAutoLoadedRef.current = key;
-      loadPOSCash({ silent: true });
-    }, [view, weekOffset, distFilter]);
-    const getPOSCash = (pc, businessDate) => {
-      const entry = cashPOS[posKey(pc, businessDate)];
-      return entry && entry.cash != null ? entry.cash : null;
-    };
-    const getDepositedForBusinessDate = (pc, businessDate) => {
-      return effectiveDeposits.filter((d) => d.pc === pc && (d.businessDates || []).includes(businessDate)).reduce((sum, d) => sum + d.amount, 0);
-    };
-    const matchStoreDeposits = (pc, bizDatesWithCash, storeDeposits) => {
-      const TOL_PENNY = 0.01;
-      const TOL_DOLLAR = 1;
-      const TOL_FIVE = 5;
-      const availableDeposits = storeDeposits.map((d) => ({ ...d, _matched: false }));
-      const bizList = bizDatesWithCash.map((b) => ({ ...b, _matched: false }));
-      const matches = [];
-      for (const biz of bizList) {
-        if (biz._matched) continue;
-        if (biz.posCash == null || biz.posCash === 0) continue;
-        const dep = availableDeposits.find((d) => !d._matched && Math.abs(d.amount - biz.posCash) < TOL_PENNY);
-        if (dep) {
-          dep._matched = true;
-          biz._matched = true;
-          matches.push({ deposit: dep, bizDate: biz.bizDate, posCash: biz.posCash, delta: 0, tolerance: "exact" });
-        }
-      }
-      for (const biz of bizList) {
-        if (biz._matched) continue;
-        if (biz.posCash == null || biz.posCash === 0) continue;
-        const dep = availableDeposits.find((d) => !d._matched && Math.abs(d.amount - biz.posCash) < TOL_DOLLAR);
-        if (dep) {
-          dep._matched = true;
-          biz._matched = true;
-          matches.push({ deposit: dep, bizDate: biz.bizDate, posCash: biz.posCash, delta: dep.amount - biz.posCash, tolerance: "dollar" });
-        }
-      }
-      for (const biz of bizList) {
-        if (biz._matched) continue;
-        if (biz.posCash == null || biz.posCash === 0) continue;
-        const dep = availableDeposits.find((d) => !d._matched && Math.abs(d.amount - biz.posCash) < TOL_FIVE);
-        if (dep) {
-          dep._matched = true;
-          biz._matched = true;
-          matches.push({ deposit: dep, bizDate: biz.bizDate, posCash: biz.posCash, delta: dep.amount - biz.posCash, tolerance: "five" });
-        }
-      }
-      for (const biz of bizList) {
-        if (biz._matched) continue;
-        if (biz.posCash == null || biz.posCash === 0) continue;
-        const byDay = {};
-        for (const d of availableDeposits) {
-          if (d._matched) continue;
-          if (!byDay[d.depositDate]) byDay[d.depositDate] = [];
-          byDay[d.depositDate].push(d);
-        }
-        let found = false;
-        for (const [day2, deps] of Object.entries(byDay)) {
-          for (let i = 0; i < deps.length && !found; i++) {
-            for (let j = i + 1; j < deps.length && !found; j++) {
-              const sum = deps[i].amount + deps[j].amount;
-              if (Math.abs(sum - biz.posCash) < TOL_DOLLAR) {
-                deps[i]._matched = true;
-                deps[j]._matched = true;
-                biz._matched = true;
-                matches.push({ deposit: deps[i], bizDate: biz.bizDate, posCash: biz.posCash, delta: sum - biz.posCash, tolerance: "sum", partnerDeposit: deps[j] });
-                found = true;
-              }
-            }
-          }
-        }
-      }
-      const unmatchedDeposits = availableDeposits.filter((d) => !d._matched);
-      const unmatchedBizDates = bizList.filter((b) => !b._matched && b.posCash != null && b.posCash > 0);
-      return { matches, unmatchedDeposits, unmatchedBizDates };
-    };
-    const today = localDateStr(/* @__PURE__ */ new Date());
-    const weekRange = (() => {
-      const dt = /* @__PURE__ */ new Date(today + "T12:00:00");
-      dt.setDate(dt.getDate() + weekOffset * 7);
-      const sun = new Date(dt);
-      sun.setDate(dt.getDate() - dt.getDay());
-      const sat = new Date(sun);
-      sat.setDate(sun.getDate() + 6);
-      const dates = [];
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(sun);
-        d.setDate(sun.getDate() + i);
-        dates.push(localDateStr(d));
-      }
-      return { sun: localDateStr(sun), sat: localDateStr(sat), dates };
-    })();
-    const visibleStores = stores.filter((s) => {
-      if (isDM && s.district !== dmDistrict) return false;
-      if (!isDM && distFilter && s.district !== distFilter) return false;
-      return s.status === "Open";
-    });
-    const visiblePCs = new Set(visibleStores.map((s) => s.pc));
-    const rangeDeposits = effectiveDeposits.filter((d) => visiblePCs.has(d.pc) && weekRange.dates.includes(d.depositDate)).sort((a, b) => b.depositDate.localeCompare(a.depositDate) || b.uploadedAt.localeCompare(a.uploadedAt));
-    const newestUploadAt = (cashUploads || []).reduce((m, u) => u?.uploadedAt > m ? u.uploadedAt : m, "") || effectiveDeposits.reduce((m, d) => d?.uploadedAt > m ? d.uploadedAt : m, "");
-    const uploadCoversRange = !!newestUploadAt && String(newestUploadAt).slice(0, 10) >= weekRange.dates[0];
-    const uploadStale = !uploadCoversRange;
-    const missing = [];
-    const now = /* @__PURE__ */ new Date(today + "T12:00:00");
-    for (const store of uploadCoversRange ? visibleStores : []) {
-      const storeDeposits = effectiveDeposits.filter((d) => d.pc === store.pc);
-      for (const bizDate of weekRange.dates) {
-        if (/* @__PURE__ */ new Date(bizDate + "T12:00:00") > now) continue;
-        const expectedDep = getExpectedDepositDate(bizDate);
-        const covered = storeDeposits.some((d) => (d.businessDates || []).includes(bizDate));
-        if (!covered) {
-          const depDate = /* @__PURE__ */ new Date(expectedDep + "T12:00:00");
-          if (depDate <= now) {
-            const daysLate = Math.max(0, Math.floor((now - depDate) / (24 * 60 * 60 * 1e3)));
-            missing.push({
-              pc: store.pc,
-              storeName: store.name,
-              city: store.city,
-              district: store.district,
-              dmName: store.dmName,
-              businessDate: bizDate,
-              expectedDepositDate: expectedDep,
-              daysLate,
-              isBaskin: store.isBaskin
-            });
-          }
-        }
-      }
-    }
-    missing.sort((a, b) => b.daysLate - a.daysLate || a.district - b.district || a.storeName.localeCompare(b.storeName));
-    const missingByDist = {};
-    for (const m of missing) {
-      if (!missingByDist[m.district]) missingByDist[m.district] = { district: m.district, dmName: m.dmName, items: [] };
-      missingByDist[m.district].items.push(m);
-    }
-    const missingDistricts = Object.values(missingByDist).sort((a, b) => a.district - b.district);
-    const rangeTotal = rangeDeposits.reduce((a, d) => a + d.amount, 0);
-    const uniqueStoresDeposited = new Set(rangeDeposits.map((d) => d.pc)).size;
-    const lastUpload = cashUploads[0];
-    const distList = Object.values(districts || DISTRICTS_SEED).sort((a, b) => a.num - b.num);
-    return /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { style: {
-      position: "relative",
-      overflow: "hidden",
-      borderRadius: "1rem",
-      marginBottom: "1.25rem",
-      padding: "1.5rem 2rem",
-      background: `linear-gradient(135deg, ${th.card} 0%, ${th.card2} 100%)`,
-      border: `1px solid ${G}33`
-    } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: -40, right: -40, width: 160, height: 160, borderRadius: "50%", background: `${G}10`, pointerEvents: "none" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 1, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: th.text, display: "flex", alignItems: "center", gap: "0.6rem" } }, "\u{1F4B0} Cash Management"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginTop: "0.25rem" } }, "Deposit tracking and missing-deposit alerts", lastUpload && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "0.5rem" } }, "\xB7 Last upload: ", new Date(lastUpload.uploadedAt).toLocaleString())), uploadStale && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.6rem", padding: "0.5rem 0.75rem", borderRadius: "0.375rem", background: "rgba(245,158,11,0.14)", color: "#d97706", fontSize: "0.78rem", fontWeight: 600 } }, "No deposit file has been uploaded since ", newestUploadAt ? new Date(newestUploadAt).toLocaleDateString() : "the last period", " \u2014 missing deposits for this week can't be judged until this week's file is uploaded.")), canUpload && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: ".xlsx,.xls", style: { display: "none" }, onChange: handleUpload, disabled: uploading }), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => fileRef.current?.click(),
-        disabled: uploading,
-        style: btn(th, { background: G, color: "#fff", padding: "0.6rem 1.2rem", fontSize: "0.85rem", fontWeight: 700 })
-      },
-      uploading ? "\u23F3 Parsing..." : "\u2B06 Upload Spreadsheet"
-    ))), uploadErr && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.75rem", padding: "0.5rem 0.75rem", borderRadius: "0.375rem", background: `${R3}18`, color: R3, fontSize: "0.75rem", fontWeight: 600 } }, "\u26A0\uFE0F ", uploadErr)), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, [
-      { label: "Week Total Deposits", value: fmtUSDRound(rangeTotal), color: G, glow: true },
-      { label: "Missing Deposits", value: missing.length, color: missing.length > 0 ? R3 : G, glow: missing.length > 0 },
-      { label: "Stores Deposited", value: `${uniqueStoresDeposited}/${visibleStores.length}`, color: "#74c0fc" },
-      { label: "Transactions", value: rangeDeposits.length, color: "#b197fc" }
-    ].map((k) => /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        key: k.label,
-        style: {
-          position: "relative",
-          background: th.card,
-          borderRadius: "0.75rem",
-          padding: "1rem 1.15rem 0.95rem",
-          border: `1px solid ${th.cardBorder}`,
-          overflow: "hidden",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-          transition: "all .2s cubic-bezier(.4,0,.2,1)"
-        },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.transform = "translateY(-2px)";
-          e.currentTarget.style.borderColor = `${k.color}55`;
-          e.currentTarget.style.boxShadow = `0 10px 24px rgba(0,0,0,0.08), 0 0 0 1px ${k.color}33, 0 0 18px ${k.color}22`;
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.transform = "none";
-          e.currentTarget.style.borderColor = th.cardBorder;
-          e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.04)";
-        }
-      },
-      /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: {
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 3,
-        background: `linear-gradient(90deg, ${k.color}, ${k.color}88 40%, transparent)`
-      } }),
-      /* @__PURE__ */ React.createElement("div", { style: {
-        fontFamily: "'Raleway'",
-        fontWeight: 900,
-        fontSize: "1.55rem",
-        color: k.color,
-        letterSpacing: -0.5,
-        lineHeight: 1,
-        textShadow: k.glow ? `0 0 18px ${k.color}55` : "none"
-      } }, k.value),
-      /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.9, fontWeight: 800, marginTop: "0.4rem" } }, k.label)
-    ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: {
-      display: "inline-flex",
-      gap: "0.25rem",
-      background: th.card2,
-      padding: "0.3rem",
-      border: `1px solid ${th.cardBorder}`,
-      borderRadius: "0.625rem",
-      flexWrap: "wrap"
-    } }, [
-      { key: "alerts", label: `\u{1F6A8} Alerts${missing.length > 0 ? " (" + missing.length + ")" : ""}` },
-      { key: "grid", label: "\u{1F4CA} Deposit Grid" },
-      { key: "recon", label: "\u{1F4B5} POS Cash Match" },
-      { key: "history", label: "\u{1F4CB} Upload History" }
-    ].map((t) => {
-      const active = view === t.key;
-      return /* @__PURE__ */ React.createElement("button", { key: t.key, onClick: () => setView(t.key), style: {
-        padding: "0.5rem 0.9rem",
-        fontSize: "0.7rem",
-        fontWeight: 800,
-        textTransform: "uppercase",
-        letterSpacing: 0.6,
-        fontFamily: "'Source Sans 3'",
-        background: active ? `linear-gradient(135deg, ${O}, #ff8040)` : "transparent",
-        color: active ? "#fff" : th.muted,
-        border: "none",
-        borderRadius: "0.4rem",
-        cursor: "pointer",
-        transition: "all .2s",
-        boxShadow: active ? `0 4px 12px ${O}55` : "none",
-        whiteSpace: "nowrap"
-      } }, t.label);
-    })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, !isDM && /* @__PURE__ */ React.createElement(
-      "select",
-      {
-        style: { ...inp(th), width: "auto", padding: "0.55rem 0.75rem", fontSize: "0.75rem", borderRadius: "0.625rem" },
-        value: distFilter,
-        onChange: (e) => setDistFilter(+e.target.value)
-      },
-      /* @__PURE__ */ React.createElement("option", { value: 0 }, "All Districts"),
-      distList.map((d) => /* @__PURE__ */ React.createElement("option", { key: d.num, value: d.num }, districtLabel(d.num)))
-    ), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem", background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: "0.625rem", padding: "0.25rem" } }, /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => setWeekOffset((w) => w - 1),
-        style: {
-          background: "transparent",
-          border: "none",
-          color: th.text,
-          cursor: "pointer",
-          padding: "0.4rem 0.55rem",
-          fontSize: "0.9rem",
-          fontWeight: 800,
-          borderRadius: "0.375rem",
-          transition: "all .15s"
-        },
-        onMouseEnter: (e) => {
-          e.currentTarget.style.background = `${O}22`;
-          e.currentTarget.style.color = O;
-        },
-        onMouseLeave: (e) => {
-          e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = th.text;
-        }
-      },
-      "\u2039"
-    ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.text, fontWeight: 800, padding: "0.35rem 0.6rem", textTransform: "uppercase", letterSpacing: 0.7, whiteSpace: "nowrap" } }, weekOffset === 0 ? "This Week" : weekOffset === -1 ? "Last Week" : `${Math.abs(weekOffset)} Weeks Ago`), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => setWeekOffset((w) => Math.min(0, w + 1)),
-        disabled: weekOffset === 0,
-        style: {
-          background: "transparent",
-          border: "none",
-          color: weekOffset === 0 ? th.muted : th.text,
-          cursor: weekOffset === 0 ? "default" : "pointer",
-          padding: "0.4rem 0.55rem",
-          fontSize: "0.9rem",
-          fontWeight: 800,
-          opacity: weekOffset === 0 ? 0.4 : 1,
-          borderRadius: "0.375rem",
-          transition: "all .15s"
-        },
-        onMouseEnter: (e) => {
-          if (weekOffset !== 0) {
-            e.currentTarget.style.background = `${O}22`;
-            e.currentTarget.style.color = O;
-          }
-        },
-        onMouseLeave: (e) => {
-          if (weekOffset !== 0) {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = th.text;
-          }
-        }
-      },
-      "\u203A"
-    )))), view === "alerts" && /* @__PURE__ */ React.createElement(React.Fragment, null, missing.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center", borderLeft: `3px solid ${G}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "3rem", marginBottom: "0.75rem" } }, "\u2705"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.2rem", color: G, marginBottom: "0.375rem" } }, "All Caught Up"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted } }, "Every store has deposited on time for the current week. Great work.")) : /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: {
-      padding: "1rem 1.25rem",
-      marginBottom: "1rem",
-      borderRadius: "0.75rem",
-      background: `${R3}12`,
-      border: `1px solid ${R3}44`,
-      borderLeft: `4px solid ${R3}`,
-      display: "flex",
-      alignItems: "center",
-      gap: "1rem",
-      flexWrap: "wrap"
-    } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2rem" } }, "\u{1F6A8}"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.05rem", color: R3 } }, missing.length, " Missing Deposit", missing.length !== 1 ? "s" : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.2rem" } }, "Across ", missingDistricts.length, " district", missingDistricts.length !== 1 ? "s" : "", " \xB7 ", new Set(missing.map((m) => m.pc)).size, " store", new Set(missing.map((m) => m.pc)).size !== 1 ? "s" : "", " affected"))), missingDistricts.map((dist) => /* @__PURE__ */ React.createElement("div", { key: dist.district, style: { ...card(th), padding: "1.25rem", marginBottom: "0.875rem", borderLeft: `3px solid ${R3}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, districtLabel(dist.district)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.15rem" } }, "DM: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, dist.dmName || "Unassigned"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", fontWeight: 700, color: R3, background: `${R3}18`, padding: "0.25rem 0.625rem", borderRadius: "1rem" } }, dist.items.length, " missing")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.5rem" } }, dist.items.map((m, i) => {
-      const itemNotes = getNotesFor(m.pc, m.businessDate);
-      const lastAction = itemNotes.filter((n) => n.action).pop();
-      return /* @__PURE__ */ React.createElement("div", { key: i, style: {
-        background: th.card2,
-        borderRadius: "0.5rem",
-        padding: "0.75rem 0.875rem",
-        borderLeft: `3px solid ${m.daysLate >= 2 ? R3 : m.daysLate >= 1 ? Y : R3 + "88"}`
-      } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: th.text } }, m.storeName), /* @__PURE__ */ React.createElement("div", { style: {
-        fontSize: "0.62rem",
-        fontWeight: 700,
-        padding: "0.15rem 0.5rem",
-        borderRadius: "0.25rem",
-        background: m.daysLate >= 2 ? `${R3}22` : m.daysLate >= 1 ? `${Y}22` : `${R3}11`,
-        color: m.daysLate >= 2 ? R3 : m.daysLate >= 1 ? "#d97706" : R3,
-        whiteSpace: "nowrap"
-      } }, m.daysLate === 0 ? "Due Today" : m.daysLate === 1 ? "1 Day Late" : `${m.daysLate} Days Late`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.15rem" } }, "PC# ", m.pc, m.city ? " \xB7 " + m.city : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted } }, "Business date: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, (/* @__PURE__ */ new Date(m.businessDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: itemNotes.length > 0 ? "0.4rem" : 0 } }, "Expected deposit: ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, (/* @__PURE__ */ new Date(m.expectedDepositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))), itemNotes.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: `1px dashed ${th.cardBorder}` } }, itemNotes.slice(-2).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { fontSize: "0.62rem", color: th.muted, marginBottom: "0.2rem", lineHeight: 1.4, display: "flex", alignItems: "flex-start", gap: "0.35rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: n.action ? "#74c0fc" : th.muted, flexShrink: 0 } }, n.action === "dm_alerted" ? "\u{1F4E2}" : n.action === "store_called" ? "\u{1F4DE}" : n.action === "manager_replied" ? "\u{1F4AC}" : n.action === "confirmed_en_route" ? "\u{1F69A}" : "\u270E"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.createdByName), " \xB7 ", /* @__PURE__ */ React.createElement("span", null, new Date(n.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })), n.text && /* @__PURE__ */ React.createElement("div", { style: { color: th.text, marginTop: "0.1rem" } }, n.text)))), itemNotes.length > 2 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted, fontStyle: "italic" } }, "+", itemNotes.length - 2, " earlier note", itemNotes.length - 2 !== 1 ? "s" : "")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.5rem", display: "flex", gap: "0.35rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => {
-            addNote(m.pc, m.businessDate, "DM alerted", "dm_alerted");
-          },
-          style: { background: "#74c0fc22", color: "#74c0fc", border: "1px solid #74c0fc55", padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
-        },
-        "\u{1F4E2} DM Alerted"
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => {
-            addNote(m.pc, m.businessDate, "Store called", "store_called");
-          },
-          style: { background: `${Y}22`, color: "#d97706", border: `1px solid ${Y}55`, padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
-        },
-        "\u{1F4DE} Store Called"
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => {
-            addNote(m.pc, m.businessDate, "Manager replied", "manager_replied");
-          },
-          style: { background: `${G}22`, color: G, border: `1px solid ${G}55`, padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
-        },
-        "\u{1F4AC} Manager Replied"
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => {
-            addNote(m.pc, m.businessDate, "Deposit confirmed en route", "confirmed_en_route");
-          },
-          style: { background: "#b197fc22", color: "#b197fc", border: "1px solid #b197fc55", padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
-        },
-        "\u{1F69A} En Route"
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => {
-            setNoteModal(m);
-            setNoteText("");
-          },
-          style: { background: "none", color: th.muted, border: `1px solid ${th.cardBorder}`, padding: "0.2rem 0.5rem", borderRadius: "0.3rem", fontSize: "0.6rem", fontWeight: 700, cursor: "pointer", fontFamily: "'Source Sans 3'" }
-        },
-        "\u270E Add Note"
-      )));
-    })))))), view === "grid" && (() => {
-      const DIST_COLORS = {
-        1: "#74c0fc",
-        // sky blue
-        2: "#ffd43b",
-        // amber
-        3: "#69db7c",
-        // lime green
-        4: "#f06595",
-        // pink
-        5: "#b197fc",
-        // lavender
-        6: "#ff922b",
-        // orange
-        7: "#20c997",
-        // teal
-        8: "#e599f7",
-        // light purple
-        9: "#4dabf7",
-        // blue (v22.21)
-        10: "#a9e34b"
-        // green-yellow
-      };
-      const distColor = (n) => DIST_COLORS[n] || "#94a3b8";
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1.25rem", overflowX: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, "Deposit Grid \u2014 Week of ", (/* @__PURE__ */ new Date(weekRange.sun + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" }), " to ", (/* @__PURE__ */ new Date(weekRange.sat + "T12:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" } }, duplicatesRemoved > 0 && /* @__PURE__ */ React.createElement("div", { title: "Deposits with the same store + same amount (penny-exact) within a 14-day window are treated as duplicates and excluded.", style: { fontSize: "0.62rem", color: Y, fontWeight: 700, padding: "0.25rem 0.55rem", background: `${Y}15`, border: `1px solid ${Y}55`, borderRadius: "0.4rem" } }, "\u26A0 ", duplicatesRemoved, " duplicate", duplicatesRemoved !== 1 ? "s" : "", " removed"), canEdit && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, fontStyle: "italic" } }, "\u{1F4A1} Click any deposit cell to edit or delete"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.875rem", fontSize: "0.65rem" } }, districtNumbers(stores).map((n) => {
-        const d = (districts || DISTRICTS_SEED)[n] || { num: n };
-        if (!d) return null;
-        return /* @__PURE__ */ React.createElement("div", { key: n, style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: distColor(n) } }), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "D", n, " \xB7 ", /* @__PURE__ */ React.createElement("strong", { style: { color: distColor(n) } }, (d.name || "").split(" ")[0])));
-      })), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `2px solid ${th.cardBorder}`, background: th.card } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.65rem", textAlign: "left", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7, whiteSpace: "nowrap" } }, "Store"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.4rem", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7 } }, "Dist"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.65rem", textAlign: "left", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7, whiteSpace: "nowrap" } }, "District Mgr"), weekRange.dates.map((date, i) => {
-        const d = /* @__PURE__ */ new Date(date + "T12:00:00");
-        const closed = isBankClosed(date);
-        return /* @__PURE__ */ React.createElement("th", { key: date, style: { padding: "0.5rem 0.4rem", textAlign: "center", color: closed ? th.muted : th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.62rem", letterSpacing: 0.5, opacity: closed ? 0.5 : 1 } }, /* @__PURE__ */ React.createElement("div", null, d.toLocaleDateString("en-US", { weekday: "short" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 500 } }, d.getMonth() + 1, "/", d.getDate()), closed && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.55rem", color: th.muted, fontWeight: 400 } }, "closed"));
-      }), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.5rem 0.65rem", textAlign: "right", color: th.muted, fontWeight: 700, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: 0.7, whiteSpace: "nowrap" } }, "Week Total"))), /* @__PURE__ */ React.createElement("tbody", null, visibleStores.sort((a, b) => a.district - b.district || a.name.localeCompare(b.name)).map((store, idx) => {
-        const storeDeps = effectiveDeposits.filter((d) => d.pc === store.pc);
-        const weekTotal = weekRange.dates.reduce((sum, date) => {
-          return sum + storeDeps.filter((d) => d.depositDate === date).reduce((a, d) => a + d.amount, 0);
-        }, 0);
-        const dColor = distColor(store.district);
-        return /* @__PURE__ */ React.createElement("tr", { key: store.pc, style: { borderBottom: `1px solid ${th.cardBorder}`, background: idx % 2 ? `${th.card2}50` : "transparent" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.65rem", borderLeft: `3px solid ${dColor}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: dColor, fontSize: "0.82rem" } }, store.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted } }, store.pc)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.4rem", textAlign: "center", fontSize: "0.72rem", fontWeight: 700, color: dColor } }, store.district), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.65rem", fontSize: "0.72rem", color: th.text, whiteSpace: "nowrap" } }, store.dmName || "\u2014"), weekRange.dates.map((date) => {
-          const dayDeps = storeDeps.filter((d) => d.depositDate === date).sort((a, b) => b.amount - a.amount);
-          const closed = isBankClosed(date);
-          const isFuture = /* @__PURE__ */ new Date(date + "T12:00:00") > now;
-          return /* @__PURE__ */ React.createElement("td", { key: date, style: { padding: "0.45rem 0.4rem", textAlign: "center", opacity: closed ? 0.3 : 1, verticalAlign: "top" } }, dayDeps.length > 0 ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", alignItems: "center" } }, dayDeps.map((dep, di) => /* @__PURE__ */ React.createElement(
-            "div",
-            {
-              key: dep.id,
-              onClick: () => canEdit && startEditDeposit(dep),
-              title: canEdit ? "Click to edit" : `Deposit ${di + 1} of ${dayDeps.length}`,
-              style: {
-                fontWeight: 700,
-                color: G,
-                fontSize: "0.7rem",
-                whiteSpace: "nowrap",
-                cursor: canEdit ? "pointer" : "default",
-                padding: dayDeps.length > 1 ? "0.1rem 0.35rem" : 0,
-                borderRadius: dayDeps.length > 1 ? "0.25rem" : 0,
-                background: dayDeps.length > 1 ? `${G}12` : "transparent"
-              }
-            },
-            fmtUSD(dep.amount)
-          ))) : closed ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2014") : isFuture ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.6rem", color: th.muted } }, "\u2014") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: R3, fontWeight: 700 } }, "\u2717"));
-        }), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.55rem 0.65rem", textAlign: "right", fontWeight: 800, color: weekTotal > 0 ? G : th.muted, fontSize: "0.85rem" } }, weekTotal > 0 ? fmtUSD(weekTotal) : "\u2014"));
-      }))));
-    })(), view === "recon" && (() => {
-      const todayD = /* @__PURE__ */ new Date(today + "T12:00:00");
-      const priorSun = /* @__PURE__ */ new Date(weekRange.sun + "T12:00:00");
-      priorSun.setDate(priorSun.getDate() - 7);
-      const priorWeekDates = [];
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(priorSun);
-        d.setDate(priorSun.getDate() + i);
-        priorWeekDates.push(localDateStr(d));
-      }
-      const allBizDates = [...priorWeekDates, ...weekRange.dates].filter((d) => /* @__PURE__ */ new Date(d + "T12:00:00") <= todayD);
-      const storeReports = visibleStores.map((store) => {
-        const bizDatesWithCash = allBizDates.map((bizDate) => ({ bizDate, posCash: getPOSCash(store.pc, bizDate) })).filter((b) => b.posCash != null);
-        const windowStart = priorWeekDates[0];
-        const storeDeposits = effectiveDeposits.filter((d) => d.pc === store.pc && d.depositDate >= windowStart).sort((a, b) => a.depositDate.localeCompare(b.depositDate) || b.amount - a.amount);
-        const { matches, unmatchedDeposits, unmatchedBizDates } = matchStoreDeposits(store.pc, bizDatesWithCash, storeDeposits);
-        const currentWeekSet = new Set(weekRange.dates);
-        const priorWeekSet = new Set(priorWeekDates);
-        const relevantMatches = matches.filter((m) => currentWeekSet.has(m.bizDate) || currentWeekSet.has(m.deposit.depositDate));
-        const missingThisWeek = unmatchedBizDates.filter((b) => {
-          if (!currentWeekSet.has(b.bizDate)) return false;
-          const expectedDep = getExpectedDepositDate(b.bizDate);
-          const expectedDepDate = /* @__PURE__ */ new Date(expectedDep + "T12:00:00");
-          return expectedDepDate < todayD;
-        });
-        const unmatchedDepsThisWeek = unmatchedDeposits.filter((d) => currentWeekSet.has(d.depositDate));
-        return {
-          store,
-          matches: relevantMatches,
-          missingBizDates: missingThisWeek,
-          unmatchedDeposits: unmatchedDepsThisWeek,
-          bizDatesWithCash: bizDatesWithCash.filter((b) => currentWeekSet.has(b.bizDate)),
-          hasPOSLoaded: bizDatesWithCash.length > 0
-        };
-      });
-      const storesWithPOS = storeReports.filter((r) => r.hasPOSLoaded);
-      const totalMatches = storeReports.reduce((a, r) => a + r.matches.length, 0);
-      const totalExactMatches = storeReports.reduce((a, r) => a + r.matches.filter((m) => m.tolerance === "exact").length, 0);
-      const totalVarianceMatches = storeReports.reduce((a, r) => a + r.matches.filter((m) => m.tolerance !== "exact").length, 0);
-      const totalMissing = storeReports.reduce((a, r) => a + r.missingBizDates.length, 0);
-      const totalUnmatchedDeps = storeReports.reduce((a, r) => a + r.unmatchedDeposits.length, 0);
-      const totalVarianceAmt = storeReports.reduce((a, r) => a + r.matches.reduce((s, m) => s + (m.delta || 0), 0), 0);
-      const totalMissingAmt = storeReports.reduce((a, r) => a + r.missingBizDates.reduce((s, b) => s + (b.posCash || 0), 0), 0);
-      const loaded = storesWithPOS.length > 0;
-      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "1rem 1.25rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1rem", color: th.text } }, "POS Cash Reconciliation"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", color: th.muted, marginTop: "0.2rem" } }, "Matches deposit amounts to POS cash totals. Handles multi-deposit days and prior-week catch-ups automatically.")), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => loadPOSCash({ forceRefresh: true }),
-          disabled: posLoading,
-          style: btn(th, { background: "#74c0fc22", color: "#74c0fc", border: "1px solid #74c0fc55", padding: "0.5rem 1rem", fontSize: "0.8rem", fontWeight: 700 })
-        },
-        posLoading ? `\u23F3 Loading ${posProgress}%` : "\u26A1 Refresh POS Cash"
-      )), posLoading && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card3, borderRadius: 4, height: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", background: "#74c0fc", width: posProgress + "%", transition: "width .3s" } }))), !loaded && !posLoading ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "2.5rem", marginBottom: "0.75rem" } }, "\u{1F4B5}"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.5rem" } }, "Loading Reconciliation\u2026"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.85rem", color: th.muted } }, "Fetching POS cash totals for the current and prior week\u2026")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalExactMatches), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Exact Matches")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${Y}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: Y, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalVarianceMatches), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Variance Matches")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${totalMissing > 0 ? R3 : G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: totalMissing > 0 ? R3 : G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalMissing), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Unmatched Cash Days")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${totalUnmatchedDeps > 0 ? "#b197fc" : G}`, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: totalUnmatchedDeps > 0 ? "#b197fc" : G, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalUnmatchedDeps), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Unmatched Deposits")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${R3}`, minWidth: 0, gridColumn: "span 2" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: R3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, fmtUSD(totalMissingAmt)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Missing Cash $")), /* @__PURE__ */ React.createElement("div", { style: { background: th.card2, borderRadius: "0.625rem", padding: "0.875rem 1rem", borderLeft: `3px solid ${Math.abs(totalVarianceAmt) < 0.01 ? G : Y}`, minWidth: 0, gridColumn: "span 2" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.5rem", color: Math.abs(totalVarianceAmt) < 0.01 ? G : Y, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, totalVarianceAmt >= 0 ? "+" : "", fmtUSD(totalVarianceAmt)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.64rem", color: th.muted, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600, marginTop: "0.2rem" } }, "Net Match Variance"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.75rem" } }, storeReports.filter((r) => r.hasPOSLoaded && (r.matches.length > 0 || r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0)).sort((a, b) => {
-        const aProblems = a.missingBizDates.length + a.unmatchedDeposits.length;
-        const bProblems = b.missingBizDates.length + b.unmatchedDeposits.length;
-        if (aProblems !== bProblems) return bProblems - aProblems;
-        return a.store.district - b.store.district || a.store.name.localeCompare(b.store.name);
-      }).map((r) => {
-        const hasProblems = r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0;
-        const allExact = r.matches.every((m) => m.tolerance === "exact");
-        const borderColor = hasProblems ? R3 : allExact ? G : Y;
-        return /* @__PURE__ */ React.createElement("div", { key: r.store.pc, style: { ...card(th), padding: "1rem 1.25rem", borderLeft: `3px solid ${borderColor}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "0.95rem", color: th.text } }, r.store.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", color: th.muted } }, "PC# ", r.store.pc, " \xB7 D", r.store.district, " \xB7 ", r.store.dmName)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.375rem", flexWrap: "wrap" } }, r.matches.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: `${G}22`, color: G } }, "\u2713 ", r.matches.length, " matched"), r.missingBizDates.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: `${R3}22`, color: R3 } }, "\u26A0\uFE0F ", r.missingBizDates.length, " missing"), r.unmatchedDeposits.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "0.25rem", background: "#b197fc22", color: "#b197fc" } }, "? ", r.unmatchedDeposits.length, " unmatched"))), r.matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: r.missingBizDates.length > 0 || r.unmatchedDeposits.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "Matched Pairs"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.matches.sort((a, b) => a.bizDate.localeCompare(b.bizDate)).map((m, i) => {
-          const tolColor = m.tolerance === "exact" ? G : m.tolerance === "dollar" ? Y : m.tolerance === "sum" ? "#74c0fc" : Y;
-          const tolLabel = m.tolerance === "exact" ? "\u2713 Exact" : m.tolerance === "dollar" ? "~ Within $1" : m.tolerance === "sum" ? "\u2211 Sum" : "~ Within $5";
-          return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: th.card2, borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: "0.25rem", background: tolColor + "22", color: tolColor, whiteSpace: "nowrap" } }, tolLabel), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(m.bizDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " cash"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(m.posCash)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "\u2194"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(m.deposit.depositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " deposit"), /* @__PURE__ */ React.createElement("strong", { style: { color: G } }, fmtUSD(m.deposit.amount), m.partnerDeposit ? " + " + fmtUSD(m.partnerDeposit.amount) : ""), Math.abs(m.delta) >= 0.01 && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.65rem", fontWeight: 700, color: m.delta < 0 ? R3 : Y } }, m.delta > 0 ? "+" : "", fmtUSD(m.delta)));
-        }))), r.missingBizDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: r.unmatchedDeposits.length > 0 ? "0.75rem" : 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: R3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "\u26A0\uFE0F Unmatched Cash (needs a deposit)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.missingBizDates.sort((a, b) => a.bizDate.localeCompare(b.bizDate)).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: `${R3}11`, borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: R3, fontWeight: 700 } }, "MISSING"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(b.bizDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " cash"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(b.posCash)), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", color: th.muted, fontSize: "0.65rem" } }, "No deposit matched this amount"))))), r.unmatchedDeposits.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", fontWeight: 700, color: "#b197fc", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: "0.3rem" } }, "? Unmatched Deposits (possibly from outside 2-week window)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.25rem" } }, r.unmatchedDeposits.map((d, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0.6rem", background: "#b197fc11", borderRadius: "0.375rem", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#b197fc", fontWeight: 700 } }, "NO MATCH"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (/* @__PURE__ */ new Date(d.depositDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), " deposit"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, fmtUSD(d.amount)), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", color: th.muted, fontSize: "0.65rem" } }, "No POS cash matches this amount"))))));
-      }), storeReports.filter((r) => r.hasPOSLoaded).every((r) => r.matches.length === 0 && r.missingBizDates.length === 0 && r.unmatchedDeposits.length === 0) && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "2rem", textAlign: "center", color: th.muted } }, "No cash activity found in the current week."))));
-    })(), view === "history" && /* @__PURE__ */ React.createElement("div", null, cashUploads.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "3rem 2rem", textAlign: "center", color: th.muted } }, 'No uploads yet. Click "Upload Spreadsheet" to get started.') : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.625rem" } }, cashUploads.map((u) => /* @__PURE__ */ React.createElement("div", { key: u.id, style: { ...card(th), padding: "1rem 1.25rem", borderLeft: `3px solid ${G}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 200 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.85rem", color: th.text } }, u.filename), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginTop: "0.2rem" } }, "Uploaded by ", /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, u.uploadedByName || "Unknown"), " \xB7 ", new Date(u.uploadedAt).toLocaleString())), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.72rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: G, fontSize: "0.95rem" } }, u.newDeposits), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "New")), u.duplicatesSkipped > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.muted, fontSize: "0.95rem" } }, u.duplicatesSkipped), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Dupes")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: th.text, fontSize: "0.95rem" } }, fmtUSDRound(u.totalAmount)), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 } }, "Total")))))))), noteModal && /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "1rem" },
-        onClick: () => setNoteModal(null)
-      },
-      /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: {
-        background: th.card,
-        borderRadius: "0.875rem",
-        padding: "1.5rem",
-        width: "100%",
-        maxWidth: 520,
-        border: `1px solid ${th.cardBorder}`,
-        boxShadow: "0 24px 64px rgba(0,0,0,0.5)"
-      } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.25rem" } }, "Add Note \u2014 ", noteModal.storeName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "1rem" } }, "PC# ", noteModal.pc, " \xB7 Business date ", (/* @__PURE__ */ new Date(noteModal.businessDate + "T12:00:00")).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })), getNotesFor(noteModal.pc, noteModal.businessDate).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem", maxHeight: 200, overflowY: "auto", background: th.card2, borderRadius: "0.5rem", padding: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.5rem" } }, "Existing Notes"), getNotesFor(noteModal.pc, noteModal.businessDate).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { fontSize: "0.72rem", marginBottom: "0.5rem", paddingBottom: "0.5rem", borderBottom: `1px dashed ${th.cardBorder}`, display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", null, n.action === "dm_alerted" ? "\u{1F4E2}" : n.action === "store_called" ? "\u{1F4DE}" : n.action === "manager_replied" ? "\u{1F4AC}" : n.action === "confirmed_en_route" ? "\u{1F69A}" : "\u270E"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.text } }, n.text), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.62rem", color: th.muted, marginTop: "0.15rem" } }, n.createdByName, " \xB7 ", new Date(n.createdAt).toLocaleString())), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: () => deleteNote(n.id), style: { background: "none", border: "none", color: R3, cursor: "pointer", fontSize: "0.7rem", padding: 0 } }, "\xD7")))), /* @__PURE__ */ React.createElement(
-        "textarea",
-        {
-          value: noteText,
-          onChange: (e) => setNoteText(e.target.value),
-          placeholder: "Enter a note...",
-          style: { ...inp(th), minHeight: 80, resize: "vertical", marginBottom: "1rem" }
-        }
-      ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => setNoteModal(null),
-          style: btn(th, { background: th.card3, color: th.muted })
-        },
-        "Cancel"
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => {
-            if (noteText.trim()) addNote(noteModal.pc, noteModal.businessDate, noteText.trim());
-            setNoteModal(null);
-            setNoteText("");
-          },
-          disabled: !noteText.trim(),
-          style: btn(th, { background: O, color: "#fff", opacity: noteText.trim() ? 1 : 0.5 })
-        },
-        "Save Note"
-      )))
-    ), editDep && /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "1rem" },
-        onClick: () => setEditDep(null)
-      },
-      /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: {
-        background: th.card,
-        borderRadius: "0.875rem",
-        padding: "1.5rem",
-        width: "100%",
-        maxWidth: 480,
-        border: `1px solid ${th.cardBorder}`,
-        boxShadow: "0 24px 64px rgba(0,0,0,0.5)"
-      } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.1rem", color: th.text, marginBottom: "0.25rem" } }, "Edit Deposit"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginBottom: "1rem" } }, editDep.llcName, " \xB7 PC# ", editDep.pc), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: "0.25rem" } }, "Deposit Date"), /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          type: "date",
-          value: editForm.depositDate,
-          onChange: (e) => setEditForm((f) => ({ ...f, depositDate: e.target.value })),
-          style: inp(th)
-        }
-      )), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.7rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: "0.25rem" } }, "Amount"), /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          type: "number",
-          step: "0.01",
-          value: editForm.amount,
-          onChange: (e) => setEditForm((f) => ({ ...f, amount: e.target.value })),
-          style: inp(th)
-        }
-      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => {
-            deleteDeposit(editDep);
-            setEditDep(null);
-          },
-          style: btn(th, { background: `${R3}22`, color: R3, border: `1px solid ${R3}55` })
-        },
-        "\u{1F5D1} Delete"
-      ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => setEditDep(null),
-          style: btn(th, { background: th.card3, color: th.muted })
-        },
-        "Cancel"
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: saveEditDeposit,
-          style: btn(th, { background: G, color: "#fff" })
-        },
-        "Save"
-      ))))
-    ));
   }
   function localDateStr(d) {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -37093,10 +38449,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var SCHEDULE_DESKTOP_BREAKPOINT = 1024;
   function useIsDesktopViewport() {
-    const [isDesktop, setIsDesktop] = useState18(
+    const [isDesktop, setIsDesktop] = useState21(
       () => typeof window !== "undefined" ? window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT : true
     );
-    useEffect15(() => {
+    useEffect18(() => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       const mql = window.matchMedia(`(min-width: ${SCHEDULE_DESKTOP_BREAKPOINT}px)`);
       const onChange = (e) => setIsDesktop(e.matches);
@@ -37184,9 +38540,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setUTCDate(d.getUTCDate() + i);
       return d;
     });
-    const [hoveredCell, setHoveredCell] = useState18(null);
-    const [clipboard, setClipboard] = useState18(null);
-    useEffect15(() => {
+    const [hoveredCell, setHoveredCell] = useState21(null);
+    const [clipboard, setClipboard] = useState21(null);
+    useEffect18(() => {
       const onKeyDown = (e) => {
         if (e.key === "Escape") setClipboard(null);
       };
@@ -37210,8 +38566,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const handleAddShift = (employeeId, dayOffset) => {
       onCardsChange(addShiftToEmployee(cards, employeeId, { dayOffset, startTime: "09:00", endTime: "17:00" }));
     };
-    const [editingShift, setEditingShift] = useState18(null);
-    const [editDraft, setEditDraft] = useState18({ startTime: "", endTime: "", reassignTo: "" });
+    const [editingShift, setEditingShift] = useState21(null);
+    const [editDraft, setEditDraft] = useState21({ startTime: "", endTime: "", reassignTo: "" });
     const openEdit = (employeeId, shift) => {
       setEditingShift({ employeeId, shift });
       setEditDraft({ startTime: shift.startTime, endTime: shift.endTime, reassignTo: "" });
@@ -37287,8 +38643,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return /* @__PURE__ */ React.createElement("div", { style: { position: "sticky", top: 0, zIndex: 10, background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: 8, padding: "0.85rem 1.1rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Projected Weekly Labor"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "1.1rem", fontWeight: 800, color } }, "$", weeklyTotal.totalDollars.toFixed(2), " ", /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.85rem", fontWeight: 600 } }, "(", pct.toFixed(1), "%)"))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted } }, weeklyTotal.totalHours.toFixed(1), " total hours"), overtimeEmployees.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.76rem", color: "#f59e0b", fontWeight: 600 } }, "\u26A0 ", overtimeEmployees.length, " employee(s) over 40h this week"));
   }
   function EmployeeScheduleCard({ card: cardData, th, onApprove, onSave, otherEmployees = [], onReassign, startInEdit = false }) {
-    const [editing, setEditing] = useState18(startInEdit);
-    const [draftShifts, setDraftShifts] = useState18(cardData.shifts || []);
+    const [editing, setEditing] = useState21(startInEdit);
+    const [draftShifts, setDraftShifts] = useState21(cardData.shifts || []);
     const updateShift = (idx, field, value) => {
       setDraftShifts((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
     };
@@ -37322,17 +38678,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function ScheduleBuilder({ store, th, mode }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [weekStart, setWeekStart] = useState18("");
-    const [loading, setLoading] = useState18(false);
-    const [error, setError] = useState18(null);
-    const [cards, setCards] = useState18(null);
-    const [cardIndex, setCardIndex] = useState18(0);
-    const [approvedCards, setApprovedCards] = useState18([]);
-    const [payRates, setPayRates] = useState18({});
-    const [openShiftGroups, setOpenShiftGroups] = useState18([]);
-    const [submitResult, setSubmitResult] = useState18(null);
-    const [showBuildPreview, setShowBuildPreview] = useState18(false);
-    const [reopenEmployeeId, setReopenEmployeeId] = useState18(null);
+    const [weekStart, setWeekStart] = useState21("");
+    const [loading, setLoading] = useState21(false);
+    const [error, setError] = useState21(null);
+    const [cards, setCards] = useState21(null);
+    const [cardIndex, setCardIndex] = useState21(0);
+    const [approvedCards, setApprovedCards] = useState21([]);
+    const [payRates, setPayRates] = useState21({});
+    const [openShiftGroups, setOpenShiftGroups] = useState21([]);
+    const [submitResult, setSubmitResult] = useState21(null);
+    const [showBuildPreview, setShowBuildPreview] = useState21(false);
+    const [reopenEmployeeId, setReopenEmployeeId] = useState21(null);
     const load = async () => {
       if (!weekStart) return;
       setLoading(true);
@@ -37590,21 +38946,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), submitResult && !submitResult.running && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "1rem" } }, submitResult.results.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: "0.78rem", color: r.status === "ok" ? "#16a34a" : "#ef4444", marginBottom: "0.3rem" } }, /* @__PURE__ */ React.createElement("strong", null, r.employeeName, ":"), " ", r.detail)))));
   }
   function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
-    const [activeTab, setActiveTab] = useState18("hourly");
-    const [laborHoverHr, setLaborHoverHr] = useState18(null);
-    const [punches, setPunches] = useState18([]);
-    const [employees, setEmployees] = useState18([]);
-    const [storeHistory, setStoreHistory] = useState18(null);
-    const [hourlySales, setHourlySales] = useState18({});
-    const [scheduleShifts, setScheduleShifts] = useState18([]);
-    const [livePunches, setLivePunches] = useState18({});
-    const [liveSummary, setLiveSummary] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const [fetchError, setFetchError] = useState18(false);
-    const [empExpanded, setEmpExpanded] = useState18(false);
-    const [weekSchedule, setWeekSchedule] = useState18(null);
-    const [expandedDay, setExpandedDay] = useState18(null);
-    const [empHourAdj, setEmpHourAdj] = useState18({});
+    const [activeTab, setActiveTab] = useState21("hourly");
+    const [laborHoverHr, setLaborHoverHr] = useState21(null);
+    const [punches, setPunches] = useState21([]);
+    const [employees, setEmployees] = useState21([]);
+    const [storeHistory, setStoreHistory] = useState21(null);
+    const [hourlySales, setHourlySales] = useState21({});
+    const [scheduleShifts, setScheduleShifts] = useState21([]);
+    const [livePunches, setLivePunches] = useState21({});
+    const [liveSummary, setLiveSummary] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const [fetchError, setFetchError] = useState21(false);
+    const [empExpanded, setEmpExpanded] = useState21(false);
+    const [weekSchedule, setWeekSchedule] = useState21(null);
+    const [expandedDay, setExpandedDay] = useState21(null);
+    const [empHourAdj, setEmpHourAdj] = useState21({});
     const storeInfo = stores.find((s) => s.pc === store.pc) || {};
     const mgrName = storeMgrName(storeInfo, users) || "Unassigned";
     const todayStr = localDateStr(/* @__PURE__ */ new Date());
@@ -37615,7 +38971,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() + diff);
       return localDateStr(d);
     })();
-    useEffect15(() => {
+    useEffect18(() => {
       async function loadAll() {
         setLoading(true);
         const legalEntityId = store.paycor || storeInfo.paycor;
@@ -37737,7 +39093,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       loadAll();
     }, [store.pc, store.paycor]);
-    useEffect15(() => {
+    useEffect18(() => {
       setWeekSchedule(null);
       setExpandedDay(null);
       setEmpHourAdj({});
@@ -37979,7 +39335,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         } }, /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, marginBottom: 3 } }, hrLong), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: O, marginRight: 6 } }), "Sales ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.sales))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: clr, marginRight: 6 } }), "Labor ", /* @__PURE__ */ React.createElement("strong", null, fmtDollars(h.labor)), h.sales > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, " \xB7 ", pct.toFixed(1), "%")))
       );
     }
-    useEffect15(() => {
+    useEffect18(() => {
       if (activeTab !== "optimizer" || weekSchedule !== null) return;
       cloudLoad("pcg_schedule_" + store.pc).then((data) => {
         setWeekSchedule(data || {});
@@ -38210,21 +39566,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return Math.floor(hrs / 24) + "d ago";
   }
   function AdminLabor({ stores, districts, th, user, drillInStore, onClearDrillIn, users }) {
-    const [laborData, setLaborData] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const [error, setError] = useState18(null);
-    const [selectedStore, setSelectedStore] = useState18(null);
-    useEffect15(() => {
+    const [laborData, setLaborData] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const [error, setError] = useState21(null);
+    const [selectedStore, setSelectedStore] = useState21(null);
+    useEffect18(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
-    const [timeFilter, setTimeFilter] = useState18("today");
-    const [districtFilter, setDistrictFilter] = useState18("all");
-    const [storeQuery, setStoreQuery] = useState18("");
-    const [viewDate, setViewDate] = useState18("");
-    const [dayData, setDayData] = useState18(null);
-    const [dayLoading, setDayLoading] = useState18(false);
-    const [dayError, setDayError] = useState18(null);
-    useEffect15(() => {
+    const [timeFilter, setTimeFilter] = useState21("today");
+    const [districtFilter, setDistrictFilter] = useState21("all");
+    const [storeQuery, setStoreQuery] = useState21("");
+    const [viewDate, setViewDate] = useState21("");
+    const [dayData, setDayData] = useState21(null);
+    const [dayLoading, setDayLoading] = useState21(false);
+    const [dayError, setDayError] = useState21(null);
+    useEffect18(() => {
       if (!viewDate) {
         setDayData(null);
         setDayError(null);
@@ -38253,7 +39609,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         cancelled = true;
       };
     }, [viewDate]);
-    const [forecastData, setForecastData] = useState18({});
+    const [forecastData, setForecastData] = useState21({});
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
     const next7Days = React.useMemo(() => {
@@ -38271,10 +39627,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
     }, []);
     const todayStr = next7Days.find((d) => d.isToday)?.dateStr;
-    useEffect15(() => {
+    useEffect18(() => {
       if (isDM && user.district) setDistrictFilter(String(user.district));
     }, [isDM, user]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (drillInStore) {
         const store = stores.find((s) => s.pc === drillInStore);
         if (store) {
@@ -38297,10 +39653,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setLoading(false);
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       fetchLaborData();
     }, [fetchLaborData]);
-    useEffect15(() => {
+    useEffect18(() => {
       const id = setInterval(fetchLaborData, 60 * 60 * 1e3);
       return () => clearInterval(id);
     }, [fetchLaborData]);
@@ -38308,7 +39664,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       if (!isManager) return /* @__PURE__ */ new Set();
       return new Set(stores.filter((s) => isManagersStore(s, user)).map((s) => String(s.pc)));
     }, [isManager, stores, user]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!laborData?.stores) return;
       const pcs = Object.keys(laborData.stores);
       let cancelled = false;
@@ -38530,13 +39886,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })));
   }
   function PnLStoreDetail({ store, th, onClose }) {
-    const [history, setHistory] = useState18(null);
+    const [history, setHistory] = useState21(null);
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad(`pcg_pnl_store_${store.pc}`).then((d) => setHistory(d?.daily || [])).catch(() => setHistory([]));
     }, [store.pc]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !history?.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -38681,58 +40037,58 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const f = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
       return f.format(/* @__PURE__ */ new Date());
     };
-    const [view, setView] = useState18(isManager ? "tasks" : "dashboard");
+    const [view, setView] = useState21(isManager ? "tasks" : "dashboard");
     const frameRef = React.useRef(null);
     const frameH = useFrameHeight(frameRef, 420, 20, view);
-    const [storePc, setStorePc] = useState18(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
-    const [date, setDate] = useState18(todayET());
-    const [seg, setSeg] = useState18("open");
-    const [data, setData] = useState18(null);
-    const [dash, setDash] = useState18(null);
-    const [rollup, setRollup] = useState18(null);
-    const [loading, setLoading] = useState18(false);
-    const [busyId, setBusyId] = useState18(null);
-    const [openEntry, setOpenEntry] = useState18(null);
-    const [entryVal, setEntryVal] = useState18("");
-    const [keypad, setKeypad] = useState18(null);
-    const [expandedId, setExpandedId] = useState18(null);
-    const [localAnswers, setLocalAnswers] = useState18({});
-    const [cas, setCas] = useState18(null);
-    const [caFilter, setCaFilter] = useState18("open");
-    const [loadingCAs, setLoadingCAs] = useState18(false);
-    const [gpsRows, setGpsRows] = useState18(null);
-    const [gpsLoading, setGpsLoading] = useState18(false);
-    const [gpsDays, setGpsDays] = useState18(7);
-    const [gpsTab, setGpsTab] = useState18("list");
-    const gpsMapDiv = useRef7(null);
-    const gpsMapRef = useRef7(null);
-    const gpsLayerRef = useRef7(null);
-    const [auditData, setAuditData] = useState18(null);
-    const [auditLoading, setAuditLoading] = useState18(false);
-    const [auditStore, setAuditStore] = useState18("");
-    const [auditFrom, setAuditFrom] = useState18("");
-    const [auditTo, setAuditTo] = useState18("");
-    const [auditPhotos, setAuditPhotos] = useState18(false);
-    const [auditPhotoUrls, setAuditPhotoUrls] = useState18({});
-    const [auditExporting, setAuditExporting] = useState18(false);
-    const auditRef = useRef7(null);
-    const [photoLightbox, setPhotoLightbox] = useState18(null);
-    const [photoUrls, setPhotoUrls] = useState18({});
-    const [merch, setMerch] = useState18(null);
-    const [merchPage, setMerchPage] = useState18(1);
-    const [merchLoading, setMerchLoading] = useState18(false);
-    const [merchAllDates, setMerchAllDates] = useState18(false);
+    const [storePc, setStorePc] = useState21(isManager && myStore ? String(myStore.pc) : scopeStores[0]?.pc ? String(scopeStores[0].pc) : "");
+    const [date, setDate] = useState21(todayET());
+    const [seg, setSeg] = useState21("open");
+    const [data, setData] = useState21(null);
+    const [dash, setDash] = useState21(null);
+    const [rollup, setRollup] = useState21(null);
+    const [loading, setLoading] = useState21(false);
+    const [busyId, setBusyId] = useState21(null);
+    const [openEntry, setOpenEntry] = useState21(null);
+    const [entryVal, setEntryVal] = useState21("");
+    const [keypad, setKeypad] = useState21(null);
+    const [expandedId, setExpandedId] = useState21(null);
+    const [localAnswers, setLocalAnswers] = useState21({});
+    const [cas, setCas] = useState21(null);
+    const [caFilter, setCaFilter] = useState21("open");
+    const [loadingCAs, setLoadingCAs] = useState21(false);
+    const [gpsRows, setGpsRows] = useState21(null);
+    const [gpsLoading, setGpsLoading] = useState21(false);
+    const [gpsDays, setGpsDays] = useState21(7);
+    const [gpsTab, setGpsTab] = useState21("list");
+    const gpsMapDiv = useRef8(null);
+    const gpsMapRef = useRef8(null);
+    const gpsLayerRef = useRef8(null);
+    const [auditData, setAuditData] = useState21(null);
+    const [auditLoading, setAuditLoading] = useState21(false);
+    const [auditStore, setAuditStore] = useState21("");
+    const [auditFrom, setAuditFrom] = useState21("");
+    const [auditTo, setAuditTo] = useState21("");
+    const [auditPhotos, setAuditPhotos] = useState21(false);
+    const [auditPhotoUrls, setAuditPhotoUrls] = useState21({});
+    const [auditExporting, setAuditExporting] = useState21(false);
+    const auditRef = useRef8(null);
+    const [photoLightbox, setPhotoLightbox] = useState21(null);
+    const [photoUrls, setPhotoUrls] = useState21({});
+    const [merch, setMerch] = useState21(null);
+    const [merchPage, setMerchPage] = useState21(1);
+    const [merchLoading, setMerchLoading] = useState21(false);
+    const [merchAllDates, setMerchAllDates] = useState21(false);
     const MERCH_PAGE_SIZE = 8;
-    const [rangeDays, setRangeDays] = useState18(14);
-    const [reportData, setReportData] = useState18(null);
-    const [reportLoading, setReportLoading] = useState18(false);
-    const [hist, setHist] = useState18(null);
-    const [histLoading, setHistLoading] = useState18(false);
-    const [histPage, setHistPage] = useState18(1);
-    const [histStatus, setHistStatus] = useState18("all");
-    const [tempLog, setTempLog] = useState18(null);
-    const [tempLoading, setTempLoading] = useState18(false);
-    const [tempPage, setTempPage] = useState18(1);
+    const [rangeDays, setRangeDays] = useState21(14);
+    const [reportData, setReportData] = useState21(null);
+    const [reportLoading, setReportLoading] = useState21(false);
+    const [hist, setHist] = useState21(null);
+    const [histLoading, setHistLoading] = useState21(false);
+    const [histPage, setHistPage] = useState21(1);
+    const [histStatus, setHistStatus] = useState21("all");
+    const [tempLog, setTempLog] = useState21(null);
+    const [tempLoading, setTempLoading] = useState21(false);
+    const [tempPage, setTempPage] = useState21(1);
     const byName = user?.name || user?.email || "user";
     const SHIFT_WINDOWS_CLIENT = {
       "1 AM": 0,
@@ -38759,10 +40115,10 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       });
       return r.json();
     }, []);
-    const geoRef = useRef7(null);
+    const geoRef = useRef8(null);
     const GEO_OPTS = { enableHighAccuracy: false, maximumAge: 6e4, timeout: 8e3 };
     const locDefaultOn = user?.userType === "store_tablet";
-    const [shareLoc, setShareLoc] = useState18(() => {
+    const [shareLoc, setShareLoc] = useState21(() => {
       try {
         const v = localStorage.getItem("pcg_share_location");
         if (v === "1") return true;
@@ -38772,21 +40128,21 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         return locDefaultOn;
       }
     });
-    const [locAsked, setLocAsked] = useState18(() => {
+    const [locAsked, setLocAsked] = useState21(() => {
       try {
         return localStorage.getItem("pcg_share_location") != null;
       } catch {
         return true;
       }
     });
-    const [locDenied, setLocDenied] = useState18(false);
+    const [locDenied, setLocDenied] = useState21(false);
     const persistLoc = (on) => {
       try {
         localStorage.setItem("pcg_share_location", on ? "1" : "0");
       } catch {
       }
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (!navigator.permissions?.query) return;
       let perm;
       navigator.permissions.query({ name: "geolocation" }).then((p) => {
@@ -38941,22 +40297,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setMerchLoading(false);
       }
     }, [api3, scopeStores, merchPage, date, merchAllDates]);
-    useEffect15(() => {
+    useEffect18(() => {
       setMerchPage(1);
     }, [date, merchAllDates]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "tasks" || view === "dashboard") loadStore();
     }, [view, loadStore]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "stores") loadRollup();
     }, [view, loadRollup]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "cas") loadCAs();
     }, [view, loadCAs]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "gps") loadGps();
     }, [view, gpsDays]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "merchandising") loadMerch();
     }, [view, loadMerch]);
     const rangeFromTo = useCallback(() => {
@@ -38994,23 +40350,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setTempLoading(false);
       }
     }, [api3, scopePcs, rangeFromTo, tempPage, user]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "reports") loadReports();
     }, [view, loadReports]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "history") loadHistory();
     }, [view, loadHistory]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "temp") loadTemp();
     }, [view, loadTemp]);
-    useEffect15(() => {
+    useEffect18(() => {
       setHistPage(1);
       setTempPage(1);
     }, [rangeDays]);
-    useEffect15(() => {
+    useEffect18(() => {
       setHistPage(1);
     }, [histStatus]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view !== "gps" || gpsTab !== "map" || !gpsRows || !gpsMapDiv.current || !window.L) return;
       const L3 = window.L;
       if (!gpsMapRef.current) {
@@ -39042,7 +40398,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       }, 150);
     }, [view, gpsTab, gpsRows, th.dark, stores]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (view === "gps" && gpsTab === "map") return;
       if (gpsMapRef.current) {
         try {
@@ -39053,7 +40409,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         gpsLayerRef.current = null;
       }
     }, [view, gpsTab]);
-    useEffect15(() => () => {
+    useEffect18(() => () => {
       if (gpsMapRef.current) {
         try {
           gpsMapRef.current.remove();
@@ -39064,7 +40420,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
     }, []);
     const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    useEffect15(() => {
+    useEffect18(() => {
       if (view !== "audit" || auditTo) return;
       const to = todayET();
       const d = /* @__PURE__ */ new Date(to + "T12:00:00");
@@ -39085,7 +40441,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditLoading(false);
       }
     }, [api3, auditStore, auditFrom, auditTo]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!auditPhotos || !auditData) return;
       const need = (auditData.tasks || []).filter((t) => t.has_photo && auditPhotoUrls[t.id] === void 0);
       if (!need.length) return;
@@ -39115,7 +40471,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setAuditExporting(false);
       }
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (view !== "tasks" && view !== "dashboard") return;
       const id = setInterval(() => loadStore(true), 25e3);
       return () => clearInterval(id);
@@ -39664,24 +41020,24 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })()), photoLightbox && /* @__PURE__ */ React.createElement("div", { onClick: () => setPhotoLightbox(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPhotoLightbox(null), style: { position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u2715"), /* @__PURE__ */ React.createElement("img", { src: photoLightbox, alt: "Full size photo", onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" } }))))));
   }
   function ImpactRadar({ th, user, dark, salesWeeks }) {
-    const [eventAddr, setEventAddr] = useState18("2310 W Passyunk Ave, Philadelphia, PA 19145");
-    const [eventLatLng, setEventLatLng] = useState18(null);
-    const [eventDate, setEventDate] = useState18("2025-12-28");
-    const [weeksBefore, setWeeksBefore] = useState18(13);
-    const [weeksAfter, setWeeksAfter] = useState18("");
-    const [coords, setCoords] = useState18(null);
-    const [ranked, setRanked] = useState18([]);
-    const [impactedPc, setImpactedPc] = useState18(null);
-    const [controlPcs, setControlPcs] = useState18([]);
-    const [status, setStatus] = useState18("");
-    const [busy, setBusy] = useState18(false);
-    const [results, setResults] = useState18(null);
-    const chartCanvas = useRef7(null);
-    const chartRef = useRef7(null);
-    const mapDiv = useRef7(null);
-    const mapRef = useRef7(null);
-    const [radiusMi, setRadiusMi] = useState18(1);
-    const histCache = useRef7(/* @__PURE__ */ new Map());
+    const [eventAddr, setEventAddr] = useState21("2310 W Passyunk Ave, Philadelphia, PA 19145");
+    const [eventLatLng, setEventLatLng] = useState21(null);
+    const [eventDate, setEventDate] = useState21("2025-12-28");
+    const [weeksBefore, setWeeksBefore] = useState21(13);
+    const [weeksAfter, setWeeksAfter] = useState21("");
+    const [coords, setCoords] = useState21(null);
+    const [ranked, setRanked] = useState21([]);
+    const [impactedPc, setImpactedPc] = useState21(null);
+    const [controlPcs, setControlPcs] = useState21([]);
+    const [status, setStatus] = useState21("");
+    const [busy, setBusy] = useState21(false);
+    const [results, setResults] = useState21(null);
+    const chartCanvas = useRef8(null);
+    const chartRef = useRef8(null);
+    const mapDiv = useRef8(null);
+    const mapRef = useRef8(null);
+    const [radiusMi, setRadiusMi] = useState21(1);
+    const histCache = useRef8(/* @__PURE__ */ new Map());
     async function compute() {
       if (!impactedPc) return;
       setBusy(true);
@@ -39838,7 +41194,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       doc.text("Source: Dunkin\u2019 Pulse POS net sales. Distances are geocoded centroid estimates (US Census).", margin, 10.7);
       doc.save(`impact-${imp.name.replace(/\s+/g, "-")}-${eventDate}.pdf`);
     }
-    useEffect15(() => {
+    useEffect18(() => {
       (async () => {
         let c = await cloudLoad(COORDS_BLOB);
         if (!c || Object.keys(c).length < STORES_SEED.length) {
@@ -39885,7 +41241,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       setBusy(false);
     }
-    useEffect15(() => {
+    useEffect18(() => {
       if (!eventLatLng || !coords) return;
       const rows = openStoreList().filter((s) => coords[s.pc]).map((s) => ({
         pc: s.pc,
@@ -39899,7 +41255,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setControlPcs(pickControls(rows, rows[0].pc, 3).map((s) => s.pc));
       }
     }, [eventLatLng, coords]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!results || !chartCanvas.current || !window.Chart) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -39935,7 +41291,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         }
       };
     }, [results, dark]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!eventLatLng || !mapDiv.current || !window.L) return;
       if (!mapRef.current) {
         mapRef.current = window.L.map(mapDiv.current).setView([eventLatLng.lat, eventLatLng.lng], 13);
@@ -39975,7 +41331,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       }
       map.setView([eventLatLng.lat, eventLatLng.lng], 13);
     }, [eventLatLng, coords, ranked, results, radiusMi, impactedPc]);
-    useEffect15(() => () => {
+    useEffect18(() => () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -39989,22 +41345,22 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })(), /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", color: th.muted, fontSize: 12 } }, /* @__PURE__ */ React.createElement("th", { style: { padding: 6 } }, "Store"), /* @__PURE__ */ React.createElement("th", null, "Distance"), /* @__PURE__ */ React.createElement("th", null, "Before $/wk"), /* @__PURE__ */ React.createElement("th", null, "After $/wk"), /* @__PURE__ */ React.createElement("th", null, "%\u0394"), /* @__PURE__ */ React.createElement("th", null, "Weeks"))), /* @__PURE__ */ React.createElement("tbody", null, [results.impacted, ...results.controls].map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: row.pc, style: { borderTop: `1px solid ${th.sidebarBorder}`, fontWeight: i === 0 ? 700 : 400 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: 6 } }, row.name, i === 0 ? " (impacted)" : ""), /* @__PURE__ */ React.createElement("td", null, row.distance != null ? `${row.distance.toFixed(1)} mi` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgBefore)), /* @__PURE__ */ React.createElement("td", null, fmtDollars(row.avgAfter)), /* @__PURE__ */ React.createElement("td", { style: { color: row.deltaPct < -15 ? "#dc2626" : row.deltaPct < -7 ? "#d97706" : th.text } }, fmtPct(row.deltaPct)), /* @__PURE__ */ React.createElement("td", { style: { color: row.weeksBeforeUsed < weeksBefore ? "#d97706" : th.muted } }, row.weeksBeforeUsed, "/", row.weeksAfterUsed, row.weeksBeforeUsed < weeksBefore ? " \u26A0" : ""))))), /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: 11, marginTop: 8 } }, "Source: ", results.impacted.source === "scorecard" ? `uploaded weekly scorecards (${results.impacted.weeksAvailable} wks available for the impacted store)` : `Pulse net sales via labor blobs (~13-week retention; ${results.impacted.weeksAvailable} wks available)`, ". \u26A0 = fewer weeks than requested.")));
   }
   function AdminNdcp({ th, user }) {
-    const [orders, setOrders] = useState18(null);
-    const [err, setErr] = useState18(null);
-    const [q, setQ] = useState18("");
-    const [storeFilter, setStoreFilter] = useState18("");
-    const [sel, setSel] = useState18(null);
-    const [detail, setDetail] = useState18(null);
-    const [detailLoading, setDetailLoading] = useState18(false);
+    const [orders, setOrders] = useState21(null);
+    const [err, setErr] = useState21(null);
+    const [q, setQ] = useState21("");
+    const [storeFilter, setStoreFilter] = useState21("");
+    const [sel, setSel] = useState21(null);
+    const [detail, setDetail] = useState21(null);
+    const [detailLoading, setDetailLoading] = useState21(false);
     const todayISO = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const ago3 = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-    const [from, setFrom] = useState18(ago3(13 * 7));
-    const [to, setTo] = useState18(todayISO);
-    const [view, setView] = useState18("weekly");
-    const [summary, setSummary] = useState18(null);
-    const [labor, setLabor] = useState18(null);
-    const [expandWeek, setExpandWeek] = useState18(null);
-    const [expandDist, setExpandDist] = useState18(null);
+    const [from, setFrom] = useState21(ago3(13 * 7));
+    const [to, setTo] = useState21(todayISO);
+    const [view, setView] = useState21("weekly");
+    const [summary, setSummary] = useState21(null);
+    const [labor, setLabor] = useState21(null);
+    const [expandWeek, setExpandWeek] = useState21(null);
+    const [expandDist, setExpandDist] = useState21(null);
     const dcpPct = (spend, sales) => {
       if (spend == null || sales == null) return null;
       const sp = +spend, sl = +sales;
@@ -40016,7 +41372,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }).then((r) => r.json());
-    useEffect15(() => {
+    useEffect18(() => {
       setOrders(null);
       setErr(null);
       const f = (action, extra = {}) => api3({ action, from, to, ...extra });
@@ -40031,7 +41387,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         setOrders([]);
       });
     }, [from, to]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_labor_v1").then(setLabor).catch(() => {
       });
     }, []);
@@ -40202,7 +41558,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canvasRef = React.useRef(null);
     const chartRef = React.useRef(null);
     const weeks = React.useMemo(() => Object.entries(summary && summary.byWeek || {}).sort((a, b) => a[0].localeCompare(b[0])), [summary]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!canvasRef.current || typeof Chart === "undefined" || !weeks.length) return;
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -40259,966 +41615,17 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const dcpColor = (p) => p == null ? th.muted : p <= 20 ? "#22c55e" : p <= 22 ? "#f59e0b" : "#ef4444";
     return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { ...cardBox } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 } }, "Weekly spend trend"), weeks.length ? /* @__PURE__ */ React.createElement("div", { style: { height: 240 } }, /* @__PURE__ */ React.createElement("canvas", { ref: canvasRef })) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No weekly data in range.")), /* @__PURE__ */ React.createElement("div", { style: { ...cardBox } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 } }, "Category breakdown ", /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, textTransform: "none" } }, "(orders in range)")), categories.length ? categories.map(([label, amt]) => /* @__PURE__ */ React.createElement("div", { key: label, style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.84rem", marginBottom: 3 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text } }, label), /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 700 } }, fmtDollars(amt))), /* @__PURE__ */ React.createElement("div", { style: { height: 6, background: th.card3 || th.bg, borderRadius: 999 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 6, width: `${catMax > 0 ? amt / catMax * 100 : 0}%`, background: O2, borderRadius: 999 } })))) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No category data on the loaded orders.")), /* @__PURE__ */ React.createElement("div", { style: { ...cardBox } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 } }, "DCP% by store ", latestWeek ? `\xB7 week of ${latestWeek}` : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.74rem", color: th.muted, marginBottom: 10 } }, "NDCP spend \xF7 Pulse net sales (latest week). Green \u226420% \xB7 Amber 20\u201322% \xB7 Red >22%. \u201C\u2014\u201D = sales unavailable."), dcpRows.length ? /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { color: th.muted, textAlign: "left" } }, ["Store", "NDCP spend", "Net sales", "DCP%"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "0.4rem 0.5rem", fontWeight: 700 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, dcpRows.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.pc, style: { borderTop: `1px solid ${th.sidebarBorder || "#3a3a3a"}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.text } }, r.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.72rem" } }, "#", r.pc)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.text } }, fmtDollars(r.spend)), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.muted } }, r.sales != null ? fmtDollars(r.sales) : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", fontWeight: 800, color: dcpColor(r.pct) } }, r.pct != null ? `${r.pct}%` : "\u2014"))))) : /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No store spend for the latest week in range.")));
   }
-  function AdminDeals({ th, user, dealAuth }) {
-    const { token, role } = dealAuth;
-    const canEdit = role === "edit" || role === "admin";
-    const relTime = (ts) => {
-      const t = new Date(ts).getTime();
-      if (Number.isNaN(t)) return "";
-      const s = Math.floor((Date.now() - t) / 1e3);
-      if (s < 45) return "just now";
-      if (s < 5400) {
-        const m = Math.round(s / 60);
-        return `${m}m ago`;
-      }
-      if (s < 86400) {
-        const h = Math.round(s / 3600);
-        return `${h}h ago`;
-      }
-      if (s < 7 * 86400) {
-        const d = Math.round(s / 86400);
-        return `${d}d ago`;
-      }
-      return new Date(ts).toLocaleDateString();
-    };
-    const STAGES = [
-      { id: "sourcing", label: "Sourcing" },
-      { id: "loi_out", label: "LOI Out" },
-      { id: "loi_executed", label: "LOI Executed" },
-      { id: "due_diligence", label: "Due Diligence" },
-      { id: "negotiating", label: "Lease/PSA Negotiating" },
-      { id: "executed", label: "Executed" },
-      { id: "closing", label: "Closing/Possession" },
-      { id: "ready_for_construction", label: "Ready for Construction" }
-    ];
-    const STAGE_MAP = Object.fromEntries(STAGES.map((s) => [s.id, s.label]));
-    const STAGE_COLORS = {
-      sourcing: "#64748b",
-      loi_out: "#3b82f6",
-      loi_executed: "#6366f1",
-      due_diligence: "#f59e0b",
-      negotiating: "#f97316",
-      executed: "#22c55e",
-      closing: "#14b8a6",
-      ready_for_construction: "#a855f7"
-    };
-    const BRAND_COLORS = { dunkin: "#FF671F", papajohns: "#ef4444", bww_go: "#f59e0b", dual: "#6366f1" };
-    const BRAND_LABELS = { dunkin: "Dunkin'", papajohns: "Papa Johns", bww_go: "BWW Go", dual: "Dual" };
-    const DEAD_REASONS = ["Lost to competitor", "Failed due diligence", "Zoning denied", "Franchisor rejected", "Economics", "Financing fell through", "Other"];
-    const [deals, setDeals] = useState18([]);
-    const [loading, setLoading] = useState18(true);
-    const [error, setError] = useState18(null);
-    const [view, setView] = useState18("kanban");
-    const [filterBrand, setFilterBrand] = useState18("all");
-    const [filterType, setFilterType] = useState18("all");
-    const [filterState, setFilterState] = useState18("all");
-    const [filterStage, setFilterStage] = useState18("all");
-    const [filterLead, setFilterLead] = useState18("all");
-    const [sortCol, setSortCol] = useState18("name");
-    const [sortDir, setSortDir] = useState18("asc");
-    const [selectedDeal, setSelectedDeal] = useState18(null);
-    const [detailDeal, setDetailDeal] = useState18(null);
-    const [detailDates, setDetailDates] = useState18([]);
-    const [detailNotes, setDetailNotes] = useState18([]);
-    const [detailLoading, setDetailLoading] = useState18(false);
-    const [detailError, setDetailError] = useState18(null);
-    const [editFields, setEditFields] = useState18({});
-    const [saving, setSaving] = useState18(false);
-    const [saveMsg, setSaveMsg] = useState18(null);
-    const [newNote, setNewNote] = useState18("");
-    const [addingNote, setAddingNote] = useState18(false);
-    const [noteErr, setNoteErr] = useState18(null);
-    const [actionErr, setActionErr] = useState18(null);
-    const [showCreate, setShowCreate] = useState18(false);
-    const [createForm, setCreateForm] = useState18({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
-    const [creating, setCreating] = useState18(false);
-    const [createError, setCreateError] = useState18(null);
-    const [docs, setDocs] = useState18([]);
-    const [docVersions, setDocVersions] = useState18([]);
-    const [docBusy, setDocBusy] = useState18(false);
-    const [docErr, setDocErr] = useState18(null);
-    const [newDocType, setNewDocType] = useState18("loi");
-    const [allDates, setAllDates] = useState18([]);
-    const [newDateType, setNewDateType] = useState18(DATE_TYPES[0]?.id || "");
-    const [newDateDue, setNewDateDue] = useState18("");
-    const [newDateTiers, setNewDateTiers] = useState18(DATE_TYPES[0]?.defaultTiers?.join(",") || "");
-    const [newDateNotes, setNewDateNotes] = useState18("");
-    const [newDateRecurring, setNewDateRecurring] = useState18("");
-    const [dateAdding, setDateAdding] = useState18(false);
-    const [dateErr, setDateErr] = useState18(null);
-    const [showAccess, setShowAccess] = useState18(false);
-    const [accessRows, setAccessRows] = useState18(null);
-    const [accessInput, setAccessInput] = useState18("");
-    const [accessRole, setAccessRole] = useState18("view");
-    const [accessBusy, setAccessBusy] = useState18(false);
-    const [accessErr, setAccessErr] = useState18(null);
-    const [dealLeads, setDealLeads] = useState18([]);
-    const [newLeadName, setNewLeadName] = useState18("");
-    const [deadFor, setDeadFor] = useState18(null);
-    const [deadReason, setDeadReason] = useState18(DEAD_REASONS[0]);
-    const [deadNote, setDeadNote] = useState18("");
-    const [deadBusy, setDeadBusy] = useState18(false);
-    const [deadErr, setDeadErr] = useState18(null);
-    const [remindFor, setRemindFor] = useState18(null);
-    const [remindPhone, setRemindPhone] = useState18("");
-    const [remindMsg, setRemindMsg] = useState18("");
-    const [remindBusy, setRemindBusy] = useState18(false);
-    const [remindStatus, setRemindStatus] = useState18(null);
-    const loadList = () => {
-      setLoading(true);
-      return dealApi(token, { action: "list", status: "active" }).then((r) => {
-        setDeals(r.deals || []);
-        setAllDates(r.dates || []);
-        setError(null);
-      }).catch((e) => setError(e.message)).finally(() => setLoading(false));
-    };
-    useEffect15(() => {
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-      loadList();
-      dealApi(token, { action: "listLeads" }).then((r) => setDealLeads(r.leads || [])).catch(() => {
-      });
-    }, [token]);
-    const loadAccess = () => {
-      setAccessErr(null);
-      dealApi(token, { action: "listAccess" }).then((r) => setAccessRows(r.access || [])).catch((e) => setAccessErr(e.message));
-    };
-    useEffect15(() => {
-      if (showAccess) loadAccess();
-    }, [showAccess]);
-    const doSetAccess = (key, r) => {
-      setAccessBusy(true);
-      setAccessErr(null);
-      dealApi(token, { action: "setAccess", user_key: key, role: r }).then(() => loadAccess()).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
-    };
-    const doRemoveAccess = (key) => {
-      setAccessBusy(true);
-      setAccessErr(null);
-      dealApi(token, { action: "removeAccess", user_key: key }).then(() => loadAccess()).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
-    };
-    const loadDocs = (dealId) => {
-      setDocErr(null);
-      dealDocsApi(token, { action: "list", deal_id: dealId }).then((r) => {
-        setDocs(r.docs || []);
-        setDocVersions(r.versions || []);
-      }).catch((e) => setDocErr(e.message));
-    };
-    const openDetail = (deal) => {
-      setSelectedDeal(deal);
-      setDetailDeal(deal);
-      setDetailDates([]);
-      setDetailNotes([]);
-      setDocs([]);
-      setDocVersions([]);
-      setDocErr(null);
-      setEditFields({});
-      setSaveMsg(null);
-      setDetailLoading(true);
-      setDetailError(null);
-      dealApi(token, { action: "get", id: deal.id }).then((r) => {
-        setDetailDeal(r.deal);
-        setDetailDates(r.dates || []);
-        setDetailNotes(r.notes || []);
-        setEditFields({});
-      }).catch((e) => setDetailError(e.message)).finally(() => setDetailLoading(false));
-      loadDocs(deal.id);
-    };
-    const closeDetail = () => {
-      setSelectedDeal(null);
-      setDetailDeal(null);
-    };
-    const leads = Array.from(new Set(deals.map((d) => d.deal_lead).filter(Boolean))).sort();
-    const filtered = deals.filter((d) => {
-      if (filterBrand !== "all" && d.brand !== filterBrand) return false;
-      if (filterType !== "all" && d.deal_type !== filterType) return false;
-      if (filterState !== "all" && d.state !== filterState) return false;
-      if (filterStage !== "all" && d.stage !== filterStage) return false;
-      if (filterLead !== "all" && d.deal_lead !== filterLead) return false;
-      return true;
-    });
-    const datesByDeal = React.useMemo(() => {
-      const m = {};
-      for (const d of allDates) (m[d.deal_id] = m[d.deal_id] || []).push(d);
-      return m;
-    }, [allDates]);
-    const totalActive = deals.length;
-    const totalPurchaseCapital = deals.filter((d) => d.deal_type === "purchase").reduce((s, d) => s + (Number(d.purchase_price) || 0), 0);
-    const totalBaseRent = deals.filter((d) => d.deal_type === "lease").reduce((s, d) => s + (Number(d.base_rent) || 0), 0);
-    const leaseCount = deals.filter((d) => d.deal_type === "lease").length;
-    const purchaseCount = deals.filter((d) => d.deal_type === "purchase").length;
-    const nowMs = Date.now();
-    const dealFlagMap = React.useMemo(() => {
-      const m = {};
-      for (const deal of deals) m[deal.id] = dealDeadlineFlag(datesByDeal[deal.id], nowMs);
-      return m;
-    }, [deals, datesByDeal, nowMs]);
-    const within30 = deals.filter((d) => {
-      const nd = nextDeadline(datesByDeal[d.id], nowMs);
-      return nd && nd.daysOut <= 30 && nd.daysOut >= 0;
-    }).length;
-    const within60 = deals.filter((d) => {
-      const nd = nextDeadline(datesByDeal[d.id], nowMs);
-      return nd && nd.daysOut <= 60 && nd.daysOut >= 0;
-    }).length;
-    const within90 = deals.filter((d) => {
-      const nd = nextDeadline(datesByDeal[d.id], nowMs);
-      return nd && nd.daysOut <= 90 && nd.daysOut >= 0;
-    }).length;
-    const overdueCount = deals.filter((d) => dealFlagMap[d.id]?.level === "overdue").length;
-    const warningCount = deals.filter((d) => dealFlagMap[d.id]?.level === "warning").length;
-    const kpiCards = [
-      { label: "Active Deals", value: totalActive, color: "#3b82f6" },
-      { label: "Leases", value: leaseCount, color: "#22c55e" },
-      { label: "Purchases", value: purchaseCount, color: "#f59e0b" },
-      { label: "Pipeline Base Rent", value: fmtDollars(totalBaseRent), color: "#a855f7" },
-      { label: "Committed Capital", value: fmtDollars(totalPurchaseCapital), color: "#ef4444" },
-      { label: "Due \u226430d", value: within30, color: within30 > 0 ? "#ef4444" : "#64748b" },
-      { label: "Due \u226460d", value: within60, color: "#f59e0b" },
-      { label: "Due \u226490d", value: within90, color: "#64748b" },
-      { label: "Overdue / Warning", value: `${overdueCount > 0 ? "\u{1F534}" : ""}${overdueCount} / ${warningCount > 0 ? "\u{1F7E1}" : ""}${warningCount}`, color: overdueCount > 0 ? "#ef4444" : warningCount > 0 ? "#f59e0b" : "#64748b" }
-    ];
-    const Chip = ({ label, color, small }) => /* @__PURE__ */ React.createElement("span", { style: {
-      display: "inline-block",
-      padding: small ? "1px 6px" : "2px 8px",
-      borderRadius: 999,
-      background: `${color}22`,
-      color,
-      fontSize: small ? "0.62rem" : "0.68rem",
-      fontWeight: 700,
-      letterSpacing: 0.3
-    } }, label);
-    const BrandChip = ({ brand }) => brand ? /* @__PURE__ */ React.createElement(Chip, { label: BRAND_LABELS[brand] || brand, color: BRAND_COLORS[brand] || "#64748b", small: true }) : null;
-    const TypeChip = ({ type }) => /* @__PURE__ */ React.createElement(Chip, { label: type === "lease" ? "Lease" : "Purchase", color: type === "lease" ? "#22c55e" : "#f59e0b", small: true });
-    const StageChip = ({ stage }) => /* @__PURE__ */ React.createElement(Chip, { label: STAGE_MAP[stage] || stage, color: STAGE_COLORS[stage] || "#64748b", small: true });
-    const doMoveStage = (deal, newStage) => {
-      setActionErr(null);
-      setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, stage: newStage } : d));
-      if (detailDeal?.id === deal.id) setDetailDeal((prev) => ({ ...prev, stage: newStage }));
-      dealApi(token, { action: "moveStage", id: deal.id, stage: newStage }).catch((e) => {
-        setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, stage: deal.stage } : d));
-        setActionErr(`Could not move "${deal.name}": ${e.message}`);
-      });
-    };
-    const doHandoff = (deal) => {
-      if (!window.confirm(`Hand off "${deal.name}" to construction?`)) return;
-      setActionErr(null);
-      dealApi(token, { action: "handoff", id: deal.id }).then(() => {
-        setDeals((prev) => prev.filter((d) => d.id !== deal.id));
-        if (detailDeal?.id === deal.id) closeDetail();
-      }).catch((e) => setActionErr(`Handoff failed: ${e.message}`));
-    };
-    const doMarkDead = (deal) => {
-      if (!canEdit) return;
-      setDeadFor(deal);
-      setDeadReason(DEAD_REASONS[0]);
-      setDeadNote("");
-      setDeadErr(null);
-    };
-    const confirmMarkDead = () => {
-      if (!canEdit || !deadFor) return;
-      const note = deadNote.trim();
-      const reason = note ? `${deadReason} \u2014 ${note}` : deadReason;
-      const deal = deadFor;
-      setDeadBusy(true);
-      setDeadErr(null);
-      dealApi(token, { action: "markDead", id: deal.id, reason }).then(() => {
-        setDeals((prev) => prev.filter((d) => d.id !== deal.id));
-        setDeadFor(null);
-        if (detailDeal?.id === deal.id) closeDetail();
-      }).catch((e) => setDeadErr(e.message)).finally(() => setDeadBusy(false));
-    };
-    const doSave = () => {
-      if (!Object.keys(editFields).length) return;
-      setSaving(true);
-      setSaveMsg(null);
-      dealApi(token, { action: "update", id: detailDeal.id, deal: editFields }).then((r) => {
-        setDetailDeal(r.deal);
-        setDeals((prev) => prev.map((d) => d.id === r.deal.id ? r.deal : d));
-        setEditFields({});
-        setSaveMsg("Saved!");
-        setTimeout(() => setSaveMsg(null), 2e3);
-      }).catch((e) => setSaveMsg("Error: " + e.message)).finally(() => setSaving(false));
-    };
-    const doAddNote = () => {
-      if (!newNote.trim()) return;
-      setAddingNote(true);
-      setNoteErr(null);
-      dealApi(token, { action: "addNote", id: detailDeal.id, note: newNote.trim() }).then((r) => {
-        setDetailNotes(r.notes || []);
-        setNewNote("");
-      }).catch((e) => setNoteErr(e.message)).finally(() => setAddingNote(false));
-    };
-    const doCreate = () => {
-      if (!createForm.name.trim()) {
-        setCreateError("Name is required");
-        return;
-      }
-      setCreating(true);
-      setCreateError(null);
-      dealApi(token, { action: "create", deal: createForm }).then((r) => {
-        setDeals((prev) => [r.deal, ...prev]);
-        setShowCreate(false);
-        setCreateForm({ name: "", deal_type: "lease", brand: "dunkin", state: "PA", address: "", deal_lead: "" });
-        openDetail(r.deal);
-      }).catch((e) => setCreateError(e.message)).finally(() => setCreating(false));
-    };
-    const sorted = [...filtered].sort((a, b) => {
-      const va = a[sortCol] ?? "", vb = b[sortCol] ?? "";
-      const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    const toggleSort = (col) => {
-      if (sortCol === col) setSortDir((d) => d === "asc" ? "desc" : "asc");
-      else {
-        setSortCol(col);
-        setSortDir("asc");
-      }
-    };
-    if (!token || !role) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: th.muted } }, "You don't have access to the Deal Pipeline.");
-    if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: th.muted } }, "Loading deals\u2026");
-    if (error) return /* @__PURE__ */ React.createElement("div", { style: { padding: "2rem", color: "#ef4444" } }, "Error: ", error);
-    const selLabel = inp(th);
-    const KanbanView = () => {
-      const stageOrder = STAGES.map((s) => s.id);
-      return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", overflowX: "auto", paddingBottom: "1rem", alignItems: "flex-start", WebkitOverflowScrolling: "touch", scrollSnapType: "x proximity" } }, stageOrder.map((stageId, si) => {
-        const stageDeals = filtered.filter((d) => d.stage === stageId);
-        const color = STAGE_COLORS[stageId] || "#64748b";
-        const isLast = si === stageOrder.length - 1;
-        return /* @__PURE__ */ React.createElement("div", { key: stageId, style: { minWidth: 220, maxWidth: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.5rem", scrollSnapAlign: "start" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.5rem", borderRadius: "0.5rem", background: `${color}18`, borderBottom: `2px solid ${color}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" } }, STAGE_MAP[stageId]), /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: "0.68rem", background: `${color}33`, color, borderRadius: 999, padding: "1px 7px", fontWeight: 700 } }, stageDeals.length)), stageDeals.map((deal) => {
-          const prevStage = stageOrder[si - 1];
-          const nextStage = stageOrder[si + 1];
-          const flag = dealDeadlineFlag(datesByDeal[deal.id], Date.now());
-          return /* @__PURE__ */ React.createElement(
-            "div",
-            {
-              key: deal.id,
-              onClick: () => openDetail(deal),
-              style: { ...card(th), padding: "0.65rem 0.75rem", cursor: "pointer", borderLeft: `3px solid ${color}` }
-            },
-            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, marginBottom: "0.25rem", lineHeight: 1.3 } }, deal.name),
-            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.25rem", marginBottom: "0.3rem" } }, deal.brand && /* @__PURE__ */ React.createElement(BrandChip, { brand: deal.brand }), /* @__PURE__ */ React.createElement(TypeChip, { type: deal.deal_type })),
-            deal.deal_lead && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted } }, deal.deal_lead),
-            deal.deal_type === "lease" && deal.base_rent ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.2rem" } }, fmtDollars(deal.base_rent), "/mo") : deal.purchase_price ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.2rem" } }, fmtDollars(deal.purchase_price)) : null,
-            flag.level === "overdue" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#ef4444", fontWeight: 700 } }, "\u26A0 overdue")),
-            flag.level === "warning" && flag.nearest && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.65rem", color: "#f59e0b", fontWeight: 700 } }, "next: ", dateLabel(flag.nearest.date_type), " in ", flag.nearest.daysOut, "d")),
-            canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.35rem", marginTop: "0.4rem" }, onClick: (e) => e.stopPropagation() }, prevStage && /* @__PURE__ */ React.createElement("button", { onClick: () => doMoveStage(deal, prevStage), style: { ...btn(th), padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1 } }, "\u25C0"), nextStage && !isLast && /* @__PURE__ */ React.createElement("button", { onClick: () => doMoveStage(deal, nextStage), style: { ...btn(th), padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1 } }, "\u25B6"), isLast && /* @__PURE__ */ React.createElement("button", { onClick: () => doHandoff(deal), style: { ...btn(th), background: "#a855f71f", border: "1px solid #a855f755", padding: "2px 7px", fontSize: "0.68rem", lineHeight: 1, color: "#a855f7" } }, "Hand off \u2192"))
-          );
-        }));
-      }));
-    };
-    const TableView = () => {
-      const cols = [
-        { key: "name", label: "Name" },
-        { key: "brand", label: "Brand" },
-        { key: "deal_type", label: "Type" },
-        { key: "state", label: "State" },
-        { key: "stage", label: "Stage" },
-        { key: "deal_lead", label: "Lead" },
-        { key: "base_rent", label: "Base Rent" },
-        { key: "purchase_price", label: "Purchase $" },
-        { key: "_deadline", label: "Deadline", noSort: true }
-      ];
-      return /* @__PURE__ */ React.createElement("div", { style: { ...card(th), overflow: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: th.sidebar, color: th.muted, textAlign: "left" } }, cols.map((c) => /* @__PURE__ */ React.createElement(
-        "th",
-        {
-          key: c.key,
-          onClick: () => !c.noSort && toggleSort(c.key),
-          style: { padding: "0.6rem 0.75rem", fontWeight: 700, cursor: c.noSort ? "default" : "pointer", whiteSpace: "nowrap", userSelect: "none" }
-        },
-        c.label,
-        !c.noSort && sortCol === c.key ? sortDir === "asc" ? " \u2191" : " \u2193" : ""
-      )))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => {
-        const tf = dealDeadlineFlag(datesByDeal[d.id], Date.now());
-        return /* @__PURE__ */ React.createElement(
-          "tr",
-          {
-            key: d.id,
-            onClick: () => openDetail(d),
-            style: { cursor: "pointer", borderTop: `1px solid ${th.cardBorder}`, color: th.text }
-          },
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", fontWeight: 600 } }, d.name),
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(BrandChip, { brand: d.brand })),
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(TypeChip, { type: d.deal_type })),
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted } }, d.state),
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, /* @__PURE__ */ React.createElement(StageChip, { stage: d.stage })),
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem", color: th.muted } }, d.deal_lead || "\u2014"),
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, d.base_rent ? fmtDollars(d.base_rent) : "\u2014"),
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, d.purchase_price ? fmtDollars(d.purchase_price) : "\u2014"),
-          /* @__PURE__ */ React.createElement("td", { style: { padding: "0.5rem 0.75rem" } }, tf.level === "overdue" && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#ef4444", fontWeight: 700 } }, "overdue")), tf.level === "warning" && tf.nearest && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: "0.25rem" } }, /* @__PURE__ */ React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: "#f59e0b", fontWeight: 700 } }, tf.nearest.daysOut, "d")), tf.level === "none" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.68rem" } }, "\u2014"))
-        );
-      }), sorted.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 9, style: { padding: "1.5rem", textAlign: "center", color: th.muted } }, "No deals match filters.")))));
-    };
-    const DetailModal = () => {
-      if (!selectedDeal) return null;
-      const d = detailDeal || selectedDeal;
-      const fv = (key) => editFields[key] !== void 0 ? editFields[key] : d[key] ?? "";
-      const set = (key, val) => setEditFields((prev) => ({ ...prev, [key]: val }));
-      const Field = ({ label, fkey, type = "text", readOnly = false }) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, label), canEdit && !readOnly ? /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          type,
-          value: fv(fkey),
-          onChange: (e) => set(fkey, e.target.value),
-          style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
-        }
-      ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, padding: "0.2rem 0" } }, d[fkey] ?? "\u2014"));
-      const SelectField = ({ label, fkey, options }) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, label), canEdit ? /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: fv(fkey),
-          onChange: (e) => set(fkey, e.target.value),
-          style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
-        },
-        options.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.v, value: o.v }, o.l))
-      ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, padding: "0.2rem 0" } }, d[fkey] ?? "\u2014"));
-      return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 9999, display: "flex", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("div", { onClick: closeDetail, style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", width: "100%", maxWidth: 640, background: th.bg, overflowY: "auto", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem", boxShadow: "-8px 0 30px rgba(0,0,0,0.4)", zIndex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0, fontSize: "1.2rem" } }, d.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.4rem", marginTop: "0.4rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(BrandChip, { brand: d.brand }), /* @__PURE__ */ React.createElement(TypeChip, { type: d.deal_type }), /* @__PURE__ */ React.createElement(StageChip, { stage: d.stage }), d.state && /* @__PURE__ */ React.createElement(Chip, { label: d.state, color: "#64748b", small: true }))), /* @__PURE__ */ React.createElement("button", { onClick: closeDetail, style: { ...btn(th), padding: "0.3rem 0.7rem", fontSize: "0.8rem", flexShrink: 0 } }, "\u2715")), detailLoading && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026"), detailError && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.85rem" } }, "Error: ", detailError), canEdit && !detailLoading && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: d.stage,
-          onChange: (e) => doMoveStage(d, e.target.value),
-          style: { ...selLabel, padding: "0.35rem 0.6rem", fontSize: "0.8rem" }
-        },
-        STAGES.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.label))
-      ), /* @__PURE__ */ React.createElement("button", { onClick: () => doHandoff(d), style: { ...btn(th), background: "#a855f71f", border: "1px solid #a855f755", padding: "0.35rem 0.8rem", fontSize: "0.8rem", color: "#a855f7" } }, "Hand off \u2192"), /* @__PURE__ */ React.createElement("button", { onClick: () => doMarkDead(d), style: { ...btn(th), background: "#ef44441f", border: "1px solid #ef444455", padding: "0.35rem 0.8rem", fontSize: "0.8rem", color: "#ef4444" } }, "Mark Dead")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Core"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Name", fkey: "name" }), Field({ label: "Address", fkey: "address" }), Field({ label: "City", fkey: "city" }), SelectField({ label: "State", fkey: "state", options: [{ v: "PA", l: "PA" }, { v: "NJ", l: "NJ" }] }), SelectField({ label: "Brand", fkey: "brand", options: [{ v: "dunkin", l: "Dunkin'" }, { v: "papajohns", l: "Papa Johns" }, { v: "bww_go", l: "BWW Go" }, { v: "dual", l: "Dual" }] }), SelectField({ label: "Deal Type", fkey: "deal_type", options: [{ v: "lease", l: "Lease" }, { v: "purchase", l: "Purchase" }] }), (() => {
-        const currentVal = fv("deal_lead");
-        const inList = dealLeads.some((l) => l.name === currentVal);
-        return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.65rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Deal Lead"), canEdit ? /* @__PURE__ */ React.createElement(
-          "select",
-          {
-            value: currentVal,
-            onChange: (e) => set("deal_lead", e.target.value),
-            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
-          },
-          /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select Lead \u2014"),
-          !inList && currentVal && /* @__PURE__ */ React.createElement("option", { value: currentVal }, currentVal),
-          dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.name }, l.name))
-        ) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, padding: "0.2rem 0" } }, d["deal_lead"] ?? "\u2014"));
-      })(), Field({ label: "Broker Source", fkey: "broker_source" }), Field({ label: "PC Number", fkey: "pc_number" }), Field({ label: "Sq Ft", fkey: "sqft", type: "number" }))), d.deal_type === "lease" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Lease Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Landlord Entity", fkey: "landlord_entity" }), Field({ label: "Landlord Contact", fkey: "landlord_contact" }), Field({ label: "Lease Structure", fkey: "lease_structure" }), Field({ label: "Base Rent ($/mo)", fkey: "base_rent", type: "number" }), Field({ label: "Rent PSF", fkey: "rent_psf", type: "number" }), Field({ label: "Term (years)", fkey: "term_years", type: "number" }), Field({ label: "TI Allowance", fkey: "ti_allowance", type: "number" }), Field({ label: "Free Rent (mo)", fkey: "free_rent", type: "number" }), Field({ label: "Est NNN/CAM", fkey: "est_nnn_cam", type: "number" }), Field({ label: "CAM Cap", fkey: "cam_cap" }), Field({ label: "Guaranty Type", fkey: "guaranty_type" }), Field({ label: "Use Clause", fkey: "use_clause" }), Field({ label: "Exclusivity", fkey: "exclusivity" }), Field({ label: "Escalations", fkey: "escalations" }), Field({ label: "Renewal Options", fkey: "renewal_options" }), Field({ label: "Security Deposit", fkey: "security_deposit", type: "number" }))), d.deal_type === "purchase" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Purchase Terms"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "Seller Entity", fkey: "seller_entity" }), Field({ label: "Seller Contact", fkey: "seller_contact" }), Field({ label: "Purchase Price", fkey: "purchase_price", type: "number" }), Field({ label: "Earnest Money", fkey: "earnest_money", type: "number" }), Field({ label: "EMD Hard Date", fkey: "emd_hard" }), Field({ label: "Title/Escrow Co", fkey: "title_escrow_co" }), Field({ label: "Lender", fkey: "lender" }), Field({ label: "Loan Terms", fkey: "loan_terms" }), Field({ label: "Appraisal Status", fkey: "appraisal_status" }), Field({ label: "Phase 1 Status", fkey: "phase1_status" }), Field({ label: "Survey Status", fkey: "survey_status" }), Field({ label: "Zoning Status", fkey: "zoning_status" }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" } }, Field({ label: "SPE Entity", fkey: "spe_entity" })), canEdit && Object.keys(editFields).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { onClick: doSave, disabled: saving, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, saving ? "Saving\u2026" : "Save Changes"), saveMsg && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.8rem", color: saveMsg.startsWith("Error") ? "#ef4444" : "#22c55e" } }, saveMsg)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Activity Log"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, detailNotes.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted } }, "No activity yet."), detailNotes.map((n, i) => {
-        const isSys = n.kind === "system";
-        return /* @__PURE__ */ React.createElement("div", { key: i, style: {
-          ...card(th),
-          padding: "0.6rem 0.75rem",
-          ...isSys ? { borderLeft: `3px solid ${O}`, background: th.bg, opacity: 0.95 } : {}
-        } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: th.muted, marginBottom: "0.2rem", display: "flex", alignItems: "center", gap: "0.4rem" } }, isSys && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.58rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, color: O, background: O + "22", padding: "0.05rem 0.35rem", borderRadius: 4 } }, "System"), /* @__PURE__ */ React.createElement("strong", { style: { color: th.text } }, n.author || "Unknown"), n.created_at ? /* @__PURE__ */ React.createElement("span", null, " \xB7 ", relTime(n.created_at)) : ""), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, fontStyle: isSys ? "italic" : "normal" } }, n.body || n.note));
-      })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          value: newNote,
-          onChange: (e) => setNewNote(e.target.value),
-          placeholder: "Add a note\u2026",
-          style: { ...selLabel, flex: 1, padding: "0.4rem 0.6rem", fontSize: "0.82rem" },
-          onKeyDown: (e) => e.key === "Enter" && doAddNote()
-        }
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: doAddNote,
-          disabled: addingNote || !newNote.trim(),
-          style: { ...btn(th), padding: "0.4rem 0.8rem", fontSize: "0.8rem" }
-        },
-        addingNote ? "\u2026" : "Add"
-      )), noteErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#ef4444", marginTop: "0.4rem" } }, "Error: ", noteErr)), (() => {
-        const nowMsD = Date.now();
-        const sortedDates = [...detailDates].sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
-        const doAck = (dateId) => {
-          dealApi(token, { action: "ackDate", id: dateId }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
-            setDetailDates(r.dates || []);
-            setDetailNotes(r.notes || []);
-          }).then(() => loadList()).catch((e) => alert("Ack failed: " + e.message));
-        };
-        const doDelDate = (dateId) => {
-          if (!window.confirm("Delete this date?")) return;
-          dealApi(token, { action: "deleteDate", id: dateId }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
-            setDetailDates(r.dates || []);
-            setDetailNotes(r.notes || []);
-          }).then(() => loadList()).catch((e) => alert("Delete failed: " + e.message));
-        };
-        const doAddDate = () => {
-          if (!newDateDue) {
-            setDateErr("Due date is required");
-            return;
-          }
-          const parsedTiers = newDateTiers.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
-          setDateAdding(true);
-          setDateErr(null);
-          dealApi(token, { action: "addDate", deal_id: d.id, date_type: newDateType, due_date: newDateDue, warning_tiers: parsedTiers, recurring: newDateRecurring || null, notes: newDateNotes }).then(() => dealApi(token, { action: "get", id: d.id })).then((r) => {
-            setDetailDates(r.dates || []);
-            setNewDateDue("");
-            setNewDateNotes("");
-            setNewDateRecurring("");
-            const dt = DATE_TYPES.find((t) => t.id === newDateType);
-            setNewDateTiers(dt?.defaultTiers?.join(",") || "");
-          }).then(() => loadList()).catch((e) => setDateErr(e.message)).finally(() => setDateAdding(false));
-        };
-        const doIcs = () => {
-          const ics = icsForDeal(d, detailDates);
-          const blob = new Blob([ics], { type: "text/calendar" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = (d.name || "deal") + "-dates.ics";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        };
-        const gcalUrl = (dt) => {
-          const ymd = String(dt.due_date || "").slice(0, 10).replace(/-/g, "");
-          if (ymd.length !== 8) return "#";
-          const start = ymd;
-          const dd = new Date(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8) + 1);
-          const end = `${dd.getFullYear()}${String(dd.getMonth() + 1).padStart(2, "0")}${String(dd.getDate()).padStart(2, "0")}`;
-          const title = `${detailDeal.name ? detailDeal.name + " \u2014 " : ""}${dateLabel(dt.date_type)}`;
-          const details = dt.notes || "";
-          return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${start}/${end}&details=${encodeURIComponent(details)}`;
-        };
-        return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1 } }, "Critical Dates"), detailDates.length > 0 && /* @__PURE__ */ React.createElement("button", { onClick: doIcs, style: { ...btn(th), padding: "2px 8px", fontSize: "0.7rem" } }, "\u{1F4C5} Add to Calendar (.ics)")), sortedDates.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.5rem" } }, "No dates yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" } }, sortedDates.map((dt) => {
-          const ws = warningStatus(dt.due_date, dt.warning_tiers, nowMsD);
-          const statusColor = ws.level === "overdue" ? "#ef4444" : ws.level === "warning" ? "#f59e0b" : th.muted;
-          const statusText = ws.level === "overdue" ? "\u26A0 overdue" : ws.level === "warning" ? `in ${ws.daysOut}d` : `in ${ws.daysOut}d`;
-          const tiers = Array.isArray(dt.warning_tiers) ? dt.warning_tiers : [];
-          const isRemindOpen = remindFor && remindFor.id === dt.id;
-          const fmtDealDate = (s) => {
-            const ymd = String(s || "").slice(0, 10);
-            const p = ymd.split("-");
-            return p.length === 3 ? `${p[1]}/${p[2]}/${p[0]}` : ymd;
-          };
-          const openReminder = (dateRow) => {
-            const due = dateRow.due_date || "";
-            const dueFmt = fmtDealDate(due);
-            const days = daysUntil(due, Date.now());
-            const tail = days < 0 ? `\u2014 OVERDUE by ${Math.abs(days)} days` : `\u2014 in ${days} days`;
-            const autoMsg = `${detailDeal.name} \u2014 ${dateLabel(dateRow.date_type)} needed on ${dueFmt} ${tail}`;
-            setRemindFor(dateRow);
-            setRemindPhone("");
-            setRemindMsg(autoMsg);
-            setRemindStatus(null);
-          };
-          const doSendReminder = async () => {
-            setRemindBusy(true);
-            setRemindStatus(null);
-            try {
-              const r = await dealApi(token, { action: "sendReminder", deal_id: detailDeal.id, phone: remindPhone, message: remindMsg });
-              if (r.notes) setDetailNotes(r.notes);
-              setRemindStatus(r.ok ? "\u2705 Sent" : "\u26A0 Logged but SMS failed");
-              if (r.ok) setTimeout(() => {
-                setRemindFor(null);
-                setRemindStatus(null);
-              }, 1800);
-            } catch (e) {
-              setRemindStatus("\u274C Error: " + e.message);
-            } finally {
-              setRemindBusy(false);
-            }
-          };
-          return /* @__PURE__ */ React.createElement("div", { key: dt.id }, /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.6rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 700, color: th.text } }, dateLabel(dt.date_type)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, fmtDealDate(dt.due_date)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.72rem", fontWeight: 700, color: statusColor } }, statusText), dt.recurring && /* @__PURE__ */ React.createElement("span", { title: `Recurring (${dt.recurring})`, style: { fontSize: "0.72rem", color: th.muted, fontWeight: 700 } }, "\u{1F501} ", dt.recurring), tiers.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", gap: "0.2rem" } }, tiers.map((t, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", padding: "1px 5px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.6rem", fontWeight: 700 } }, t)))), dt.acknowledged_at ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", color: "#22c55e" } }, "\u2713 ack'd by ", dt.acknowledged_by || "unknown") : null, dt.notes ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, marginTop: "0.1rem" } }, dt.notes) : null), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("a", { href: gcalUrl(dt), target: "_blank", rel: "noopener noreferrer", style: { ...btn(th), background: "#4285f41f", border: "1px solid #4285f455", color: "#4285f4", padding: "2px 8px", fontSize: "0.68rem", textDecoration: "none", display: "inline-flex", alignItems: "center" } }, "\u{1F4C5} Google"), canEdit && /* @__PURE__ */ React.createElement(
-            "button",
-            {
-              onClick: () => isRemindOpen ? setRemindFor(null) : openReminder(dt),
-              style: { ...btn(th), background: "#a855f71f", border: "1px solid #a855f755", padding: "2px 8px", fontSize: "0.68rem", color: "#a855f7" }
-            },
-            "\u{1F4F1} Remind"
-          ), canEdit && !dt.acknowledged_at && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => doAck(dt.id), style: { ...btn(th), background: "#22c55e1f", border: "1px solid #22c55e55", padding: "2px 8px", fontSize: "0.68rem", color: "#22c55e" } }, "Acknowledge"), /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), background: "#ef44441f", border: "1px solid #ef444455", padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")), canEdit && dt.acknowledged_at && /* @__PURE__ */ React.createElement("button", { onClick: () => doDelDate(dt.id), style: { ...btn(th), background: "#ef44441f", border: "1px solid #ef444455", padding: "2px 8px", fontSize: "0.68rem", color: "#ef4444" } }, "Delete")))), isRemindOpen && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", marginTop: "0.25rem", display: "flex", flexDirection: "column", gap: "0.5rem", borderLeft: "3px solid #a855f7" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: "#a855f7", textTransform: "uppercase", letterSpacing: 0.5 } }, "Send reminder \u2014 ", detailDeal.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.72rem", color: th.muted, fontWeight: 600 } }, "Recipient"), /* @__PURE__ */ React.createElement(
-            "select",
-            {
-              value: remindPhone,
-              onChange: (e) => setRemindPhone(e.target.value),
-              style: { ...inp(th), fontSize: "0.82rem", padding: "0.35rem 0.5rem" }
-            },
-            /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select recipient \u2014"),
-            dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.phone || "", disabled: !l.phone }, l.name, l.phone ? ` \u2014 ${formatPhone(l.phone)}` : " (no number on file)"))
-          )), /* @__PURE__ */ React.createElement(
-            "textarea",
-            {
-              value: remindMsg,
-              onChange: (e) => setRemindMsg(e.target.value),
-              rows: 3,
-              style: { ...inp(th), fontSize: "0.8rem", padding: "0.35rem 0.5rem", resize: "vertical" }
-            }
-          ), remindStatus && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: remindStatus.startsWith("\u2705") ? "#22c55e" : remindStatus.startsWith("\u26A0") ? "#f59e0b" : "#ef4444" } }, remindStatus), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
-            "button",
-            {
-              onClick: doSendReminder,
-              disabled: remindBusy || !remindPhone,
-              style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem", background: "#a855f7", color: "#fff", border: "none", fontWeight: 700, opacity: !remindPhone || remindBusy ? 0.5 : 1 }
-            },
-            remindBusy ? "Sending\u2026" : "Send"
-          ), /* @__PURE__ */ React.createElement(
-            "button",
-            {
-              onClick: () => {
-                setRemindFor(null);
-                setRemindStatus(null);
-              },
-              style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem" }
-            },
-            "Cancel"
-          ))));
-        })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { ...card(th), padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Add Date"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(
-          "select",
-          {
-            value: newDateType,
-            onChange: (e) => {
-              setNewDateType(e.target.value);
-              const dt2 = DATE_TYPES.find((t) => t.id === e.target.value);
-              setNewDateTiers(dt2?.defaultTiers?.join(",") || "");
-            },
-            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
-          },
-          DATE_TYPES.map((t) => /* @__PURE__ */ React.createElement("option", { key: t.id, value: t.id }, t.label))
-        ), /* @__PURE__ */ React.createElement(
-          "input",
-          {
-            type: "date",
-            value: newDateDue,
-            onChange: (e) => setNewDateDue(e.target.value),
-            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
-          }
-        ), /* @__PURE__ */ React.createElement(
-          "input",
-          {
-            value: newDateTiers,
-            onChange: (e) => setNewDateTiers(e.target.value),
-            placeholder: "Warning tiers (e.g. 30,14,7)",
-            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
-          }
-        ), /* @__PURE__ */ React.createElement(
-          "select",
-          {
-            value: newDateRecurring,
-            onChange: (e) => setNewDateRecurring(e.target.value),
-            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
-          },
-          /* @__PURE__ */ React.createElement("option", { value: "" }, "Does not recur"),
-          /* @__PURE__ */ React.createElement("option", { value: "monthly" }, "\u{1F501} Recurring \u2014 Monthly"),
-          /* @__PURE__ */ React.createElement("option", { value: "quarterly" }, "\u{1F501} Recurring \u2014 Quarterly"),
-          /* @__PURE__ */ React.createElement("option", { value: "annual" }, "\u{1F501} Recurring \u2014 Annual")
-        ), /* @__PURE__ */ React.createElement(
-          "input",
-          {
-            value: newDateNotes,
-            onChange: (e) => setNewDateNotes(e.target.value),
-            placeholder: "Notes (optional)",
-            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem" }
-          }
-        )), dateErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: "#ef4444" } }, dateErr), /* @__PURE__ */ React.createElement("button", { onClick: doAddDate, disabled: dateAdding, style: { ...btn(th), padding: "0.35rem 0.9rem", fontSize: "0.8rem", alignSelf: "flex-start", background: "#3b82f6", color: "#fff", border: "none", fontWeight: 700 } }, dateAdding ? "Adding\u2026" : "Add Date")));
-      })(), (() => {
-        const DOC_TYPE_LABELS = {
-          loi: "LOI",
-          lease_psa: "Lease / PSA",
-          amendment: "Amendment",
-          estoppel: "Estoppel",
-          snda: "SNDA",
-          title: "Title",
-          survey: "Survey",
-          phase1: "Phase I",
-          zoning: "Zoning",
-          appraisal: "Appraisal",
-          guaranty: "Guaranty",
-          closing: "Closing",
-          other: "Other"
-        };
-        const DOC_TYPE_OPTIONS = Object.entries(DOC_TYPE_LABELS);
-        const fmtBytes = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? (n / 1024).toFixed(0) + " KB" : (n || 0) + " B";
-        const fmtDate2 = (s) => s ? new Date(s).toLocaleDateString() : "";
-        const doUploadNew = async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          e.target.value = "";
-          setDocBusy(true);
-          setDocErr(null);
-          try {
-            await dealUploadDoc(token, { deal_id: d.id, doc_type: newDocType, file });
-            loadDocs(d.id);
-          } catch (err) {
-            setDocErr(err.message);
-          } finally {
-            setDocBusy(false);
-          }
-        };
-        const doUploadVersion = async (doc, e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          e.target.value = "";
-          setDocBusy(true);
-          setDocErr(null);
-          try {
-            await dealUploadDoc(token, { deal_id: d.id, document_id: doc.id, doc_type: doc.doc_type, file });
-            loadDocs(d.id);
-          } catch (err) {
-            setDocErr(err.message);
-          } finally {
-            setDocBusy(false);
-          }
-        };
-        const sortedDocs = [...docs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: "0.6rem" } }, "Documents"), docErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", marginBottom: "0.5rem" } }, "Error: ", docErr), sortedDocs.length === 0 && !docBusy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.8rem", color: th.muted, marginBottom: "0.75rem" } }, "No documents yet."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "0.75rem" } }, sortedDocs.map((doc) => {
-          const versions = [...docVersions.filter((v) => v.document_id === doc.id)].sort((a, b) => b.version_no - a.version_no);
-          return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { ...card(th), padding: "0.65rem 0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 7px", borderRadius: 999, background: "#3b82f622", color: "#3b82f6", fontSize: "0.62rem", fontWeight: 700, letterSpacing: 0.3 } }, DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", fontWeight: 600, color: th.text } }, doc.title || "\u2014")), canEdit && /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "2px 8px", fontSize: "0.68rem", opacity: docBusy ? 0.5 : 1 } }, "\u2191 New version"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv", style: { display: "none" }, disabled: docBusy, onChange: (e) => doUploadVersion(doc, e) }))), versions.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", color: th.muted } }, "No versions uploaded."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, versions.map((v) => /* @__PURE__ */ React.createElement("div", { key: v.id, style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { display: "inline-block", padding: "1px 6px", borderRadius: 999, background: `${th.cardBorder}`, color: th.muted, fontSize: "0.62rem", fontWeight: 700 } }, "v", v.version_no), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.text, fontWeight: 500 } }, v.filename), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtBytes(v.size)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, v.uploaded_by), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, "\xB7"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.68rem", color: th.muted } }, fmtDate2(v.uploaded_at)), /* @__PURE__ */ React.createElement(
-            "button",
-            {
-              onClick: () => dealDownloadVersion(token, v.id),
-              style: { ...btn(th), padding: "1px 8px", fontSize: "0.68rem", marginLeft: "auto" }
-            },
-            "Download"
-          )))));
-        })), canEdit && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
-          "select",
-          {
-            value: newDocType,
-            onChange: (e) => setNewDocType(e.target.value),
-            style: { ...selLabel, padding: "0.35rem 0.5rem", fontSize: "0.8rem", minWidth: 130 }
-          },
-          DOC_TYPE_OPTIONS.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))
-        ), /* @__PURE__ */ React.createElement("label", { style: { cursor: docBusy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { ...btn(th), padding: "0.35rem 0.8rem", fontSize: "0.8rem", opacity: docBusy ? 0.5 : 1, display: "inline-block" } }, docBusy ? "Uploading\u2026" : "Upload Document"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv", style: { display: "none" }, disabled: docBusy, onChange: doUploadNew }))));
-      })()));
-    };
-    const CreateModal = () => {
-      if (!showCreate) return null;
-      return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setShowCreate(false), style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)" } }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative", background: th.bg, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 480, boxShadow: "0 8px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: "0.75rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "New Deal"), [
-        { label: "Name", key: "name", type: "text" },
-        { label: "Address", key: "address", type: "text" }
-      ].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key, style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, f.label), /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          type: f.type,
-          value: createForm[f.key],
-          onChange: (e) => setCreateForm((p) => ({ ...p, [f.key]: e.target.value })),
-          style: { ...selLabel, padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
-        }
-      ))), [
-        { label: "Deal Type", key: "deal_type", options: [{ v: "lease", l: "Lease" }, { v: "purchase", l: "Purchase" }] },
-        { label: "Brand", key: "brand", options: [{ v: "dunkin", l: "Dunkin'" }, { v: "papajohns", l: "Papa Johns" }, { v: "bww_go", l: "BWW Go" }, { v: "dual", l: "Dual" }] },
-        { label: "State", key: "state", options: [{ v: "PA", l: "PA" }, { v: "NJ", l: "NJ" }] }
-      ].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key, style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, f.label), /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: createForm[f.key],
-          onChange: (e) => setCreateForm((p) => ({ ...p, [f.key]: e.target.value })),
-          style: { ...selLabel, padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
-        },
-        f.options.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.v, value: o.v }, o.l))
-      ))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Deal Lead"), /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: createForm.deal_lead,
-          onChange: (e) => setCreateForm((p) => ({ ...p, deal_lead: e.target.value })),
-          style: { ...selLabel, padding: "0.4rem 0.6rem", fontSize: "0.85rem" }
-        },
-        /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Select Lead \u2014"),
-        dealLeads.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.name }, l.name))
-      )), createError && /* @__PURE__ */ React.createElement("div", { style: { color: "#ef4444", fontSize: "0.82rem" } }, createError), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCreate(false), style: { ...btn(th), padding: "0.45rem 0.9rem" } }, "Cancel"), /* @__PURE__ */ React.createElement("button", { onClick: doCreate, disabled: creating, style: { ...btn(th), padding: "0.45rem 1.2rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none" } }, creating ? "Creating\u2026" : "Create Deal"))));
-    };
-    return /* @__PURE__ */ React.createElement("div", { style: { padding: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "Deal Pipeline"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.25rem", background: th.card, border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", padding: "0.2rem" } }, ["kanban", "table"].map((v) => /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        key: v,
-        onClick: () => setView(v),
-        style: {
-          padding: "0.3rem 0.75rem",
-          borderRadius: "0.35rem",
-          border: "none",
-          cursor: "pointer",
-          fontWeight: 700,
-          fontSize: "0.78rem",
-          background: view === v ? "#3b82f6" : "transparent",
-          color: view === v ? "#fff" : th.muted,
-          transition: "all .15s"
-        }
-      },
-      v === "kanban" ? "Dealboard" : "Table"
-    ))), canEdit && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCreate(true), style: { ...btn(th), padding: "0.4rem 0.9rem", fontWeight: 700, background: "#22c55e", color: "#fff", border: "none", fontSize: "0.82rem" } }, "+ New Deal"), role === "admin" && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAccess(true), style: { ...btn(th), padding: "0.4rem 0.9rem", fontWeight: 700, background: th.card, color: th.text, border: `1px solid ${th.cardBorder}`, fontSize: "0.82rem" } }, "\u{1F512} Manage Access"))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" } }, kpiCards.map((k) => /* @__PURE__ */ React.createElement("div", { key: k.label, style: { ...card(th), padding: "1rem 1.125rem", borderTop: `3px solid ${k.color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.45rem", color: th.text } }, k.value), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.68rem", fontWeight: 600, color: th.muted, marginTop: "0.3rem", textTransform: "uppercase", letterSpacing: 0.5 } }, k.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "1rem" } }, STAGES.map((s) => {
-      const cnt = deals.filter((d) => d.stage === s.id).length;
-      if (!cnt) return null;
-      return /* @__PURE__ */ React.createElement(Chip, { key: s.id, label: `${s.label}: ${cnt}`, color: STAGE_COLORS[s.id], small: true });
-    })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" } }, [
-      { label: "Brand", val: filterBrand, set: setFilterBrand, opts: [["all", "All Brands"], ["dunkin", "Dunkin'"], ["papajohns", "Papa Johns"], ["bww_go", "BWW Go"], ["dual", "Dual"]] },
-      { label: "Type", val: filterType, set: setFilterType, opts: [["all", "All Types"], ["lease", "Lease"], ["purchase", "Purchase"]] },
-      { label: "State", val: filterState, set: setFilterState, opts: [["all", "All States"], ["PA", "PA"], ["NJ", "NJ"]] },
-      { label: "Stage", val: filterStage, set: setFilterStage, opts: [["all", "All Stages"], ...STAGES.map((s) => [s.id, s.label])] },
-      { label: "Lead", val: filterLead, set: setFilterLead, opts: [["all", "All Leads"], ...leads.map((l) => [l, l])] }
-    ].map((f) => /* @__PURE__ */ React.createElement(
-      "select",
-      {
-        key: f.label,
-        value: f.val,
-        onChange: (e) => f.set(e.target.value),
-        style: { ...selLabel, padding: "0.35rem 0.6rem", fontSize: "0.8rem", minWidth: 110 }
-      },
-      f.opts.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))
-    )), (filterBrand !== "all" || filterType !== "all" || filterState !== "all" || filterStage !== "all" || filterLead !== "all") && /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => {
-          setFilterBrand("all");
-          setFilterType("all");
-          setFilterState("all");
-          setFilterStage("all");
-          setFilterLead("all");
-        },
-        style: { ...btn(th), background: "#ef44441f", border: "1px solid #ef444455", padding: "0.35rem 0.7rem", fontSize: "0.78rem", color: "#ef4444" }
-      },
-      "Clear"
-    )), actionErr && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", background: "#ef444418", border: "1px solid #ef444455", color: "#ef4444", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", marginBottom: "0.75rem", fontSize: "0.8rem", fontWeight: 600 } }, /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, actionErr), /* @__PURE__ */ React.createElement("button", { onClick: () => setActionErr(null), style: { background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "0.9rem", lineHeight: 1 } }, "\xD7")), view === "kanban" ? /* @__PURE__ */ React.createElement(KanbanView, null) : /* @__PURE__ */ React.createElement(TableView, null), DetailModal(), CreateModal(), canEdit && deadFor && /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        style: { position: "fixed", inset: 0, zIndex: 1e4, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
-        onClick: (e) => {
-          if (e.target === e.currentTarget && !deadBusy) setDeadFor(null);
-        }
-      },
-      /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)" }, onClick: () => {
-        if (!deadBusy) setDeadFor(null);
-      } }),
-      /* @__PURE__ */ React.createElement("div", { style: { position: "relative", background: th.bg, borderRadius: "0.75rem", padding: "1.5rem", width: "100%", maxWidth: 440, boxShadow: "0 8px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: "0.85rem" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "'Raleway'", fontWeight: 800, color: th.text, margin: 0 } }, "Mark Deal Dead"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, '"', deadFor.name, '" will be marked dead and removed from the active pipeline.'), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Reason"), /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: deadReason,
-          onChange: (e) => setDeadReason(e.target.value),
-          style: { ...selLabel, padding: "0.45rem 0.6rem", fontSize: "0.85rem" }
-        },
-        DEAD_REASONS.map((r) => /* @__PURE__ */ React.createElement("option", { key: r, value: r }, r))
-      )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.3rem" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "0.68rem", fontWeight: 700, color: th.muted, textTransform: "uppercase", letterSpacing: 0.5 } }, "Note (optional)"), /* @__PURE__ */ React.createElement(
-        "textarea",
-        {
-          value: deadNote,
-          onChange: (e) => setDeadNote(e.target.value),
-          rows: 3,
-          placeholder: "Additional detail\u2026",
-          style: { ...inp(th), fontSize: "0.82rem", padding: "0.4rem 0.6rem", resize: "vertical" }
-        }
-      )), deadErr && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444" } }, "Error: ", deadErr), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => setDeadFor(null),
-          disabled: deadBusy,
-          style: { ...btn(th), padding: "0.45rem 1rem", fontSize: "0.82rem" }
-        },
-        "Cancel"
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: confirmMarkDead,
-          disabled: deadBusy,
-          style: { ...btn(th), padding: "0.45rem 1.1rem", fontSize: "0.82rem", fontWeight: 700, background: "#ef4444", color: "#fff", border: "none" }
-        },
-        deadBusy ? "Marking\u2026" : "Mark Dead"
-      )))
-    ), showAccess && /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
-        onClick: (e) => {
-          if (e.target === e.currentTarget) setShowAccess(false);
-        }
-      },
-      /* @__PURE__ */ React.createElement("div", { style: { ...card(th), width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto", padding: "1.5rem", position: "relative" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 800, fontSize: "1.15rem", color: th.text } }, "\u{1F512} Manage Deal Pipeline Access"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: th.muted, marginTop: "0.25rem" } }, "Who can see and edit the Deal Pipeline. Admins manage this list.")), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAccess(false), style: { ...btn(th), padding: "0.25rem 0.6rem", fontSize: "0.78rem", color: th.muted, background: "transparent", border: "none" } }, "\u2715")), accessErr && /* @__PURE__ */ React.createElement("div", { style: { background: "#fee2e2", color: "#991b1b", borderRadius: "0.4rem", padding: "0.5rem 0.75rem", marginBottom: "0.75rem", fontSize: "0.82rem" } }, accessErr), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, accessRows === null ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "Loading\u2026") : accessRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.85rem" } }, "No access entries yet.") : /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "User"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "Role"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", padding: "0.35rem 0.5rem", color: th.muted, fontWeight: 600 } }, "Added by"), /* @__PURE__ */ React.createElement("th", { style: { padding: "0.35rem 0.5rem" } }))), /* @__PURE__ */ React.createElement("tbody", null, accessRows.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.user_key, style: { borderBottom: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.text, fontWeight: 600 } }, row.user_key), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem" } }, /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: row.role,
-          disabled: accessBusy,
-          onChange: (e) => doSetAccess(row.user_key, e.target.value),
-          style: { ...inp(th), padding: "0.2rem 0.4rem", fontSize: "0.78rem", width: "auto" }
-        },
-        /* @__PURE__ */ React.createElement("option", { value: "view" }, "view"),
-        /* @__PURE__ */ React.createElement("option", { value: "edit" }, "edit"),
-        /* @__PURE__ */ React.createElement("option", { value: "admin" }, "admin")
-      )), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem", color: th.muted, fontSize: "0.75rem" } }, row.added_by || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "0.4rem 0.5rem" } }, /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          disabled: accessBusy,
-          onClick: () => doRemoveAccess(row.user_key),
-          style: { ...btn(th), padding: "0.2rem 0.5rem", fontSize: "0.75rem", color: "#ef4444", background: "transparent", border: `1px solid #ef4444` }
-        },
-        "Remove"
-      ))))))), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Grant Access"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          value: accessInput,
-          onChange: (e) => setAccessInput(e.target.value),
-          placeholder: "email or username",
-          style: { ...inp(th), flex: 1, minWidth: 160, padding: "0.35rem 0.6rem", fontSize: "0.82rem" }
-        }
-      ), /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: accessRole,
-          onChange: (e) => setAccessRole(e.target.value),
-          style: { ...inp(th), padding: "0.35rem 0.5rem", fontSize: "0.82rem", width: "auto" }
-        },
-        /* @__PURE__ */ React.createElement("option", { value: "view" }, "view"),
-        /* @__PURE__ */ React.createElement("option", { value: "edit" }, "edit"),
-        /* @__PURE__ */ React.createElement("option", { value: "admin" }, "admin")
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          disabled: accessBusy || !accessInput.trim(),
-          onClick: () => {
-            doSetAccess(accessInput.trim(), accessRole);
-            setAccessInput("");
-          },
-          style: { ...btn(th), padding: "0.35rem 0.9rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", fontSize: "0.82rem", opacity: accessBusy || !accessInput.trim() ? 0.5 : 1 }
-        },
-        "Grant Access"
-      )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.73rem", color: th.muted, marginTop: "0.4rem" } }, "Tip: add by the person's login email or username (case-insensitive).")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${th.cardBorder}`, paddingTop: "1rem", marginTop: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: "0.82rem", color: th.text, marginBottom: "0.5rem" } }, "Deal Leads"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.75rem" } }, dealLeads.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, "No leads yet."), dealLeads.map((l) => /* @__PURE__ */ React.createElement("div", { key: l.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", padding: "0.3rem 0.5rem", background: th.card, borderRadius: "0.35rem", border: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.text } }, l.name), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          disabled: accessBusy,
-          onClick: () => {
-            setAccessBusy(true);
-            dealApi(token, { action: "removeLead", id: l.id }).then((r) => setDealLeads(r.leads || [])).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
-          },
-          style: { ...btn(th), padding: "0.15rem 0.5rem", fontSize: "0.75rem", color: "#ef4444", background: "transparent", border: `1px solid #ef4444` }
-        },
-        "\xD7"
-      )))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          value: newLeadName,
-          onChange: (e) => setNewLeadName(e.target.value),
-          placeholder: "New lead name",
-          style: { ...inp(th), flex: 1, padding: "0.35rem 0.6rem", fontSize: "0.82rem" },
-          onKeyDown: (e) => {
-            if (e.key === "Enter" && newLeadName.trim()) {
-              setAccessBusy(true);
-              dealApi(token, { action: "addLead", name: newLeadName.trim() }).then((r) => {
-                setDealLeads(r.leads || []);
-                setNewLeadName("");
-              }).catch((e2) => setAccessErr(e2.message)).finally(() => setAccessBusy(false));
-            }
-          }
-        }
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          disabled: accessBusy || !newLeadName.trim(),
-          onClick: () => {
-            if (!newLeadName.trim()) return;
-            setAccessBusy(true);
-            dealApi(token, { action: "addLead", name: newLeadName.trim() }).then((r) => {
-              setDealLeads(r.leads || []);
-              setNewLeadName("");
-            }).catch((e) => setAccessErr(e.message)).finally(() => setAccessBusy(false));
-          },
-          style: { ...btn(th), padding: "0.35rem 0.9rem", fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", fontSize: "0.82rem", opacity: accessBusy || !newLeadName.trim() ? 0.5 : 1 }
-        },
-        "Add Lead"
-      ))))
-    ));
-  }
   function AdminPnL({ stores, th, user, drillInStore, onClearDrillIn }) {
-    const [pnl, setPnl] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const [error, setError] = useState18(null);
-    const [selectedStore, setSelectedStore] = useState18(null);
-    useEffect15(() => {
+    const [pnl, setPnl] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const [error, setError] = useState21(null);
+    const [selectedStore, setSelectedStore] = useState21(null);
+    useEffect18(() => {
       if (selectedStore) window.scrollTo(0, 0);
     }, [selectedStore]);
     const isDM = user?.userType === "dm";
     const isManager = user?.userType === "manager";
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) {
           setPnl(d);
@@ -41251,7 +41658,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       const p = (n) => a.revenue > 0 ? n / a.revenue * 100 : 0;
       return { ...a, marginPct: p(a.contribution), laborPct: p(a.labor), cogsPct: p(a.cogs) };
     }, [ranked]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (drillInStore && pnl?.stores) {
         const match = pnl.stores.find((s) => String(s.pc) === String(drillInStore));
         if (match) setSelectedStore(match);
@@ -41457,8 +41864,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   var QUICKFIND_HUB_LABELS = { "ops-hub": "Operations", "team-hub": "Team & Sites", "system-hub": "System", "tools-hub": "Tools", finance: "Finance" };
   function QuickFindBar({ th, tabs, onNavigate, compact }) {
-    const [query, setQuery] = useState18("");
-    const [showSuggestions, setShowSuggestions] = useState18(false);
+    const [query, setQuery] = useState21("");
+    const [showSuggestions, setShowSuggestions] = useState21(false);
     const matches = React.useMemo(() => {
       const q = query.trim().toLowerCase();
       if (!q) return [];
@@ -41594,11 +42001,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     const canNdcp = isAdmin || isOfficeStaff;
     const canCash = isAdmin || isOfficeStaff || isDM;
     const finSub = (id) => accessSubOn(accessOverrides, user?.userType, "finance", id);
-    const [viewMode, setViewMode] = useState18("overview");
-    const [hubQuery, setHubQuery] = useState18("");
-    const [pnlOv, setPnlOv] = useState18(null);
-    const [expPending, setExpPending] = useState18(null);
-    useEffect15(() => {
+    const [viewMode, setViewMode] = useState21("overview");
+    const [hubQuery, setHubQuery] = useState21("");
+    const [pnlOv, setPnlOv] = useState21(null);
+    const [expPending, setExpPending] = useState21(null);
+    useEffect18(() => {
       if (viewMode !== "overview") return;
       if (canPnl && !pnlOv) cloudLoad("pcg_pnl_live_v1").then((d) => {
         if (d?.stores) setPnlOv(d);
@@ -41880,400 +42287,6 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     if (/shift\s*leader/i.test(t)) return "102";
     return "101";
   }
-  function TipsReportBuilder({ th, stores, user }) {
-    const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [periodStart, setPeriodStart] = useState18("");
-    const [loading, setLoading] = useState18(false);
-    const [error, setError] = useState18(null);
-    const [dayInfo, setDayInfo] = useState18(null);
-    const [snapshots, setSnapshots] = useState18(null);
-    const [grandTotal, setGrandTotal] = useState18(0);
-    const canPushToPaycor = canPaycorPush(user);
-    const [paycorCfg, setPaycorCfg] = useState18({});
-    const [paycorCfgLoaded, setPaycorCfgLoaded] = useState18(false);
-    const [paycorPush, setPaycorPush] = useState18(null);
-    const [singleSendPc, setSingleSendPc] = useState18("");
-    const [singleSending, setSingleSending] = useState18(false);
-    const [refreshingDates, setRefreshingDates] = useState18(() => /* @__PURE__ */ new Set());
-    const [refreshingStores, setRefreshingStores] = useState18(() => /* @__PURE__ */ new Set());
-    useEffect15(() => {
-      if (!canPushToPaycor || paycorCfgLoaded) return;
-      cloudLoad("pcg_paycor_tips_config").then((cfg) => setPaycorCfg(cfg?.earningCodes || {})).catch(() => {
-      }).finally(() => setPaycorCfgLoaded(true));
-    }, [canPushToPaycor, paycorCfgLoaded]);
-    const fillAllEarningCodeWithTips = (storePcs) => {
-      setPaycorCfg((prev) => {
-        const next = { ...prev };
-        storePcs.forEach((pc) => {
-          if (!next[pc]?.earningCode) next[pc] = { earningCode: "Tips " };
-        });
-        cloudSave("pcg_paycor_tips_config", { earningCodes: next }).catch(() => {
-        });
-        return next;
-      });
-    };
-    useEffect15(() => {
-      if (!canPushToPaycor || !paycorCfgLoaded || !snapshots) return;
-      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
-      fillAllEarningCodeWithTips(storeOrder.map((store) => byStore[store][0]?.pc));
-    }, [canPushToPaycor, paycorCfgLoaded, snapshots]);
-    const [missingCheck, setMissingCheck] = useState18(null);
-    const start = periodStart ? tipsParseISODate(periodStart) : null;
-    const end = start ? tipsAddDays(start, 13) : null;
-    const daysOld = start ? Math.round((tipsParseISODate(todayStr).getTime() - start.getTime()) / 864e5) : 0;
-    const tooOld = start && daysOld > TIPS_SNAPSHOT_RETENTION_DAYS;
-    const load = async () => {
-      if (!start) return;
-      setLoading(true);
-      setError(null);
-      setSnapshots(null);
-      setDayInfo(null);
-      setMissingCheck(null);
-      try {
-        const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-        const loaded = await Promise.all(dates.map((d) => cloudLoad("pcg_tips_snapshot_" + d).catch(() => null)));
-        const info = dates.map((d, i) => tipsComputeDayInfo(d, loaded[i]));
-        setSnapshots(loaded);
-        setDayInfo(info);
-        setGrandTotal(tipsRound2(info.reduce((sum, d) => sum + (d.total || 0), 0)));
-      } catch (e) {
-        setError(e.message || "Failed to load tips data.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    const refreshOneDay = async (date, storePc = null) => {
-      if (!start) return;
-      const dayKey = date, storeKey = storePc ? `${storePc}|${date}` : null;
-      setRefreshingDates((prev) => storePc ? prev : new Set(prev).add(dayKey));
-      setRefreshingStores((prev) => storePc ? new Set(prev).add(storeKey) : prev);
-      const before = await cloudLoad("pcg_tips_snapshot_" + date).catch(() => null);
-      const fingerprintOf = (data) => storePc ? JSON.stringify((data || []).find((s) => String(s.pc) === String(storePc)) || null) : JSON.stringify(data);
-      const beforeFingerprint = fingerprintOf(before);
-      try {
-        await fetch("/.netlify/functions/tips-report-refresh-background", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(storePc ? { busDt: date, storePc } : { busDt: date })
-        }).catch(() => {
-        });
-        await new Promise((r) => setTimeout(r, storePc ? 3e3 : 15e3));
-        let fresh = null;
-        for (let attempt = 0; attempt < 30; attempt++) {
-          const candidate = await cloudLoad("pcg_tips_snapshot_" + date).catch(() => null);
-          if (candidate && fingerprintOf(candidate) !== beforeFingerprint) {
-            fresh = candidate;
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 8e3));
-        }
-        if (!fresh) {
-          setError(`Refresh for ${date} didn't finish in time (or came back with the exact same data) \u2014 check back in a minute and reload the period.`);
-          return;
-        }
-        const dates = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-        const dateIdx = dates.indexOf(date);
-        if (dateIdx < 0) return;
-        setSnapshots((prev) => {
-          const next = [...prev || []];
-          next[dateIdx] = fresh;
-          return next;
-        });
-        setDayInfo((prev) => {
-          const next = [...prev || []];
-          next[dateIdx] = tipsComputeDayInfo(date, fresh);
-          setGrandTotal(tipsRound2(next.reduce((sum, d) => sum + (d.total || 0), 0)));
-          return next;
-        });
-      } finally {
-        setRefreshingDates((prev) => {
-          const next = new Set(prev);
-          next.delete(dayKey);
-          return next;
-        });
-        if (storeKey) setRefreshingStores((prev) => {
-          const next = new Set(prev);
-          next.delete(storeKey);
-          return next;
-        });
-      }
-    };
-    const download = () => {
-      const XLSX = window.XLSX;
-      if (!XLSX) {
-        setError("SheetJS library not loaded \u2014 please refresh the page.");
-        return;
-      }
-      if (!snapshots || !start) return;
-      const dates = Array.from({ length: 14 }, (_, i) => tipsAddDays(start, i));
-      const wb = XLSX.utils.book_new();
-      const { rows: periodRows } = tipsBuildPeriodTotalsAOA(start, end, snapshots);
-      XLSX.utils.book_append_sheet(wb, tipsAoaToSheet(XLSX, periodRows), "Pay Period Totals");
-      dates.forEach((dt, i) => {
-        const dayResults = snapshots[i];
-        const rows = dayResults ? tipsBuildDaySheetAOA(dt, dayResults) : [[`${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${dt.getUTCFullYear()} \u2014 no data saved for this day`]];
-        XLSX.utils.book_append_sheet(wb, tipsAoaToSheet(XLSX, rows), tipsSheetNameFor(dt, start));
-      });
-      XLSX.writeFile(wb, `Biweekly_Tips_Report_${tipsFormatISODate(start)}_to_${tipsFormatISODate(end)}.xlsx`);
-    };
-    const stageOneStoreForPaycor = async (storeKey, byStore, flaggedByPc2) => {
-      const recs = byStore[storeKey];
-      const storePc = recs?.[0]?.pc;
-      const storeMeta = (stores || []).find((s) => s.pc === storePc);
-      const cfg = paycorCfg[storePc];
-      const fail = (status, detail) => ({ pc: storePc, store: storeKey, status, detail });
-      if (flaggedByPc2[storePc]?.length) {
-        return fail("blocked", `Unresolved data gap \u2014 re-fetch before sending: ${flaggedByPc2[storePc].map((f) => f.detail).join("; ")}`);
-      }
-      if (!storeMeta?.paycor) return fail("error", "No Paycor legal entity ID configured for this store");
-      if (!cfg?.earningCode) return fail("skipped", "Earning code not auto-filled yet for this store \u2014 try Send again in a moment");
-      const toSend = recs.filter((r) => r.payrollId && r.tips > 0);
-      const missingPayrollId = recs.filter((r) => !r.payrollId && r.tips > 0).length;
-      if (toSend.length === 0) return fail("skipped", missingPayrollId ? `${missingPayrollId} employee(s) missing a payroll ID, nothing else to send` : "No employees with tips this period");
-      const titleByPayrollId = {};
-      const idByPayrollId = {};
-      let rosterFetchFailed = false;
-      try {
-        let employees = [], continuationToken;
-        do {
-          const res = await fetch("/.netlify/functions/paycor", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "employees", legalEntityId: storeMeta.paycor, ...continuationToken ? { continuationToken } : {} })
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json = await res.json().catch(() => null);
-          const page = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
-          employees = employees.concat(page);
-          continuationToken = json?.continuationToken || null;
-          if (!page.length) continuationToken = null;
-        } while (continuationToken);
-        employees.forEach((e) => {
-          const num2 = e?.employeeNumber || e?.alternateEmployeeNumber;
-          if (num2) {
-            titleByPayrollId[String(num2)] = e?.positionData?.jobTitle;
-            if (e?.id) idByPayrollId[String(num2)] = e.id;
-          }
-        });
-      } catch (e) {
-        rosterFetchFailed = true;
-      }
-      let payGroupId = null;
-      try {
-        const res = await fetch("/.netlify/functions/paycor", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "payGroups", legalEntityId: storeMeta.paycor })
-        });
-        const json = await res.json().catch(() => null);
-        const records = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
-        payGroupId = records[0]?.payGroupId || null;
-      } catch (e) {
-      }
-      if (!payGroupId) return fail("error", "Couldn't look up this store's Paycor pay group \u2014 required for every submission");
-      const businessStartDate = `${tipsFormatISODate(start)}T00:00:00Z`;
-      const businessEndDate = `${tipsFormatISODate(end)}T23:59:59Z`;
-      let defaultedCount = 0;
-      const noLiveIdCount = toSend.filter((r) => !idByPayrollId[String(r.payrollId)]).length;
-      const importEmployees = toSend.filter((r) => idByPayrollId[String(r.payrollId)]).map((r) => {
-        const hasLiveMatch = Object.prototype.hasOwnProperty.call(titleByPayrollId, String(r.payrollId));
-        if (!hasLiveMatch) defaultedCount++;
-        const deptCode = paycorDeptCodeForJobTitle(titleByPayrollId[String(r.payrollId)]);
-        return {
-          employeeId: idByPayrollId[String(r.payrollId)],
-          importEarnings: [{ departmentCode: Number(deptCode), earningCode: cfg.earningCode, earningAmount: r.tips, businessStartDate, businessEndDate, payGroupId }]
-        };
-      });
-      if (importEmployees.length === 0) return fail("skipped", `No employee(s) could be matched to a live Paycor ID this store${noLiveIdCount ? ` (${noLiveIdCount} skipped)` : ""}`);
-      try {
-        const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
-        const res = await fetch("/.netlify/functions/paycor", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "stagePayrollHours", legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          const notes = [];
-          if (missingPayrollId) notes.push(`skipped ${missingPayrollId} missing a payroll ID`);
-          if (noLiveIdCount) notes.push(`skipped ${noLiveIdCount} not found on current roster (no Paycor ID to send)`);
-          if (rosterFetchFailed) notes.push(`couldn't fetch current roster \u2014 all defaulted to Cust Svc (101)`);
-          else if (defaultedCount) notes.push(`${defaultedCount} not found on current roster, defaulted to Cust Svc (101)`);
-          return { pc: storePc, store: storeKey, status: "ok", detail: `Staged ${importEmployees.length} employee(s)${notes.length ? ", " + notes.join(", ") : ""} \u2014 still needs human review/submit in Paycor` };
-        }
-        return fail("error", data?.Detail || data?.message || data?.error || `HTTP ${res.status}`);
-      } catch (e) {
-        return fail("error", e.message || "Request failed");
-      }
-    };
-    const sendToPaycor = async () => {
-      if (!snapshots || !start) return;
-      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
-      const periodDates2 = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-      const flaggedByPc2 = tipsFindFlaggedStorePcs(snapshots, periodDates2, stores, todayStr);
-      const results = storeOrder.map((store) => ({ pc: byStore[store][0]?.pc, store, status: "pending", detail: null }));
-      setPaycorPush({ running: true, results });
-      for (const store of storeOrder) {
-        const result = await stageOneStoreForPaycor(store, byStore, flaggedByPc2);
-        const idx = results.findIndex((r) => r.pc === result.pc);
-        if (idx >= 0) results[idx] = result;
-        setPaycorPush({ running: true, results: [...results] });
-      }
-      setPaycorPush({ running: false, results });
-    };
-    const sendOneStoreToPaycor = async () => {
-      if (!snapshots || !start || !singleSendPc) return;
-      setSingleSending(true);
-      const { byStore, storeOrder } = tipsAggregatePeriodByStore(snapshots);
-      const storeKey = storeOrder.find((k) => String(byStore[k][0]?.pc) === String(singleSendPc));
-      const periodDates2 = Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i)));
-      const flaggedByPc2 = tipsFindFlaggedStorePcs(snapshots, periodDates2, stores, todayStr);
-      let result;
-      if (!storeKey) {
-        const storeMeta = (stores || []).find((s) => String(s.pc) === String(singleSendPc));
-        result = { pc: singleSendPc, store: storeMeta?.name || singleSendPc, status: "skipped", detail: "No tips data for this store in the loaded period" };
-      } else {
-        result = await stageOneStoreForPaycor(storeKey, byStore, flaggedByPc2);
-      }
-      setSingleSending(false);
-      setPaycorPush((prev) => {
-        const results = prev ? [...prev.results] : [];
-        const idx = results.findIndex((r) => r.pc === result.pc);
-        if (idx >= 0) results[idx] = result;
-        else results.push(result);
-        return { running: false, results };
-      });
-    };
-    const filledCount = dayInfo ? dayInfo.filter((d) => d.filled).length : 0;
-    const missingDates = dayInfo ? dayInfo.filter((d) => !d.filled && d.date < todayStr).map((d) => d.date) : [];
-    const notYetCollectedDates = dayInfo ? dayInfo.filter((d) => !d.filled && d.date >= todayStr).map((d) => d.date) : [];
-    const isExcludedManager = (jobTitle) => /general\s*manager|store\s*manager/i.test(jobTitle || "") && !/assist|asst/i.test(jobTitle || "");
-    const checkMissingEmployees = async () => {
-      if (!snapshots || !start) return;
-      setMissingCheck({ loading: true, results: null, error: null });
-      try {
-        const crewNamesByStore = {};
-        for (const dayResults of snapshots || []) {
-          if (!dayResults) continue;
-          for (const s of dayResults) {
-            if (!crewNamesByStore[s.pc]) crewNamesByStore[s.pc] = /* @__PURE__ */ new Set();
-            (s.crew || []).forEach((c) => crewNamesByStore[s.pc].add(c.name));
-          }
-        }
-        const storeList = (stores || []).filter((s) => s.paycor);
-        const results = [];
-        const BATCH = 6;
-        for (let i = 0; i < storeList.length; i += BATCH) {
-          const batch = storeList.slice(i, i + BATCH);
-          await Promise.all(batch.map(async (store) => {
-            try {
-              let records = [], continuationToken;
-              do {
-                const res = await fetch("/.netlify/functions/paycor", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ action: "employees", legalEntityId: store.paycor, ...continuationToken ? { continuationToken } : {} })
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const json = await res.json().catch(() => null);
-                const page = Array.isArray(json?.records) ? json.records : Array.isArray(json) ? json : [];
-                records = records.concat(page);
-                continuationToken = json?.continuationToken || json?.nextToken || null;
-                if (!page.length) continuationToken = null;
-              } while (continuationToken);
-              const crewNames = crewNamesByStore[store.pc] || /* @__PURE__ */ new Set();
-              const missing = [];
-              records.forEach((e) => {
-                if (e?.statusData?.status !== "Active") return;
-                if (isExcludedManager(e?.positionData?.jobTitle)) return;
-                const name = `${(e.firstName || "").trim()} ${(e.lastName || "").trim()}`.trim();
-                if (name && !crewNames.has(name)) missing.push(name);
-              });
-              if (missing.length) results.push({ pc: store.pc, name: store.name, district: store.district, missing: missing.sort() });
-            } catch (err) {
-              results.push({ pc: store.pc, name: store.name, district: store.district, fetchError: err.message });
-            }
-          }));
-        }
-        results.sort((a, b) => (a.district || 0) - (b.district || 0) || a.name.localeCompare(b.name));
-        setMissingCheck({ loading: false, results, error: null });
-      } catch (e) {
-        setMissingCheck({ loading: false, results: null, error: e.message || "Check failed." });
-      }
-    };
-    const fs = finStyles(th);
-    const periodDates = start ? Array.from({ length: 14 }, (_, i) => tipsFormatISODate(tipsAddDays(start, i))) : [];
-    const flaggedByPc = snapshots && start ? tipsFindFlaggedStorePcs(snapshots, periodDates, stores, todayStr) : {};
-    const flaggedPcs = Object.keys(flaggedByPc);
-    const storeNameOf = (pc) => (stores || []).find((s) => String(s.pc) === String(pc))?.name || pc;
-    const maxDay = dayInfo ? Math.max(1, ...dayInfo.map((d) => d.total || 0)) : 1;
-    const shortDate2 = (iso) => {
-      const dt = tipsParseISODate(iso);
-      return `${TIPS_MONTHS[dt.getUTCMonth()].slice(0, 3)} ${dt.getUTCDate()}`;
-    };
-    const longDate = (dt) => `${TIPS_DOW_FULL[dt.getUTCDay()]}, ${TIPS_MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}`;
-    return /* @__PURE__ */ React.createElement("div", { className: "fin-root" }, /* @__PURE__ */ React.createElement("style", null, FIN_CSS(th)), /* @__PURE__ */ React.createElement("h2", { style: fs.title }, "Tips Report"), /* @__PURE__ */ React.createElement("p", { style: fs.lede }, "Pulls the pay period\u2019s tip data straight from what\u2019s already saved each night: no files to upload, nothing fetched live. Pick the first day of the pay period below."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("label", { style: fs.fieldLabel }, "Pay period start date", /* @__PURE__ */ React.createElement("input", { type: "date", className: "fin-input", value: periodStart, max: todayStr, onChange: (e) => {
-      setPeriodStart(e.target.value);
-      setSnapshots(null);
-      setDayInfo(null);
-      setError(null);
-      setMissingCheck(null);
-    }, style: { ...fs.input, width: 200 } })), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: load, disabled: !periodStart || loading, style: { ...fs.primary, opacity: !periodStart || loading ? 0.5 : 1 } }, loading ? "Loading\u2026" : "Load period"), start && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.86rem", color: th.muted, paddingBottom: "0.6rem" } }, "Covers ", longDate(start), " to ", longDate(end), ", ", end.getUTCFullYear())), tooOld && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "warn" }, "That start date is ", daysOld, " days ago. Daily snapshots are only kept for about ", TIPS_SNAPSHOT_RETENTION_DAYS, " days, so some or all of this period\u2019s data may already be gone. Try a more recent pay period."), error && /* @__PURE__ */ React.createElement(FinBanner, { th, tone: "error" }, error), loading && !dayInfo && /* @__PURE__ */ React.createElement(FinSkeleton, { th, rows: 2, figures: 3 }), dayInfo && /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Pay period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.muted, marginTop: "0.1rem" } }, shortDate2(periodDates[0]), " to ", shortDate2(periodDates[13]), ", ", end.getUTCFullYear())), /* @__PURE__ */ React.createElement(FinFigures, null, /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Tips so far", value: grandTotal, format: finMoney.format }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Days found", value: filledCount, format: (v) => `${Math.round(v)} of 14` }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Stores with a data gap", value: flaggedPcs.length, format: (v) => finInt.format(v), tone: flaggedPcs.length ? "bad" : void 0 })), /* @__PURE__ */ React.createElement("div", { role: "list", "aria-label": "Tips by day this pay period", style: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "0.45rem" } }, dayInfo.map((d) => {
-      const dt = tipsParseISODate(d.date);
-      const isFuture = d.date >= todayStr;
-      const isRefreshing = refreshingDates.has(d.date);
-      const gap = !d.filled && !isFuture;
-      const frac = d.filled ? (d.total || 0) / maxDay : 0;
-      return /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          key: d.date,
-          role: "listitem",
-          title: d.filled ? `${d.employees} employees, ${d.stores} stores, $${(d.total || 0).toFixed(2)}` : "No data saved for this day",
-          style: { position: "relative", minWidth: 0, borderRadius: "0.6rem", border: `1px solid ${gap ? withAlpha(th.warn, 0.45) : th.cardBorder}`, background: isFuture ? "transparent" : th.card2, padding: "0.5rem 0.45rem 0.45rem", display: "grid", gap: "0.3rem", opacity: isFuture ? 0.55 : 1 }
-        },
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.2rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.75rem", color: th.muted } }, TIPS_DOW[dt.getUTCDay()], " ", dt.getUTCMonth() + 1, "/", dt.getUTCDate()), !isFuture && /* @__PURE__ */ React.createElement(
-          "button",
-          {
-            type: "button",
-            className: "fin-btn",
-            onClick: () => !isRefreshing && refreshOneDay(d.date),
-            disabled: isRefreshing,
-            "aria-label": isRefreshing ? `Refreshing ${d.date}` : `Re-fetch ${d.date} from Pulse/Paycor`,
-            title: isRefreshing ? "Refreshing\u2026" : `Re-fetch ${d.date} from Pulse/Paycor`,
-            style: { background: "transparent", border: "none", padding: 4, margin: -4, borderRadius: "0.4rem", cursor: isRefreshing ? "default" : "pointer", display: "inline-flex" }
-          },
-          /* @__PURE__ */ React.createElement(FinRefreshIcon, { color: isRefreshing ? O : th.muted, spinning: isRefreshing })
-        )),
-        /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { position: "relative", height: 46, borderRadius: "0.35rem", overflow: "hidden", background: th.card3 } }, /* @__PURE__ */ React.createElement("div", { className: "fin-col", style: { position: "absolute", inset: 0, background: d.filled ? O : "transparent", transform: `scaleY(${Math.max(d.filled ? 0.04 : 0, frac).toFixed(3)})` } })),
-        /* @__PURE__ */ React.createElement("span", { className: "fin-num", style: { fontSize: "0.8rem", fontWeight: 700, color: gap ? th.warn : isFuture ? th.muted : th.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, d.filled ? finMoney0.format(d.total || 0) : isFuture ? "Not yet" : "No data")
-      );
-    })), missingDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.warn } }, "No saved data for ", missingDates.map(shortDate2).join(", "), ". Either before the nightly report existed, or that night\u2019s run didn\u2019t complete."), notYetCollectedDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.muted } }, notYetCollectedDates.map(shortDate2).join(", "), " ", notYetCollectedDates.length === 1 ? "hasn\u2019t" : "haven\u2019t", " happened yet or ", notYetCollectedDates.length === 1 ? "isn\u2019t" : "aren\u2019t", " closed out for the night, so there\u2019s nothing to collect yet.")), flaggedPcs.length > 0 && /* @__PURE__ */ React.createElement("div", { role: "alert", style: { borderTop: `1px solid ${th.cardBorder}`, borderLeft: `3px solid ${th.danger}`, padding: "0.9rem 1.1rem", background: withAlpha(th.danger, 0.06) } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "flex-start", fontSize: "0.88rem", fontWeight: 700, color: th.danger } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "blocked" }), /* @__PURE__ */ React.createElement("span", null, flaggedPcs.length, " store", flaggedPcs.length === 1 ? " has" : "s have", " an unresolved data gap this period. They\u2019ll be skipped if you send to Paycor now, not silently included wrong.")), /* @__PURE__ */ React.createElement("ul", { style: { margin: "0.5rem 0 0", paddingLeft: "1.6rem", display: "grid", gap: "0.35rem" } }, flaggedPcs.map((pc) => {
-      const uniqueDates = [...new Set(flaggedByPc[pc].map((f) => f.date))];
-      return /* @__PURE__ */ React.createElement("li", { key: pc, style: { fontSize: "0.84rem", color: th.text } }, /* @__PURE__ */ React.createElement("strong", null, storeNameOf(pc)), ": ", flaggedByPc[pc].map((f) => f.detail).join("; "), uniqueDates.map((d) => {
-        const isRefreshing = refreshingStores.has(`${pc}|${d}`);
-        return /* @__PURE__ */ React.createElement(
-          "button",
-          {
-            key: d,
-            type: "button",
-            className: "fin-btn",
-            onClick: () => !isRefreshing && refreshOneDay(d, pc),
-            disabled: isRefreshing,
-            style: { marginLeft: "0.5rem", display: "inline-flex", alignItems: "center", gap: "0.3rem", background: "transparent", border: `1px solid ${withAlpha(th.danger, 0.4)}`, borderRadius: "0.45rem", padding: "0.15rem 0.5rem", fontSize: "0.78rem", fontWeight: 700, color: isRefreshing ? th.muted : th.danger, cursor: isRefreshing ? "default" : "pointer", fontFamily: FONTS.body }
-          },
-          /* @__PURE__ */ React.createElement(FinRefreshIcon, { color: isRefreshing ? th.muted : th.danger, size: 12, spinning: isRefreshing }),
-          isRefreshing ? `Refreshing ${shortDate2(d)}\u2026` : `Retry ${shortDate2(d)}`
-        );
-      }));
-    }))), canPushToPaycor && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.84rem", color: th.muted } }, "Just fixed one store (e.g. in the Tips Editor)? Resend only that store:"), /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: singleSendPc, onChange: (e) => setSingleSendPc(e.target.value), style: { ...fs.input, width: "auto", minWidth: 210 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Select a store\u2026"), (stores || []).filter((s) => s.paycor).map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name, " (PC# ", s.pc, ")"))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: sendOneStoreToPaycor, disabled: !singleSendPc || singleSending || paycorPush?.running, style: { ...fs.ghost, opacity: !singleSendPc || singleSending || paycorPush?.running ? 0.5 : 1 } }, singleSending ? "Sending\u2026" : "Send Just This Store")), /* @__PURE__ */ React.createElement("div", { style: fs.footer }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.82rem", color: th.muted, marginRight: "auto", maxWidth: 520 } }, "The workbook\u2019s first sheet, \u201CPay Period Totals,\u201D adds up each employee\u2019s tips across the whole period; that\u2019s the one to key into Paycor. The other 14 sheets are the day-by-day breakdown."), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: checkMissingEmployees, disabled: missingCheck?.loading, style: { ...fs.ghost, opacity: missingCheck?.loading ? 0.5 : 1 } }, missingCheck?.loading ? "Checking Paycor rosters\u2026" : "Check for missing employees"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: download, style: canPushToPaycor ? fs.ghost : fs.primary }, "Download workbook"), canPushToPaycor && /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", onClick: sendToPaycor, disabled: paycorPush?.running, style: { ...fs.primary, opacity: paycorPush?.running ? 0.5 : 1 } }, paycorPush?.running ? "Sending to Paycor\u2026" : "Send to Paycor"))), paycorPush && (() => {
-      const doneCount = paycorPush.results.filter((r) => r.status !== "pending").length;
-      const total = paycorPush.results.length;
-      const okCount = paycorPush.results.filter((r) => r.status === "ok").length;
-      const problemCount = paycorPush.results.filter((r) => r.status === "error" || r.status === "blocked").length;
-      return /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Paycor send progress"), /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.86rem", color: th.muted } }, /* @__PURE__ */ React.createElement(FinTicker, { value: doneCount, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " of ", total, " stores ", paycorPush.running ? "so far" : "done")), /* @__PURE__ */ React.createElement(FinBar, { th, frac: total ? doneCount / total : 0, height: 8 }), /* @__PURE__ */ React.createElement(FinFigures, null, /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Staged", value: okCount, format: (v) => finInt.format(v), tone: okCount ? "good" : void 0 }), /* @__PURE__ */ React.createElement(FinFigure, { th, label: "Need attention", value: problemCount, format: (v) => finInt.format(v), tone: problemCount ? "bad" : void 0 }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.5rem 1rem", padding: "0 1.1rem 1.1rem" } }, paycorPush.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, title: r.detail || "", style: { display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.84rem", minWidth: 0 } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: r.status }), /* @__PURE__ */ React.createElement("span", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { color: th.text, fontWeight: 600 } }, r.store), r.detail && r.status !== "pending" && /* @__PURE__ */ React.createElement("span", { style: { display: "block", color: r.status === "ok" ? th.muted : r.status === "skipped" ? th.muted : th.danger, fontSize: "0.78rem", lineHeight: 1.35 } }, r.status === "blocked" ? "Blocked: " : "", r.detail))))));
-    })(), missingCheck && /* @__PURE__ */ React.createElement("div", { style: { ...fs.panel, marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: fs.panelHead }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: fs.panelTitle }, "Active employees with no tips this period"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.muted, marginTop: "0.3rem", lineHeight: 1.5, maxWidth: 720 } }, "Compares each store\u2019s live Active Paycor roster against everyone who actually has hours somewhere in this loaded period. Someone showing up here either didn\u2019t work at all this period, or worked but their punches are missing. Worth a quick check before finalizing.")), missingCheck.loading && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.muted, display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "pending" }), "Checking ", (stores || []).filter((s) => s.paycor).length, " stores\u2026"), missingCheck.error && /* @__PURE__ */ React.createElement("div", { role: "alert", style: { fontSize: "0.86rem", color: th.danger } }, missingCheck.error), !missingCheck.loading && !missingCheck.error && missingCheck.results && missingCheck.results.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.success, display: "flex", alignItems: "center", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement(FinStatusIcon, { th, status: "ok" }), "Every active employee has recorded hours somewhere in this period. Nothing to flag.")), !missingCheck.loading && missingCheck.results && missingCheck.results.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid" } }, missingCheck.results.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.pc, style: { borderTop: `1px solid ${th.cardBorder}`, padding: "0.7rem 1.1rem", display: "grid", gridTemplateColumns: "minmax(0, 220px) minmax(0, 1fr)", gap: "0.25rem 1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", fontWeight: 700, color: th.text } }, r.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontWeight: 400 } }, "(PC# ", r.pc, ", District ", r.district, ")")), r.fetchError ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.84rem", color: th.warn } }, "Couldn\u2019t check this store\u2019s roster: ", r.fetchError) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.86rem", color: th.text } }, r.missing.join(", ")))))));
-  }
   var TE_CSS = (th) => `/* Hallmark \xB7 redesign: full \xB7 shape: app screen \xB7 scope: app \xB7 theme: brand (PCG orange, Raleway + Source Sans 3) \xB7 motion: brisk \xB7 signature: the tip pool split by hours */
 /* critique: was a plain form over a grey table that repeated its three figures twice; now the pool itself is the object, one bar split by hours that re-balances as you type */
 /* answered: tokens live in src/theme.js (th.*, FONTS, O) \u2014 the portal styles inline, so this block holds only states, motion and focus */
@@ -42309,9 +42322,9 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   var teHours = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function useTickedNumber2(value, ms = 500) {
     const target = Number(value) || 0;
-    const [shown, setShown] = useState18(target);
-    const fromRef = useRef7(target);
-    useEffect15(() => {
+    const [shown, setShown] = useState21(target);
+    const fromRef = useRef8(target);
+    useEffect18(() => {
       const from = fromRef.current;
       if (teReducedMotion() || Math.abs(from - target) < 5e-3) {
         fromRef.current = target;
@@ -42429,20 +42442,20 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       d.setDate(d.getDate() - 14);
       return tipsFormatISODate(d);
     })();
-    const [storePc, setStorePc] = useState18("");
-    const [roster, setRoster] = useState18(null);
-    const [rosterLoading, setRosterLoading] = useState18(false);
-    const [personQuery, setPersonQuery] = useState18("");
-    const [person, setPerson] = useState18(null);
-    const [startDate, setStartDate] = useState18(twoWeeksAgo);
-    const [endDate, setEndDate] = useState18(yesterday);
-    const [days, setDays] = useState18(null);
-    const [edits, setEdits] = useState18({});
-    const [loading, setLoading] = useState18(false);
-    const [saving, setSaving] = useState18(false);
-    const [error, setError] = useState18(null);
-    const [result, setResult] = useState18(null);
-    const [reason, setReason] = useState18("");
+    const [storePc, setStorePc] = useState21("");
+    const [roster, setRoster] = useState21(null);
+    const [rosterLoading, setRosterLoading] = useState21(false);
+    const [personQuery, setPersonQuery] = useState21("");
+    const [person, setPerson] = useState21(null);
+    const [startDate, setStartDate] = useState21(twoWeeksAgo);
+    const [endDate, setEndDate] = useState21(yesterday);
+    const [days, setDays] = useState21(null);
+    const [edits, setEdits] = useState21({});
+    const [loading, setLoading] = useState21(false);
+    const [saving, setSaving] = useState21(false);
+    const [error, setError] = useState21(null);
+    const [result, setResult] = useState21(null);
+    const [reason, setReason] = useState21("");
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const api3 = async (body) => {
       const res = await fetch("/.netlify/functions/tips-manual-edit", {
@@ -42581,25 +42594,25 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     })))), /* @__PURE__ */ React.createElement("div", { style: { padding: "0.9rem 1.1rem", borderTop: `1px solid ${th.cardBorder}` } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: "0.88rem", fontWeight: 600, color: th.text, marginBottom: "0.35rem" } }, "Correction reason"), /* @__PURE__ */ React.createElement("textarea", { rows: 2, className: "te-input", placeholder: "Correction reason (optional, saved on every changed day)\u2026", value: reason, onChange: (e) => setReason(e.target.value), style: { ...inp(th), width: "100%", resize: "vertical", fontFamily: FONTS.body, fontSize: "0.92rem" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.9rem", padding: "0.85rem 1.1rem", borderTop: `1px solid ${th.cardBorder}`, background: th.card2, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { "aria-live": "polite", style: { fontSize: "0.84rem", color: th.muted, marginRight: "auto" } }, /* @__PURE__ */ React.createElement(TeTicker, { value: checkedDays.length, format: (v) => Math.round(v), style: { fontWeight: 700, color: th.text } }), " day", checkedDays.length !== 1 ? "s" : "", " selected"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "te-btn", onClick: apply, disabled: saving || !checkedDays.length, style: { ...btn(th, { padding: "0.6rem 1.2rem", fontSize: "0.92rem", minHeight: 40 }), opacity: saving || !checkedDays.length ? 0.5 : 1 } }, saving ? "Saving\u2026" : `Apply to ${checkedDays.length} day${checkedDays.length !== 1 ? "s" : ""}`))));
   }
   function TipsEditor({ th, stores, user, onGoToReport }) {
-    const [mode, setMode] = useState18("day");
+    const [mode, setMode] = useState21("day");
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState18("");
-    const [dateStr, setDateStr] = useState18(todayStr);
-    const [loading, setLoading] = useState18(false);
-    const [error, setError] = useState18(null);
-    const [store, setStore] = useState18(null);
-    const [crew, setCrew] = useState18([]);
-    const [saving, setSaving] = useState18(false);
-    const [savedMsg, setSavedMsg] = useState18(null);
-    const [reason, setReason] = useState18("");
-    const [roster, setRoster] = useState18(null);
-    const [rosterLoading, setRosterLoading] = useState18(false);
-    const [rosterQuery, setRosterQuery] = useState18("");
-    const [showRoster, setShowRoster] = useState18(false);
-    const [hoverKey, setHoverKey] = useState18(null);
-    const [leavingKeys, setLeavingKeys] = useState18([]);
-    const [justSaved, setJustSaved] = useState18(false);
-    const [addedKeys, setAddedKeys] = useState18([]);
+    const [storePc, setStorePc] = useState21("");
+    const [dateStr, setDateStr] = useState21(todayStr);
+    const [loading, setLoading] = useState21(false);
+    const [error, setError] = useState21(null);
+    const [store, setStore] = useState21(null);
+    const [crew, setCrew] = useState21([]);
+    const [saving, setSaving] = useState21(false);
+    const [savedMsg, setSavedMsg] = useState21(null);
+    const [reason, setReason] = useState21("");
+    const [roster, setRoster] = useState21(null);
+    const [rosterLoading, setRosterLoading] = useState21(false);
+    const [rosterQuery, setRosterQuery] = useState21("");
+    const [showRoster, setShowRoster] = useState21(false);
+    const [hoverKey, setHoverKey] = useState21(null);
+    const [leavingKeys, setLeavingKeys] = useState21([]);
+    const [justSaved, setJustSaved] = useState21(false);
+    const [addedKeys, setAddedKeys] = useState21([]);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     const pool = tipsRound2(store?.tipPool || 0);
     const totalHours = crew.reduce((sum, c) => sum + (Number(c.hours) || 0), 0);
@@ -42788,14 +42801,14 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
   }
   function EmployeeHoursReport({ th, stores, user }) {
     const todayStr = tipsFormatISODate(/* @__PURE__ */ new Date());
-    const [storePc, setStorePc] = useState18("");
-    const [startDate, setStartDate] = useState18("");
-    const [endDate, setEndDate] = useState18("");
-    const [status, setStatus] = useState18(null);
-    const [step, setStep] = useState18("");
-    const [error, setError] = useState18(null);
-    const [result, setResult] = useState18(null);
-    const pollRef = useRef7(null);
+    const [storePc, setStorePc] = useState21("");
+    const [startDate, setStartDate] = useState21("");
+    const [endDate, setEndDate] = useState21("");
+    const [status, setStatus] = useState21(null);
+    const [step, setStep] = useState21("");
+    const [error, setError] = useState21(null);
+    const [result, setResult] = useState21(null);
+    const pollRef = useRef8(null);
     const selectedStore = stores.find((s) => String(s.pc) === String(storePc));
     React.useEffect(() => () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -42985,13 +42998,13 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     return React.createElement("div", { style: { fontFamily: "'Source Sans 3'", fontSize: "0.875rem" } }, elements);
   }
   function AskBar({ user, stores, th, onNavigate }) {
-    const [open, setOpen] = useState18(false);
-    const [query, setQuery] = useState18("");
-    const [answer, setAnswer] = useState18(null);
-    const [loading, setLoading] = useState18(false);
-    const [feedback, setFeedback] = useState18(null);
-    const inputRef = useRef7(null);
-    useEffect15(() => {
+    const [open, setOpen] = useState21(false);
+    const [query, setQuery] = useState21("");
+    const [answer, setAnswer] = useState21(null);
+    const [loading, setLoading] = useState21(false);
+    const [feedback, setFeedback] = useState21(null);
+    const inputRef = useRef8(null);
+    useEffect18(() => {
       const handler = (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") {
           e.preventDefault();
@@ -43007,7 +43020,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       window.addEventListener("keydown", handler);
       return () => window.removeEventListener("keydown", handler);
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (open && inputRef.current) inputRef.current.focus();
     }, [open]);
     const ask = async () => {
@@ -43390,11 +43403,11 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     doc.save(`business_cases_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.pdf`);
   }
   function TodayBrief({ user, th, setAnnouncements, showAlert: showAlert2, announcementsDismissed, setAnnouncementsDismissed }) {
-    const [brief, setBrief] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const [refreshing, setRefreshing] = useState18(false);
-    const [collapsed, setCollapsed] = useState18(false);
-    const [posting, setPosting] = useState18(false);
+    const [brief, setBrief] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const [refreshing, setRefreshing] = useState21(false);
+    const [collapsed, setCollapsed] = useState21(false);
+    const [posting, setPosting] = useState21(false);
     const fetchBrief = async (refresh) => {
       if (refresh) setRefreshing(true);
       else setLoading(true);
@@ -43412,7 +43425,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setLoading(false);
       setRefreshing(false);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       fetchBrief(false);
     }, []);
     if (loading) return /* @__PURE__ */ React.createElement("div", { style: { background: `linear-gradient(135deg, ${O}12, ${O}06)`, border: `1px solid ${O}33`, borderRadius: "0.75rem", padding: "1.25rem", marginBottom: "1.25rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", color: O, fontSize: "0.75rem", fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", null, "\u{1F52E}"), " Loading Orion's brief..."));
@@ -43441,16 +43454,16 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.7rem", color: th.muted } }, collapsed ? "\u25BC" : "\u25B2"))), !collapsed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: "0.85rem" } }, renderAnalystMarkdown(brief.content, th)));
   }
   function BusinessCasesCard({ user, th, onViewCase, inline, stores, setAnnouncements, showAlert: showAlert2 }) {
-    const [cases, setCases] = useState18([]);
-    const [totalOpp, setTotalOpp] = useState18(0);
-    const [byStatus, setByStatus] = useState18({});
-    const [loading, setLoading] = useState18(true);
-    const [expanded, setExpanded] = useState18(null);
-    const [caseAction, setCaseAction] = useState18({});
-    const [reasonPrompt, setReasonPrompt] = useState18(null);
-    const [decisionLog, setDecisionLog] = useState18([]);
-    const [showDecisionLog, setShowDecisionLog] = useState18(false);
-    useEffect15(() => {
+    const [cases, setCases] = useState21([]);
+    const [totalOpp, setTotalOpp] = useState21(0);
+    const [byStatus, setByStatus] = useState21({});
+    const [loading, setLoading] = useState21(true);
+    const [expanded, setExpanded] = useState21(null);
+    const [caseAction, setCaseAction] = useState21({});
+    const [reasonPrompt, setReasonPrompt] = useState21(null);
+    const [decisionLog, setDecisionLog] = useState21([]);
+    const [showDecisionLog, setShowDecisionLog] = useState21(false);
+    useEffect18(() => {
       (async () => {
         try {
           const district = user.userType === "dm" ? user.district : null;
@@ -43637,7 +43650,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
       setReportsReadIds(allIds);
       setReportsUnreadCount(0);
     };
-    const selectReportTokenRef = useRef7(0);
+    const selectReportTokenRef = useRef8(0);
     const handleSelectReport = async (rpt) => {
       const myToken = ++selectReportTokenRef.current;
       setSelectedReport(rpt);
@@ -44269,19 +44282,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const CAT_COLORS = { "Setup Guide": "#3b82f6", "SOP": "#8b5cf6", "Training": "#22c55e", "Policy": "#ef4444", "Reference": "#f59e0b" };
     const isAdmin = user && (user.userType === "executive" || user.userType === "it");
     const [kbSection, setKbSection] = React.useState("articles");
-    const [articles, setArticles] = useState18([]);
-    const [selectedArticle, setSelectedArticle] = useState18(null);
-    const [articleContent, setArticleContent] = useState18(null);
-    const [loading, setLoading] = useState18(true);
-    const kbContentRef = useRef7(null);
-    const [search, setSearch] = useState18("");
-    const [catFilter, setCatFilter] = useState18("All");
-    const [showForm, setShowForm] = useState18(false);
-    const [showPdfModal, setShowPdfModal] = useState18(false);
-    const [editing, setEditing] = useState18(false);
-    const [editForm, setEditForm] = useState18({ title: "", category: "", description: "", content: "" });
-    const [form, setForm] = useState18({ title: "", category: "Setup Guide", description: "", content: "" });
-    useEffect15(() => {
+    const [articles, setArticles] = useState21([]);
+    const [selectedArticle, setSelectedArticle] = useState21(null);
+    const [articleContent, setArticleContent] = useState21(null);
+    const [loading, setLoading] = useState21(true);
+    const kbContentRef = useRef8(null);
+    const [search, setSearch] = useState21("");
+    const [catFilter, setCatFilter] = useState21("All");
+    const [showForm, setShowForm] = useState21(false);
+    const [showPdfModal, setShowPdfModal] = useState21(false);
+    const [editing, setEditing] = useState21(false);
+    const [editForm, setEditForm] = useState21({ title: "", category: "", description: "", content: "" });
+    const [form, setForm] = useState21({ title: "", category: "Setup Guide", description: "", content: "" });
+    useEffect18(() => {
       if (!kbContentRef.current || !articleContent) return;
       kbContentRef.current.querySelectorAll("script").forEach((old) => {
         const s = document.createElement("script");
@@ -44290,7 +44303,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         old.parentNode.replaceChild(s, old);
       });
     }, [articleContent]);
-    useEffect15(() => {
+    useEffect18(() => {
       (async () => {
         setLoading(true);
         const data = await cloudLoad("pcg_kb_articles");
@@ -44298,7 +44311,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setLoading(false);
       })();
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       const draft = takePendingKbDraft();
       if (draft) {
         setForm({
@@ -44793,14 +44806,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     );
   }
   function EmailTab({ th, user }) {
-    const [emails, setEmails] = useState18([]);
-    const [loading, setLoading] = useState18(true);
-    const [filter, setFilter] = useState18("all");
-    const [selectedEmail, setSelectedEmail] = useState18(null);
-    const [composing, setComposing] = useState18(false);
-    const [composeData, setComposeData] = useState18({ to: "", cc: "", subject: "", body: "" });
-    const [sending, setSending] = useState18(false);
-    const [lastSync, setLastSync] = useState18(null);
+    const [emails, setEmails] = useState21([]);
+    const [loading, setLoading] = useState21(true);
+    const [filter, setFilter] = useState21("all");
+    const [selectedEmail, setSelectedEmail] = useState21(null);
+    const [composing, setComposing] = useState21(false);
+    const [composeData, setComposeData] = useState21({ to: "", cc: "", subject: "", body: "" });
+    const [sending, setSending] = useState21(false);
+    const [lastSync, setLastSync] = useState21(null);
     const loadEmails = async () => {
       setLoading(true);
       try {
@@ -44819,7 +44832,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setLoading(false);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       loadEmails();
     }, []);
     const filtered = filter === "all" ? emails : emails.filter((e) => e.category === filter);
@@ -46006,17 +46019,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
   };
   function ConstructionMobileView({ th, user, stores, projects, setProjects, todos, setTodos, onFullPortal, onOpenChat, onLogout }) {
     const O2 = "#FF671F";
-    const [navTab, setNavTab] = useState18("projects");
-    const [screen, setScreen] = useState18("list");
-    const [detailTab, setDetailTab] = useState18("reports");
-    const [calWeekOffset, setCalWeekOffset] = useState18(0);
-    const [calSelectedDay, setCalSelectedDay] = useState18(() => {
+    const [navTab, setNavTab] = useState21("projects");
+    const [screen, setScreen] = useState21("list");
+    const [detailTab, setDetailTab] = useState21("reports");
+    const [calWeekOffset, setCalWeekOffset] = useState21(0);
+    const [calSelectedDay, setCalSelectedDay] = useState21(() => {
       const d = /* @__PURE__ */ new Date();
       d.setHours(0, 0, 0, 0);
       return d;
     });
-    const [calSchedules, setCalSchedules] = useState18([]);
-    useEffect15(() => {
+    const [calSchedules, setCalSchedules] = useState21([]);
+    useEffect18(() => {
       const load = () => cloudLoad(typeof MAINT_SCHEDULE_KEY !== "undefined" ? MAINT_SCHEDULE_KEY : "pcg_maint_schedules_v1").then((d) => {
         if (Array.isArray(d)) setCalSchedules(d);
       }).catch(() => {
@@ -46025,9 +46038,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const id = setInterval(load, 6e4);
       return () => clearInterval(id);
     }, []);
-    const [selectedProject, setSelectedProject] = useState18(null);
-    const [dailyReports, setDailyReports] = useState18([]);
-    const [loadingReports, setLoadingReports] = useState18(false);
+    const [selectedProject, setSelectedProject] = useState21(null);
+    const [dailyReports, setDailyReports] = useState21([]);
+    const [loadingReports, setLoadingReports] = useState21(false);
     const EMPTY_LOG = { name: "", description: "", quantity: "", totalHours: "", hoursToDate: "", photos: [] };
     const SURVEY_KEYS = ["accidents", "scheduleDelays", "weatherDelays", "visitors", "blockedAreas", "rentedEquipment"];
     const SURVEY_LABELS = {
@@ -46043,7 +46056,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       { time: "12:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" },
       { time: "4:00 PM", temp: "", conditions: "", wind: "", precipitation: "", humidity: "" }
     ];
-    const [rForm, setRForm] = useState18({
+    const [rForm, setRForm] = useState21({
       date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
       preparedBy: user?.name || "",
       jobNumber: "",
@@ -46055,8 +46068,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       survey: Object.fromEntries(SURVEY_KEYS.map((k) => [k, null])),
       surveyNotes: Object.fromEntries(SURVEY_KEYS.map((k) => [k, ""]))
     });
-    const [rSaving, setRSaving] = useState18(false);
-    const [wxLoading, setWxLoading] = useState18(false);
+    const [rSaving, setRSaving] = useState21(false);
+    const [wxLoading, setWxLoading] = useState21(false);
     const autoFillWeather = async (proj, date) => {
       const zip = proj?.zip;
       if (!zip) {
@@ -46080,23 +46093,23 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       setWxLoading(false);
     };
-    const [syncing, setSyncing] = useState18(false);
-    const [syncMsg, setSyncMsg] = useState18("");
-    const [selectedReport, setSelectedReport] = useState18(null);
-    const [loadingReport, setLoadingReport] = useState18(false);
-    const [lightboxSrc, setLightboxSrc] = useState18(null);
-    const mobileReportIdRef = useRef7(null);
+    const [syncing, setSyncing] = useState21(false);
+    const [syncMsg, setSyncMsg] = useState21("");
+    const [selectedReport, setSelectedReport] = useState21(null);
+    const [loadingReport, setLoadingReport] = useState21(false);
+    const [lightboxSrc, setLightboxSrc] = useState21(null);
+    const mobileReportIdRef = useRef8(null);
     const photoUp = useReportPhotoUploads(setRForm, () => ({
       projectId: selectedProject?.id,
       projectNickname: selectedProject?.nickname || selectedProject?.address || selectedProject?.pc || "",
       reportId: mobileReportIdRef.current
     }));
-    const [expandedLogs, setExpandedLogs] = useState18({});
-    const [pdfLoading, setPdfLoading] = useState18(false);
-    const [emailModal, setEmailModal] = useState18(false);
-    const [emailTo, setEmailTo] = useState18("");
-    const [emailSubject, setEmailSubject] = useState18("");
-    const [emailSending, setEmailSending] = useState18(false);
+    const [expandedLogs, setExpandedLogs] = useState21({});
+    const [pdfLoading, setPdfLoading] = useState21(false);
+    const [emailModal, setEmailModal] = useState21(false);
+    const [emailTo, setEmailTo] = useState21("");
+    const [emailSubject, setEmailSubject] = useState21("");
+    const [emailSending, setEmailSending] = useState21(false);
     const mobileGeneratePdf = async (r, proj, download = true) => {
       setPdfLoading(true);
       try {
@@ -46305,7 +46318,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setRSaving(false);
       }
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (screen !== "detail" || !selectedProject) return;
       setLoadingReports(true);
       const forProject = (idx) => (Array.isArray(idx) ? idx : []).filter((r) => String(r.projectId) === String(selectedProject.id)).sort((a, b) => b.date?.localeCompare(a.date || "") || 0);
@@ -46897,8 +46910,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const deleteSchedule = (id) => saveSchedules(schedules.filter((s) => s.id !== id));
     const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
     const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const [isNarrow, setIsNarrow] = useState18(() => typeof window !== "undefined" && window.innerWidth < 760);
-    useEffect15(() => {
+    const [isNarrow, setIsNarrow] = useState21(() => typeof window !== "undefined" && window.innerWidth < 760);
+    useEffect18(() => {
       const fn = () => setIsNarrow(window.innerWidth < 760);
       window.addEventListener("resize", fn);
       return () => window.removeEventListener("resize", fn);
@@ -46955,8 +46968,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     ))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Store"), /* @__PURE__ */ React.createElement("select", { value: form.storePC, onChange: (e) => setForm((p) => ({ ...p, storePC: e.target.value })), style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.9rem" } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All Stores"), stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Category"), /* @__PURE__ */ React.createElement("select", { value: form.category, onChange: (e) => setForm((p) => ({ ...p, category: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, MAINT_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Frequency"), /* @__PURE__ */ React.createElement("select", { value: form.freq, onChange: (e) => setForm((p) => ({ ...p, freq: e.target.value })), style: { width: "100%", padding: "0.5rem 0.6rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem" } }, Object.entries(FREQ_LABELS).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v))))), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.75rem", fontWeight: 700, color: th.muted, marginBottom: 4 } }, "Notes (optional)"), /* @__PURE__ */ React.createElement("textarea", { value: form.notes, onChange: (e) => setForm((p) => ({ ...p, notes: e.target.value })), rows: 2, style: { width: "100%", padding: "0.5rem 0.75rem", borderRadius: 8, border: `1px solid ${th.cardBorder}`, background: th.card2, color: th.text, fontSize: "0.85rem", resize: "vertical", boxSizing: "border-box" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("button", { onClick: handleAdd, disabled: !form.title.trim() || saving, style: { flex: 1, background: O2, border: "none", borderRadius: 8, color: "#fff", padding: "0.65rem", cursor: "pointer", fontWeight: 700, fontFamily: "'Source Sans 3'", opacity: !form.title.trim() ? 0.5 : 1 } }, "Save Schedule"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAdd(false), style: { background: th.card2, border: `1px solid ${th.cardBorder}`, borderRadius: 8, color: th.muted, padding: "0.65rem 1rem", cursor: "pointer" } }, "Cancel")))));
   }
   function DunkinRunnerScene({ dark }) {
-    const hostRef = useRef7(null);
-    useEffect15(() => {
+    const hostRef = useRef8(null);
+    useEffect18(() => {
       const host = hostRef.current;
       if (!host) return;
       const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -47265,24 +47278,24 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     const store = (stores || []).find((s) => String(s.pc) === String(pc));
     const storeName = store?.name || pc;
     const existingUsernames = users.map((u) => u.username);
-    const [selectedCandidateId, setSelectedCandidateId] = useState18(
+    const [selectedCandidateId, setSelectedCandidateId] = useState21(
       item.kind === "needsReview" ? null : item.candidate?.employeeId || null
     );
     const candidate = item.kind === "needsReview" ? (item.candidates || []).find((c) => c.employeeId === selectedCandidateId) || null : item.kind === "vacant" ? null : item.candidate;
     const existingAccount = item.kind === "replace" ? item.outgoingUserId ? users.find((u) => u.id === item.outgoingUserId) : null : users.find((u) => u.userType === "manager" && u.active !== false && String(u.storePC) === String(pc));
     const oldAlreadyDeactivated = existingAccount ? existingAccount.active === false : true;
-    const [deactivateOld, setDeactivateOld] = useState18(true);
-    const [form, setForm] = useState18({
+    const [deactivateOld, setDeactivateOld] = useState21(true);
+    const [form, setForm] = useState21({
       name: candidate?.name || "",
       username: candidate ? suggestUsername(candidate.name, existingUsernames) : "",
       password: generatePassword(),
       email: `${pc}@peoplecapitalgroup.com`,
       role: ""
     });
-    const [showPw, setShowPw] = useState18(false);
-    const [saving, setSaving] = useState18(false);
-    const prevCandidateName = useRef7(candidate?.name || null);
-    useEffect15(() => {
+    const [showPw, setShowPw] = useState21(false);
+    const [saving, setSaving] = useState21(false);
+    const prevCandidateName = useRef8(candidate?.name || null);
+    useEffect18(() => {
       if (!candidate || candidate.name === prevCandidateName.current) return;
       prevCandidateName.current = candidate.name;
       setForm((f) => ({ ...f, name: candidate.name, username: suggestUsername(candidate.name, existingUsernames) }));
@@ -47374,13 +47387,13 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, style: { background: "none", border: "none", color: th.muted, fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 } }, "Dismiss")))))));
   }
   function PCGPortal() {
-    const [rawUser, setUser] = useState18(null);
+    const [rawUser, setUser] = useState21(null);
     const user = React.useMemo(() => {
       if (!rawUser || !isDirector(rawUser)) return rawUser;
       return { ...rawUser, userType: "director", realUserType: "director", district: null, districts: parseDistricts(rawUser.districts) };
     }, [rawUser]);
-    const restoredFromTokenRef = useRef7(false);
-    useEffect15(() => {
+    const restoredFromTokenRef = useRef8(false);
+    useEffect18(() => {
       if (user || !getSessionToken()) return;
       let cancelled = false;
       portalMe().then((u) => {
@@ -47394,8 +47407,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    const [managerMode, setManagerMode] = useState18(null);
-    const [preferFullPortal, setPreferFullPortal] = useState18(() => {
+    const [managerMode, setManagerMode] = useState21(null);
+    const [preferFullPortal, setPreferFullPortal] = useState21(() => {
       try {
         return localStorage.getItem("pcg_prefer_full_portal") === "true";
       } catch {
@@ -47418,7 +47431,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       queueNav(full ? "forward" : "back", () => setPreferFullPortal(full), { shell: true });
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user) return;
       const onMobile = window.innerWidth <= 768;
       if (onMobile && (user.userType === "manager" || user.userType === "maintenance" || user.userType === "office_staff") && preferFullPortal) {
@@ -47444,25 +47457,25 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setPreferFullPortal(false);
       setUser(null);
     };
-    const [tab, setTabRaw] = useState18("dashboard");
-    const [pulseInitialTab, setPulseInitialTab] = useState18("sales");
-    useEffect15(() => {
+    const [tab, setTabRaw] = useState21("dashboard");
+    const [pulseInitialTab, setPulseInitialTab] = useState21("sales");
+    useEffect18(() => {
       window.scrollTo(0, 0);
     }, [tab]);
-    const [pendingOrionQuestion, setPendingOrionQuestion] = useState18(null);
-    const [orionIntent, setOrionIntent] = useState18(false);
-    useEffect15(() => {
+    const [pendingOrionQuestion, setPendingOrionQuestion] = useState21(null);
+    const [orionIntent, setOrionIntent] = useState21(false);
+    useEffect18(() => {
       if (tab !== "chat" && orionIntent) setOrionIntent(false);
     }, [tab, orionIntent]);
-    const [drillInStore, setDrillInStore] = useState18(null);
-    const [locationsMapMode, setLocationsMapMode] = useState18(false);
+    const [drillInStore, setDrillInStore] = useState21(null);
+    const [locationsMapMode, setLocationsMapMode] = useState21(false);
     const handleDrillIn = (storePC, targetTab) => {
       setDrillInStore(storePC);
       setTab(targetTab);
     };
-    const tabHistoryRef = useRef7(["dashboard"]);
-    const isGoingBackRef = useRef7(false);
-    const tabNowRef = useRef7("dashboard");
+    const tabHistoryRef = useRef8(["dashboard"]);
+    const isGoingBackRef = useRef8(false);
+    const tabNowRef = useRef8("dashboard");
     tabNowRef.current = tab;
     const setTab = useCallback((next) => {
       const target = typeof next === "function" ? next(tabNowRef.current) : next;
@@ -47471,7 +47484,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       tabNowRef.current = target;
       queueNav(dir, () => setTabRaw(target));
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (user) return;
       try {
         Object.keys(sessionStorage).filter((k) => k.startsWith("pcg_inbox_shown_")).forEach((k) => sessionStorage.removeItem(k));
@@ -47491,11 +47504,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ids.has(id)) return true;
       return Object.entries(HUB_SUBITEMS).some(([hub, items]) => ids.has(hub) && items.some((x) => x.id === id));
     }, []);
-    const routeUserRef = useRef7(null);
-    const routeAppliedForRef = useRef7(null);
-    const routePendingRef = useRef7(null);
-    const routeFromPopRef = useRef7(false);
-    useEffect15(() => {
+    const routeUserRef = useRef8(null);
+    const routeAppliedForRef = useRef8(null);
+    const routePendingRef = useRef8(null);
+    const routeFromPopRef = useRef8(false);
+    useEffect18(() => {
       routeUserRef.current = user;
       if (!user) {
         routeAppliedForRef.current = null;
@@ -47511,7 +47524,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTab(want);
       } else window.history.replaceState(window.history.state, "", "/" + window.location.search);
     }, [user]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user) return;
       const pending = routePendingRef.current;
       if (pending) {
@@ -47529,7 +47542,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (fromPop) window.history.replaceState({ tab }, "", want);
       else window.history.pushState({ tab }, "", want);
     }, [tab, user]);
-    useEffect15(() => {
+    useEffect18(() => {
       const onPop = () => {
         const u = routeUserRef.current;
         if (!u) return;
@@ -47544,9 +47557,9 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       window.addEventListener("popstate", onPop);
       return () => window.removeEventListener("popstate", onPop);
     }, []);
-    const sidebarNavRef = useRef7(null);
-    const sidebarScrollPos = useRef7(0);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState18(() => {
+    const sidebarNavRef = useRef8(null);
+    const sidebarScrollPos = useRef8(0);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState21(() => {
       try {
         const v = localStorage.getItem("pcg_sidebar_collapsed");
         return v === null ? true : v === "true";
@@ -47554,8 +47567,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return true;
       }
     });
-    const [pinnedTabIds, setPinnedTabIds] = useState18(null);
-    useEffect15(() => {
+    const [pinnedTabIds, setPinnedTabIds] = useState21(null);
+    useEffect18(() => {
       if (!user?.id) {
         setPinnedTabIds(null);
         return;
@@ -47606,7 +47619,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, [user?.id]);
-    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState18(() => {
+    const [sidebarSectionsOpen, setSidebarSectionsOpen] = useState21(() => {
       try {
         const s = localStorage.getItem("pcg_sidebar_sections");
         if (s) return JSON.parse(s);
@@ -47614,21 +47627,21 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return {};
     });
-    const [managingFavorites, setManagingFavorites] = useState18(false);
-    const [links, setLinks] = useState18(() => {
+    const [managingFavorites, setManagingFavorites] = useState21(false);
+    const [links, setLinks] = useState21(() => {
       const s = loadFromStorage();
       return s?.links || INIT_LINKS;
     });
-    const [notes, setNotes] = useState18(() => {
+    const [notes, setNotes] = useState21(() => {
       const s = loadFromStorage();
       return s?.notes || {};
     });
-    const [todos, setTodos] = useState18(() => {
+    const [todos, setTodos] = useState21(() => {
       const s = loadFromStorage();
       return s?.todos || [];
     });
-    const [users, setUsers] = useState18([]);
-    const [stores, setStores] = useState18(() => {
+    const [users, setUsers] = useState21([]);
+    const [stores, setStores] = useState21(() => {
       const s = loadFromStorage();
       return s?.stores || STORES_SEED;
     });
@@ -47641,10 +47654,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return open;
     }, [stores, user?.realUserType, (user?.districts || []).join(",")]);
-    useEffect15(() => {
+    useEffect18(() => {
       LIVE_OPEN_STORES = openStores;
     }, [openStores]);
-    const [districts, setDistricts] = useState18(() => {
+    const [districts, setDistricts] = useState21(() => {
       const s = loadFromStorage();
       return s?.districts || DISTRICTS_SEED;
     });
@@ -47652,15 +47665,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     React.useEffect(() => {
       setDistrictsRef(districts);
     }, [districts]);
-    const [contacts, setContacts] = useState18(() => {
+    const [contacts, setContacts] = useState21(() => {
       const s = loadFromStorage();
       return s?.contacts || CONTACTS_SEED;
     });
-    const [vendors, setVendors] = useState18(() => {
+    const [vendors, setVendors] = useState21(() => {
       const s = loadFromStorage();
       return s?.vendors || VENDORS_SEED;
     });
-    const [dark, setDark] = useState18(() => {
+    const [dark, setDark] = useState21(() => {
       try {
         const v = localStorage.getItem("pcg_dark_mode");
         if (v !== null) return JSON.parse(v);
@@ -47669,51 +47682,51 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const s = loadFromStorage();
       return s?.dark ?? false;
     });
-    const [projects, setProjects] = useState18(() => {
+    const [projects, setProjects] = useState21(() => {
       const s = loadFromStorage();
       const p = s?.projects;
       return p && p.length > 0 ? p : PROJECTS_SEED;
     });
-    const [notifications, setNotifications] = useState18(() => {
+    const [notifications, setNotifications] = useState21(() => {
       const s = loadFromStorage();
       return s?.notifications || [];
     });
-    const [dailyReports, setDailyReports] = useState18(() => {
+    const [dailyReports, setDailyReports] = useState21(() => {
       const s = loadFromStorage();
       return s?.dailyReports || [];
     });
     const DEFAULT_GLOBAL_NOTIFY = ["Mike@peoplecapitalgroup.com", "Bill@Raogroupinc.com", "Sam@peoplecapitalgroup.com", "Casey@peoplecapitalgroup.com"];
-    const [globalNotifyEmails, setGlobalNotifyEmails] = useState18(() => {
+    const [globalNotifyEmails, setGlobalNotifyEmails] = useState21(() => {
       const s = loadFromStorage();
       return s?.globalNotifyEmails || DEFAULT_GLOBAL_NOTIFY;
     });
     const DEFAULT_TICKET_NOTIFY = DEFAULT_GLOBAL_NOTIFY.filter((e) => e.toLowerCase() !== "sam@peoplecapitalgroup.com");
-    const [ticketNotifyEmails, setTicketNotifyEmails] = useState18(() => {
+    const [ticketNotifyEmails, setTicketNotifyEmails] = useState21(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmails || DEFAULT_TICKET_NOTIFY;
     });
-    const [ticketNotifyPhones, setTicketNotifyPhones] = useState18(() => {
+    const [ticketNotifyPhones, setTicketNotifyPhones] = useState21(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhones || [];
     });
-    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState18(() => {
+    const [ticketNotifyEmailOwners, setTicketNotifyEmailOwners] = useState21(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyEmailOwners || ticketNotifyEmails.map(() => null);
     });
-    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState18(() => {
+    const [ticketNotifyPhoneOwners, setTicketNotifyPhoneOwners] = useState21(() => {
       const s = loadFromStorage();
       return s?.ticketNotifyPhoneOwners || ticketNotifyPhones.map(() => null);
     });
-    const [chatChannels, setChatChannels] = useState18([]);
-    const [chatMessages, setChatMessages] = useState18([]);
-    const [chatReadState, setChatReadState] = useState18({});
-    const [announcements, setAnnouncements] = useState18([]);
-    const [announcementsDismissed, setAnnouncementsDismissed] = useState18({});
-    const [annGateQueue, setAnnGateQueue] = useState18([]);
-    const [annGateIdx, setAnnGateIdx] = useState18(0);
-    const [annGateDone, setAnnGateDone] = useState18(false);
-    const [termsState, setTermsState] = useState18("checking");
-    useEffect15(() => {
+    const [chatChannels, setChatChannels] = useState21([]);
+    const [chatMessages, setChatMessages] = useState21([]);
+    const [chatReadState, setChatReadState] = useState21({});
+    const [announcements, setAnnouncements] = useState21([]);
+    const [announcementsDismissed, setAnnouncementsDismissed] = useState21({});
+    const [annGateQueue, setAnnGateQueue] = useState21([]);
+    const [annGateIdx, setAnnGateIdx] = useState21(0);
+    const [annGateDone, setAnnGateDone] = useState21(false);
+    const [termsState, setTermsState] = useState21("checking");
+    useEffect18(() => {
       if (!user) {
         setTermsState("checking");
         return;
@@ -47733,39 +47746,39 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         live = false;
       };
     }, [user?.id]);
-    const [bioPromptDone, setBioPromptDone] = useState18(false);
-    const [bioPromptEligible, setBioPromptEligible] = useState18(false);
-    useEffect15(() => {
+    const [bioPromptDone, setBioPromptDone] = useState21(false);
+    const [bioPromptEligible, setBioPromptEligible] = useState21(false);
+    useEffect18(() => {
       if (!user) return;
       webauthnAvailable().then((avail) => {
         setBioPromptEligible(avail && !webauthnDeviceEnrolled() && !webauthnDeviceDeclined());
       });
     }, [user?.id]);
-    const [accessOverrides, setAccessOverrides] = useState18({});
-    const cloudAccessLoaded = useRef7(false);
-    const cloudProjectsLoaded = useRef7(false);
-    const cloudDailyReportsLoaded = useRef7(false);
-    const cloudChatLoaded = useRef7(false);
-    const cloudAnnouncementsLoaded = useRef7(false);
-    const cloudStoresLoaded = useRef7(false);
-    const cloudDistrictsLoaded = useRef7(false);
-    const cloudContactsLoaded = useRef7(false);
-    const cloudVendorsLoaded = useRef7(false);
-    const cloudLinksLoaded = useRef7(false);
-    const cloudNotesLoaded = useRef7(false);
-    const cloudTodosLoaded = useRef7(false);
-    const cloudNotificationsLoaded = useRef7(false);
-    const cloudGlobalNotifyLoaded = useRef7(false);
-    const cloudTicketNotifyLoaded = useRef7(false);
-    const cloudTicketNotifyPhonesLoaded = useRef7(false);
-    const skipNextTicketNotifyPhonesSave = useRef7(false);
-    const cloudTicketNotifyOwnersLoaded = useRef7(false);
-    const cloudTicketNotifyPhoneOwnersLoaded = useRef7(false);
-    const projectsUserEdited = useRef7(false);
-    const dailyReportsUserEdited = useRef7(false);
-    const prevDailyReportsRef = useRef7([]);
-    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState18({});
-    useEffect15(() => {
+    const [accessOverrides, setAccessOverrides] = useState21({});
+    const cloudAccessLoaded = useRef8(false);
+    const cloudProjectsLoaded = useRef8(false);
+    const cloudDailyReportsLoaded = useRef8(false);
+    const cloudChatLoaded = useRef8(false);
+    const cloudAnnouncementsLoaded = useRef8(false);
+    const cloudStoresLoaded = useRef8(false);
+    const cloudDistrictsLoaded = useRef8(false);
+    const cloudContactsLoaded = useRef8(false);
+    const cloudVendorsLoaded = useRef8(false);
+    const cloudLinksLoaded = useRef8(false);
+    const cloudNotesLoaded = useRef8(false);
+    const cloudTodosLoaded = useRef8(false);
+    const cloudNotificationsLoaded = useRef8(false);
+    const cloudGlobalNotifyLoaded = useRef8(false);
+    const cloudTicketNotifyLoaded = useRef8(false);
+    const cloudTicketNotifyPhonesLoaded = useRef8(false);
+    const skipNextTicketNotifyPhonesSave = useRef8(false);
+    const cloudTicketNotifyOwnersLoaded = useRef8(false);
+    const cloudTicketNotifyPhoneOwnersLoaded = useRef8(false);
+    const projectsUserEdited = useRef8(false);
+    const dailyReportsUserEdited = useRef8(false);
+    const prevDailyReportsRef = useRef8([]);
+    const [dailyReportSyncStatus, setDailyReportSyncStatus] = useState21({});
+    useEffect18(() => {
       const handler = (e) => {
         const pending = Object.values(dailyReportSyncStatus).some((s) => s === "syncing" || s === "failed");
         if (pending) {
@@ -47777,47 +47790,47 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       window.addEventListener("beforeunload", handler);
       return () => window.removeEventListener("beforeunload", handler);
     }, [dailyReportSyncStatus]);
-    useEffect15(() => {
+    useEffect18(() => {
       try {
         localStorage.setItem("pcg_dark_mode", JSON.stringify(dark));
       } catch {
       }
     }, [dark]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (sidebarNavRef.current) sidebarNavRef.current.scrollTop = sidebarScrollPos.current;
     });
-    const [showNotifs, setShowNotifs] = useState18(false);
-    const notifRef = useRef7(null);
-    const chatPanelRef = useRef7(null);
-    const [showChatPanel, setShowChatPanel] = useState18(false);
-    const [chatQuickReply, setChatQuickReply] = useState18({ channelId: null, text: "" });
-    const [salesWeeks, setSalesWeeks] = useState18([]);
-    const [cashDeposits, setCashDeposits] = useState18([]);
-    const [cashUploads, setCashUploads] = useState18([]);
-    const [cashNotes, setCashNotes] = useState18([]);
-    const [cashPOS, setCashPOS] = useState18({});
-    const cloudCashLoaded = useRef7(false);
-    const [professionals, setProfessionals] = useState18(DEFAULT_PROFESSIONALS);
-    const cloudProfessionalsLoaded = useRef7(false);
-    const [showProfile, setShowProfile] = useState18(false);
-    const [cloudStatus, setCloudStatus] = useState18("idle");
-    const [logoAnim, setLogoAnim] = useState18(false);
-    const [showTimeoutWarning, setShowTimeoutWarning] = useState18(false);
-    const [timeoutCountdown, setTimeoutCountdown] = useState18(60);
-    const lastActivityRef = useRef7(Date.now());
-    const warningActiveRef = useRef7(false);
-    const [dataAlert, setDataAlert] = useState18(null);
-    const importRef = useRef7(null);
-    const logoRef = useRef7(null);
-    const toggleBtnRef = useRef7(null);
-    const deepLinkRef = useRef7(null);
-    const todoDeepLinkRef = useRef7(null);
-    const ticketDeepLinkRef = useRef7(null);
-    const txnDeepLinkRef = useRef7(null);
+    const [showNotifs, setShowNotifs] = useState21(false);
+    const notifRef = useRef8(null);
+    const chatPanelRef = useRef8(null);
+    const [showChatPanel, setShowChatPanel] = useState21(false);
+    const [chatQuickReply, setChatQuickReply] = useState21({ channelId: null, text: "" });
+    const [salesWeeks, setSalesWeeks] = useState21([]);
+    const [cashDeposits, setCashDeposits] = useState21([]);
+    const [cashUploads, setCashUploads] = useState21([]);
+    const [cashNotes, setCashNotes] = useState21([]);
+    const [cashPOS, setCashPOS] = useState21({});
+    const cloudCashLoaded = useRef8(false);
+    const [professionals, setProfessionals] = useState21(DEFAULT_PROFESSIONALS);
+    const cloudProfessionalsLoaded = useRef8(false);
+    const [showProfile, setShowProfile] = useState21(false);
+    const [cloudStatus, setCloudStatus] = useState21("idle");
+    const [logoAnim, setLogoAnim] = useState21(false);
+    const [showTimeoutWarning, setShowTimeoutWarning] = useState21(false);
+    const [timeoutCountdown, setTimeoutCountdown] = useState21(60);
+    const lastActivityRef = useRef8(Date.now());
+    const warningActiveRef = useRef8(false);
+    const [dataAlert, setDataAlert] = useState21(null);
+    const importRef = useRef8(null);
+    const logoRef = useRef8(null);
+    const toggleBtnRef = useRef8(null);
+    const deepLinkRef = useRef8(null);
+    const todoDeepLinkRef = useRef8(null);
+    const ticketDeepLinkRef = useRef8(null);
+    const txnDeepLinkRef = useRef8(null);
     const isMobile = useIsMobile();
     const th = getTheme(dark);
-    const [pnlAllowed, setPnlAllowed] = useState18(DEFAULT_PNL_ALLOWED);
-    useEffect15(() => {
+    const [pnlAllowed, setPnlAllowed] = useState21(DEFAULT_PNL_ALLOWED);
+    useEffect18(() => {
       cloudLoad("pcg_pnl_access_v1").then((d) => {
         if (Array.isArray(d?.allowed)) setPnlAllowed(d.allowed);
       }).catch(() => {
@@ -47825,8 +47838,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     }, []);
     const canPnl = canViewPnl(user, pnlAllowed);
     const canManagePnl = canManagePnlAccess(user);
-    const [dealAuth, setDealAuth] = useState18({ token: null, role: null, loaded: false });
-    useEffect15(() => {
+    const [dealAuth, setDealAuth] = useState21({ token: null, role: null, loaded: false });
+    useEffect18(() => {
       if (!user) {
         setDealAuth({ token: null, role: null, loaded: false });
         return;
@@ -47902,12 +47915,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return null;
     };
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user || !tab || tab === MOBILE_LAUNCHER_TAB_ID) return;
       const ids = tabsForUser(user).map((t) => t.id);
       if (!ids.includes(tab)) setTab(ids[0] || "dashboard");
     }, [accessOverrides, tab, user?.userType]);
-    useEffect15(() => {
+    useEffect18(() => {
       const hiddenAt = { t: null };
       const TIMEOUT_MS = 15 * 60 * 1e3;
       const onVisibility = () => {
@@ -47949,10 +47962,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.removeEventListener("pageshow", onPageShow);
       };
     }, [user]);
-    const [updateReady, setUpdateReady] = useState18(false);
-    const signedInRef = useRef7(false);
+    const [updateReady, setUpdateReady] = useState21(false);
+    const signedInRef = useRef8(false);
     signedInRef.current = !!user;
-    useEffect15(() => startUpdateWatch({
+    useEffect18(() => startUpdateWatch({
       onUpdate: ({ hiddenMs }) => {
         const away = hiddenMs >= 2 * 60 * 1e3 && hiddenMs < 15 * 60 * 1e3;
         if (!signedInRef.current || away) {
@@ -47961,10 +47974,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setUpdateReady(true);
       }
     }), []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (updateReady && !user) reloadForUpdate();
     }, [updateReady, user]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!updateReady) return;
       const onVis = () => {
         if (!document.hidden) reloadForUpdate();
@@ -47972,7 +47985,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       document.addEventListener("visibilitychange", onVis);
       return () => document.removeEventListener("visibilitychange", onVis);
     }, [updateReady]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       let cancelled = false;
       const forceOut = (reason) => {
@@ -48003,7 +48016,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user || user.userType?.startsWith("kiosk")) return;
       const WARN_AFTER = 29 * 60 * 1e3 + 45 * 1e3;
       const LOGOUT_AFTER = 30 * 60 * 1e3;
@@ -48046,7 +48059,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         clearInterval(interval);
       };
     }, [user]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user || !isTwoFactorRequired(user)) return;
       const check = async () => {
         if (!user.twoFactorSecret) return;
@@ -48074,7 +48087,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", onVisibility);
       };
     }, [user]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (isGoingBackRef.current) {
         isGoingBackRef.current = false;
         return;
@@ -48090,7 +48103,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       isGoingBackRef.current = true;
       setTab(next[next.length - 1]);
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!isMobile) return;
       let startX = 0, startY = 0, edgeSwipe = false;
       const onStart = (e) => {
@@ -48112,7 +48125,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("touchend", onEnd);
       };
     }, [isMobile, goBack]);
-    useEffect15(() => {
+    useEffect18(() => {
       try {
         localStorage.setItem("pcg_sidebar_collapsed", sidebarCollapsed);
       } catch {
@@ -48210,19 +48223,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       return missing;
     }, [cashDeposits, cashUploads, stores, user]);
-    useEffect15(() => {
+    useEffect18(() => {
       fetch("/.netlify/functions/users?action=list", { headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).then((data) => {
         if (Array.isArray(data) && data.length > 0) setUsers(data);
       }).catch(() => {
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!restoredFromTokenRef.current || !rawUser || !users.length) return;
       const acct = users.find((x) => String(x.id) === String(rawUser.id) && x.active !== false);
       restoredFromTokenRef.current = false;
       if (acct) setUser((prev) => prev && String(prev.id) === String(acct.id) ? { ...acct, officeClockLinked: prev.officeClockLinked || false, districts: prev.districts ?? acct.districts } : prev);
     }, [users, rawUser]);
-    useEffect15(() => {
+    useEffect18(() => {
       let updated = [...projects];
       let changed = false;
       for (const seed of PROJECTS_SEED) {
@@ -48244,7 +48257,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }
       if (changed) setProjects(updated);
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const projId = parseInt(params.get("project"));
@@ -48261,7 +48274,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTab("reports");
       }
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user) return;
       const params = new URLSearchParams(window.location.search);
       const ticketParam = params.get("ticket");
@@ -48316,10 +48329,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         window.history.replaceState({}, "", window.location.pathname);
       }
     }, [user]);
-    useEffect15(() => {
+    useEffect18(() => {
       saveToStorage({ links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners });
     }, [links, notes, todos, stores, districts, contacts, vendors, dark, projects, notifications, dailyReports, globalNotifyEmails, ticketNotifyEmails, ticketNotifyPhones, ticketNotifyEmailOwners, ticketNotifyPhoneOwners]);
-    useEffect15(() => {
+    useEffect18(() => {
       setCloudStatus("loading");
       cloudLoadOrThrow("pcg_sales_v1").then((data) => {
         if (Array.isArray(data)) {
@@ -48339,7 +48352,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setCloudStatus("error");
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (salesWeeks.length === 0) return;
       setCloudStatus("saving");
       try {
@@ -48351,7 +48364,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setTimeout(() => setCloudStatus("idle"), 2500);
       });
     }, [salesWeeks]);
-    useEffect15(() => {
+    useEffect18(() => {
       let cancelled = false;
       (async () => {
         let legacy = null;
@@ -48379,7 +48392,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cancelled = true;
       };
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       Promise.all([
         cloudLoad("pcg_cash_deposits_v1"),
         cloudLoad("pcg_cash_uploads_v1"),
@@ -48393,22 +48406,22 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudCashLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudCashLoaded.current) return;
       if (cashDeposits.length === 0) return;
       cloudSave("pcg_cash_deposits_v1", cashDeposits);
     }, [cashDeposits]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudCashLoaded.current) return;
       if (cashUploads.length === 0) return;
       cloudSave("pcg_cash_uploads_v1", cashUploads);
     }, [cashUploads]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudCashLoaded.current) return;
       if (cashNotes.length === 0) return;
       cloudSave("pcg_cash_notes_v1", cashNotes);
     }, [cashNotes]);
-    useEffect15(() => {
+    useEffect18(() => {
       const refresh = () => {
         if (!cloudProjectsLoaded.current || projectsUserEdited.current || document.hidden) return;
         loadProjects();
@@ -48445,7 +48458,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", refresh);
       };
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudProjectsLoaded.current) return;
       if (!projectsUserEdited.current) return;
       if (projects.length === 0) return;
@@ -48479,7 +48492,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const full = await cloudLoadReport(id);
       return full || null;
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       (async () => {
         try {
           const [index, legacy, delRec] = await Promise.all([
@@ -48540,7 +48553,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       const poll = async () => {
         if (dailyReportsUserEdited.current) return;
         if (!cloudDailyReportsLoaded.current) return;
@@ -48594,7 +48607,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("visibilitychange", onShow);
       };
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!dailyReportsUserEdited.current) return;
       if (!cloudDailyReportsLoaded.current) return;
       dailyReportsUserEdited.current = false;
@@ -48671,14 +48684,14 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         }
       })();
     }, [dailyReports]);
-    const storesSyncedRef = useRef7(null);
+    const storesSyncedRef = useRef8(null);
     const storeKey = (s) => String(s?.pc || s?.id || "");
     const storeSig = (s) => {
       if (!s) return "";
       const { updatedAt, ...rest } = s;
       return JSON.stringify(rest);
     };
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_stores_v1").then((data) => {
         cloudStoresLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -48696,7 +48709,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudStoresLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudStoresLoaded.current) return;
       if (stores.length === 0) return;
       const synced = storesSyncedRef.current || /* @__PURE__ */ new Map();
@@ -48727,7 +48740,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 500);
       return () => clearTimeout(t);
     }, [stores]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_districts_v1").then((data) => {
         cloudDistrictsLoaded.current = true;
         if (data && typeof data === "object" && Object.keys(data).length > 0) setDistricts(data);
@@ -48735,12 +48748,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudDistrictsLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudDistrictsLoaded.current) return;
       if (!districts || Object.keys(districts).length === 0) return;
       cloudSave("pcg_districts_v1", districts);
     }, [districts]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_contacts_v1").then((data) => {
         cloudContactsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setContacts(data);
@@ -48748,12 +48761,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudContactsLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudContactsLoaded.current) return;
       if (contacts.length === 0) return;
       cloudSave("pcg_contacts_v1", contacts);
     }, [contacts]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_vendors_v1").then((data) => {
         cloudVendorsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setVendors(data);
@@ -48761,12 +48774,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudVendorsLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudVendorsLoaded.current) return;
       if (vendors.length === 0) return;
       cloudSave("pcg_vendors_v1", vendors);
     }, [vendors]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_professionals_v1").then((data) => {
         cloudProfessionalsLoaded.current = true;
         if (data && typeof data === "object" && data.attorneys) setProfessionals((prev) => ({ ...DEFAULT_PROFESSIONALS, ...prev, ...data }));
@@ -48774,11 +48787,11 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudProfessionalsLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudProfessionalsLoaded.current) return;
       cloudSave("pcg_professionals_v1", professionals);
     }, [professionals]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_links_v1").then((data) => {
         cloudLinksLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setLinks(data);
@@ -48786,12 +48799,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudLinksLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudLinksLoaded.current) return;
       if (!links || Object.keys(links).length === 0) return;
       cloudSave("pcg_links_v1", links);
     }, [links]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_notes_v1").then((data) => {
         cloudNotesLoaded.current = true;
         if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) setNotes(data);
@@ -48799,12 +48812,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotesLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudNotesLoaded.current) return;
       if (!notes || Object.keys(notes).length === 0) return;
       cloudSave("pcg_notes_v1", notes);
     }, [notes]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_todos_v1").then((data) => {
         cloudTodosLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTodos(data);
@@ -48812,12 +48825,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTodosLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudTodosLoaded.current) return;
       if (todos.length === 0) return;
       cloudSave("pcg_todos_v1", todos);
     }, [todos]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_notifications_v1").then((data) => {
         cloudNotificationsLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -48830,12 +48843,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudNotificationsLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chatPollActive.current || !cloudNotificationsLoaded.current) return;
       if (notifications.length === 0) return;
       cloudSave("pcg_notifications_v1", notifications);
     }, [notifications]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_global_notify_v1").then((data) => {
         cloudGlobalNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setGlobalNotifyEmails(data);
@@ -48843,12 +48856,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudGlobalNotifyLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudGlobalNotifyLoaded.current) return;
       if (globalNotifyEmails.length === 0) return;
       cloudSave("pcg_global_notify_v1", globalNotifyEmails);
     }, [globalNotifyEmails]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_ticket_notify_v1").then((data) => {
         cloudTicketNotifyLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) setTicketNotifyEmails(data);
@@ -48856,12 +48869,12 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudTicketNotifyLoaded.current) return;
       if (ticketNotifyEmails.length === 0) return;
       cloudSave("pcg_ticket_notify_v1", ticketNotifyEmails);
     }, [ticketNotifyEmails]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_ticket_notify_phones_v1").then((data) => {
         cloudTicketNotifyPhonesLoaded.current = true;
         if (data && Array.isArray(data) && data.length > 0) {
@@ -48872,7 +48885,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhonesLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudTicketNotifyPhonesLoaded.current) return;
       if (skipNextTicketNotifyPhonesSave.current) {
         skipNextTicketNotifyPhonesSave.current = false;
@@ -48881,7 +48894,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       if (ticketNotifyPhones.length === 0) return;
       cloudSave("pcg_ticket_notify_phones_v1", ticketNotifyPhones);
     }, [ticketNotifyPhones]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_ticket_notify_owners_v1").then((data) => {
         cloudTicketNotifyOwnersLoaded.current = true;
         if (Array.isArray(data)) setTicketNotifyEmailOwners(data);
@@ -48895,17 +48908,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudTicketNotifyPhoneOwnersLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudTicketNotifyOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_owners_v1", ticketNotifyEmailOwners);
     }, [ticketNotifyEmailOwners]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!cloudTicketNotifyPhoneOwnersLoaded.current) return;
       cloudSave("pcg_ticket_notify_phone_owners_v1", ticketNotifyPhoneOwners);
     }, [ticketNotifyPhoneOwners]);
-    const chatPollRef = useRef7(null);
-    const chatPollActive = useRef7(false);
-    useEffect15(() => {
+    const chatPollRef = useRef8(null);
+    const chatPollActive = useRef8(false);
+    useEffect18(() => {
       Promise.all([
         cloudLoad("pcg_chat_channels_v1"),
         cloudLoad("pcg_chat_messages_v1"),
@@ -48919,19 +48932,19 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudChatLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatChannels.length === 0) return;
       cloudSave("pcg_chat_channels_v1", chatChannels);
     }, [chatChannels]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || chatMessages.length === 0) return;
       cloudSave("pcg_chat_messages_v1", chatMessages);
     }, [chatMessages]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chatPollActive.current || !cloudChatLoaded.current || Object.keys(chatReadState).length === 0) return;
       cloudSave("pcg_chat_read_v1", chatReadState);
     }, [chatReadState]);
-    useEffect15(() => {
+    useEffect18(() => {
       Promise.all([
         cloudLoad("pcg_announcements_v1"),
         cloudLoad("pcg_announcements_dismissed_v1")
@@ -48943,15 +48956,15 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAnnouncementsLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current) return;
       cloudSave("pcg_announcements_v1", announcements);
     }, [announcements]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chatPollActive.current || !cloudAnnouncementsLoaded.current || Object.keys(announcementsDismissed).length === 0) return;
       cloudSave("pcg_announcements_dismissed_v1", announcementsDismissed);
     }, [announcementsDismissed]);
-    useEffect15(() => {
+    useEffect18(() => {
       cloudLoad("pcg_access_overrides_v1").then((ov) => {
         cloudAccessLoaded.current = true;
         if (ov && typeof ov === "object" && !Array.isArray(ov)) setAccessOverrides(ov);
@@ -48959,17 +48972,17 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         cloudAccessLoaded.current = true;
       });
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (chatPollActive.current || !cloudAccessLoaded.current) return;
       cloudSave("pcg_access_overrides_v1", accessOverrides);
     }, [accessOverrides]);
-    useEffect15(() => {
+    useEffect18(() => {
       registerServiceWorker();
     }, []);
-    useEffect15(() => {
+    useEffect18(() => {
       if (user && user.pushNotify) subscribeToPush(user.id);
     }, [user?.id]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user) return;
       chatPollRef.current = setInterval(async () => {
         try {
@@ -49004,8 +49017,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 12e3);
       return () => clearInterval(chatPollRef.current);
     }, [user]);
-    const mentionAlertRef = useRef7({});
-    useEffect15(() => {
+    const mentionAlertRef = useRef8({});
+    useEffect18(() => {
       if (!user) return;
       const interval = setInterval(() => {
         const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1e3).toISOString();
@@ -49040,7 +49053,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       }, 5 * 60 * 1e3);
       return () => clearInterval(interval);
     }, [user, chatMessages, chatChannels, chatReadState, users, globalNotifyEmails]);
-    useEffect15(() => {
+    useEffect18(() => {
       const completedIds = new Set(projects.filter((p) => p.completed).map((p) => p.id));
       if (completedIds.size === 0) return;
       setNotifications((prev) => {
@@ -49052,7 +49065,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         return prev;
       });
     }, [projects]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!showNotifs) return;
       const handleOutside = (e) => {
         if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false);
@@ -49067,7 +49080,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showNotifs]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!showChatPanel) return;
       const handleOutside = (e) => {
         if (chatPanelRef.current && !chatPanelRef.current.contains(e.target)) setShowChatPanel(false);
@@ -49082,7 +49095,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         document.removeEventListener("keydown", handleEsc);
       };
     }, [showChatPanel]);
-    useEffect15(() => {
+    useEffect18(() => {
       const mkId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const checkDeadlines = () => {
         const now = /* @__PURE__ */ new Date();
@@ -49112,7 +49125,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       const interval = setInterval(checkDeadlines, 864e5);
       return () => clearInterval(interval);
     }, [projects.map((p) => `${p.id}:${p.dueDate || ""}:${p.completed ? 1 : 0}`).join("|")]);
-    const prevProjectsRef = useRef7(projects);
+    const prevProjectsRef = useRef8(projects);
     const getNotifyRecipients = (p) => {
       const perProject = p.notifyEmails ? p.notifyEmails.split(",").map((e) => e.trim()).filter(Boolean) : [];
       const all = [...globalNotifyEmails, ...perProject];
@@ -49122,7 +49135,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     PROJECT_PHASES.forEach((ph) => ph.items.forEach((it) => {
       itemLabels[it.key] = { label: it.label, type: it.type, phase: ph.label };
     }));
-    useEffect15(() => {
+    useEffect18(() => {
       if (!projectsUserEdited.current) {
         prevProjectsRef.current = projects;
         return;
@@ -49261,10 +49274,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setDataAlert({ type, msg });
       setTimeout(() => setDataAlert(null), 3500);
     };
-    const [managerPending, setManagerPending] = useState18({});
+    const [managerPending, setManagerPending] = useState21({});
     const loadManagerPending = () => cloudLoad("pcg_manager_pending_v1").then((d) => setManagerPending(d && typeof d === "object" ? d : {})).catch(() => {
     });
-    useEffect15(() => {
+    useEffect18(() => {
       loadManagerPending();
     }, []);
     const dismissManagerPending = async (pc) => {
@@ -49295,7 +49308,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
     };
     const openStorePcs = React.useMemo(() => new Set(openStores.map((s) => String(s.pc))), [openStores]);
     const managerPendingCount = Object.entries(managerPending).filter(([pc, item]) => openStorePcs.has(String(pc)) && managerPendingIsActionable(item)).length;
-    const [managerReviewPc, setManagerReviewPc] = useState18(null);
+    const [managerReviewPc, setManagerReviewPc] = useState21(null);
     const handleToggle = useCallback(() => {
       const newDark = !dark;
       setLogoAnim(true);
@@ -49314,7 +49327,7 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
         setDark(newDark);
       }
     }, [dark]);
-    useEffect15(() => {
+    useEffect18(() => {
       if (!user || annGateDone || user.userType?.startsWith("kiosk")) return;
       const GATE_MAX_AGE_DAYS = 14;
       const cutoff = Date.now() - GATE_MAX_AGE_DAYS * 864e5;
@@ -49333,8 +49346,8 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
       setAnnGateQueue(queue);
       setAnnGateIdx(0);
     }, [user?.id, user?.userType, announcements, annGateDone, announcementsDismissed]);
-    const annBackfillRef = useRef7(false);
-    useEffect15(() => {
+    const annBackfillRef = useRef8(false);
+    useEffect18(() => {
       if (!user || annBackfillRef.current || user.userType?.startsWith("kiosk")) return;
       if (!announcements || announcements.length === 0) return;
       annBackfillRef.current = true;

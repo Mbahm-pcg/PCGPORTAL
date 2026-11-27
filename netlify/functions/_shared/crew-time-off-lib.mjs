@@ -1,3 +1,4 @@
+// @ts-check
 // _shared/crew-time-off-lib.mjs — Crew Time Off (v23.30, user 2026-11-25). Shared by crew-time-off.mjs
 // (staff, signed in) and crew-time-off-form.mjs (the crew member's form — NO sign-in).
 //
@@ -19,6 +20,7 @@ import { bell, esc, PORTAL, stampApproval, etNow } from './form-approval.mjs';
 import { STORES } from '../tips-report-cron-background.mjs';
 import { crewSummary, usDay } from '../../../src/crew-time-off.mjs';
 import { callPaycor } from '../paycor.mjs';
+import { normBadge, badgesFromRecord } from '../../../src/paycor-fields.mjs';
 
 export const OFFICE_KEY = 'pcg_crew_time_off_office_v1';
 const PAY_OFFICE_STEP_KEY = 'pcg_pay_increase_office_step_v1';
@@ -57,7 +59,6 @@ export function docOk(id, i, exp, sig) {
 // ── v23.30 the poster's badge check (user, 2026-11-25): pick your name AND enter your badge ID (the
 // time-clock badge number), checked here on the server — never sent to the phone. 5 wrong tries lock
 // that name for 30 minutes. A right one gives a 2-hour pass to fill in the form for that person only.
-const normBadge = (x) => String(x || '').replace(/\D/g, '').replace(/^0+/, '');
 const BADGE_TRIES = 5, LOCK_MIN = 30;
 // v23.31: the number crew clock in with is Paycor's badgeNumber (= alternateEmployeeNumber, e.g.
 // 332941001 — store PC + 3 digits); employeeNumber (e.g. 130, HR's) is accepted as a backup. Read live
@@ -66,8 +67,7 @@ export async function badgesFor(db, employeeId) {
   const out = new Set();
   try {
     const res = await Promise.race([callPaycor(`/employees/${encodeURIComponent(String(employeeId))}?include=All`), new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 8000))]);
-    const d = res.data?.records?.[0] || res.data || {};
-    for (const k of ['badgeNumber', 'alternateEmployeeNumber', 'employeeNumber']) if (normBadge(d[k])) out.add(normBadge(d[k]));
+    for (const b of badgesFromRecord(res.data?.records?.[0] || res.data || {})) out.add(b); // src/paycor-fields.mjs (tested)
   } catch (e) { console.warn('[crew-time-off] badge lookup', e.message); }
   if (!out.size) {
     const r = (await db`SELECT employee_number FROM time_off_people WHERE paycor_employee_id = ${String(employeeId)} AND employee_number IS NOT NULL LIMIT 1`.catch(() => []))[0];

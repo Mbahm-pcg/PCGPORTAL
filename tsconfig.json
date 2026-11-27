@@ -1,0 +1,32 @@
+{
+  // v23.36 — type-checking only (nothing is compiled or shipped): `npm run typecheck`.
+  // Opt-in per file: only files that start with `// @ts-check` are checked (so following an import into an
+  // older file doesn't drag it in). Started with approvals, Paycor, crew time off, leader terminations.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/paycor-fields.mjs",
+    "src/crew-time-off.mjs",
+    "src/pay-rate-paycor.mjs",
+    "src/routes.mjs",
+    "netlify/functions/_shared/form-approval.mjs",
+    "netlify/functions/_shared/crew-time-off-lib.mjs",
+    "netlify/functions/_shared/leader-terminations.mjs",
+    "netlify/functions/approval-inbox.mjs",
+    "netlify/functions/crew-time-off.mjs",
+    "netlify/functions/crew-time-off-form.mjs",
+    "netlify/functions/textbelt-reply.mjs"
+  ]
+}

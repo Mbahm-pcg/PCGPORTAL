@@ -1,3 +1,4 @@
+// @ts-check
 // crew-time-off.mjs — Tools · Crew Time Off, the staff side (v23.30). Signed in.
 // Who: Store Managers (their store), DMs / Directors (their districts), exec / IT / office staff (all).
 //   GET              → { stores, employees, lists: { manager, office, invited, done }, canOffice, today }
@@ -18,6 +19,7 @@ import { timeOffAlertText, timeOffEmailHtml } from '../../src/time-off-request.m
 import { crewSummary, crewFileName, usDay, isEmail, isPhone } from '../../src/crew-time-off.mjs';
 import { baseFor, ensureTable, storeOf, newToken, hashToken, linkFor, linkExpiry, sendInvite, posterUrl, docUrl, officePeople, notifyOffice, tellCrew, stampApproval, approvalLine, readList } from './_shared/crew-time-off-lib.mjs';
 import { sendSms, sendPush } from './_shared/channels.mjs';
+import { contactsFrom, pickContact } from '../../src/paycor-fields.mjs';
 import { getStore } from '@netlify/blobs';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -69,43 +71,23 @@ export default async (request) => {
         if (!(roster.stores[String(url.searchParams.get('pc'))] || []).some(e => e.id === contactId)) return json(404, { error: 'Not on that store roster.' });
         const { callPaycor } = await import('./paycor.mjs');
         const capped = (path) => Promise.race([callPaycor(path), new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 7000))]).catch(() => null);
-        const phones = [], emails = [];
-        const scan = (o, key = '') => {
-          if (o == null) return;
-          if (typeof o !== 'object') {
-            const v = String(o).trim();
-            if (/e-?mail/i.test(key) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) emails.push({ v, key });
-            const d = v.replace(/\D/g, '');
-            if (/phone|mobile|cell|number/i.test(key) && /phone|mobile|cell/i.test(key + JSON.stringify(key)) && (d.length === 10 || (d.length === 11 && d[0] === '1'))) phones.push({ v: d.slice(-10), key });
-            return;
-          }
-          if (Array.isArray(o)) { o.forEach(x => scan(x, key)); return; }
-          // a phone stored as { type: 'Mobile', areaCode: '215', phoneNumber: '5550123' }
-          const ac = o.areaCode ?? o.areacode, pn = o.phoneNumber ?? o.number;
-          if (ac != null && pn != null) { const d = `${ac}${pn}`.replace(/\D/g, ''); if (d.length === 10) phones.push({ v: d, key: `${key}.${o.type || o.phoneType || ''}` }); }
-          for (const [k, v] of Object.entries(o)) if (!/ssn|social|tax|birth|bank|account|routing/i.test(k)) scan(v, key ? `${key}.${k}` : k);
-        };
-        // v23.33: Paycor's "Get Person by EmployeeID" — GET /v1/employees/{id}/person — asked for ONLY
-        // Phones and Email (include=All would also return the SSN: never ask for it). Anything SSN / tax /
-        // birth / bank is dropped by scan() anyway. The work-email fallback: the employee record, Home first.
+        // v23.36: the tested readers in src/paycor-fields.mjs (phone / email only; SSN / birth / bank never).
+        // Paycor's "Get Person by EmployeeID" — /v1/employees/{id}/person — asked for Phones and Email
+        // separately (as one list Paycor ignored it), never "All" (that includes the SSN).
         const eid = encodeURIComponent(contactId);
-        const names = (o, pre = '', out = []) => { if (o == null || out.length > 40) return out; if (typeof o !== 'object') { out.push(pre); return out; }
-          if (Array.isArray(o)) { if (o.length) names(o[0], `${pre}[0]`, out); return out; } for (const [k, v] of Object.entries(o)) if (!/ssn|social|tax|birth|bank|account|routing/i.test(k)) names(v, pre ? `${pre}.${k}` : k, out); return out; };
-        // Paycor ignored "include=Phones,Email" as one list (only name fields came back) — each on its own.
+        const phones = [], emails = [];
+        const add = (o, key) => { const c = contactsFrom(o, key); phones.push(...c.phones); emails.push(...c.emails); };
         const [pPhones, pEmail] = await Promise.all([capped(`/employees/${eid}/person?include=Phones`), capped(`/employees/${eid}/person?include=Email`)]);
-        for (const [tag, p] of [['phones', pPhones], ['email', pEmail]]) {
-          console.log('[crew-time-off] contact person', tag, p ? p.status : 'no answer', p?.data ? JSON.stringify(names(p.data)).slice(0, 700) : '');
-          if (p?.status === 200 && p.data) scan(p.data, 'person');
-        }
+        for (const p of [pPhones, pEmail]) if (p?.status === 200 && p.data) add(p.data, 'person');
         if (!emails.length) {
           for (const t of ['Home', 'Work']) {
             const e = await capped(`/employees/${eid}?emailType=${t}`);
             const rec = e?.data?.records?.[0] || e?.data;
-            if (e?.status === 200 && rec?.email) { scan({ email: rec.email }, `employee.${t.toLowerCase()}`); if (emails.length) break; }
+            if (e?.status === 200 && rec?.email) { add({ email: rec.email }, `employee.${t.toLowerCase()}`); if (emails.length) break; }
           }
         }
-        const pick = (list, prefer) => (list.find(x => prefer.test(x.key)) || list[0] || {}).v || '';
-        return json(200, { phone: pick(phones, /mobile|cell/i), email: pick(emails, /personal|home/i) || pick(emails, /./), found: { phones: phones.length, emails: emails.length } });
+        const picked = pickContact({ phones, emails });
+        return json(200, { ...picked, found: { phones: phones.length, emails: emails.length } });
       }
       const posterPc = url.searchParams.get('poster');
       if (posterPc) {

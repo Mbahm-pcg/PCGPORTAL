@@ -1,3 +1,4 @@
+// @ts-check
 // crew-time-off-form.mjs — the crew member's side of Crew Time Off (v23.30). NO sign-in: every
 // request carries either a private link token (one person, 14 days, one use) or a store poster key.
 //   GET  ?t=<token>            → { mode:'link', employee, store, position, balances, phone, email } or { state }

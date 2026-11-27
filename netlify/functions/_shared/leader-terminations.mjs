@@ -1,3 +1,4 @@
+// @ts-check
 // _shared/leader-terminations.mjs — a Store Manager / DM / Director terminated in Paycor →
 // Mike, Sam and Krunal are texted "reply YES to have Ahmed deactivate their accounts" → the first
 // YES turns their portal login off and sends Ahmed the checklist (v23.27, user 2026-11-25).
@@ -288,6 +289,7 @@ async function tellIT(db, r, by) {
 // A clearly-marked fake case that goes through the real texts and the real reply — touches no account.
 export async function sendTest(db, byName) {
   await ensureTable(db);
+  /** @type {any} */
   const st = STORES[0] || {};
   const ins = (await db`INSERT INTO leader_terminations (paycor_employee_id, user_id, name, role, title, store_pc, district, termination_date, source, is_test)
     VALUES (${`test-${Date.now()}`}, NULL, 'Test Person', 'manager', 'Store Manager', ${String(st.pc || '')}, ${st.district == null ? null : String(st.district)}, ${todayET()}, ${`test by ${byName}`}, true) RETURNING *`)[0];

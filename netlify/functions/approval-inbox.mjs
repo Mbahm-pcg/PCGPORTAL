@@ -1,3 +1,4 @@
+// @ts-check
 // approval-inbox.mjs — "Waiting for your approval" on login (v23.35, user 2026-11-27). Only what THIS
 // person may decide right now; each item opens that request. Read only; a missing table adds nothing.
 //   pay         Pay Rate Change approval    — Admin · Notifications · Pay Rate Change approval (else every executive)
