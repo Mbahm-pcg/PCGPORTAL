@@ -95,8 +95,14 @@ export default async (request) => {
           const pid = encodeURIComponent(personId);
           const got = await Promise.all([`/persons/${pid}?include=All`, `/persons/${pid}/phones`, `/persons/${pid}/emails`].map(capped));
           const tags = ['person', 'person.phones', 'person.emails'];
-          got.forEach((p, i) => { if (p?.status === 200 && p.data) scan(p.data?.records || p.data, tags[i]); else if (p) console.log('[crew-time-off] contact', tags[i], p.status); });
-        }
+          // field NAMES only (never values) — to see where Paycor puts phone / email
+          const names = (o, pre = '', out = []) => { if (o == null || out.length > 60) return out; if (typeof o !== 'object') { out.push(pre); return out; }
+            if (Array.isArray(o)) { if (o.length) names(o[0], `${pre}[0]`, out); return out; } for (const [k, v] of Object.entries(o)) if (!/ssn|social|tax|birth|bank|account|routing/i.test(k)) names(v, pre ? `${pre}.${k}` : k, out); return out; };
+          got.forEach((p, i) => {
+            console.log('[crew-time-off] contact', tags[i], p ? p.status : 'no answer', p?.data ? JSON.stringify(names(p.data)).slice(0, 900) : '');
+            if (p?.status === 200 && p.data) scan(p.data?.records || p.data, tags[i]);
+          });
+        } else console.log('[crew-time-off] contact: no person id on the employee record', rec ? JSON.stringify(Object.keys(rec)).slice(0, 400) : 'no record', emp?.status);
         const pick = (list, prefer) => (list.find(x => prefer.test(x.key)) || list[0] || {}).v || '';
         return json(200, { phone: pick(phones, /mobile|cell/i), email: pick(emails, /personal|home/i) || pick(emails, /./), found: { phones: phones.length, emails: emails.length } });
       }
