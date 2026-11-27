@@ -7,7 +7,7 @@ import { dealLogin, dealApi, dealDocsApi, dealUploadDoc, dealDownloadVersion } f
 import { ExecutiveView } from './src/executive-view.jsx';
 import { TerminationsReport } from './src/terminations-ui.jsx';
 import { LeaderTerminations } from './src/leader-terminations-ui.jsx';
-import { CrewTimeOff } from './src/crew-time-off-ui.jsx';
+import { CrewTimeOff, qrSvg } from './src/crew-time-off-ui.jsx';
 import { CrewTimeOffForm } from './src/crew-time-off-form-ui.jsx';
 import { TransferNotice } from './src/transfer-notice-ui.jsx';
 import { PayIncrease } from './src/pay-increase-ui.jsx';
@@ -32207,7 +32207,22 @@ function fetchLaborRefreshShared(pc) {
   return promise;
 }
 
-function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout }) {
+function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout, onCrewTimeOff }) {
+  // v23.32 (user, 2026-11-27): Crew Time Off replaces Tasks / Tickets on the phone home, and the
+  // bottom bar is Time Off + Show QR (the mic is gone). Tasks / Tickets stay in Full Portal.
+  const [crew, setCrew] = useState(null); // { waiting:[…], poster:{ url, store } }
+  const [showQr, setShowQr] = useState(false);
+  useEffect(() => {
+    const get = () => fetch('/.netlify/functions/crew-time-off?summary=1', { credentials: 'include', cache: 'no-store', headers: { ...authHeader() } })
+      .then(r => (r.ok ? r.json() : null)).then(b => { if (b) setCrew(b); }).catch(() => {});
+    get();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') get(); }, 60000);
+    const onVis = () => { if (document.visibilityState === 'visible') get(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+  const crewWaiting = crew?.waiting || [];
+  const openCrew = () => { try { sessionStorage.setItem('cto_tab', 'manager'); } catch {} onCrewTimeOff && onCrewTimeOff(); };
   const store = getManagerStore(stores, user) || {};
   const pc = store.pc;
   // LOCAL date string (YYYY-MM-DD) — must match the labor/hourly blobs, which key
@@ -32816,45 +32831,31 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
           </div>
         )}
 
-        {/* Bottom row — Tasks / Tickets with live counts */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
-          {/* Tasks */}
-          <div onClick={onTasks} role="button" tabIndex={0} aria-label="Open Tasks"
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTasks && onTasks(e); } }}
-            {...mPress} style={{ ...mSm, padding: "0.9rem", cursor: "pointer", transition: "transform 0.13s ease", display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-              <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut }}>Tasks</span>
-              <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: O }}>View →</span>
-            </div>
-            {taskSummary == null ? (
-              <div style={{ fontFamily: mDisp, fontSize: "30px", fontWeight: 700, color: th.text, marginTop: "0.5rem", lineHeight: 1 }}>--</div>
-            ) : (
-              <div style={{ fontFamily: mDisp, fontSize: "34px", fontWeight: 800, color: th.text, marginTop: "0.45rem", lineHeight: 1 }}>{taskDone}<span style={{ color: mMut, fontWeight: 700 }}>/{taskTotal}</span></div>
-            )}
-            {taskSummary != null && taskTotal > 0 && (
-              <div style={{ height: 6, borderRadius: 99, background: mTrack, overflow: "hidden", marginTop: "0.55rem" }}>
-                <div style={{ height: "100%", width: taskPct + "%", borderRadius: 99, background: O, transition: "width 0.6s ease" }} />
-              </div>
-            )}
-            <div style={{ ...mKpiSub, marginTop: "0.5rem" }}>
-              {taskSummary == null ? "tap to open" : taskTotal === 0 ? "none scheduled" : taskDone >= taskTotal ? "all done" : taskSummary.nextDue ? ("next · " + taskSummary.nextDue) : (taskTotal - taskDone) + " to do"}
-            </div>
+        {/* v23.32 Crew Time Off — requests waiting for this manager (replaces Tasks / Tickets) */}
+        <div onClick={openCrew} role="button" tabIndex={0} aria-label="Open Crew Time Off"
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCrew(); } }}
+          {...mPress} style={{ ...mBig, padding: "1rem 1.05rem", cursor: "pointer", transition: "transform 0.13s ease" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+            <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut }}>Crew Time Off</span>
+            <span style={{ fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: O }}>{crewWaiting.length ? "Review →" : "Open →"}</span>
           </div>
-          {/* Tickets */}
-          <div onClick={onTickets} role="button" tabIndex={0} aria-label="Open Tickets"
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTickets && onTickets(e); } }}
-            {...mPress} style={{ ...mSm, padding: "0.9rem", cursor: "pointer", transition: "transform 0.13s ease", display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-              <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut }}>Tickets</span>
-              <span style={{ fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: O }}>View →</span>
-            </div>
-            <div style={{ fontFamily: mDisp, fontSize: "34px", fontWeight: 800, color: th.text, marginTop: "0.45rem", lineHeight: 1 }}>{openTicketCount}<span style={{ color: mMut, fontWeight: 700, fontSize: "18px" }}> open</span></div>
-            {firstUrgent ? (
-              <div style={{ fontFamily: "'Source Sans 3'", fontSize: "11px", fontWeight: 700, color: dark ? "#f2a06b" : "#b8480f", marginTop: "0.5rem", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{urgentTickets.length} urgent — {firstUrgent.title || "Untitled"}</div>
-            ) : (
-              <div style={{ ...mKpiSub, marginTop: "0.5rem" }}>{openTicketCount === 0 ? "all clear" : inProgressCount > 0 ? inProgressCount + " in progress" : "none urgent"}</div>
-            )}
+          <div style={{ display: "flex", alignItems: "baseline", gap: "0.45rem", marginTop: "0.45rem" }}>
+            <span style={{ fontFamily: mDisp, fontSize: "40px", fontWeight: 800, lineHeight: 1, color: crewWaiting.length ? O : th.text }}>{crew == null ? "--" : crewWaiting.length}</span>
+            <span style={{ fontFamily: mMono, fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut }}>{crewWaiting.length === 1 ? "waiting for you" : "waiting for you"}</span>
           </div>
+          {crewWaiting.length > 0 ? (
+            <div style={{ display: "grid", gap: "0.35rem", marginTop: "0.65rem" }}>
+              {crewWaiting.slice(0, 3).map(r => (
+                <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", fontSize: "12.5px", color: th.text }}>
+                  <b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</b>
+                  <span style={{ color: mSec, whiteSpace: "nowrap" }}>{r.summary}</span>
+                </div>
+              ))}
+              {crewWaiting.length > 3 && <span style={{ ...mKpiSub }}>+{crewWaiting.length - 3} more</span>}
+            </div>
+          ) : (
+            <div style={{ ...mKpiSub, marginTop: "0.55rem" }}>{crew == null ? "loading" : "all clear · tap Show QR when a crew member asks"}</div>
+          )}
         </div>
 
         {/* v22.75: Joy in Childhood — today + this month for this store (scoped server-side) */}
@@ -32912,43 +32913,31 @@ function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks,
       </div>
 
       {/* Voice reply card — floats above nav when active */}
-      {(voiceState !== 'idle' || voiceReply) && (
-        <div style={{ position: "fixed", left: "50%", bottom: 82, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 13, background: dark ? "rgba(16,18,27,0.97)" : "rgba(255,255,255,0.98)", border: `1px solid ${voiceState === 'error' ? '#ef444455' : O + '44'}`, borderRadius: 14, padding: "0.75rem 1rem", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", backdropFilter: "blur(16px)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: voiceTranscript || voiceReply ? "0.4rem" : 0 }}>
-            <span style={{ fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.8, color: voiceState === 'error' ? '#ef4444' : O }}>
-              {voiceState === 'listening' ? '🎙 Listening…' : voiceState === 'thinking' ? '⏳ Orion is thinking…' : voiceState === 'speaking' ? '🔊 Orion' : voiceState === 'error' ? '⚠ Error' : '🔊 Orion'}
-            </span>
-            <button onClick={() => { window.speechSynthesis?.cancel(); recogRef.current?.stop(); setVoiceState('idle'); setVoiceTranscript(''); setVoiceReply(''); }} style={{ background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.95rem", lineHeight: 1, padding: "0 0 0 8px" }}>×</button>
-          </div>
-          {voiceTranscript && <div style={{ fontSize: "0.72rem", color: th.muted, fontStyle: "italic", marginBottom: "0.35rem" }}>"{voiceTranscript}"</div>}
-          {voiceReply && <div style={{ fontSize: "0.82rem", color: th.text, lineHeight: 1.55 }}>{voiceReply}</div>}
-        </div>
-      )}
-
-      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
-        <button onClick={onTasks} title="Tasks" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O, position: "relative" }}>
+      <div style={{ position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)",
+        border: `1px solid ${th.cardBorder}`, borderRadius: 18, boxShadow: "0 8px 28px rgba(0,0,0,0.18)", display: "grid", gridTemplateColumns: "1fr 1fr", padding: "0.3rem", gap: "0.3rem" }}>
+        <button onClick={openCrew} title="Crew Time Off" style={{ background: "none", border: "none", borderRadius: 12, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: th.text, cursor: "pointer" }}>
           <span style={{ position: "relative", display: "flex" }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-            <span style={{ position: "absolute", top: -2, right: -3, width: 7, height: 7, borderRadius: "50%", background: "#ef4444", zIndex: 2, pointerEvents: "none" }}>
-              <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#ef4444", animation: "navDotPing 1.4s ease-out infinite", pointerEvents: "none" }} />
-            </span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/></svg>
+            {crewWaiting.length > 0 && <span style={{ position: "absolute", top: -6, right: -10, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 99, background: "#ef4444", color: "#fff", fontSize: "10px", fontWeight: 800, lineHeight: "16px", textAlign: "center" }}>{crewWaiting.length}</span>}
           </span>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Tasks</span>
+          <span style={{ fontSize: "0.6rem", fontWeight: 800, letterSpacing: 0.5 }}>Time Off</span>
         </button>
-        {/* Orion Voice — center mic button */}
-        <button onClick={startVoice} title="Ask Orion" style={{ background: voiceState === 'listening' ? O : voiceState === 'thinking' ? '#f59e0b' : voiceState === 'speaking' ? '#22c55e' : voiceState === 'error' ? '#ef4444' : O + '18', border: `2px solid ${voiceState === 'idle' ? O + '55' : 'transparent'}`, borderRadius: "50%", width: 48, height: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: voiceState === 'thinking' ? "default" : "pointer", alignSelf: "center", flexShrink: 0, boxShadow: voiceState === 'listening' ? `0 0 0 6px ${O}33, 0 0 0 12px ${O}18` : voiceState === 'speaking' ? '0 0 0 6px #22c55e33' : 'none', transition: "all 0.2s" }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={voiceState === 'idle' ? O : '#fff'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="9" y="2" width="6" height="12" rx="3"/>
-            <path d="M5 10a7 7 0 0 0 14 0"/>
-            <line x1="12" y1="19" x2="12" y2="22"/>
-            <line x1="8" y1="22" x2="16" y2="22"/>
-          </svg>
-        </button>
-        <button onClick={onTickets} title="Tickets" style={{ background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "#ef4444" }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-          <span style={{ fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 }}>Tickets</span>
+        <button onClick={() => setShowQr(true)} disabled={!crew?.poster} title="Show the store's time off QR" style={{ background: "none", border: "none", borderRadius: 12, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: th.text, cursor: crew?.poster ? "pointer" : "default", opacity: crew?.poster ? 1 : 0.5 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={O} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v.01M14 21h7v-4"/></svg>
+          <span style={{ fontSize: "0.6rem", fontWeight: 800, letterSpacing: 0.5 }}>Show QR</span>
         </button>
       </div>
+
+      {showQr && crew?.poster && (
+        <div className="pcg-backdrop" onClick={() => setShowQr(false)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+          <div className="pcg-pop" onClick={e => e.stopPropagation()} style={{ background: "#fff", color: "#111", borderRadius: 20, padding: "1.3rem 1.2rem", width: "min(360px, 100%)", textAlign: "center", display: "grid", gap: "0.6rem", justifyItems: "center" }}>
+            <div style={{ fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.2rem" }}>Time off request</div>
+            <div style={{ color: "#555", fontSize: "0.85rem" }}>{crew.poster.store} crew: scan with your phone camera, pick your name and enter your badge ID.</div>
+            <div style={{ width: "min(280px, 78vw)", aspectRatio: "1 / 1" }} dangerouslySetInnerHTML={{ __html: (qrSvg(crew.poster.url, 8) || '').replace('<svg ', '<svg style="width:100%;height:100%" ') }} />
+            <button type="button" onClick={() => setShowQr(false)} style={{ background: O, color: "#fff", border: "none", borderRadius: 12, padding: "0.6rem 1.6rem", fontWeight: 800, cursor: "pointer" }}>Done</button>
+          </div>
+        </div>
+      )}
 
       {showStoreInfo && (
         <div className="pcg-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setShowStoreInfo(false)}>
@@ -33013,7 +33002,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.31";
+const APP_VERSION = "v23.32";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -57747,6 +57736,7 @@ function PCGPortal() {
         onFullPortal={() => { togglePortalMode(true); setTab(MOBILE_LAUNCHER_TAB_ID); }}
         onTickets={() => { togglePortalMode(true); setTab("tickets"); }}
         onTasks={() => { togglePortalMode(true); setTab("tasks"); }}
+        onCrewTimeOff={() => { togglePortalMode(true); setTab("crew-time-off"); }}
         onPulse={() => { setPulseInitialTab('sales'); togglePortalMode(true); setTab("pulse"); }}
         // Confirmed real (2026-10-06, explicit request): this used to divert
         // into Pulse's own per-store Labor rail tab instead of the real

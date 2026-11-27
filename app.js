@@ -3769,7 +3769,16 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [data, setData] = useState6(null);
     const [err, setErr] = useState6(null);
     const [msg, setMsg] = useState6(null);
-    const [tab, setTab] = useState6("send");
+    const [tab, setTab] = useState6(() => {
+      try {
+        const t = sessionStorage.getItem("cto_tab");
+        sessionStorage.removeItem("cto_tab");
+        return t || "send";
+      } catch {
+        return "send";
+      }
+    });
+    const firstLoad = useRef5(true);
     const [open, setOpen] = useState6(null);
     const [viewing, setViewing] = useState6(null);
     const [pc, setPc] = useState6("");
@@ -3779,6 +3788,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
     const [email, setEmail] = useState6("");
     const [busy, setBusy] = useState6(false);
     const [sent, setSent] = useState6(null);
+    const [fromPaycor, setFromPaycor] = useState6(null);
     const [poster, setPoster] = useState6(null);
     const [bd, setBd] = useState6({ q: "", emp: null });
     const openRef = useRef5(open);
@@ -3787,6 +3797,10 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setData(b);
       setErr(null);
       if (!pc && b.stores?.length === 1) setPc(b.stores[0].pc);
+      if (firstLoad.current) {
+        firstLoad.current = false;
+        if ((b.lists?.manager || []).length) setTab((t) => t === "send" ? "manager" : t);
+      }
     }).catch((e) => setErr(e.message));
     useEffect6(() => {
       load();
@@ -3843,13 +3857,27 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       setQ("");
       setPhone("");
       setEmail("");
+      setFromPaycor(null);
     } }, "Send another")), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.78rem" } }, "The link is only for ", sent.name, " and works for 14 days.")) : /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.8rem" } }, data.stores.length > 1 && /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Store", /* @__PURE__ */ React.createElement("select", { className: "fin-input", value: pc, onChange: (e) => {
       setPc(e.target.value);
       setEmp(null);
     }, style: S.input }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All my stores"), data.stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Crew member", /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: emp ? emp.name : q, onChange: (e) => {
+      if (emp) {
+        setPhone("");
+        setEmail("");
+        setFromPaycor(null);
+      }
       setEmp(null);
       setQ(e.target.value);
-    }, placeholder: "Type a name", style: S.input })), !emp && q.trim() && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.3rem", maxHeight: 260, overflowY: "auto" } }, employees.map((e) => /* @__PURE__ */ React.createElement("button", { key: e.pc + e.id, type: "button", className: "fin-btn", onClick: () => setEmp(e), style: { ...S.ghost, justifyContent: "space-between", display: "flex", textAlign: "left" } }, /* @__PURE__ */ React.createElement("span", null, e.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, e.jobTitle)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (data.stores.find((s) => s.pc === e.pc) || {}).name))), !employees.length && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "No one by that name.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their cell number", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "tel", value: phone, onChange: (e) => setPhone(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their email (optional)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "email", value: email, onChange: (e) => setEmail(e.target.value), style: S.input }))), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "The link goes by email. Texts can't carry links yet, so the text tells them to check their email, or you show them the QR code after you press Send."), /* @__PURE__ */ React.createElement(
+    }, placeholder: "Type a name", style: S.input })), !emp && q.trim() && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.3rem", maxHeight: 260, overflowY: "auto" } }, employees.map((e) => /* @__PURE__ */ React.createElement("button", { key: e.pc + e.id, type: "button", className: "fin-btn", onClick: () => {
+      setEmp(e);
+      setFromPaycor("loading");
+      call4(`?contact=${encodeURIComponent(e.id)}&pc=${e.pc}`).then((b) => {
+        setFromPaycor(b);
+        if (b.phone) setPhone((p) => p || b.phone);
+        if (b.email) setEmail((m) => m || b.email);
+      }).catch(() => setFromPaycor({}));
+    }, style: { ...S.ghost, justifyContent: "space-between", display: "flex", textAlign: "left" } }, /* @__PURE__ */ React.createElement("span", null, e.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, e.jobTitle)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (data.stores.find((s) => s.pc === e.pc) || {}).name))), !employees.length && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "No one by that name.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their cell number", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "tel", value: phone, onChange: (e) => setPhone(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their email (optional)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "email", value: email, onChange: (e) => setEmail(e.target.value), style: S.input }))), emp && fromPaycor === "loading" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "Getting their cell and email from Paycor\u2026"), emp && fromPaycor && fromPaycor !== "loading" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, fromPaycor.phone || fromPaycor.email ? `Filled in from Paycor${!fromPaycor.phone ? " (no cell on file)" : !fromPaycor.email ? " (no email on file)" : ""}. Check them before you send.` : "Paycor has no cell or email for them. Type them in."), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "The link goes by email. Texts can't carry links yet, so the text tells them to check their email, or you show them the QR code after you press Send."), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -3891,7 +3919,7 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       } catch (er) {
         setErr(er.message);
       }
-    }, style: S.input }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick a store"), data.stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), poster && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", justifyItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement(Qr, { text: poster.url, size: 240 }), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => printPoster(poster.store, poster.url) }, "Print the poster"))), tab === "posters" && /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("b", null, "Unlock a badge ID"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem" } }, "After 5 wrong badge IDs on the poster, that name is locked for 30 minutes. Unlock it here so they can try again."), /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: bd.emp ? bd.emp.name : bd.q, onChange: (e) => setBd({ q: e.target.value, emp: null }), placeholder: "Crew member's name", style: S.input }), !bd.emp && bd.q.trim().length > 1 && (data.employees || []).filter((e) => e.name.toLowerCase().includes(bd.q.trim().toLowerCase())).slice(0, 8).map((e) => /* @__PURE__ */ React.createElement("button", { key: e.pc + e.id, type: "button", className: "fin-btn", onClick: () => setBd((x) => ({ ...x, emp: e })), style: { ...S.ghost, textAlign: "left" } }, e.name, " \xB7 ", (data.stores.find((s2) => s2.pc === e.pc) || {}).name)), /* @__PURE__ */ React.createElement(
+    }, style: S.input }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick a store"), data.stores.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.pc, value: s.pc }, s.name)))), poster && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", justifyItems: "center", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement(Qr, { text: poster.url, size: 240 }), /* @__PURE__ */ React.createElement("button", { type: "button", className: "fin-btn", style: S.primary, onClick: () => printPoster(poster.store, poster.url) }, "Print the poster"))), tab === "posters" && (data.role === "executive" || data.role === "it") && /* @__PURE__ */ React.createElement("div", { style: { ...S.panel, padding: "1rem", display: "grid", gap: "0.6rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement("b", null, "Unlock a badge ID"), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.85rem" } }, "After 5 wrong badge IDs on the poster, that name is locked for 30 minutes. Unlock it here so they can try again."), /* @__PURE__ */ React.createElement("input", { className: "fin-input", value: bd.emp ? bd.emp.name : bd.q, onChange: (e) => setBd({ q: e.target.value, emp: null }), placeholder: "Crew member's name", style: S.input }), !bd.emp && bd.q.trim().length > 1 && (data.employees || []).filter((e) => e.name.toLowerCase().includes(bd.q.trim().toLowerCase())).slice(0, 8).map((e) => /* @__PURE__ */ React.createElement("button", { key: e.pc + e.id, type: "button", className: "fin-btn", onClick: () => setBd((x) => ({ ...x, emp: e })), style: { ...S.ghost, textAlign: "left" } }, e.name, " \xB7 ", (data.stores.find((s2) => s2.pc === e.pc) || {}).name)), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
@@ -32292,7 +32320,35 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     laborRefreshCache.set(pc, { promise, fetchedAt: Date.now() });
     return promise;
   }
-  function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout }) {
+  function ManagerEmbeddableView({ user, stores, th, dark, toggleDark, salesWeeks, cashDeposits, onFullPortal, onTickets, onTasks, onPulse, onLabor, onLogout, onCrewTimeOff }) {
+    const [crew, setCrew] = useState17(null);
+    const [showQr, setShowQr] = useState17(false);
+    useEffect14(() => {
+      const get = () => fetch("/.netlify/functions/crew-time-off?summary=1", { credentials: "include", cache: "no-store", headers: { ...authHeader() } }).then((r) => r.ok ? r.json() : null).then((b) => {
+        if (b) setCrew(b);
+      }).catch(() => {
+      });
+      get();
+      const t = setInterval(() => {
+        if (document.visibilityState === "visible") get();
+      }, 6e4);
+      const onVis = () => {
+        if (document.visibilityState === "visible") get();
+      };
+      document.addEventListener("visibilitychange", onVis);
+      return () => {
+        clearInterval(t);
+        document.removeEventListener("visibilitychange", onVis);
+      };
+    }, []);
+    const crewWaiting = crew?.waiting || [];
+    const openCrew = () => {
+      try {
+        sessionStorage.setItem("cto_tab", "manager");
+      } catch {
+      }
+      onCrewTimeOff && onCrewTimeOff();
+    };
     const store = getManagerStore(stores, user) || {};
     const pc = store.pc;
     const ymd = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -32809,46 +32865,26 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         /* @__PURE__ */ React.createElement("div", { style: { width: "100%", height: heightPct + "%", minHeight: 4, background: lit ? O : mBarMut, borderRadius: "6px 6px 0 0", transition: "height 0.5s cubic-bezier(.22,1,.36,1), background 0.2s ease" } }),
         /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "8px", fontWeight: 600, letterSpacing: "0.01em", color: lit ? O : mMut, marginTop: "0.3rem", whiteSpace: "nowrap", overflow: "hidden" } }, hourLabel(h.hour))
       );
-    }))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" } }, /* @__PURE__ */ React.createElement(
+    }))), /* @__PURE__ */ React.createElement(
       "div",
       {
-        onClick: onTasks,
+        onClick: openCrew,
         role: "button",
         tabIndex: 0,
-        "aria-label": "Open Tasks",
+        "aria-label": "Open Crew Time Off",
         onKeyDown: (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            onTasks && onTasks(e);
+            openCrew();
           }
         },
         ...mPress,
-        style: { ...mSm, padding: "0.9rem", cursor: "pointer", transition: "transform 0.13s ease", display: "flex", flexDirection: "column" }
+        style: { ...mBig, padding: "1rem 1.05rem", cursor: "pointer", transition: "transform 0.13s ease" }
       },
-      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut } }, "Tasks"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: O } }, "View \u2192")),
-      taskSummary == null ? /* @__PURE__ */ React.createElement("div", { style: { fontFamily: mDisp, fontSize: "30px", fontWeight: 700, color: th.text, marginTop: "0.5rem", lineHeight: 1 } }, "--") : /* @__PURE__ */ React.createElement("div", { style: { fontFamily: mDisp, fontSize: "34px", fontWeight: 800, color: th.text, marginTop: "0.45rem", lineHeight: 1 } }, taskDone, /* @__PURE__ */ React.createElement("span", { style: { color: mMut, fontWeight: 700 } }, "/", taskTotal)),
-      taskSummary != null && taskTotal > 0 && /* @__PURE__ */ React.createElement("div", { style: { height: 6, borderRadius: 99, background: mTrack, overflow: "hidden", marginTop: "0.55rem" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: taskPct + "%", borderRadius: 99, background: O, transition: "width 0.6s ease" } })),
-      /* @__PURE__ */ React.createElement("div", { style: { ...mKpiSub, marginTop: "0.5rem" } }, taskSummary == null ? "tap to open" : taskTotal === 0 ? "none scheduled" : taskDone >= taskTotal ? "all done" : taskSummary.nextDue ? "next \xB7 " + taskSummary.nextDue : taskTotal - taskDone + " to do")
-    ), /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        onClick: onTickets,
-        role: "button",
-        tabIndex: 0,
-        "aria-label": "Open Tickets",
-        onKeyDown: (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onTickets && onTickets(e);
-          }
-        },
-        ...mPress,
-        style: { ...mSm, padding: "0.9rem", cursor: "pointer", transition: "transform 0.13s ease", display: "flex", flexDirection: "column" }
-      },
-      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut } }, "Tickets"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "9px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: O } }, "View \u2192")),
-      /* @__PURE__ */ React.createElement("div", { style: { fontFamily: mDisp, fontSize: "34px", fontWeight: 800, color: th.text, marginTop: "0.45rem", lineHeight: 1 } }, openTicketCount, /* @__PURE__ */ React.createElement("span", { style: { color: mMut, fontWeight: 700, fontSize: "18px" } }, " open")),
-      firstUrgent ? /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Source Sans 3'", fontSize: "11px", fontWeight: 700, color: dark ? "#f2a06b" : "#b8480f", marginTop: "0.5rem", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" } }, urgentTickets.length, " urgent \u2014 ", firstUrgent.title || "Untitled") : /* @__PURE__ */ React.createElement("div", { style: { ...mKpiSub, marginTop: "0.5rem" } }, openTicketCount === 0 ? "all clear" : inProgressCount > 0 ? inProgressCount + " in progress" : "none urgent")
-    )), /* @__PURE__ */ React.createElement(Guard, { name: "mgr-joy", fallback: null }, /* @__PURE__ */ React.createElement(JoyMobileTile, { cardStyle: mBig, mono: mMono, display: mDisp, muted: mMut, secondary: mSec })), /* @__PURE__ */ React.createElement("div", { style: { ...mBig, padding: "1rem 1.05rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: mgrCaps == null || mgrCaps.length === 0 ? 0 : "0.7rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut } }, "Open CAPs", mgrCaps != null ? ` (${mgrCaps.length})` : ""), mgrCaps != null && mgrCaps.some((c) => c.status === "overdue" || c.isOverdue) && /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#ef4444" } }, "\u26A0 Overdue")), mgrCapsErr ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", padding: "0.5rem 0" } }, "Couldn't load corrective actions. ", /* @__PURE__ */ React.createElement("button", { onClick: () => setMgrCaps(null), style: { background: "none", border: "none", color: O, cursor: "pointer", textDecoration: "underline", padding: 0 } }, "Retry")) : mgrCaps === null ? /* @__PURE__ */ React.createElement("div", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut, textAlign: "center", padding: "0.7rem 0" } }, "Loading\u2026") : mgrCaps.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: mSec, textAlign: "center", padding: "0.4rem 0" } }, "No open corrective actions. Nice work!") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, mgrCaps.map((cap) => {
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut } }, "Crew Time Off"), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: O } }, crewWaiting.length ? "Review \u2192" : "Open \u2192")),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "0.45rem", marginTop: "0.45rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mDisp, fontSize: "40px", fontWeight: 800, lineHeight: 1, color: crewWaiting.length ? O : th.text } }, crew == null ? "--" : crewWaiting.length), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut } }, crewWaiting.length === 1 ? "waiting for you" : "waiting for you")),
+      crewWaiting.length > 0 ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: "0.35rem", marginTop: "0.65rem" } }, crewWaiting.slice(0, 3).map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { display: "flex", justifyContent: "space-between", gap: "0.6rem", fontSize: "12.5px", color: th.text } }, /* @__PURE__ */ React.createElement("b", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name), /* @__PURE__ */ React.createElement("span", { style: { color: mSec, whiteSpace: "nowrap" } }, r.summary))), crewWaiting.length > 3 && /* @__PURE__ */ React.createElement("span", { style: { ...mKpiSub } }, "+", crewWaiting.length - 3, " more")) : /* @__PURE__ */ React.createElement("div", { style: { ...mKpiSub, marginTop: "0.55rem" } }, crew == null ? "loading" : "all clear \xB7 tap Show QR when a crew member asks")
+    ), /* @__PURE__ */ React.createElement(Guard, { name: "mgr-joy", fallback: null }, /* @__PURE__ */ React.createElement(JoyMobileTile, { cardStyle: mBig, mono: mMono, display: mDisp, muted: mMut, secondary: mSec })), /* @__PURE__ */ React.createElement("div", { style: { ...mBig, padding: "1rem 1.05rem" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: mgrCaps == null || mgrCaps.length === 0 ? 0 : "0.7rem" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: mMut } }, "Open CAPs", mgrCaps != null ? ` (${mgrCaps.length})` : ""), mgrCaps != null && mgrCaps.some((c) => c.status === "overdue" || c.isOverdue) && /* @__PURE__ */ React.createElement("span", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#ef4444" } }, "\u26A0 Overdue")), mgrCapsErr ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: "#ef4444", padding: "0.5rem 0" } }, "Couldn't load corrective actions. ", /* @__PURE__ */ React.createElement("button", { onClick: () => setMgrCaps(null), style: { background: "none", border: "none", color: O, cursor: "pointer", textDecoration: "underline", padding: 0 } }, "Retry")) : mgrCaps === null ? /* @__PURE__ */ React.createElement("div", { style: { fontFamily: mMono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut, textAlign: "center", padding: "0.7rem 0" } }, "Loading\u2026") : mgrCaps.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.78rem", color: mSec, textAlign: "center", padding: "0.4rem 0" } }, "No open corrective actions. Nice work!") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "0.5rem" } }, mgrCaps.map((cap) => {
       const overdue = cap.status === "overdue" || cap.isOverdue;
       const open = expandedCap === cap.id;
       return /* @__PURE__ */ React.createElement("div", { key: cap.id, style: { borderRadius: 10, padding: "0.6rem 0.7rem", background: dark ? th.card2 : "#faf6f0", border: overdue ? "1px solid #ef444488" : `1px solid ${mBorder}` } }, /* @__PURE__ */ React.createElement(
@@ -32881,13 +32917,23 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           onCancel: () => setExpandedCap(null)
         }
       )));
-    }))), lastRefresh && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: mMono, fontSize: "9px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut, opacity: 0.8, marginTop: "0.1rem" } }, "Updated ", lastRefresh.toLocaleTimeString())), (voiceState !== "idle" || voiceReply) && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", left: "50%", bottom: 82, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 13, background: dark ? "rgba(16,18,27,0.97)" : "rgba(255,255,255,0.98)", border: `1px solid ${voiceState === "error" ? "#ef444455" : O + "44"}`, borderRadius: 14, padding: "0.75rem 1rem", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", backdropFilter: "blur(16px)" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: voiceTranscript || voiceReply ? "0.4rem" : 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.62rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.8, color: voiceState === "error" ? "#ef4444" : O } }, voiceState === "listening" ? "\u{1F399} Listening\u2026" : voiceState === "thinking" ? "\u23F3 Orion is thinking\u2026" : voiceState === "speaking" ? "\u{1F50A} Orion" : voiceState === "error" ? "\u26A0 Error" : "\u{1F50A} Orion"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
-      window.speechSynthesis?.cancel();
-      recogRef.current?.stop();
-      setVoiceState("idle");
-      setVoiceTranscript("");
-      setVoiceReply("");
-    }, style: { background: "none", border: "none", color: th.muted, cursor: "pointer", fontSize: "0.95rem", lineHeight: 1, padding: "0 0 0 8px" } }, "\xD7")), voiceTranscript && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.72rem", color: th.muted, fontStyle: "italic", marginBottom: "0.35rem" } }, '"', voiceTranscript, '"'), voiceReply && /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.82rem", color: th.text, lineHeight: 1.55 } }, voiceReply)), /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", left: "50%", bottom: 10, transform: "translateX(-50%)", width: "calc(100% - 1.5rem)", maxWidth: 380, zIndex: 12, background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)", border: `1px solid ${dark ? th.cardBorder : "#e5e7eb"}`, borderRadius: 14, padding: "0.45rem 0.6rem", display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.45rem", boxShadow: dark ? "0 14px 36px rgba(0,0,0,0.28)" : "0 4px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" } }, /* @__PURE__ */ React.createElement("button", { onClick: onTasks, title: "Tasks", style: { background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: O, position: "relative" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "flex" } }, /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: O, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M9 11l3 3L22 4" }), /* @__PURE__ */ React.createElement("path", { d: "M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" })), /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -2, right: -3, width: 7, height: 7, borderRadius: "50%", background: "#ef4444", zIndex: 2, pointerEvents: "none" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", inset: 0, borderRadius: "50%", background: "#ef4444", animation: "navDotPing 1.4s ease-out infinite", pointerEvents: "none" } }))), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 } }, "Tasks")), /* @__PURE__ */ React.createElement("button", { onClick: startVoice, title: "Ask Orion", style: { background: voiceState === "listening" ? O : voiceState === "thinking" ? "#f59e0b" : voiceState === "speaking" ? "#22c55e" : voiceState === "error" ? "#ef4444" : O + "18", border: `2px solid ${voiceState === "idle" ? O + "55" : "transparent"}`, borderRadius: "50%", width: 48, height: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: voiceState === "thinking" ? "default" : "pointer", alignSelf: "center", flexShrink: 0, boxShadow: voiceState === "listening" ? `0 0 0 6px ${O}33, 0 0 0 12px ${O}18` : voiceState === "speaking" ? "0 0 0 6px #22c55e33" : "none", transition: "all 0.2s" } }, /* @__PURE__ */ React.createElement("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: voiceState === "idle" ? O : "#fff", strokeWidth: "2.2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("rect", { x: "9", y: "2", width: "6", height: "12", rx: "3" }), /* @__PURE__ */ React.createElement("path", { d: "M5 10a7 7 0 0 0 14 0" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "19", x2: "12", y2: "22" }), /* @__PURE__ */ React.createElement("line", { x1: "8", y1: "22", x2: "16", y2: "22" }))), /* @__PURE__ */ React.createElement("button", { onClick: onTickets, title: "Tickets", style: { background: "none", border: "none", borderRadius: 10, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "#ef4444" } }, /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "#ef4444", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.5 } }, "Tickets"))), showStoreInfo && /* @__PURE__ */ React.createElement("div", { className: "pcg-backdrop", style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }, onClick: () => setShowStoreInfo(false) }, /* @__PURE__ */ React.createElement("div", { className: "pcg-sheet", style: { background: th.card, borderRadius: "1.25rem 1.25rem 0 0", width: "100%", maxWidth: 480, padding: "1.4rem 1.25rem 2.5rem", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.28)" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: th.text, lineHeight: 1.1 } }, store.name || `Store #${pc}`), store.legal && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.78rem", marginTop: "0.2rem" } }, store.legal)), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowStoreInfo(false), style: { background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", color: th.muted, padding: "0.25rem 0.55rem", cursor: "pointer", fontSize: "1rem", lineHeight: 1, flexShrink: 0 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: th.cardBorder, marginBottom: "1.1rem" } }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "PC Number", value: store.pc, color: O, th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Paycor Client ID", value: store.paycor || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Asset Type", value: assetLabel, color: "#8b5cf6", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: store.district ? districtLabel(store.district) : "\u2014", th })), /* @__PURE__ */ React.createElement(InfoCell, { label: "Address", value: `${store.address || ""}${store.city ? ", " + store.city : ""}${store.state ? ", " + store.state : ""}${store.zip ? " " + store.zip : ""}`, th }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store Manager", value: store.mgr || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Store Email", value: store.email || "\u2014", th })))));
+    }))), lastRefresh && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontFamily: mMono, fontSize: "9px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: mMut, opacity: 0.8, marginTop: "0.1rem" } }, "Updated ", lastRefresh.toLocaleTimeString())), /* @__PURE__ */ React.createElement("div", { style: {
+      position: "fixed",
+      left: "50%",
+      bottom: 10,
+      transform: "translateX(-50%)",
+      width: "calc(100% - 1.5rem)",
+      maxWidth: 380,
+      zIndex: 12,
+      background: dark ? "rgba(16,18,27,0.96)" : "rgba(255,255,255,0.97)",
+      border: `1px solid ${th.cardBorder}`,
+      borderRadius: 18,
+      boxShadow: "0 8px 28px rgba(0,0,0,0.18)",
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      padding: "0.3rem",
+      gap: "0.3rem"
+    } }, /* @__PURE__ */ React.createElement("button", { onClick: openCrew, title: "Crew Time Off", style: { background: "none", border: "none", borderRadius: 12, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: th.text, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "flex" } }, /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: O, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "2.5" }), /* @__PURE__ */ React.createElement("path", { d: "M3.5 10h17M8 3v4M16 3v4" }), /* @__PURE__ */ React.createElement("path", { d: "m9 15 2 2 4-4" })), crewWaiting.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { position: "absolute", top: -6, right: -10, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 99, background: "#ef4444", color: "#fff", fontSize: "10px", fontWeight: 800, lineHeight: "16px", textAlign: "center" } }, crewWaiting.length)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 800, letterSpacing: 0.5 } }, "Time Off")), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowQr(true), disabled: !crew?.poster, title: "Show the store's time off QR", style: { background: "none", border: "none", borderRadius: 12, padding: "0.55rem 0.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: th.text, cursor: crew?.poster ? "pointer" : "default", opacity: crew?.poster ? 1 : 0.5 } }, /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: O, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" }), /* @__PURE__ */ React.createElement("path", { d: "M14 14h3v3M21 14v.01M14 21h7v-4" })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 800, letterSpacing: 0.5 } }, "Show QR"))), showQr && crew?.poster && /* @__PURE__ */ React.createElement("div", { className: "pcg-backdrop", onClick: () => setShowQr(false), style: { position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 } }, /* @__PURE__ */ React.createElement("div", { className: "pcg-pop", onClick: (e) => e.stopPropagation(), style: { background: "#fff", color: "#111", borderRadius: 20, padding: "1.3rem 1.2rem", width: "min(360px, 100%)", textAlign: "center", display: "grid", gap: "0.6rem", justifyItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.2rem" } }, "Time off request"), /* @__PURE__ */ React.createElement("div", { style: { color: "#555", fontSize: "0.85rem" } }, crew.poster.store, " crew: scan with your phone camera, pick your name and enter your badge ID."), /* @__PURE__ */ React.createElement("div", { style: { width: "min(280px, 78vw)", aspectRatio: "1 / 1" }, dangerouslySetInnerHTML: { __html: (qrSvg(crew.poster.url, 8) || "").replace("<svg ", '<svg style="width:100%;height:100%" ') } }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setShowQr(false), style: { background: O, color: "#fff", border: "none", borderRadius: 12, padding: "0.6rem 1.6rem", fontWeight: 800, cursor: "pointer" } }, "Done"))), showStoreInfo && /* @__PURE__ */ React.createElement("div", { className: "pcg-backdrop", style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }, onClick: () => setShowStoreInfo(false) }, /* @__PURE__ */ React.createElement("div", { className: "pcg-sheet", style: { background: th.card, borderRadius: "1.25rem 1.25rem 0 0", width: "100%", maxWidth: 480, padding: "1.4rem 1.25rem 2.5rem", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.28)" }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Raleway'", fontWeight: 900, fontSize: "1.35rem", color: th.text, lineHeight: 1.1 } }, store.name || `Store #${pc}`), store.legal && /* @__PURE__ */ React.createElement("div", { style: { color: th.muted, fontSize: "0.78rem", marginTop: "0.2rem" } }, store.legal)), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowStoreInfo(false), style: { background: "none", border: `1px solid ${th.cardBorder}`, borderRadius: "0.5rem", color: th.muted, padding: "0.25rem 0.55rem", cursor: "pointer", fontSize: "1rem", lineHeight: 1, flexShrink: 0 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: th.cardBorder, marginBottom: "1.1rem" } }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginBottom: "1rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "PC Number", value: store.pc, color: O, th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Paycor Client ID", value: store.paycor || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Asset Type", value: assetLabel, color: "#8b5cf6", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "District", value: store.district ? districtLabel(store.district) : "\u2014", th })), /* @__PURE__ */ React.createElement(InfoCell, { label: "Address", value: `${store.address || ""}${store.city ? ", " + store.city : ""}${store.state ? ", " + store.state : ""}${store.zip ? " " + store.zip : ""}`, th }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem 0.75rem", marginTop: "1rem" } }, /* @__PURE__ */ React.createElement(InfoCell, { label: "Store Manager", value: store.mgr || "\u2014", th }), /* @__PURE__ */ React.createElement(InfoCell, { label: "Store Email", value: store.email || "\u2014", th })))));
   }
   function InfoCell({ label, value, color, th }) {
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "0.57rem", fontWeight: 900, letterSpacing: 1.2, textTransform: "uppercase", color: th.muted, marginBottom: "0.2rem" } }, label), /* @__PURE__ */ React.createElement("div", { style: { color: color || th.text, fontWeight: color ? 700 : 500, fontSize: "0.86rem", wordBreak: "break-word" } }, value));
@@ -32908,7 +32954,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.31";
+  var APP_VERSION = "v23.32";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -49351,6 +49397,10 @@ ${(/* @__PURE__ */ new Date()).toLocaleString()}`, { x: 1, y: 4, w: 11, fontSize
           onTasks: () => {
             togglePortalMode(true);
             setTab("tasks");
+          },
+          onCrewTimeOff: () => {
+            togglePortalMode(true);
+            setTab("crew-time-off");
           },
           onPulse: () => {
             setPulseInitialTab("sales");

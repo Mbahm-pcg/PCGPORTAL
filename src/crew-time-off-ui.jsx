@@ -98,7 +98,9 @@ export function CrewTimeOff({ th, isMobile, onBack }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
-  const [tab, setTab] = useState('send');
+  // v23.32: opened from the phone home (or with requests waiting) → straight to "For approval"
+  const [tab, setTab] = useState(() => { try { const t = sessionStorage.getItem('cto_tab'); sessionStorage.removeItem('cto_tab'); return t || 'send'; } catch { return 'send'; } });
+  const firstLoad = useRef(true);
   const [open, setOpen] = useState(null);
   const [viewing, setViewing] = useState(null);
   // send
@@ -109,12 +111,14 @@ export function CrewTimeOff({ th, isMobile, onBack }) {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(null);
+  const [fromPaycor, setFromPaycor] = useState(null); // v23.32: null | 'loading' | { phone, email }
   // posters
   const [poster, setPoster] = useState(null);
   const [bd, setBd] = useState({ q: '', emp: null }); // unlock a badge ID
   const openRef = useRef(open); openRef.current = open;
 
-  const load = () => call().then(b => { setData(b); setErr(null); if (!pc && b.stores?.length === 1) setPc(b.stores[0].pc); }).catch(e => setErr(e.message));
+  const load = () => call().then(b => { setData(b); setErr(null); if (!pc && b.stores?.length === 1) setPc(b.stores[0].pc);
+    if (firstLoad.current) { firstLoad.current = false; if ((b.lists?.manager || []).length) setTab(t => (t === 'send' ? 'manager' : t)); } }).catch(e => setErr(e.message));
   useEffect(() => {
     load();
     const t = setInterval(() => { if (!openRef.current && document.visibilityState === 'visible') load(); }, 60000);
@@ -159,22 +163,24 @@ export function CrewTimeOff({ th, isMobile, onBack }) {
           <Qr text={sent.link} />
           <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', justifyContent: 'center' }}>
             <button type="button" className="fin-btn" style={S.ghost} onClick={() => { navigator.clipboard?.writeText(sent.link); setMsg('Link copied.'); }}>Copy the link</button>
-            <button type="button" className="fin-btn" style={S.primary} onClick={() => { setSent(null); setEmp(null); setQ(''); setPhone(''); setEmail(''); }}>Send another</button>
+            <button type="button" className="fin-btn" style={S.primary} onClick={() => { setSent(null); setEmp(null); setQ(''); setPhone(''); setEmail(''); setFromPaycor(null); }}>Send another</button>
           </div>
           <span style={{ color: th.muted, fontSize: '0.78rem' }}>The link is only for {sent.name} and works for 14 days.</span>
         </div>
       ) : (
         <div style={{ ...S.panel, padding: '1rem', display: 'grid', gap: '0.8rem' }}>
           {data.stores.length > 1 && <label style={S.fieldLabel}>Store<select className="fin-input" value={pc} onChange={e => { setPc(e.target.value); setEmp(null); }} style={S.input}><option value="">All my stores</option>{data.stores.map(s => <option key={s.pc} value={s.pc}>{s.name}</option>)}</select></label>}
-          <label style={S.fieldLabel}>Crew member<input className="fin-input" value={emp ? emp.name : q} onChange={e => { setEmp(null); setQ(e.target.value); }} placeholder="Type a name" style={S.input} /></label>
+          <label style={S.fieldLabel}>Crew member<input className="fin-input" value={emp ? emp.name : q} onChange={e => { if (emp) { setPhone(''); setEmail(''); setFromPaycor(null); } setEmp(null); setQ(e.target.value); }} placeholder="Type a name" style={S.input} /></label>
           {!emp && q.trim() && <div style={{ display: 'grid', gap: '0.3rem', maxHeight: 260, overflowY: 'auto' }}>{employees.map(e => (
-            <button key={e.pc + e.id} type="button" className="fin-btn" onClick={() => setEmp(e)} style={{ ...S.ghost, justifyContent: 'space-between', display: 'flex', textAlign: 'left' }}>
+            <button key={e.pc + e.id} type="button" className="fin-btn" onClick={() => { setEmp(e); setFromPaycor('loading'); call(`?contact=${encodeURIComponent(e.id)}&pc=${e.pc}`).then(b => { setFromPaycor(b); if (b.phone) setPhone(p => p || b.phone); if (b.email) setEmail(m => m || b.email); }).catch(() => setFromPaycor({})); }} style={{ ...S.ghost, justifyContent: 'space-between', display: 'flex', textAlign: 'left' }}>
               <span>{e.name} <span style={{ color: th.muted }}>{e.jobTitle}</span></span><span style={{ color: th.muted }}>{(data.stores.find(s => s.pc === e.pc) || {}).name}</span></button>))}
             {!employees.length && <span style={{ color: th.muted }}>No one by that name.</span>}</div>}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '0.8rem' }}>
             <label style={S.fieldLabel}>Their cell number<input className="fin-input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} style={S.input} /></label>
             <label style={S.fieldLabel}>Their email (optional)<input className="fin-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={S.input} /></label>
           </div>
+          {emp && fromPaycor === 'loading' && <span style={{ color: th.muted, fontSize: '0.8rem' }}>Getting their cell and email from Paycor…</span>}
+          {emp && fromPaycor && fromPaycor !== 'loading' && <span style={{ color: th.muted, fontSize: '0.8rem' }}>{fromPaycor.phone || fromPaycor.email ? `Filled in from Paycor${!fromPaycor.phone ? ' (no cell on file)' : !fromPaycor.email ? ' (no email on file)' : ''}. Check them before you send.` : "Paycor has no cell or email for them. Type them in."}</span>}
           <span style={{ color: th.muted, fontSize: '0.8rem' }}>The link goes by email. Texts can't carry links yet, so the text tells them to check their email, or you show them the QR code after you press Send.</span>
           <button type="button" className="fin-btn" disabled={!emp || (!phone.trim() && !email.trim()) || busy} onClick={send}
             style={{ ...S.primary, justifySelf: 'end', opacity: emp && (phone.trim() || email.trim()) && !busy ? 1 : 0.5 }}>{busy ? 'Sending…' : 'Send the form'}</button>
@@ -205,7 +211,7 @@ export function CrewTimeOff({ th, isMobile, onBack }) {
             <button type="button" className="fin-btn" style={S.primary} onClick={() => printPoster(poster.store, poster.url)}>Print the poster</button></div>}
         </div>
       )}
-      {tab === 'posters' && (
+      {tab === 'posters' && (data.role === 'executive' || data.role === 'it') && (
         <div style={{ ...S.panel, padding: '1rem', display: 'grid', gap: '0.6rem', marginTop: '1rem' }}>
           <b>Unlock a badge ID</b>
           <span style={{ color: th.muted, fontSize: '0.85rem' }}>After 5 wrong badge IDs on the poster, that name is locked for 30 minutes. Unlock it here so they can try again.</span>

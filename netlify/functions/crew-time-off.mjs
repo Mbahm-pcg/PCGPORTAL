@@ -52,6 +52,54 @@ export default async (request) => {
         if (!r?.pdf || !(inScope(r.pc) || canOffice)) return json(404, { error: 'Not found' });
         return new Response(r.pdf, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="crew-time-off.pdf"', 'Cache-Control': 'no-store' } });
       }
+      // v23.32: the manager's phone home — how many wait for their approval, and their store's QR.
+      if (url.searchParams.get('summary')) {
+        const waiting = (await db`SELECT id, pc, employee_name, form_values, submitted_at FROM crew_time_off WHERE status = 'manager' ORDER BY submitted_at`)
+          .filter(r => inScope(r.pc)).map(r => ({ id: r.id, name: r.employee_name, store: storeOf(r.pc)?.name || '', summary: r.form_values ? crewSummary(r.form_values) : '', submittedAt: r.submitted_at }));
+        const myPc = real === 'manager' ? String(me.store_pc || '') : '';
+        return json(200, { waiting, poster: myPc && storeOf(myPc) ? { url: posterUrl(myPc, baseFor(request)), store: storeOf(myPc).name } : null });
+      }
+      // v23.32 (user): the crew member's cell + email from Paycor, to pre-fill "Send a form". The employee
+      // record, then the person record it points to (where Paycor keeps personal contact details). Only
+      // values that look like an email or a phone number come back — nothing else from those records.
+      const contactId = url.searchParams.get('contact');
+      if (contactId) {
+        if (!inScope(url.searchParams.get('pc'))) return json(403, { error: 'forbidden' });
+        const roster = await loadRoster().catch(() => ({ stores: {} }));
+        if (!(roster.stores[String(url.searchParams.get('pc'))] || []).some(e => e.id === contactId)) return json(404, { error: 'Not on that store roster.' });
+        const { callPaycor } = await import('./paycor.mjs');
+        const capped = (path) => Promise.race([callPaycor(path), new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 7000))]).catch(() => null);
+        const phones = [], emails = [];
+        const scan = (o, key = '') => {
+          if (o == null) return;
+          if (typeof o !== 'object') {
+            const v = String(o).trim();
+            if (/e-?mail/i.test(key) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) emails.push({ v, key });
+            const d = v.replace(/\D/g, '');
+            if (/phone|mobile|cell|number/i.test(key) && /phone|mobile|cell/i.test(key + JSON.stringify(key)) && (d.length === 10 || (d.length === 11 && d[0] === '1'))) phones.push({ v: d.slice(-10), key });
+            return;
+          }
+          if (Array.isArray(o)) { o.forEach(x => scan(x, key)); return; }
+          // a phone stored as { type: 'Mobile', areaCode: '215', phoneNumber: '5550123' }
+          const ac = o.areaCode ?? o.areacode, pn = o.phoneNumber ?? o.number;
+          if (ac != null && pn != null) { const d = `${ac}${pn}`.replace(/\D/g, ''); if (d.length === 10) phones.push({ v: d, key: `${key}.${o.type || o.phoneType || ''}` }); }
+          for (const [k, v] of Object.entries(o)) if (!/ssn|social|tax|birth|bank|account|routing/i.test(k)) scan(v, key ? `${key}.${k}` : k);
+        };
+        const emp = await capped(`/employees/${encodeURIComponent(contactId)}?include=All`);
+        const rec = emp?.data?.records?.[0] || emp?.data || null;
+        if (rec) scan(rec);
+        const personId = rec?.person?.id;
+        // Paycor grants contact details per piece ("View Person Phone", Person Data) — try the person
+        // record and its own phones / emails addresses together; whichever answers is used.
+        if (personId) {
+          const pid = encodeURIComponent(personId);
+          const got = await Promise.all([`/persons/${pid}?include=All`, `/persons/${pid}/phones`, `/persons/${pid}/emails`].map(capped));
+          const tags = ['person', 'person.phones', 'person.emails'];
+          got.forEach((p, i) => { if (p?.status === 200 && p.data) scan(p.data?.records || p.data, tags[i]); else if (p) console.log('[crew-time-off] contact', tags[i], p.status); });
+        }
+        const pick = (list, prefer) => (list.find(x => prefer.test(x.key)) || list[0] || {}).v || '';
+        return json(200, { phone: pick(phones, /mobile|cell/i), email: pick(emails, /personal|home/i) || pick(emails, /./), found: { phones: phones.length, emails: emails.length } });
+      }
       const posterPc = url.searchParams.get('poster');
       if (posterPc) {
         if (!inScope(posterPc)) return json(403, { error: 'forbidden' });
@@ -85,9 +133,9 @@ export default async (request) => {
     if (request.method !== 'POST') return json(405, { error: 'Method not allowed' });
     const body = await request.json().catch(() => ({}));
 
-    // v23.30: clear a badge lockout (5 wrong tries → 30 minutes) — exec / IT, or the person's own store manager / DM.
+    // v23.30: clear a badge lockout (5 wrong tries → 30 minutes) — exec / IT only.
     if (body.action === 'unlockBadge') {
-      if (!(real === 'executive' || real === 'it' || inScope(body.pc))) return json(403, { error: 'forbidden' });
+      if (!(real === 'executive' || real === 'it')) return json(403, { error: 'Only exec or IT can unlock a badge ID.' }); // v23.32: not managers (user)
       await db`CREATE TABLE IF NOT EXISTS crew_badge_attempts (employee_id text PRIMARY KEY, fails integer NOT NULL DEFAULT 0, locked_until timestamptz, last_at timestamptz)`;
       const gone = await db`DELETE FROM crew_badge_attempts WHERE employee_id = ${String(body.employeeId || '')} RETURNING employee_id`;
       return json(200, { ok: true, unlocked: gone.length > 0 });
