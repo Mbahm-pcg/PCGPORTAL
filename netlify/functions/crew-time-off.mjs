@@ -91,10 +91,12 @@ export default async (request) => {
         const eid = encodeURIComponent(contactId);
         const names = (o, pre = '', out = []) => { if (o == null || out.length > 40) return out; if (typeof o !== 'object') { out.push(pre); return out; }
           if (Array.isArray(o)) { if (o.length) names(o[0], `${pre}[0]`, out); return out; } for (const [k, v] of Object.entries(o)) if (!/ssn|social|tax|birth|bank|account|routing/i.test(k)) names(v, pre ? `${pre}.${k}` : k, out); return out; };
-        let person = await capped(`/employees/${eid}/person?include=Phones,Email`);
-        if (person && person.status === 400) person = await capped(`/employees/${eid}/person?include=Phones&include=Email`);
-        console.log('[crew-time-off] contact person', person ? person.status : 'no answer', person?.data ? JSON.stringify(names(person.data)).slice(0, 700) : '');
-        if (person?.status === 200 && person.data) scan(person.data, 'person');
+        // Paycor ignored "include=Phones,Email" as one list (only name fields came back) — each on its own.
+        const [pPhones, pEmail] = await Promise.all([capped(`/employees/${eid}/person?include=Phones`), capped(`/employees/${eid}/person?include=Email`)]);
+        for (const [tag, p] of [['phones', pPhones], ['email', pEmail]]) {
+          console.log('[crew-time-off] contact person', tag, p ? p.status : 'no answer', p?.data ? JSON.stringify(names(p.data)).slice(0, 700) : '');
+          if (p?.status === 200 && p.data) scan(p.data, 'person');
+        }
         if (!emails.length) {
           for (const t of ['Home', 'Work']) {
             const e = await capped(`/employees/${eid}?emailType=${t}`);
@@ -148,7 +150,7 @@ export default async (request) => {
     if (body.action === 'invite') {
       if (!inScope(body.pc)) return json(403, { error: 'You can only send this to people at your own stores.' });
       const phone = String(body.phone || '').trim(), email = String(body.email || '').trim();
-      if (!phone && !email) return json(400, { error: 'Enter their cell number or email (or both).' });
+      if (!email) return json(400, { error: "Enter their email: the form's link goes by email." }); // v23.34: email required, cell optional (user)
       if (phone && !isPhone(phone)) return json(400, { error: 'Check the cell number (10 digits).' });
       if (email && !isEmail(email)) return json(400, { error: 'Check the email address.' });
       const roster = await loadRoster().catch(() => ({ stores: {} }));

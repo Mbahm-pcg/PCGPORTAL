@@ -3877,14 +3877,14 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         if (b.phone) setPhone((p) => p || b.phone);
         if (b.email) setEmail((m) => m || b.email);
       }).catch(() => setFromPaycor({}));
-    }, style: { ...S.ghost, justifyContent: "space-between", display: "flex", textAlign: "left" } }, /* @__PURE__ */ React.createElement("span", null, e.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, e.jobTitle)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (data.stores.find((s) => s.pc === e.pc) || {}).name))), !employees.length && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "No one by that name.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their cell number", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "tel", value: phone, onChange: (e) => setPhone(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their email (optional)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "email", value: email, onChange: (e) => setEmail(e.target.value), style: S.input }))), emp && fromPaycor === "loading" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "Getting their cell and email from Paycor\u2026"), emp && fromPaycor && fromPaycor !== "loading" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, fromPaycor.phone || fromPaycor.email ? `Filled in from Paycor${!fromPaycor.phone ? " (no cell on file)" : !fromPaycor.email ? " (no email on file)" : ""}. Check them before you send.` : "Paycor has no cell or email for them. Type them in."), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "The link goes by email. Texts can't carry links yet, so the text tells them to check their email, or you show them the QR code after you press Send."), /* @__PURE__ */ React.createElement(
+    }, style: { ...S.ghost, justifyContent: "space-between", display: "flex", textAlign: "left" } }, /* @__PURE__ */ React.createElement("span", null, e.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, e.jobTitle)), /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, (data.stores.find((s) => s.pc === e.pc) || {}).name))), !employees.length && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted } }, "No one by that name.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.8rem" } }, /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their email", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "email", value: email, onChange: (e) => setEmail(e.target.value), style: S.input })), /* @__PURE__ */ React.createElement("label", { style: S.fieldLabel }, "Their cell number (optional)", /* @__PURE__ */ React.createElement("input", { className: "fin-input", type: "tel", value: phone, onChange: (e) => setPhone(e.target.value), style: S.input }))), emp && fromPaycor === "loading" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, "Getting their cell and email from Paycor\u2026"), emp && fromPaycor && fromPaycor !== "loading" && /* @__PURE__ */ React.createElement("span", { style: { color: th.muted, fontSize: "0.8rem" } }, fromPaycor.phone || fromPaycor.email ? `Filled in from Paycor${!fromPaycor.phone ? " (no cell on file)" : !fromPaycor.email ? " (no email on file)" : ""}. Check them before you send.` : "Paycor has no cell or email for them. Type them in."), /* @__PURE__ */ React.createElement(
       "button",
       {
         type: "button",
         className: "fin-btn",
-        disabled: !emp || !phone.trim() && !email.trim() || busy,
+        disabled: !emp || !email.trim() || busy,
         onClick: send,
-        style: { ...S.primary, justifySelf: "end", opacity: emp && (phone.trim() || email.trim()) && !busy ? 1 : 0.5 }
+        style: { ...S.primary, justifySelf: "end", opacity: emp && email.trim() && !busy ? 1 : 0.5 }
       },
       busy ? "Sending\u2026" : "Send the form"
     ))), (tab === "manager" || tab === "office") && (open ? /* @__PURE__ */ React.createElement(Review3, { th, isMobile, item: open, step: tab, canAct: tab === "manager" || data.canOffice, onClose: (m) => {
@@ -32954,7 +32954,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.33";
+  var APP_VERSION = "v23.34";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {

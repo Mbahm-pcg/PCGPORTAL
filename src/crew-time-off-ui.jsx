@@ -176,14 +176,13 @@ export function CrewTimeOff({ th, isMobile, onBack }) {
               <span>{e.name} <span style={{ color: th.muted }}>{e.jobTitle}</span></span><span style={{ color: th.muted }}>{(data.stores.find(s => s.pc === e.pc) || {}).name}</span></button>))}
             {!employees.length && <span style={{ color: th.muted }}>No one by that name.</span>}</div>}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '0.8rem' }}>
-            <label style={S.fieldLabel}>Their cell number<input className="fin-input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} style={S.input} /></label>
-            <label style={S.fieldLabel}>Their email (optional)<input className="fin-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={S.input} /></label>
+            <label style={S.fieldLabel}>Their email<input className="fin-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={S.input} /></label>
+            <label style={S.fieldLabel}>Their cell number (optional)<input className="fin-input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} style={S.input} /></label>
           </div>
           {emp && fromPaycor === 'loading' && <span style={{ color: th.muted, fontSize: '0.8rem' }}>Getting their cell and email from Paycor…</span>}
           {emp && fromPaycor && fromPaycor !== 'loading' && <span style={{ color: th.muted, fontSize: '0.8rem' }}>{fromPaycor.phone || fromPaycor.email ? `Filled in from Paycor${!fromPaycor.phone ? ' (no cell on file)' : !fromPaycor.email ? ' (no email on file)' : ''}. Check them before you send.` : "Paycor has no cell or email for them. Type them in."}</span>}
-          <span style={{ color: th.muted, fontSize: '0.8rem' }}>The link goes by email. Texts can't carry links yet, so the text tells them to check their email, or you show them the QR code after you press Send.</span>
-          <button type="button" className="fin-btn" disabled={!emp || (!phone.trim() && !email.trim()) || busy} onClick={send}
-            style={{ ...S.primary, justifySelf: 'end', opacity: emp && (phone.trim() || email.trim()) && !busy ? 1 : 0.5 }}>{busy ? 'Sending…' : 'Send the form'}</button>
+          <button type="button" className="fin-btn" disabled={!emp || !email.trim() || busy} onClick={send}
+            style={{ ...S.primary, justifySelf: 'end', opacity: emp && email.trim() && !busy ? 1 : 0.5 }}>{busy ? 'Sending…' : 'Send the form'}</button>
         </div>
       ))}
 
