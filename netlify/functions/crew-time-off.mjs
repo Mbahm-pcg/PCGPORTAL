@@ -85,24 +85,23 @@ export default async (request) => {
           if (ac != null && pn != null) { const d = `${ac}${pn}`.replace(/\D/g, ''); if (d.length === 10) phones.push({ v: d, key: `${key}.${o.type || o.phoneType || ''}` }); }
           for (const [k, v] of Object.entries(o)) if (!/ssn|social|tax|birth|bank|account|routing/i.test(k)) scan(v, key ? `${key}.${k}` : k);
         };
-        const emp = await capped(`/employees/${encodeURIComponent(contactId)}?include=All`);
-        const rec = emp?.data?.records?.[0] || emp?.data || null;
-        if (rec) scan(rec);
-        const personId = rec?.person?.id;
-        // Paycor grants contact details per piece ("View Person Phone", Person Data) — try the person
-        // record and its own phones / emails addresses together; whichever answers is used.
-        if (personId) {
-          const pid = encodeURIComponent(personId);
-          const got = await Promise.all([`/persons/${pid}?include=All`, `/persons/${pid}/phones`, `/persons/${pid}/emails`].map(capped));
-          const tags = ['person', 'person.phones', 'person.emails'];
-          // field NAMES only (never values) — to see where Paycor puts phone / email
-          const names = (o, pre = '', out = []) => { if (o == null || out.length > 60) return out; if (typeof o !== 'object') { out.push(pre); return out; }
-            if (Array.isArray(o)) { if (o.length) names(o[0], `${pre}[0]`, out); return out; } for (const [k, v] of Object.entries(o)) if (!/ssn|social|tax|birth|bank|account|routing/i.test(k)) names(v, pre ? `${pre}.${k}` : k, out); return out; };
-          got.forEach((p, i) => {
-            console.log('[crew-time-off] contact', tags[i], p ? p.status : 'no answer', p?.data ? JSON.stringify(names(p.data)).slice(0, 900) : '');
-            if (p?.status === 200 && p.data) scan(p.data?.records || p.data, tags[i]);
-          });
-        } else console.log('[crew-time-off] contact: no person id on the employee record', rec ? JSON.stringify(Object.keys(rec)).slice(0, 400) : 'no record', emp?.status);
+        // v23.33: Paycor's "Get Person by EmployeeID" — GET /v1/employees/{id}/person — asked for ONLY
+        // Phones and Email (include=All would also return the SSN: never ask for it). Anything SSN / tax /
+        // birth / bank is dropped by scan() anyway. The work-email fallback: the employee record, Home first.
+        const eid = encodeURIComponent(contactId);
+        const names = (o, pre = '', out = []) => { if (o == null || out.length > 40) return out; if (typeof o !== 'object') { out.push(pre); return out; }
+          if (Array.isArray(o)) { if (o.length) names(o[0], `${pre}[0]`, out); return out; } for (const [k, v] of Object.entries(o)) if (!/ssn|social|tax|birth|bank|account|routing/i.test(k)) names(v, pre ? `${pre}.${k}` : k, out); return out; };
+        let person = await capped(`/employees/${eid}/person?include=Phones,Email`);
+        if (person && person.status === 400) person = await capped(`/employees/${eid}/person?include=Phones&include=Email`);
+        console.log('[crew-time-off] contact person', person ? person.status : 'no answer', person?.data ? JSON.stringify(names(person.data)).slice(0, 700) : '');
+        if (person?.status === 200 && person.data) scan(person.data, 'person');
+        if (!emails.length) {
+          for (const t of ['Home', 'Work']) {
+            const e = await capped(`/employees/${eid}?emailType=${t}`);
+            const rec = e?.data?.records?.[0] || e?.data;
+            if (e?.status === 200 && rec?.email) { scan({ email: rec.email }, `employee.${t.toLowerCase()}`); if (emails.length) break; }
+          }
+        }
         const pick = (list, prefer) => (list.find(x => prefer.test(x.key)) || list[0] || {}).v || '';
         return json(200, { phone: pick(phones, /mobile|cell/i), email: pick(emails, /personal|home/i) || pick(emails, /./), found: { phones: phones.length, emails: emails.length } });
       }
