@@ -1,6 +1,7 @@
 // src/screens/TipsReportBuilder.jsx — moved out of app.jsx unchanged (v23.36, scripts/extract-screen.mjs).
 import { FIN_CSS, FinBanner, FinBar, FinFigure, FinFigures, FinRefreshIcon, FinSkeleton, FinStatusIcon, FinTicker, finInt, finMoney, finMoney0, finStyles } from '../finance-ui.jsx';
 import { FONTS, O } from '../theme.js';
+import { authHeader } from '../portal-auth.mjs';
 import { withAlpha } from '../chart-style.js';
 import { TIPS_DOW, TIPS_DOW_FULL, TIPS_MONTHS, TIPS_SNAPSHOT_RETENTION_DAYS, canPaycorPush, cloudLoad, cloudSave, paycorDeptCodeForJobTitle, tipsAddDays, tipsAggregatePeriodByStore, tipsAoaToSheet, tipsBuildDaySheetAOA, tipsBuildPeriodTotalsAOA, tipsComputeDayInfo, tipsFindFlaggedStorePcs, tipsFormatISODate, tipsParseISODate, tipsRound2, tipsSheetNameFor, tipsStableProcessId } from '../../app.jsx';
 
@@ -225,7 +226,7 @@ export function TipsReportBuilder({ th, stores, user }) {
       let employees = [], continuationToken;
       do {
         const res = await fetch('/.netlify/functions/paycor', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
           body: JSON.stringify({ action: 'employees', legalEntityId: storeMeta.paycor, ...(continuationToken ? { continuationToken } : {}) }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -255,7 +256,7 @@ export function TipsReportBuilder({ th, stores, user }) {
     let payGroupId = null;
     try {
       const res = await fetch('/.netlify/functions/paycor', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ action: 'payGroups', legalEntityId: storeMeta.paycor }),
       });
       const json = await res.json().catch(() => null);
@@ -299,7 +300,7 @@ export function TipsReportBuilder({ th, stores, user }) {
       // than piling a second one on top of it.
       const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
       const res = await fetch('/.netlify/functions/paycor', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ action: 'stagePayrollHours', legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true }),
       });
       const data = await res.json().catch(() => ({}));
@@ -402,7 +403,7 @@ export function TipsReportBuilder({ th, stores, user }) {
             let records = [], continuationToken;
             do {
               const res = await fetch('/.netlify/functions/paycor', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
                 body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor, ...(continuationToken ? { continuationToken } : {}) }),
               });
               // A non-OK response (e.g. the documented Paycor token-mutex race) must

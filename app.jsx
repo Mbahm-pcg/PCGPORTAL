@@ -31713,7 +31713,7 @@ const canManageUser = (actor, target) => {
 // ─── App version (single source of truth) ────────────────────────────────────
 // Bump this on every code change. Rendered in the sidebar footer AND the
 // Admin · System "Portal version / live build" field so they always match.
-const APP_VERSION = "v23.36";
+const APP_VERSION = "v23.37";
 
 // ─── Data Persistence ────────────────────────────────────────────────────────
 const STORAGE_KEY = "pcg_portal_data_v9";
@@ -38305,8 +38305,8 @@ function ScheduleBuilder({ store, th, mode }) {
       const fetchRangeStart = rawFetchRangeStart < todayStr ? rawFetchRangeStart : todayStr;
 
       const [empRes, shiftRes] = await Promise.all([
-        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor }) }),
-        fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: fetchRangeStart, endDate: fetchRangeEnd }) }),
+        fetch('/.netlify/functions/paycor', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'employees', legalEntityId: store.paycor }) }),
+        fetch('/.netlify/functions/paycor', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'schedulingShifts', legalEntityId: store.paycor, startDate: fetchRangeStart, endDate: fetchRangeEnd }) }),
       ]);
       const empData = await empRes.json();
       const shiftData = await shiftRes.json();
@@ -38347,7 +38347,7 @@ function ScheduleBuilder({ store, th, mode }) {
       // quickly and reliably here.
       for (const e of employeesWithShifts) {
         try {
-          const r = await fetch('/.netlify/functions/paycor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'payRates', employeeId: e.id }) });
+          const r = await fetch('/.netlify/functions/paycor', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() }, body: JSON.stringify({ action: 'payRates', employeeId: e.id }) });
           const rd = await r.json();
           const rec = (rd.records || rd)?.[0];
           const rate = rec?.payRate || rec?.rate;
@@ -38793,13 +38793,13 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
       const [punchRes, empRes, histData, salesRes, schedRes, laborRefreshRes] = await Promise.allSettled([
         // 1. Completed punches (week range)
         fetch('/.netlify/functions/paycor', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
           body: JSON.stringify({ action: 'punches', legalEntityId, startDate: weekStartStr, endDate: todayStr }),
         }).then(r => r.ok ? r.json() : null),
 
         // 2. Employee list + pay rates
         fetch('/.netlify/functions/paycor', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
           body: JSON.stringify({ action: 'laborSummary', legalEntityId }),
         }).then(r => r.ok ? r.json() : null),
 
@@ -38817,7 +38817,7 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
 
         // 5. Today's scheduling shifts
         fetch('/.netlify/functions/paycor', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
           body: JSON.stringify({ action: 'schedulingShifts', legalEntityId, startDate: todayStr, endDate: tmrwStr }),
         }).then(r => r.ok ? r.json() : null),
 
@@ -38896,7 +38896,7 @@ function LaborDrillDown({ store, stores, th, user, users, laborData, onBack }) {
           const results = await Promise.allSettled(
             batch.map(eid =>
               fetch('/.netlify/functions/paycor', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...authHeader() },
                 body: JSON.stringify({ action: 'employeePunches', employeeId: eid, startDate: todayStr, endDate: todayStr }),
               }).then(r => r.ok ? r.json() : null)
             )

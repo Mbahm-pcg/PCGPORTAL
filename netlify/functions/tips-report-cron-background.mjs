@@ -40,6 +40,7 @@
 // of these reports may undercount crew until that's resolved — same
 // underlying data gap, not a bug in this file.
 
+import { INTERNAL_HEADER, internalKey } from './_shared/internal-key.mjs';
 import https from 'node:https';
 import * as XLSX from 'xlsx'; // SheetJS 0.20+ (CDN tarball) has no default export
 import { getStore } from '@netlify/blobs';
@@ -161,7 +162,8 @@ function callPaycorProxyOnce(action, payload) {
     const body = JSON.stringify({ action, ...payload });
     const req = https.request({
       hostname: 'pcg-ops.netlify.app', port: 443, path: '/.netlify/functions/paycor', method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      // v23.37: proves to paycor.mjs that this is our own server, not a stranger (it now refuses those)
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), [INTERNAL_HEADER]: internalKey() },
     }, (res) => {
       let raw = '';
       res.on('data', d => raw += d);

@@ -5,7 +5,8 @@
 import https from 'node:https';
 import { getStore } from '@netlify/blobs';
 import { neon } from '@neondatabase/serverless';
-import { requireActiveUser } from './auth-lib/require-user.js';
+import { requireActiveUser, claimDistricts } from './auth-lib/require-user.js';
+import { isInternalCall } from './_shared/internal-key.mjs';
 import { STORES } from './labor-cron.mjs';
 import { recordHealth } from './health-lib/record-health.mjs';
 
@@ -357,6 +358,37 @@ export async function callPaycor(path, method = 'GET', body = null, version = 'v
 
 // ── Main Handler ─────────────────────────────────────────────────────────────
 
+// Who may use which action (v23.37).
+const STAFF = new Set(['executive', 'it', 'office_staff', 'director', 'dm', 'manager']);
+const ADMIN_ONLY = new Set(['storeTokens', 'activationUrl', 'raw', 'punchErrorLog', 'identifyingData', 'registerWebhook', 'listWebhooks', 'createPunches']);
+const PAY_OFFICE = new Set(['stagePayrollHours', 'payStubs', 'earnings', 'payrollHours']); // exec / IT / office (Tips report push)
+async function paycorGate(request, action, payload, headers) {
+  if (isInternalCall(request)) return null;
+  const no = (status, error) => new Response(JSON.stringify({ error }), { status, headers });
+  const user = await requireActiveUser({ headers: Object.fromEntries(request.headers.entries()) }, db()).catch(() => null);
+  if (!user) return no(401, 'Sign in to the portal first.');
+  const role = user.realUserType || user.userType;
+  if (!STAFF.has(role)) return no(403, 'forbidden');
+  const admin = role === 'executive' || role === 'it';
+  if (ADMIN_ONLY.has(action) && !admin) return no(403, 'Exec / IT only.');
+  if (PAY_OFFICE.has(action) && !(admin || role === 'office_staff')) return no(403, 'Exec, IT or office only.');
+  // Managers / DMs / Directors: a store-wide request only for their own store(s) (Paycor legal entity).
+  const le = payload?.legalEntityId != null ? String(payload.legalEntityId) : '';
+  if (le && (role === 'manager' || role === 'dm' || role === 'director')) {
+    let pcs = [];
+    if (role === 'manager') {
+      const r = (await db()`SELECT store_pc FROM users WHERE id = ${user.sub}`.catch(() => []))[0];
+      pcs = r?.store_pc ? [String(r.store_pc)] : [];
+    } else {
+      const ds = claimDistricts(user);
+      pcs = STORES.filter(s => ds.includes(String(s.district))).map(s => String(s.pc));
+    }
+    const entities = new Set(STORES.filter(s => pcs.includes(String(s.pc))).map(s => String(s.paycor)));
+    if (!entities.has(le)) return no(403, 'Only your own store(s).');
+  }
+  return null;
+}
+
 export default async (request, context) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -384,6 +416,13 @@ export default async (request, context) => {
   }
 
   const { action } = payload;
+
+  // v23.37 SECURITY: every action needs either one of our own server functions (x-pcg-internal) or a
+  // signed-in staff member. Before, most actions answered ANYONE who found this address — pay rates,
+  // pay stubs, employee lists, punches, everyone's birth dates (identifyingData only checked a login
+  // when one was sent), payroll writes and a raw Paycor pass-through.
+  const denied = await paycorGate(request, action, payload, headers);
+  if (denied) return denied;
 
   try {
     // ── Store initial tokens from the OAuth activation flow ──

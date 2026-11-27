@@ -10147,7 +10147,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         do {
           const res = await fetch("/.netlify/functions/paycor", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
             body: JSON.stringify({ action: "employees", legalEntityId: storeMeta.paycor, ...continuationToken ? { continuationToken } : {} })
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -10171,7 +10172,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
       try {
         const res = await fetch("/.netlify/functions/paycor", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
           body: JSON.stringify({ action: "payGroups", legalEntityId: storeMeta.paycor })
         });
         const json = await res.json().catch(() => null);
@@ -10198,7 +10200,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
         const processId = await tipsStableProcessId(`${storeMeta.paycor}_${tipsFormatISODate(start)}`);
         const res = await fetch("/.netlify/functions/paycor", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeader() },
           body: JSON.stringify({ action: "stagePayrollHours", legalEntityId: storeMeta.paycor, processId, importEmployees, replaceData: true })
         });
         const data = await res.json().catch(() => ({}));
@@ -10280,7 +10283,8 @@ select.tn-blank { cursor: pointer; text-align-last: center; }
               do {
                 const res = await fetch("/.netlify/functions/paycor", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json", ...authHeader() },
                   body: JSON.stringify({ action: "employees", legalEntityId: store.paycor, ...continuationToken ? { continuationToken } : {} })
                 });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -35300,7 +35304,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
     }
     return false;
   };
-  var APP_VERSION = "v23.36";
+  var APP_VERSION = "v23.37";
   var STORAGE_KEY = "pcg_portal_data_v9";
   var DATA_VERSION = 9;
   function loadFromStorage() {
@@ -38704,8 +38708,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const groupingAnchor = mode === "view" ? weekStart : lastWeekStart;
         const fetchRangeStart = rawFetchRangeStart < todayStr ? rawFetchRangeStart : todayStr;
         const [empRes, shiftRes] = await Promise.all([
-          fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "employees", legalEntityId: store.paycor }) }),
-          fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "schedulingShifts", legalEntityId: store.paycor, startDate: fetchRangeStart, endDate: fetchRangeEnd }) })
+          fetch("/.netlify/functions/paycor", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ action: "employees", legalEntityId: store.paycor }) }),
+          fetch("/.netlify/functions/paycor", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ action: "schedulingShifts", legalEntityId: store.paycor, startDate: fetchRangeStart, endDate: fetchRangeEnd }) })
         ]);
         const empData = await empRes.json();
         const shiftData = await shiftRes.json();
@@ -38722,7 +38726,7 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
         const employeesWithShifts = employees.filter((e) => (shiftsByEmployee[e.id] || []).some((s) => s.dayOffset >= 0 && s.dayOffset <= 6));
         for (const e of employeesWithShifts) {
           try {
-            const r = await fetch("/.netlify/functions/paycor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "payRates", employeeId: e.id }) });
+            const r = await fetch("/.netlify/functions/paycor", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify({ action: "payRates", employeeId: e.id }) });
             const rd = await r.json();
             const rec = (rd.records || rd)?.[0];
             const rate = rec?.payRate || rec?.rate;
@@ -38983,13 +38987,15 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           // 1. Completed punches (week range)
           fetch("/.netlify/functions/paycor", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
             body: JSON.stringify({ action: "punches", legalEntityId, startDate: weekStartStr, endDate: todayStr })
           }).then((r) => r.ok ? r.json() : null),
           // 2. Employee list + pay rates
           fetch("/.netlify/functions/paycor", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
             body: JSON.stringify({ action: "laborSummary", legalEntityId })
           }).then((r) => r.ok ? r.json() : null),
           // 3. Store history from Blobs
@@ -39009,7 +39015,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
           // 5. Today's scheduling shifts
           fetch("/.netlify/functions/paycor", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...authHeader() },
             body: JSON.stringify({ action: "schedulingShifts", legalEntityId, startDate: todayStr, endDate: tmrwStr })
           }).then((r) => r.ok ? r.json() : null),
           // 6. Scoped live labor-refresh run — real per-employee pay rates + true
@@ -39073,7 +39080,8 @@ Submitting locks the audit \u2014 it can't be edited afterward.`)) return;
               batch.map(
                 (eid) => fetch("/.netlify/functions/paycor", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json", ...authHeader() },
                   body: JSON.stringify({ action: "employeePunches", employeeId: eid, startDate: todayStr, endDate: todayStr })
                 }).then((r) => r.ok ? r.json() : null)
               )
